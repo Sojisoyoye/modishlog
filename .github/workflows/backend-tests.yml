@@ -1,0 +1,31 @@
+name: backend-tests
+on:
+  pull_request:
+    paths: ['backend/**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: modishlog_test
+          POSTGRES_USER: modishlog
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-retries 5
+        ports: ['5432:5432']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11', cache: pip }
+      - run: pip install -r backend/requirements.txt
+      - run: ruff check backend/src/
+      - run: pytest backend/tests/ -v --cov=src --cov-fail-under=70
+        env:
+          DATABASE_URL: postgresql+asyncpg://modishlog:test@localhost/modishlog_test
+          SECRET_KEY: test-secret-key
+          ENVIRONMENT: test

@@ -1,0 +1,619 @@
+
+FXWise
+AI-Powered Import & Trade Intelligence Platform
+
+
+Product Requirements Document (PRD)
+Version 1.0
+February 2026
+
+CONFIDENTIAL
+
+1. Introduction
+
+
+1.1 Purpose of this document
+This Product Requirements Document (PRD) defines the functional, technical, and design requirements for FXWise — an AI-powered import and trade intelligence platform. It serves as the authoritative reference for product, engineering, and design teams throughout the development lifecycle, from initial build through to future SaaS expansion.
+
+1.2 Background and problem statement
+Importers operating in markets with volatile foreign exchange environments — such as Nigeria — face compounding financial risks. Foreign currency obligations are incurred at order time, but goods may not arrive for four to six months. During this window, exchange rate movements can erode or eliminate profit margins. Additionally, importers must service loan obligations, manage inventory across multiple product lines, and make timely reorder decisions without real-time financial intelligence.
+
+Existing tools do not adequately address this multi-dimensional problem. Spreadsheets are error-prone and static. Generic accounting software lacks FX forecasting and demand modelling. No single platform currently combines FX exposure tracking, AI-driven demand simulation, inventory management, cashflow projection, and pricing optimisation for SMB importers.
+
+1.3 Scope
+This document covers Stage A of the FXWise roadmap: a personal-use financial intelligence tool for a single importer. Future stages (SaaS platform and infrastructure API) are referenced in the strategic roadmap section but are not in scope for this PRD.
+
+1.4 Definitions and abbreviations
+
+Term / Abbreviation	Definition
+FX	Foreign Exchange — the conversion rate between currencies (e.g., NGN/USD)
+DSCR	Debt Service Coverage Ratio — net operating income divided by total debt service obligations
+Cash Runway	Number of months the business can continue operating at current burn rate before liquidity is exhausted
+Parallel Market Rate	The unofficial, market-driven FX rate, often diverging from the official central bank rate
+Lead Time	Total elapsed time from order placement to product delivery (production + shipping + clearing)
+Monte Carlo Simulation	A statistical technique using random sampling to model uncertainty and forecast outcomes under multiple scenarios
+LSTM	Long Short-Term Memory — a type of recurrent neural network used for time-series forecasting
+Prophet	An open-source forecasting tool developed by Meta, optimised for business time-series data
+Portfolio Margin	The blended profit margin across all active product lines
+DSCR Alert	System notification triggered when projected DSCR falls below a defined safety threshold
+PRD	Product Requirements Document
+SMB	Small and Medium-Sized Business
+
+
+2. Product overview
+
+
+2.1 Product vision
+FXWise is a smart financial co-pilot for importers navigating currency volatility. By unifying FX forecasting, demand modelling, inventory management, cashflow monitoring, and AI-driven recommendations into a single platform, FXWise enables importers to make faster, more confident decisions that protect margins and preserve liquidity.
+
+2.2 Product positioning
+FXWise sits at the intersection of financial intelligence and operational trade management. Unlike generic ERP systems or basic accounting tools, FXWise is purpose-built for the unique financial mechanics of importing — specifically the multi-month FX exposure window, the deposit-balance payment structure, and the interplay between demand, pricing, and currency fluctuations.
+
+2.3 Key value propositions
+    • FX risk visibility: Clear tracking of locked (30% deposit) and floating (70% balance) FX exposure per order
+    • Predictive intelligence: AI-generated forecasts for FX rates, demand, and inventory depletion
+    • Liquidity protection: Real-time cashflow projections and DSCR monitoring with proactive alerts
+    • Margin optimisation: Portfolio-level pricing recommendations that maintain a minimum 35% gross margin
+    • Decision automation: Actionable order timing, quantity sizing, and hedging recommendations
+
+2.4 Strategic roadmap
+
+Stage	Timeframe	Focus
+Stage A — Personal Tool	0–12 months	Core dashboards, FX exposure tracking, daily sales & inventory, cashflow & DSCR monitoring, basic pricing and reorder suggestions
+Stage B — SaaS Platform	1–3 years	Multi-tenant architecture, aggregated risk intelligence, benchmarking across importer cohorts, AI-assisted advisory
+Stage C — Infrastructure	3–5 years	Trade FX risk scoring API, importer credit and trade stability scores, embedded financing and FX risk products
+
+
+3. Goals and objectives
+
+
+3.1 Business goals
+    • Provide a single platform that eliminates the need for manual spreadsheet tracking of FX exposure, inventory, and cashflow
+    • Enable the importer to maintain a portfolio gross margin of at least 35% even under adverse FX conditions
+    • Reduce the risk of liquidity shortfalls by providing 6-month rolling cashflow projections
+    • Lay the technical and product foundation for a future multi-tenant SaaS business
+
+3.2 Product objectives
+    • Deliver a fully functional Stage A personal tool within 12 months
+    • Accurately forecast FX rates over a 180-day horizon with documented error tracking for continuous model improvement
+    • Automate daily inventory updates from sales entries to eliminate manual reconciliation errors
+    • Generate actionable reorder recommendations that account for FX forecasts, inventory velocity, and liquidity constraints
+    • Provide scenario simulation (FX shock, demand drop, combined stress) to support proactive decision-making
+
+3.3 Success metrics
+
+Metric	Target	Measurement method
+FX forecast accuracy (MAE)	< 5% mean absolute error over 30-day horizon	Tracked automatically vs. actual rates; reviewed monthly
+Portfolio gross margin	>= 35% maintained consistently	Calculated daily from sales data and updated cost inputs
+Cashflow projection accuracy	Within 10% of actual monthly cashflow	Compared against actual bank statements monthly
+Daily sales entry completion rate	>= 95% of trading days with entries logged	System-tracked; alerts generated for missing days
+Inventory alert lead time	>= 14 days before predicted stock-out	Measured from alert date to actual depletion date
+User time-to-insight	< 2 minutes to access key dashboards from login	User testing and session recordings
+
+
+4. Target audience
+
+
+4.1 Primary user (Stage A)
+The primary user for Stage A is a sole importer or small importing business owner operating in Nigeria or a similar emerging market with a volatile FX environment. This user:
+    • Sources goods from international suppliers (e.g., China, UAE, Europe) with 4–6 month lead times
+    • Pays a 30% deposit in USD at order placement and the 70% balance in USD at arrival
+    • Services a business or personal loan partly offset by a regular salary
+    • Manages multiple product lines simultaneously with varying demand profiles
+    • Has moderate technical literacy — comfortable using web and mobile applications but not necessarily a financial or data science expert
+    • Currently relies on spreadsheets or manual calculations to track FX exposure, sales, and cashflow
+
+4.2 Secondary users (Stage B onward)
+    • Multiple importers on a shared SaaS platform seeking benchmarking and aggregated intelligence
+    • Trade finance institutions or lenders using the Stage C API for risk scoring and credit assessment
+
+4.3 User pain points
+
+Pain point	Impact	FXWise solution
+No visibility into FX exposure per order	Orders become unprofitable when rates move adversely	FX Exposure Engine with locked/floating breakdown
+Manual inventory reconciliation	Stock discrepancies, missed reorder opportunities	Automated inventory updates from daily sales entries
+No forward cashflow view	Surprise liquidity shortfalls, missed loan repayments	6-month rolling cashflow projection with DSCR monitoring
+Pricing decisions made without demand modelling	Under-pricing that destroys margins or over-pricing that kills demand	Demand elasticity model with portfolio margin optimizer
+No data-driven reorder timing	Ordering at peak FX rates, overstocking, or stock-outs	AI-driven reorder suggestions based on FX forecast and sales velocity
+
+
+5. Features and requirements
+
+
+5.1 Data inputs
+FXWise ingests data from the following sources to power its AI modules and dashboards:
+
+5.1.1 Order data
+    • Supplier name and contact details
+    • Product name, SKU, quantity, and unit cost (USD)
+    • Order date and expected lead time broken down into production, shipping, and clearing phases (total: 4–6 months)
+    • Payment structure: 30% deposit recorded at order date; 70% balance recorded at arrival
+    • Order status: pending, in production, shipping, cleared, delivered
+
+5.1.2 FX market data
+    • Parallel market rate (NGN/USD) — sourced via API or manual entry
+    • Official central bank rate — for reference and compliance reporting
+    • 180-day historical FX data for model training
+    • Forward FX forecasts generated by the platform (base, best-case, worst-case)
+
+5.1.3 Sales and demand data
+    • Product-level daily sales volumes (units sold)
+    • Historical sales data stored for trend analysis and seasonal pattern detection
+    • Price elasticity parameters per product (configurable)
+    • FX sensitivity coefficients per product (how much demand changes per unit FX movement)
+
+5.1.4 Loan and operating cost data
+    • Monthly loan repayment amount (total)
+    • Monthly salary contribution towards loan repayment (offset amount)
+    • Net monthly loan burden = total repayment minus salary offset
+    • Shipping cost per order
+    • Clearing and customs cost per order
+    • Monthly overhead costs (rent, staff, utilities, etc.)
+
+5.2 Daily sales entry and automatic inventory management
+5.2.1 Sales entry
+    • Manual daily sales entry via a quick-entry form (product, quantity sold)
+    • Bulk upload via CSV for multi-product entries
+    • Optional barcode scanning integration for mobile devices
+    • All entries are timestamped with date and time of submission
+    • Ability to edit or correct previous entries with an audit trail
+
+5.2.2 Inventory automation
+    • Stock levels automatically reduced after each sales entry is submitted
+    • Low stock threshold alerts — configurable per product (e.g., alert when stock falls below 20 units or 14 days of inventory)
+    • Stock-out alerts triggered immediately when projected stock reaches zero
+    • Depletion date forecasted per product based on rolling average sales velocity
+    • Historical sales data fed into demand forecasting, cashflow projection, and pricing modules
+
+5.3 New purchase and reorder management
+5.3.1 Order tracking
+    • Full order lifecycle tracked: placement, production, shipping, clearing, delivery
+    • FX exposure recorded at each payment milestone (30% deposit at order, 70% at arrival)
+    • Predicted vs. actual FX rate at arrival tracked for model improvement
+    • Profit projection per order updated dynamically as FX forecasts change
+
+5.3.2 AI reorder suggestions
+    • Optimal order timing recommendations based on FX forecast, current inventory, and sales velocity
+    • Order quantity recommendations based on predicted demand over the lead-time horizon
+    • Alerts to delay, split, or accelerate orders based on liquidity position or FX risk threshold breaches
+    • Risk-adjusted cost calculation: 30% locked FX + 70% forecast FX + shipping + clearing + overhead allocation
+
+5.4 FX exposure engine
+    • Per-order tracking of 30% locked FX exposure (fixed at deposit payment rate)
+    • Per-order tracking of 70% floating FX exposure (forecast at arrival date)
+    • Aggregate portfolio-level FX exposure dashboard across all open orders
+    • Scenario forecasting: base, best-case, and worst-case FX at arrival for each open order
+    • Monte Carlo simulation for FX range modelling over the lead-time horizon
+    • Alert system: notifications when forecast FX breach a user-configured risk threshold
+    • USD accumulation strategy suggestions to cover upcoming 70% balance obligations
+
+5.5 Cashflow and loan module
+    • Rolling 6-month cashflow projection updated daily
+    • Includes: loan repayments (net of salary offset), operating costs, 70% FX obligations on arriving orders, revenue from sales
+    • Cash Runway calculation: months of liquidity remaining at current burn rate
+    • DSCR calculation: net operating income divided by total debt service per period
+    • Liquidity shortage flags: alerts when projected cashflow turns negative in any future month
+    • Scenario simulations:
+        ◦ FX shock: +10% and +20% adverse rate movement
+        ◦ Demand drop: -10% and -20% revenue decline
+        ◦ Combined stress: simultaneous FX shock + demand drop + loan pressure
+
+5.6 Demand and pricing module
+    • Demand elasticity model per product: quantifies how demand changes with price and FX movements
+    • Portfolio-level margin calculation ensuring blended gross margin >= 35%
+    • Cross-subsidisation logic: high-margin products can offset lower margins on volume drivers
+    • Pricing optimizer: recommends per-product price adjustments to maintain portfolio margin target
+    • Dynamic pricing recommendations updated as FX forecasts change
+    • Reorder timing engine integrated with demand forecasts and FX scenarios
+
+5.7 AI optimisation engine
+The AI engine integrates all data streams and produces unified, prioritised recommendations:
+    • Price adjustments: specific percentage changes per product with margin impact calculations
+    • Order timing and sizing: specific dates and quantities with FX-adjusted cost projections
+    • USD hedging guidance: accumulation schedules to pre-fund upcoming 70% balance obligations
+    • Inventory allocation: prioritisation of restocking across product lines given liquidity constraints
+    • Liquidity and DSCR alerts: ranked by severity with recommended corrective actions
+
+5.8 Dashboards and outputs
+
+Dashboard	Key metrics	Update frequency
+Liquidity Risk Dashboard	Cash Runway (months), DSCR, risk rating (Low / Medium / High)	Daily
+Daily Sales & Inventory Dashboard	Stock levels per product, sales velocity trends, depletion forecast dates	Real-time on entry
+FX Exposure Dashboard	Locked 30% exposure, floating 70% exposure, aggregate portfolio FX risk	Daily
+Monthly Cashflow Projection	6-month forward cashflow, monthly net position, cumulative liquidity	Daily
+Portfolio Margin Report	Blended margin, per-product margins, margin vs. target (35%)	Daily
+Decision Recommendations	Ranked actions: prices, order timing, USD accumulation, inventory allocation	Daily / on-demand
+Scenario Simulation View	Side-by-side comparison of base, stress, and combined scenarios	On-demand
+
+
+6. User stories and acceptance criteria
+
+
+Each user story follows the format: As a [user], I want to [action], so that [benefit]. Acceptance criteria define the conditions that must be met for the story to be considered complete.
+
+6.1 Authentication and access
+ST-101 — Secure login
+As an importer, I want to log in to FXWise with a username and password so that my financial data is protected from unauthorised access.
+    • Acceptance criteria:
+        ◦ The login screen is the first screen presented to unauthenticated users
+        ◦ Passwords are stored as salted hashes (bcrypt or equivalent) — never in plaintext
+        ◦ Three consecutive failed login attempts trigger a 15-minute lockout with a visible countdown
+        ◦ Session tokens expire after 24 hours of inactivity
+        ◦ A 'Forgot password' flow sends a reset link to the registered email address
+        ◦ All API endpoints require a valid session token; unauthenticated requests return HTTP 401
+
+ST-102 — API key configuration
+As an importer, I want to store my FXWise API key securely in the settings menu so that the platform can access live FX market data without exposing credentials.
+    • Acceptance criteria:
+        ◦ The settings menu includes an 'API Key' field with masked input (characters hidden by default)
+        ◦ The API key is stored encrypted locally and is never transmitted in plaintext
+        ◦ A 'Test connection' button validates the key and displays a success or error message
+        ◦ Invalid or expired keys surface a clear error with guidance on resolution
+
+6.2 Database and data management
+ST-201 — Database modelling for core entities
+As a developer, I want a well-structured relational database schema so that all financial, inventory, and order data is stored consistently and can be queried efficiently.
+    • Acceptance criteria:
+        ◦ The schema includes tables for: Users, Products, Orders, OrderPayments, DailySales, InventoryLevels, FXRates, FXForecasts, LoanObligations, OperatingCosts, Recommendations, and ScenarioSimulations
+        ◦ All tables have a primary key, created_at, and updated_at timestamps
+        ◦ Foreign key constraints are enforced between Orders → Products, OrderPayments → Orders, DailySales → Products
+        ◦ Database migrations are version-controlled and reversible
+        ◦ Indexes are created on frequently queried columns (e.g., product_id, order_date, sale_date)
+        ◦ Sensitive fields (user credentials, API keys) are encrypted at the application layer before storage
+
+ST-202 — Data export
+As an importer, I want to export my historical data (sales, orders, FX rates) as a CSV so that I can perform my own analysis or share data with an accountant.
+    • Acceptance criteria:
+        ◦ Export buttons are accessible from the Sales, Orders, and FX dashboards
+        ◦ Exports include date ranges selectable by the user
+        ◦ Exported CSV columns match the column headers displayed in the dashboard
+        ◦ Large exports (> 10,000 rows) are processed asynchronously with a download link sent by notification
+
+6.3 Daily sales entry
+ST-301 — Manual daily sales entry
+As an importer, I want to enter daily sales quantities per product through a quick-entry form so that my inventory and cashflow projections are always up to date.
+    • Acceptance criteria:
+        ◦ The sales entry form displays all active products with quantity input fields
+        ◦ The form pre-populates today's date; the user can adjust the date for retroactive entries
+        ◦ Submitting the form updates inventory levels in real time (within 2 seconds)
+        ◦ A confirmation message is displayed after successful submission
+        ◦ The system prevents submission of quantities greater than current stock levels and displays a warning
+        ◦ Entries are timestamped with the date and time of submission
+
+ST-302 — Bulk CSV sales upload
+As an importer, I want to upload a CSV file with daily sales data for multiple products so that I can complete weekly entries in a single action.
+    • Acceptance criteria:
+        ◦ The system accepts CSV files with columns: date, product_sku, quantity_sold
+        ◦ A sample CSV template is downloadable from the upload screen
+        ◦ The system validates the file on upload and lists any errors (invalid SKU, missing date) before processing
+        ◦ Valid rows are processed; invalid rows are skipped with an error report shown to the user
+        ◦ Duplicate entries for the same product on the same date are flagged for user confirmation before overwriting
+
+ST-303 — Sales entry audit and correction
+As an importer, I want to edit or delete a previous sales entry so that I can correct mistakes without affecting data integrity.
+    • Acceptance criteria:
+        ◦ A history log of all sales entries is accessible, filterable by date and product
+        ◦ Each entry has an 'Edit' and 'Delete' option
+        ◦ Editing an entry creates an audit record with the original value, new value, and timestamp of change
+        ◦ Deleting an entry reverses the inventory adjustment and logs the deletion
+
+6.4 Inventory management
+ST-401 — Low stock alert
+As an importer, I want to receive a low stock alert when a product's inventory falls below a configurable threshold so that I can initiate a reorder before stock runs out.
+    • Acceptance criteria:
+        ◦ Each product has a configurable low-stock threshold (units or days of inventory remaining)
+        ◦ An alert is triggered and displayed on the dashboard when the threshold is breached
+        ◦ An optional email or push notification is sent for each low-stock alert
+        ◦ Alerts are dismissed automatically when stock is replenished above the threshold
+
+ST-402 — Inventory depletion forecast
+As an importer, I want to see a forecasted stock-out date per product so that I can plan reorders with sufficient lead time.
+    • Acceptance criteria:
+        ◦ The inventory dashboard displays a predicted depletion date for each product based on rolling average sales velocity
+        ◦ Depletion forecast is recalculated after every sales entry
+        ◦ Forecast confidence interval is displayed (e.g., 'Expected stock-out: 15 Mar 2026 ± 5 days')
+        ◦ Products predicted to stock out within the lead-time window are highlighted in red
+
+6.5 Order and purchase management
+ST-501 — Create new purchase order
+As an importer, I want to log a new purchase order with supplier, product, quantity, and payment details so that the platform can track my FX obligations and lead time.
+    • Acceptance criteria:
+        ◦ The order creation form captures: supplier, product(s), quantity, unit cost (USD), order date, production time, shipping time, clearing time
+        ◦ The system automatically calculates the estimated arrival date from the sum of lead time components
+        ◦ The 30% deposit is recorded at order creation with the FX rate on that date
+        ◦ The order appears in the 'Pending' pipeline view immediately after submission
+
+ST-502 — Update order status
+As an importer, I want to update the status of an order (e.g., from 'shipping' to 'cleared') so that my dashboards reflect the current position of my goods.
+    • Acceptance criteria:
+        ◦ Each order has a status field with allowed transitions: Pending → In Production → Shipping → Cleared → Delivered
+        ◦ Updating status to 'Delivered' prompts the user to record the actual FX rate at the time of 70% balance payment
+        ◦ Predicted vs. actual FX at arrival is logged for forecast model improvement
+
+ST-503 — AI reorder recommendation
+As an importer, I want the system to suggest an optimal reorder date and quantity for each product so that I can place orders at the most favourable FX rate and avoid stock-outs.
+    • Acceptance criteria:
+        ◦ A reorder recommendation card is displayed per product when the inventory depletion date is within the lead-time window
+        ◦ The recommendation includes: suggested order date, recommended quantity, estimated FX-adjusted cost, and reasoning summary
+        ◦ The user can accept, modify, or dismiss each recommendation
+        ◦ Accepted recommendations automatically create a draft purchase order pre-filled with the suggested values
+        ◦ Recommendations are updated daily based on the latest FX forecast and sales data
+
+6.6 FX exposure engine
+ST-601 — View FX exposure per order
+As an importer, I want to see the FX exposure breakdown (locked 30% and floating 70%) for each open order so that I understand my total currency risk.
+    • Acceptance criteria:
+        ◦ Each order detail view shows: deposit FX rate (locked), current forecast FX rate (floating), variance in NGN, and profit impact
+        ◦ The aggregate FX exposure across all open orders is shown on the main dashboard
+        ◦ Floating exposure is updated daily with the latest FX forecast
+
+ST-602 — FX scenario forecast
+As an importer, I want to see base, best-case, and worst-case FX scenarios for each open order so that I can plan for a range of outcomes.
+    • Acceptance criteria:
+        ◦ The FX forecast view shows three scenario columns per order: best-case (5th percentile), base (50th percentile), worst-case (95th percentile)
+        ◦ Scenarios are generated using Monte Carlo simulation over the order's remaining lead time
+        ◦ Profit and margin impact of each scenario is calculated and displayed
+
+ST-603 — FX alert threshold
+As an importer, I want to set an FX alert threshold so that I am notified when the forecast rate moves beyond an acceptable range.
+    • Acceptance criteria:
+        ◦ A threshold (e.g., NGN/USD 1,700) is configurable in the settings menu per currency pair
+        ◦ An alert is triggered when the forecasted rate at any open order's arrival date exceeds the threshold
+        ◦ The alert includes the order reference, the threshold, and the forecasted rate
+
+6.7 Cashflow and loan module
+ST-701 — View 6-month cashflow projection
+As an importer, I want to see a 6-month rolling cashflow projection so that I can anticipate liquidity gaps before they occur.
+    • Acceptance criteria:
+        ◦ The cashflow dashboard displays a month-by-month projection for the next 6 months
+        ◦ Each month shows: inflows (projected sales revenue), outflows (loan net repayment, operating costs, 70% FX obligations), and net monthly position
+        ◦ A cumulative cashflow chart visualises the overall liquidity trend
+        ◦ Months with a negative net position are highlighted in red
+        ◦ The projection is recalculated daily
+
+ST-702 — Cash Runway and DSCR monitoring
+As an importer, I want to see my Cash Runway and DSCR on the liquidity dashboard so that I can monitor my financial health at a glance.
+    • Acceptance criteria:
+        ◦ Cash Runway is displayed in months on the liquidity risk dashboard
+        ◦ DSCR is displayed as a ratio with a colour-coded indicator: green (>= 1.5), amber (1.0–1.49), red (< 1.0)
+        ◦ A risk rating (Low / Medium / High) is derived from the combination of Cash Runway and DSCR
+        ◦ Trend arrows indicate whether each metric has improved or deteriorated over the past 7 days
+
+ST-703 — Stress scenario simulation
+As an importer, I want to run a stress scenario combining an FX shock and a demand drop so that I can assess worst-case liquidity risk.
+    • Acceptance criteria:
+        ◦ The scenario simulator allows the user to input FX shock (% adverse movement) and demand drop (% revenue decline) parameters
+        ◦ Pre-set scenarios are available: FX +10%, FX +20%, Demand -10%, Demand -20%, Combined stress
+        ◦ Results show the impact on Cash Runway, DSCR, portfolio margin, and monthly cashflow for each scenario
+        ◦ Scenario results can be saved and compared side-by-side
+
+6.8 Demand and pricing module
+ST-801 — Portfolio margin optimisation
+As an importer, I want the system to recommend price adjustments per product so that my blended portfolio gross margin stays at or above 35%.
+    • Acceptance criteria:
+        ◦ The pricing module displays current margin per product and the blended portfolio margin
+        ◦ When the portfolio margin falls below 35%, the system generates specific price increase recommendations per product
+        ◦ Recommendations account for demand elasticity — steeper increases on low-elasticity products, smaller adjustments on high-elasticity products
+        ◦ Cross-subsidisation is shown explicitly: e.g., 'Product A margin (42%) offsets Product B margin (28%)'
+        ◦ Applying a recommendation updates the product's price and recalculates the portfolio margin in real time
+
+ST-802 — Demand elasticity configuration
+As an importer, I want to configure price elasticity and FX sensitivity parameters per product so that the demand model reflects my market experience.
+    • Acceptance criteria:
+        ◦ Each product has configurable fields: price elasticity coefficient and FX sensitivity coefficient
+        ◦ Tooltips explain each parameter with examples (e.g., 'An elasticity of -1.2 means a 10% price increase reduces demand by 12%')
+        ◦ Default values are pre-populated based on product category averages
+        ◦ Changes to coefficients immediately update demand forecasts and pricing recommendations
+
+6.9 AI optimisation engine
+ST-901 — Unified recommendation feed
+As an importer, I want a prioritised list of actionable recommendations on my home dashboard so that I always know what the most important action is.
+    • Acceptance criteria:
+        ◦ The recommendation feed displays a ranked list of actions, ordered by financial urgency
+        ◦ Each recommendation includes: category (price / order / hedge / inventory / liquidity), description, expected impact, and a one-click action button
+        ◦ Dismissed recommendations are archived and accessible via a history view
+        ◦ The feed is refreshed every 24 hours and on-demand via a 'Refresh' button
+
+ST-902 — USD accumulation strategy
+As an importer, I want the system to generate a USD accumulation schedule so that I can pre-fund my upcoming 70% balance obligations at favourable rates.
+    • Acceptance criteria:
+        ◦ For each open order with a 70% balance due, the system calculates the required USD amount and arrival date
+        ◦ A weekly USD purchase schedule is generated to spread acquisition across the lead-time window
+        ◦ The schedule incorporates FX forecast scenarios to suggest optimal purchase timing
+        ◦ The user can adjust the schedule and save a customised accumulation plan
+
+6.10 User interface and navigation
+ST-1001 — Responsive layout
+As an importer, I want to use FXWise on mobile, tablet, and desktop without loss of functionality so that I can manage my business from any device.
+    • Acceptance criteria:
+        ◦ Mobile (< 768px): single-column layout with collapsible navigation menu
+        ◦ Tablet (768px–1199px): two-column layout with persistent side navigation
+        ◦ Desktop (>= 1200px): three- to four-column layout with all dashboard panels visible simultaneously
+        ◦ All core functionality (sales entry, order creation, recommendation review) is accessible on mobile
+        ◦ Tables on mobile use horizontal scrolling rather than collapsing columns
+
+ST-1002 — Order timeline view
+As an importer, I want to see a scrollable timeline of my orders, sales events, and alerts so that I can understand the sequence and status of all activities.
+    • Acceptance criteria:
+        ◦ The timeline displays events in reverse chronological order (newest first)
+        ◦ Events are colour-coded by type: orders (blue), sales (green), alerts (amber/red), recommendations (purple)
+        ◦ Clicking any event opens the relevant detail view
+        ◦ The timeline is filterable by event type and date range
+
+
+7. Technical requirements and stack
+
+
+7.1 Technology stack
+
+Layer	Technology	Rationale
+Frontend	Angular (TypeScript)	Component-based architecture well-suited to dashboard-heavy UIs; strong TypeScript support for financial data handling
+Backend API	Python (FastAPI) or Go	Python preferred for AI/ML library ecosystem (Prophet, statsmodels, scikit-learn); Go as an alternative for performance-critical services
+AI / Forecasting	Facebook Prophet, LSTM (TensorFlow/Keras), Monte Carlo (NumPy/SciPy)	Prophet for trend + seasonality; LSTM for complex temporal patterns; Monte Carlo for FX scenario modelling
+Database (primary)	PostgreSQL	ACID-compliant relational database; well-suited to structured financial data with complex joins and aggregations
+Database (optional)	MongoDB	For flexible storage of unstructured recommendation logs, simulation results, and forecast metadata
+AI integration (optional)	OpenAI API (GPT-4 class)	Natural language recommendation generation; advanced pattern interpretation for non-standard market conditions
+Authentication	JWT (JSON Web Tokens) with bcrypt password hashing	Stateless, scalable session management; industry-standard security
+Data storage (local)	SQLite (personal tool mode)	Zero-infrastructure local storage for Stage A single-user deployment
+Cloud sync (optional)	AWS S3 / Google Cloud Storage	Optional encrypted backup of user data for disaster recovery
+Deployment	Docker + Docker Compose	Consistent development and production environments; easy local setup for Stage A
+CI/CD	GitHub Actions	Automated testing and deployment pipelines
+
+7.2 AI and forecasting specifications
+7.2.1 FX forecasting model
+    • Input: 180 days of historical NGN/USD parallel market rates
+    • Model: Facebook Prophet with multiplicative seasonality for trend detection + LSTM for residual non-linear patterns
+    • Output: point forecast + 80% and 95% confidence intervals for each day in the next 180-day horizon
+    • Scenarios: best-case (5th percentile), base (50th percentile), worst-case (95th percentile)
+    • Retraining schedule: weekly, incorporating new daily actuals
+    • Forecast error tracking: Mean Absolute Error (MAE) and Mean Absolute Percentage Error (MAPE) stored per forecast batch
+
+7.2.2 Demand forecasting model
+    • Input: historical daily sales per product, price changes, FX rate history, seasonal indicators
+    • Model: Prophet for baseline trend + configurable elasticity adjustments
+    • Output: 90-day forward demand forecast per product with confidence intervals
+
+7.2.3 Monte Carlo simulation
+    • Used for: FX scenario modelling at order arrival date, cashflow stress testing
+    • Configuration: 10,000 simulation runs per scenario
+    • Parameters: FX volatility (rolling 30-day standard deviation), demand variance (rolling 30-day CV)
+    • Output: distribution of outcomes with percentile breakpoints at 5th, 25th, 50th, 75th, 95th
+
+7.3 Security requirements
+    • All data in transit encrypted via TLS 1.3
+    • All data at rest encrypted using AES-256
+    • API keys and sensitive credentials encrypted at the application layer using a key derived from the user's master password
+    • Session tokens expire after 24 hours of inactivity; refresh tokens expire after 30 days
+    • Password policy: minimum 12 characters, at least one uppercase, one lowercase, one number, one special character
+    • Rate limiting on all API endpoints: 100 requests per minute per session
+    • SQL injection and XSS protection enforced at the API and frontend layers
+    • Audit logging of all data modifications (create, update, delete) stored for 12 months
+
+7.4 Performance requirements
+Requirement	Target
+Dashboard load time (initial)	< 2 seconds on standard broadband (50 Mbps)
+Sales entry form submission	Inventory update reflected within 2 seconds
+FX forecast API response	< 5 seconds for a full 180-day forecast generation
+Monte Carlo simulation (10,000 runs)	< 10 seconds per simulation
+Cashflow projection recalculation	< 3 seconds for a 6-month rolling update
+Database query response	< 500ms for 95th percentile of all queries under normal load
+System uptime (Stage A local)	N/A — local deployment; no SLA required
+System uptime (Stage B SaaS)	>= 99.5% monthly uptime (planned future requirement)
+
+7.5 Data retention
+    • Daily sales data retained indefinitely for long-term trend analysis
+    • FX rate history retained indefinitely for model training
+    • Order history retained indefinitely for profit and margin analysis
+    • Forecast records retained for 24 months for error tracking and model improvement
+    • Scenario simulation results retained for 12 months
+    • Audit logs retained for 12 months
+
+
+8. Design and user interface
+
+
+8.1 Design principles
+    • Clarity first: financial data must be legible at a glance. Avoid visual clutter; prioritise the most important metrics.
+    • Actionability: every dashboard element should either inform a decision or link to an action. Passive data display is insufficient.
+    • Progressive disclosure: show summary-level information by default; allow the user to drill into detail on demand.
+    • Responsive by design: all views must function on mobile, tablet, and desktop without degradation of core functionality.
+    • Accessibility: colour-coded alerts must always include a secondary indicator (icon or label) to support colour-blind users. Target WCAG 2.1 AA compliance.
+
+8.2 Screen layouts and views
+8.2.1 Home dashboard (unified overview)
+The home dashboard provides a single-screen summary of the user's financial position. It contains the following panels:
+    • Liquidity Risk Panel: Cash Runway, DSCR, risk rating (colour-coded badge)
+    • FX Exposure Summary: total locked exposure, total floating exposure, aggregate risk
+    • Portfolio Margin Meter: current blended margin vs. 35% target
+    • Pending Orders Pipeline: count and value of orders by status
+    • Inventory Alerts: list of products at or near low-stock threshold
+    • Top Recommendations: top 3 prioritised actions from the AI engine
+    • Activity Timeline: scrollable recent events (sales, orders, alerts)
+
+8.2.2 Sales entry view
+    • A quick-entry form listing all active products with quantity fields
+    • Date selector pre-set to today; adjustable for retroactive entries
+    • Barcode scan button (mobile only)
+    • Historical sales chart below the form showing the last 30 days of sales velocity per product
+
+8.2.3 Order detail view
+    • Supplier, product, quantity, unit cost, and lead-time breakdown
+    • FX exposure card: 30% locked rate, 70% forecast rate, NGN impact, profit projection
+    • Status tracker: visual pipeline (Pending → In Production → Shipping → Cleared → Delivered)
+    • Scenario comparison table: best-case, base, worst-case profit at arrival
+    • Actions: 'Update status', 'Adjust order', 'Re-run forecast'
+
+8.2.4 Purchase and reorder view
+    • Two tabs: 'Active Orders' and 'AI Reorder Suggestions'
+    • Active Orders: sortable table of all open orders with status, FX exposure, and estimated arrival
+    • AI Reorder Suggestions: card-based view with one card per product nearing reorder point; each card shows suggested date, quantity, cost, and an 'Accept / Modify / Dismiss' action group
+
+8.2.5 Cashflow projection view
+    • Bar chart: monthly net cashflow for the next 6 months (positive bars green, negative bars red)
+    • Line chart overlay: cumulative cashflow trend
+    • Table: month-by-month breakdown of inflows, outflows, and net position
+    • Scenario toggle: switch between base, FX stress, demand stress, and combined stress views
+
+8.2.6 Settings view
+    • Profile: name, email, password change
+    • API Configuration: FX data API key (masked input, test connection button)
+    • Forecast parameters: confidence interval (80% / 90% / 95%), scenario range multipliers
+    • Alert thresholds: low stock threshold per product, FX alert threshold per currency pair, DSCR alert threshold
+    • Notification preferences: email, push, or in-app alerts
+
+8.3 Responsive breakpoints
+
+Breakpoint	Width range	Layout behaviour
+Mobile	< 768px	Single-column layout; collapsible hamburger navigation; bottom tab bar for primary views; tables use horizontal scroll
+Tablet	768px–1199px	Two-column layout; persistent left sidebar navigation; dashboard panels in 2-column grid
+Desktop	>= 1200px	Three- to four-column layout; all dashboard panels visible simultaneously; full data tables without scroll
+
+8.4 Colour system and visual indicators
+
+Colour	Semantic use
+Green (#1A7A4A)	Positive metrics: healthy margin, positive cashflow, low risk, stock well above threshold
+Amber (#D97706)	Warning metrics: margin approaching threshold, moderate FX risk, stock nearing low-stock threshold
+Red (#C0392B)	Critical alerts: margin below target, negative cashflow, high FX risk, stock-out imminent or overdue, DSCR < 1.0
+Blue (#1F4E79)	Primary brand colour: navigation, headings, primary action buttons
+Light Blue (#2E75B6)	Secondary brand: section accents, chart series 1, informational highlights
+Light Gray (#F2F2F2)	Background: alternating table rows, panel backgrounds
+Dark Gray (#404040)	Body text, data values
+
+8.5 Key UI components
+    • Metric card: title, large value, unit label, trend arrow, colour-coded background
+    • Alert banner: icon, severity colour, message text, dismiss button, optional action link
+    • Recommendation card: category icon, description, impact summary, 'Apply' and 'Dismiss' buttons
+    • Scenario toggle: tab group allowing the user to switch between base and stress scenarios on any projection view
+    • Confidence band chart: line chart with shaded confidence interval bands for FX and demand forecasts
+    • Pipeline tracker: horizontal step indicator showing order status with completed steps filled and active step highlighted
+
+
+Appendix: feature priority matrix (Stage A)
+
+
+The following table summarises the priority of each module for Stage A delivery, using MoSCoW classification.
+
+Module	Priority	Notes
+Authentication and access control	Must Have	Required before any other feature is usable
+Daily sales entry (manual)	Must Have	Core data input driving all downstream modules
+Automatic inventory update from sales	Must Have	Foundational for inventory and demand modules
+Order creation and tracking	Must Have	Core workflow for FX exposure calculation
+FX exposure engine (locked + floating)	Must Have	Primary financial risk visibility feature
+6-month cashflow projection	Must Have	Critical for liquidity management
+DSCR and Cash Runway monitoring	Must Have	Key financial health indicators
+Portfolio margin calculation	Must Have	Core profitability metric
+Home dashboard (unified overview)	Must Have	Central user experience touchpoint
+Low stock alerts and depletion forecast	Must Have	Operational necessity for preventing stock-outs
+Pricing recommendations (portfolio margin)	Should Have	High value but requires demand model to be complete first
+AI reorder suggestions	Should Have	High value; depends on FX forecast and demand model
+Monte Carlo FX scenario simulation	Should Have	Important for risk planning; computationally intensive
+Demand elasticity modelling	Should Have	Required for accurate pricing recommendations
+USD accumulation strategy	Should Have	Valuable hedging guidance; depends on FX forecast module
+Stress scenario simulator (combined)	Could Have	High value for planning; can be delivered in a later Stage A sprint
+Bulk CSV sales upload	Could Have	Convenience feature; manual entry sufficient initially
+Barcode scanning integration	Could Have	Convenience; mobile-specific; not critical for Stage A
+Cloud data sync	Could Have	Local storage sufficient for Stage A
+Multi-tenant support	Won't Have (Stage A)	Stage B feature
+Trade FX risk scoring API	Won't Have (Stage A)	Stage C feature
+
+— End of Document —
