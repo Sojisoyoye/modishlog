@@ -1,7 +1,12 @@
 """Alembic environment configuration for async migrations."""
 
 import asyncio
+import sys
 from logging.config import fileConfig
+from pathlib import Path
+
+# Ensure the backend package root is on sys.path so `src.*` imports resolve.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from alembic import context
 from sqlalchemy import pool
@@ -11,15 +16,44 @@ from src.core.config import settings
 from src.core.database import Base
 
 # Import all models so Alembic can detect them
-# TODO: Import domain models as they are implemented
-# from src.auth.models import User
-# from src.products.models import Product
-# from src.sales.models import DailySale
-# from src.inventory.models import InventoryLevel
-# from src.orders.models import Order, OrderPayment
-# from src.fx.models import FXRate, FXForecast
-# from src.cashflow.models import LoanObligation, OperatingCost
-# from src.pricing.models import PricingRecommendation
+from src.auth.models import User  # noqa: F401
+from src.products.models import Product, ProductCategory, PriceHistory  # noqa: F401
+from src.inventory.models import InventoryLevel, StockMovement, LowStockAlert  # noqa: F401
+from src.sales.models import Sale, SaleBulkUploadJob, SaleAuditEntry  # noqa: F401
+from src.orders.models import (  # noqa: F401
+    PurchaseOrder,
+    OrderLineItem,
+    OrderStatusHistory,
+    OrderPayment,
+)
+from src.fx.models import (  # noqa: F401
+    FXRate,
+    FXExposure,
+    FXExposureConfig,
+    FXAlert,
+    FXSimulationRun,
+)
+from src.cashflow.models import (  # noqa: F401
+    CashflowProjection,
+    ProjectionAssumptions,
+    DSCRRecord,
+    LoanObligation,
+    LoanPaymentSchedule,
+    StressScenario,
+)
+from src.pricing.models import (  # noqa: F401
+    DemandElasticity,
+    MarginTarget,
+    PricingRecommendation,
+    CrossSubsidyAnalysis,
+)
+from src.ai_engine.models import (  # noqa: F401
+    AIRecommendation,
+    USDStrategyConfig,
+    USDPurchaseSchedule,
+    ReorderSuggestion,
+    ReorderConfig,
+)
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

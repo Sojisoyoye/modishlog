@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     )
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://modishlog:modishlog_dev@localhost/modishlog"
+    DATABASE_URL: str = "postgresql+asyncpg://modishlog:modishlog_dev@localhost:5433/modishlog"
 
     # Security
     SECRET_KEY: str = "dev-secret-change-in-production"
