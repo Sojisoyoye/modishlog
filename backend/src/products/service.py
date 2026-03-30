@@ -1,53 +1,263 @@
-# TODO: Async service functions for the Products domain
-#
-# --- Product CRUD ---
-# async def create_product(db, product_in: ProductCreate, user_id: UUID) -> Product
-#   - Validate category exists
-#   - Auto-generate SKU if not provided (format: CAT-XXXXX)
-#   - Ensure SKU uniqueness
-#   - Create product record
-#   - Create initial PriceHistory entry
-#
-# async def get_product(db, product_id: UUID) -> Product
-#   - Fetch product with category relationship loaded
-#   - Raise ProductNotFoundError if missing
-#
-# async def list_products(db, filters: dict, page: int, page_size: int) -> tuple[list[Product], int]
-#   - Support filtering by: category_id, is_active, name (partial match), price range
-#   - Paginate results
-#   - Return (items, total_count)
-#
-# async def update_product(db, product_id: UUID, product_in: ProductUpdate, user_id: UUID) -> Product
-#   - Fetch existing product, raise ProductNotFoundError if missing
-#   - If price or cost changed, create PriceHistory entry
-#   - Apply partial updates
-#
-# async def delete_product(db, product_id: UUID) -> None
-#   - Soft-delete: set is_active = False
-#   - Raise ProductNotFoundError if missing
-#
-# --- SKU Management ---
-# async def generate_sku(db, product_id: UUID) -> str
-#   - Build SKU from category prefix + sequential number
-#   - Ensure uniqueness
-#
-# async def lookup_by_sku(db, sku: str) -> Product
-#   - Find product by SKU, raise ProductNotFoundError if missing
-#
-# --- Categories ---
-# async def create_category(db, category_in: CategoryCreate) -> ProductCategory
-# async def list_categories(db) -> list[ProductCategory]
-# async def update_category(db, cat_id: UUID, category_in: CategoryCreate) -> ProductCategory
-# async def delete_category(db, cat_id: UUID) -> None
-#   - Raise CategoryInUseError if products are linked
-#
-# --- Price / Cost Tracking ---
-# async def get_price_history(db, product_id: UUID) -> list[PriceHistory]
-#   - Return chronologically sorted price changes
-#
-# async def record_price_change(db, product_id: UUID, update: PriceUpdateCreate, user_id: UUID) -> PriceHistory
-#   - Snapshot old values, apply new values, log change
-#
-# async def get_margin_report(db) -> list[MarginReport]
-#   - Compute margin for each active product
-#   - Sort by margin_pct descending
+"""Products domain business logic."""
+
+import uuid
+from datetime import date
+
+import structlog
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from src.products.exceptions import (
+    CategoryInUseError,
+    CategoryNotFoundError,
+    DuplicateSKUError,
+    ProductNotFoundError,
+)
+from src.products.models import PriceHistory, Product, ProductCategory
+from src.products.schemas import CategoryCreate, ProductCreate, ProductUpdate
+
+logger = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# SKU generation
+# ---------------------------------------------------------------------------
+
+
+async def _generate_sku(db: AsyncSession) -> str:
+    """Auto-generate a unique SKU like PRD-00001."""
+    result = await db.execute(
+        select(func.count()).select_from(Product)
+    )
+    count = result.scalar() or 0
+    while True:
+        count += 1
+        sku = f"PRD-{count:05d}"
+        existing = await db.execute(select(Product).where(Product.sku == sku))
+        if not existing.scalar_one_or_none():
+            return sku
+
+
+# ---------------------------------------------------------------------------
+# Category CRUD
+# ---------------------------------------------------------------------------
+
+
+async def create_category(
+    db: AsyncSession,
+    data: CategoryCreate,
+) -> ProductCategory:
+    """Create a product category."""
+    category = ProductCategory(name=data.name, description=data.description)
+    db.add(category)
+    await db.flush()
+    await logger.ainfo("category_created", category_id=str(category.id), name=data.name)
+    return category
+
+
+async def list_categories(db: AsyncSession) -> list[ProductCategory]:
+    """List all product categories ordered by name."""
+    result = await db.execute(
+        select(ProductCategory).order_by(ProductCategory.name)
+    )
+    return list(result.scalars().all())
+
+
+async def get_category(db: AsyncSession, category_id: uuid.UUID) -> ProductCategory:
+    """Get a category by ID."""
+    category = await db.get(ProductCategory, category_id)
+    if not category:
+        raise CategoryNotFoundError(category_id)
+    return category
+
+
+async def delete_category(db: AsyncSession, category_id: uuid.UUID) -> None:
+    """Delete a category (only if no products are linked)."""
+    category = await get_category(db, category_id)
+    result = await db.execute(
+        select(func.count()).select_from(Product).where(Product.category_id == category_id)
+    )
+    count = result.scalar() or 0
+    if count > 0:
+        raise CategoryInUseError(category_id, count)
+    await db.delete(category)
+    await db.flush()
+
+
+# ---------------------------------------------------------------------------
+# Product CRUD
+# ---------------------------------------------------------------------------
+
+
+async def create_product(
+    db: AsyncSession,
+    data: ProductCreate,
+    user_id: uuid.UUID,
+) -> Product:
+    """Create a new product, auto-generating SKU if not provided."""
+    # Validate category exists
+    await get_category(db, data.category_id)
+
+    sku = data.sku
+    if not sku:
+        sku = await _generate_sku(db)
+    else:
+        existing = await db.execute(select(Product).where(Product.sku == sku))
+        if existing.scalar_one_or_none():
+            raise DuplicateSKUError(sku)
+
+    product = Product(
+        name=data.name,
+        sku=sku,
+        description=data.description,
+        category_id=data.category_id,
+        unit_cost=data.unit_cost,
+        selling_price=data.selling_price,
+        currency=data.currency,
+        is_active=True,
+    )
+    db.add(product)
+    await db.flush()
+
+    # Create initial price history entry
+    price_history = PriceHistory(
+        product_id=product.id,
+        old_unit_cost=data.unit_cost,
+        new_unit_cost=data.unit_cost,
+        old_selling_price=data.selling_price,
+        new_selling_price=data.selling_price,
+        reason="Initial product creation",
+        effective_date=date.today(),
+        changed_by=user_id,
+    )
+    db.add(price_history)
+    await db.flush()
+
+    await logger.ainfo("product_created", product_id=str(product.id), sku=sku)
+    return product
+
+
+async def get_product(db: AsyncSession, product_id: uuid.UUID) -> Product:
+    """Get a single product by ID with category loaded."""
+    result = await db.execute(
+        select(Product)
+        .options(selectinload(Product.category))
+        .where(Product.id == product_id)
+    )
+    product = result.scalar_one_or_none()
+    if not product:
+        raise ProductNotFoundError(product_id=product_id)
+    return product
+
+
+async def list_products(
+    db: AsyncSession,
+    *,
+    category_id: uuid.UUID | None = None,
+    is_active: bool | None = True,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[Product], int]:
+    """List products with filtering and pagination."""
+    query = select(Product).options(selectinload(Product.category))
+    count_query = select(func.count()).select_from(Product)
+
+    if category_id is not None:
+        query = query.where(Product.category_id == category_id)
+        count_query = count_query.where(Product.category_id == category_id)
+    if is_active is not None:
+        query = query.where(Product.is_active == is_active)
+        count_query = count_query.where(Product.is_active == is_active)
+    if search:
+        pattern = f"%{search}%"
+        query = query.where(Product.name.ilike(pattern))
+        count_query = count_query.where(Product.name.ilike(pattern))
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    offset = (page - 1) * page_size
+    query = query.order_by(Product.name).offset(offset).limit(page_size)
+    result = await db.execute(query)
+    items = list(result.scalars().all())
+
+    return items, total
+
+
+async def update_product(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    data: ProductUpdate,
+    user_id: uuid.UUID,
+) -> Product:
+    """Update a product. Creates PriceHistory if prices change."""
+    product = await get_product(db, product_id)
+
+    update_fields = data.model_dump(exclude_unset=True)
+
+    # Track price changes
+    price_changed = False
+    old_unit_cost = product.unit_cost
+    old_selling_price = product.selling_price
+
+    if "unit_cost" in update_fields and update_fields["unit_cost"] != old_unit_cost:
+        price_changed = True
+    if "selling_price" in update_fields and update_fields["selling_price"] != old_selling_price:
+        price_changed = True
+
+    # Validate category if changing
+    if "category_id" in update_fields and update_fields["category_id"] is not None:
+        await get_category(db, update_fields["category_id"])
+
+    # Apply updates
+    for field, value in update_fields.items():
+        setattr(product, field, value)
+    await db.flush()
+
+    # Create price history if prices changed
+    if price_changed:
+        price_history = PriceHistory(
+            product_id=product.id,
+            old_unit_cost=old_unit_cost,
+            new_unit_cost=product.unit_cost,
+            old_selling_price=old_selling_price,
+            new_selling_price=product.selling_price,
+            reason="Product update",
+            effective_date=date.today(),
+            changed_by=user_id,
+        )
+        db.add(price_history)
+        await db.flush()
+
+    await logger.ainfo("product_updated", product_id=str(product_id))
+    return product
+
+
+async def deactivate_product(db: AsyncSession, product_id: uuid.UUID) -> Product:
+    """Soft-delete a product by setting is_active=False."""
+    product = await get_product(db, product_id)
+    product.is_active = False
+    await db.flush()
+    await logger.ainfo("product_deactivated", product_id=str(product_id))
+    return product
+
+
+# ---------------------------------------------------------------------------
+# Price history
+# ---------------------------------------------------------------------------
+
+
+async def get_price_history(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+) -> list[PriceHistory]:
+    """Get price change history for a product."""
+    await get_product(db, product_id)  # ensure product exists
+    result = await db.execute(
+        select(PriceHistory)
+        .where(PriceHistory.product_id == product_id)
+        .order_by(PriceHistory.effective_date.desc())
+    )
+    return list(result.scalars().all())

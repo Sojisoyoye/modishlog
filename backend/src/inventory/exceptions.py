@@ -1,21 +1,35 @@
-# TODO: Domain-specific exceptions for the Inventory domain
-#
-# ProductStockNotFoundError(Exception)
-#   - Raised when no stock record exists for a given product.
-#   - Attributes: product_id
-#
-# InsufficientStockError(Exception)
-#   - Raised when a depletion is requested but available stock is too low.
-#   - Attributes: product_id, requested_quantity, available_quantity
-#
-# InvalidStockAdjustmentError(Exception)
-#   - Raised when a stock adjustment would result in negative stock.
-#   - Attributes: product_id, adjustment_quantity, current_quantity
-#
-# AlertAlreadyExistsError(Exception)
-#   - Raised when attempting to create a low-stock alert that already exists for a product.
-#   - Attributes: product_id, existing_alert_id
-#
-# ForecastDataInsufficient(Exception)
-#   - Raised when there is not enough historical sales data to compute a reliable forecast.
-#   - Attributes: product_id, available_days, required_days
+"""Inventory domain exceptions."""
+
+
+class ProductStockNotFoundError(Exception):
+    """Raised when no stock record exists for a product."""
+
+    def __init__(self, product_id):
+        self.product_id = product_id
+        super().__init__(f"No inventory record for product: {product_id}")
+
+
+class InsufficientStockError(Exception):
+    """Raised when available stock is too low for a depletion."""
+
+    def __init__(self, product_id, requested: int, available: int):
+        self.product_id = product_id
+        self.requested_quantity = requested
+        self.available_quantity = available
+        super().__init__(
+            f"Insufficient stock for {product_id}: "
+            f"requested={requested}, available={available}"
+        )
+
+
+class InvalidStockAdjustmentError(Exception):
+    """Raised when adjustment would result in negative stock."""
+
+    def __init__(self, product_id, adjustment: int, current: int):
+        self.product_id = product_id
+        self.adjustment_quantity = adjustment
+        self.current_quantity = current
+        super().__init__(
+            f"Adjustment would result in negative stock for {product_id}: "
+            f"current={current}, adjustment={adjustment}"
+        )

@@ -1,58 +1,210 @@
-# TODO: Async service functions for the Inventory domain
-#
-# --- Stock Levels ---
-# async def get_stock_level(db, product_id: UUID) -> StockLevel
-#   - Fetch current stock for a product
-#   - Raise ProductStockNotFoundError if no stock record exists
-#
-# async def list_stock_levels(db, filters: dict, page: int, page_size: int) -> tuple[list[StockLevel], int]
-#   - Filter by: low stock only, product category, search by name
-#   - Join with Product for product_name
-#
-# async def adjust_stock(db, adjustment: StockAdjustment, user_id: UUID) -> StockMovement
-#   - Validate product exists
-#   - Apply quantity change to StockLevel
-#   - Create StockMovement record
-#   - Check if new level triggers or resolves a LowStockAlert
-#
-# async def get_stock_history(db, product_id: UUID, page: int, page_size: int) -> tuple[list[StockMovement], int]
-#   - Return chronological stock movements for a product
-#
-# --- Low Stock Alerts ---
-# async def get_active_alerts(db) -> list[LowStockAlert]
-#   - Return all alerts with status "active", ordered by deficit (most critical first)
-#
-# async def update_threshold(db, product_id: UUID, threshold: int) -> StockLevel
-#   - Update low_stock_threshold on StockLevel
-#   - Re-evaluate if an alert should be triggered or resolved
-#
-# async def check_and_trigger_alerts(db, product_id: UUID) -> LowStockAlert | None
-#   - Compare current stock to threshold
-#   - Create alert if below threshold and no active alert exists
-#   - Resolve alert if stock is above threshold
-#   - Send notification if configured
-#
-# --- Depletion Forecast ---
-# async def forecast_depletion(db, product_id: UUID) -> DepletionForecast
-#   - Calculate average daily depletion from last 30/60/90 days of sales data
-#   - Estimate days until stockout
-#   - Compute confidence based on sales data variance
-#
-# async def bulk_forecast(db) -> list[DepletionForecast]
-#   - Run forecast for all active products
-#   - Sort by days_until_stockout ascending (most urgent first)
-#
-# --- Auto-Depletion from Sales ---
-# async def deplete_from_sale(db, request: DepletionRequest, user_id: UUID) -> StockMovement
-#   - Reduce stock by sale quantity
-#   - Create StockMovement with type "sale_depletion" and reference to sale_id
-#   - Check and trigger low stock alert if needed
-#   - Raise InsufficientStockError if quantity_available < requested quantity
-#
-# async def reverse_depletion(db, request: DepletionReversalRequest, user_id: UUID) -> StockMovement
-#   - Restore stock from a voided sale
-#   - Create StockMovement with type "sale_reversal"
-#   - Resolve low stock alert if stock now above threshold
-#
-# async def get_depletion_log(db, page: int, page_size: int) -> tuple[list[StockMovement], int]
-#   - Filter stock movements where movement_type in ("sale_depletion", "sale_reversal")
+"""Inventory domain business logic."""
+
+import uuid
+from datetime import date, datetime, timedelta, timezone
+
+import structlog
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.inventory.exceptions import (
+    InvalidStockAdjustmentError,
+    ProductStockNotFoundError,
+)
+from src.inventory.models import InventoryLevel, MovementType, StockMovement
+from src.inventory.schemas import DepletionForecastRead
+
+logger = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Inventory initialization
+# ---------------------------------------------------------------------------
+
+
+async def initialize_inventory(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    user_id: uuid.UUID,
+    initial_stock: int = 0,
+    low_stock_threshold: int = 10,
+) -> InventoryLevel:
+    """Create an InventoryLevel record for a newly created product."""
+    inventory = InventoryLevel(
+        product_id=product_id,
+        quantity_on_hand=initial_stock,
+        quantity_reserved=0,
+        low_stock_threshold=low_stock_threshold,
+    )
+    db.add(inventory)
+    await db.flush()
+
+    if initial_stock > 0:
+        movement = StockMovement(
+            product_id=product_id,
+            movement_type=MovementType.MANUAL_ADD,
+            quantity_change=initial_stock,
+            quantity_before=0,
+            quantity_after=initial_stock,
+            reason="Initial stock on product creation",
+            performed_by=user_id,
+        )
+        db.add(movement)
+        await db.flush()
+
+    await logger.ainfo(
+        "inventory_initialized",
+        product_id=str(product_id),
+        initial_stock=initial_stock,
+    )
+    return inventory
+
+
+# ---------------------------------------------------------------------------
+# Stock level queries
+# ---------------------------------------------------------------------------
+
+
+async def get_inventory_level(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+) -> InventoryLevel:
+    """Get the current inventory level for a product."""
+    result = await db.execute(
+        select(InventoryLevel).where(InventoryLevel.product_id == product_id)
+    )
+    inventory = result.scalar_one_or_none()
+    if not inventory:
+        raise ProductStockNotFoundError(product_id)
+    return inventory
+
+
+async def list_inventory_levels(
+    db: AsyncSession,
+    *,
+    low_stock_only: bool = False,
+) -> list[InventoryLevel]:
+    """List all inventory levels, optionally filtered to low stock only."""
+    query = select(InventoryLevel)
+    if low_stock_only:
+        query = query.where(
+            InventoryLevel.quantity_on_hand <= InventoryLevel.low_stock_threshold
+        )
+    query = query.order_by(InventoryLevel.quantity_on_hand.asc())
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+# ---------------------------------------------------------------------------
+# Stock adjustments
+# ---------------------------------------------------------------------------
+
+
+async def adjust_stock(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    quantity_change: int,
+    movement_type: str,
+    reason: str,
+    user_id: uuid.UUID,
+    reference_id: uuid.UUID | None = None,
+    reference_type: str | None = None,
+) -> InventoryLevel:
+    """Adjust stock and create a StockMovement audit record."""
+    inventory = await get_inventory_level(db, product_id)
+    quantity_before = inventory.quantity_on_hand
+    new_quantity = quantity_before + quantity_change
+
+    if new_quantity < 0:
+        raise InvalidStockAdjustmentError(product_id, quantity_change, quantity_before)
+
+    inventory.quantity_on_hand = new_quantity
+
+    # Update last_replenished_at if adding stock
+    if quantity_change > 0:
+        inventory.last_replenished_at = datetime.now(timezone.utc)
+
+    movement = StockMovement(
+        product_id=product_id,
+        movement_type=MovementType(movement_type),
+        quantity_change=quantity_change,
+        quantity_before=quantity_before,
+        quantity_after=new_quantity,
+        reference_id=reference_id,
+        reference_type=reference_type,
+        reason=reason,
+        performed_by=user_id,
+    )
+    db.add(movement)
+    await db.flush()
+
+    await logger.ainfo(
+        "stock_adjusted",
+        product_id=str(product_id),
+        movement_type=movement_type,
+        change=quantity_change,
+        new_quantity=new_quantity,
+    )
+    return inventory
+
+
+# ---------------------------------------------------------------------------
+# Stock movement history
+# ---------------------------------------------------------------------------
+
+
+async def get_stock_movements(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+) -> list[StockMovement]:
+    """Get stock movement history for a product."""
+    result = await db.execute(
+        select(StockMovement)
+        .where(StockMovement.product_id == product_id)
+        .order_by(StockMovement.id.desc())
+    )
+    return list(result.scalars().all())
+
+
+# ---------------------------------------------------------------------------
+# Depletion forecast
+# ---------------------------------------------------------------------------
+
+
+async def calculate_depletion_forecast(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+) -> DepletionForecastRead:
+    """Compute predicted stock-out date based on 30-day sales velocity."""
+    inventory = await get_inventory_level(db, product_id)
+
+    # Sum all sale depletions for velocity estimate
+    result = await db.execute(
+        select(func.coalesce(func.sum(func.abs(StockMovement.quantity_change)), 0))
+        .where(StockMovement.product_id == product_id)
+        .where(StockMovement.movement_type == MovementType.SALE_DEPLETION)
+    )
+    total_depleted = result.scalar() or 0
+
+    if total_depleted == 0:
+        return DepletionForecastRead(
+            product_id=product_id,
+            current_stock=inventory.quantity_on_hand,
+            avg_daily_depletion=0.0,
+            days_until_stockout=None,
+            estimated_stockout_date=None,
+        )
+
+    avg_daily = total_depleted / 30.0
+    days_left = int(inventory.quantity_on_hand / avg_daily) if avg_daily > 0 else None
+    stockout_date = (
+        date.today() + timedelta(days=days_left) if days_left is not None else None
+    )
+
+    return DepletionForecastRead(
+        product_id=product_id,
+        current_stock=inventory.quantity_on_hand,
+        avg_daily_depletion=round(avg_daily, 2),
+        days_until_stockout=days_left,
+        estimated_stockout_date=stockout_date,
+    )
