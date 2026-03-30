@@ -1,56 +1,117 @@
-# TODO: SQLAlchemy models for the FX domain
-#
-# FXRate
-#   - id: UUID primary key
-#   - pair: String(6), indexed (e.g. "USDNGN", "EURNGN")
-#   - rate: Numeric(14, 4)
-#   - source: String (e.g. "cbn_official", "parallel_market", "manual", "api_provider")
-#   - timestamp: DateTime with timezone (when the rate was effective)
-#   - created_at: DateTime with timezone
-#
-# FXExposure
-#   - id: UUID primary key
-#   - pair: String(6)
-#   - total_exposure_amount: Numeric(14, 2) - total USD-denominated exposure
-#   - locked_amount: Numeric(14, 2) - portion locked at a fixed rate
-#   - locked_rate: Numeric(14, 4) - the rate at which locked portion is hedged
-#   - floating_amount: Numeric(14, 2) - portion exposed to market rates
-#   - reference_id: UUID, nullable (order_id or liability_id)
-#   - reference_type: String, nullable ("order", "loan", "payable")
-#   - created_at: DateTime with timezone
-#   - updated_at: DateTime with timezone
-#
-# FXExposureConfig
-#   - id: UUID primary key
-#   - locked_pct: Numeric(5, 2), default 30.00 (30%)
-#   - floating_pct: Numeric(5, 2), default 70.00 (70%)
-#   - updated_by: ForeignKey -> User.id
-#   - updated_at: DateTime with timezone
-#
-# FXAlert
-#   - id: UUID primary key
-#   - pair: String(6)
-#   - direction: String ("above" or "below")
-#   - threshold_rate: Numeric(14, 4)
-#   - is_enabled: Boolean, default True
-#   - is_triggered: Boolean, default False
-#   - triggered_at: DateTime, nullable
-#   - triggered_rate: Numeric(14, 4), nullable
-#   - created_by: ForeignKey -> User.id
-#   - created_at: DateTime with timezone
-#
-# FXSimulationRun
-#   - id: UUID primary key
-#   - pair: String(6)
-#   - horizon_days: Integer
-#   - num_simulations: Integer (e.g. 10000)
-#   - confidence_level: Numeric(5, 2) (e.g. 95.00)
-#   - current_rate: Numeric(14, 4) - rate at time of simulation
-#   - mean_projected_rate: Numeric(14, 4)
-#   - p5_rate: Numeric(14, 4) - 5th percentile
-#   - p50_rate: Numeric(14, 4) - median
-#   - p95_rate: Numeric(14, 4) - 95th percentile
-#   - var_amount: Numeric(14, 2) - Value at Risk in NGN
-#   - distribution_data: JSON (histogram buckets for charting)
-#   - run_by: ForeignKey -> User.id
-#   - created_at: DateTime with timezone
+"""FX domain SQLAlchemy models."""
+
+import enum
+import uuid
+from datetime import datetime
+from decimal import Decimal
+
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from src.core.database import Base, TimestampMixin, UUIDMixin
+
+
+class RateSource(str, enum.Enum):
+    """Source of the FX rate quote."""
+
+    CBN_OFFICIAL = "cbn_official"
+    PARALLEL_MARKET = "parallel_market"
+    MANUAL = "manual"
+    API_PROVIDER = "api_provider"
+
+
+class AlertDirection(str, enum.Enum):
+    """Direction for FX rate alerts."""
+
+    ABOVE = "above"
+    BELOW = "below"
+
+
+class FXRate(UUIDMixin, Base):
+    """Point-in-time FX rate observation."""
+
+    __tablename__ = "fx_rates"
+
+    pair: Mapped[str] = mapped_column(String(6), index=True)
+    rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    source: Mapped[RateSource] = mapped_column(Enum(RateSource))
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<FXRate(pair={self.pair}, rate={self.rate})>"
+
+
+class FXExposure(UUIDMixin, TimestampMixin, Base):
+    """Currency exposure position tracking."""
+
+    __tablename__ = "fx_exposures"
+
+    pair: Mapped[str] = mapped_column(String(6))
+    total_exposure_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    locked_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    locked_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    floating_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    reference_id: Mapped[uuid.UUID | None] = mapped_column(default=None)
+    reference_type: Mapped[str | None] = mapped_column(String(50), default=None)
+
+    def __repr__(self) -> str:
+        return f"<FXExposure(id={self.id}, pair={self.pair})>"
+
+
+class FXExposureConfig(UUIDMixin, Base):
+    """Configuration for hedge split percentages."""
+
+    __tablename__ = "fx_exposure_configs"
+
+    locked_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("30.00"))
+    floating_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("70.00"))
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<FXExposureConfig(id={self.id})>"
+
+
+class FXAlert(UUIDMixin, Base):
+    """User-defined FX rate threshold alert."""
+
+    __tablename__ = "fx_alerts"
+
+    pair: Mapped[str] = mapped_column(String(6))
+    direction: Mapped[AlertDirection] = mapped_column(Enum(AlertDirection))
+    threshold_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_triggered: Mapped[bool] = mapped_column(Boolean, default=False)
+    triggered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    triggered_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), default=None)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<FXAlert(id={self.id}, pair={self.pair}, direction={self.direction})>"
+
+
+class FXSimulationRun(UUIDMixin, Base):
+    """Results from a Monte Carlo FX simulation."""
+
+    __tablename__ = "fx_simulation_runs"
+
+    pair: Mapped[str] = mapped_column(String(6))
+    horizon_days: Mapped[int] = mapped_column(Integer)
+    num_simulations: Mapped[int] = mapped_column(Integer)
+    confidence_level: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    current_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    mean_projected_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    p5_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    p50_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    p95_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    var_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    distribution_data: Mapped[dict | None] = mapped_column(JSON, default=None)
+    run_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<FXSimulationRun(id={self.id}, pair={self.pair})>"

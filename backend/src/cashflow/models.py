@@ -1,71 +1,140 @@
-# TODO: SQLAlchemy models for the Cashflow domain
-#
-# CashflowProjection
-#   - id: UUID primary key
-#   - projection_date: Date (when the projection was generated)
-#   - horizon_months: Integer, default 6
-#   - monthly_buckets: JSON (list of {month, inflows, outflows, net_cashflow, cumulative_balance})
-#   - total_inflows: Numeric(14, 2)
-#   - total_outflows: Numeric(14, 2)
-#   - net_cashflow: Numeric(14, 2)
-#   - assumptions: JSON (growth_rate, seasonality_factors, fx_rate_assumption)
-#   - generated_by: ForeignKey -> User.id
-#   - created_at: DateTime with timezone
-#
-# ProjectionAssumptions
-#   - id: UUID primary key
-#   - revenue_growth_rate: Numeric(5, 2) - monthly growth assumption (%)
-#   - seasonality_factors: JSON (dict of month -> multiplier, e.g. {"12": 1.3, "1": 0.8})
-#   - fx_rate_assumption: Numeric(14, 4) - assumed USD/NGN rate
-#   - cost_inflation_rate: Numeric(5, 2) - monthly cost increase assumption (%)
-#   - updated_by: ForeignKey -> User.id
-#   - updated_at: DateTime with timezone
-#
-# DSCRRecord
-#   - id: UUID primary key
-#   - period: String (e.g. "2026-03")
-#   - net_operating_income: Numeric(14, 2)
-#   - total_debt_service: Numeric(14, 2)
-#   - dscr_value: Numeric(6, 3) - ratio (e.g. 1.450)
-#   - is_below_threshold: Boolean
-#   - created_at: DateTime with timezone
-#
-# LoanObligation
-#   - id: UUID primary key
-#   - lender_name: String, required
-#   - principal_amount: Numeric(14, 2)
-#   - outstanding_balance: Numeric(14, 2)
-#   - interest_rate: Numeric(5, 2) - annual rate (%)
-#   - term_months: Integer
-#   - start_date: Date
-#   - end_date: Date
-#   - payment_frequency: String ("monthly", "quarterly")
-#   - monthly_payment: Numeric(14, 2) - computed or fixed
-#   - currency: String(3), default "NGN"
-#   - status: String ("active", "settled", "defaulted")
-#   - notes: Text, optional
-#   - created_at: DateTime with timezone
-#   - updated_at: DateTime with timezone
-#
-# LoanPaymentSchedule
-#   - id: UUID primary key
-#   - loan_id: ForeignKey -> LoanObligation.id
-#   - due_date: Date
-#   - principal_portion: Numeric(14, 2)
-#   - interest_portion: Numeric(14, 2)
-#   - total_payment: Numeric(14, 2)
-#   - is_paid: Boolean, default False
-#   - paid_date: Date, nullable
-#
-# StressScenario
-#   - id: UUID primary key
-#   - name: String (e.g. "30% Revenue Drop + FX Shock")
-#   - revenue_shock_pct: Numeric(5, 2) - e.g. -30.00 (%)
-#   - fx_shock_pct: Numeric(5, 2) - e.g. +20.00 (%)
-#   - cost_shock_pct: Numeric(5, 2) - e.g. +15.00 (%)
-#   - base_projection_id: ForeignKey -> CashflowProjection.id
-#   - stressed_buckets: JSON (same structure as monthly_buckets with shocked values)
-#   - stressed_dscr: Numeric(6, 3)
-#   - stressed_runway_months: Integer
-#   - created_by: ForeignKey -> User.id
-#   - created_at: DateTime with timezone
+"""Cashflow domain SQLAlchemy models."""
+
+import enum
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
+
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from src.core.database import Base, TimestampMixin, UUIDMixin
+
+
+class PaymentFrequency(str, enum.Enum):
+    """Loan repayment frequency."""
+
+    MONTHLY = "monthly"
+    QUARTERLY = "quarterly"
+
+
+class LoanStatus(str, enum.Enum):
+    """Loan obligation status."""
+
+    ACTIVE = "active"
+    SETTLED = "settled"
+    DEFAULTED = "defaulted"
+
+
+class CashflowProjection(UUIDMixin, Base):
+    """Generated cashflow forecast over a multi-month horizon."""
+
+    __tablename__ = "cashflow_projections"
+
+    projection_date: Mapped[date] = mapped_column(Date)
+    horizon_months: Mapped[int] = mapped_column(Integer, default=6)
+    monthly_buckets: Mapped[dict | None] = mapped_column(JSON, default=None)
+    total_inflows: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    total_outflows: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    net_cashflow: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    assumptions: Mapped[dict | None] = mapped_column(JSON, default=None)
+    generated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<CashflowProjection(id={self.id}, date={self.projection_date})>"
+
+
+class ProjectionAssumptions(UUIDMixin, Base):
+    """User-editable assumptions feeding cashflow projections."""
+
+    __tablename__ = "projection_assumptions"
+
+    revenue_growth_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    seasonality_factors: Mapped[dict | None] = mapped_column(JSON, default=None)
+    fx_rate_assumption: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    cost_inflation_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<ProjectionAssumptions(id={self.id})>"
+
+
+class DSCRRecord(UUIDMixin, Base):
+    """Debt Service Coverage Ratio calculation per period."""
+
+    __tablename__ = "dscr_records"
+
+    period: Mapped[str] = mapped_column(String(20))
+    net_operating_income: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    total_debt_service: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    dscr_value: Mapped[Decimal] = mapped_column(Numeric(6, 3))
+    is_below_threshold: Mapped[bool] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<DSCRRecord(id={self.id}, period={self.period}, dscr={self.dscr_value})>"
+
+
+class LoanObligation(UUIDMixin, TimestampMixin, Base):
+    """Active loan or debt obligation."""
+
+    __tablename__ = "loan_obligations"
+
+    lender_name: Mapped[str] = mapped_column(String(255))
+    principal_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    outstanding_balance: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    interest_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    term_months: Mapped[int] = mapped_column(Integer)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    payment_frequency: Mapped[PaymentFrequency] = mapped_column(Enum(PaymentFrequency))
+    monthly_payment: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    currency: Mapped[str] = mapped_column(String(3), default="NGN")
+    status: Mapped[LoanStatus] = mapped_column(
+        Enum(LoanStatus), default=LoanStatus.ACTIVE
+    )
+    notes: Mapped[str | None] = mapped_column(Text, default=None)
+
+    def __repr__(self) -> str:
+        return f"<LoanObligation(id={self.id}, lender={self.lender_name})>"
+
+
+class LoanPaymentSchedule(UUIDMixin, Base):
+    """Scheduled payment within a loan amortization schedule."""
+
+    __tablename__ = "loan_payment_schedules"
+
+    loan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("loan_obligations.id"))
+    due_date: Mapped[date] = mapped_column(Date)
+    principal_portion: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    interest_portion: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    total_payment: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    is_paid: Mapped[bool] = mapped_column(Boolean, default=False)
+    paid_date: Mapped[date | None] = mapped_column(Date, default=None)
+
+    def __repr__(self) -> str:
+        return f"<LoanPaymentSchedule(id={self.id}, loan_id={self.loan_id})>"
+
+
+class StressScenario(UUIDMixin, Base):
+    """Stress-test scenario applied to a cashflow projection."""
+
+    __tablename__ = "stress_scenarios"
+
+    name: Mapped[str] = mapped_column(String(255))
+    revenue_shock_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    fx_shock_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    cost_shock_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    base_projection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("cashflow_projections.id")
+    )
+    stressed_buckets: Mapped[dict | None] = mapped_column(JSON, default=None)
+    stressed_dscr: Mapped[Decimal] = mapped_column(Numeric(6, 3))
+    stressed_runway_months: Mapped[int] = mapped_column(Integer)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<StressScenario(id={self.id}, name={self.name})>"

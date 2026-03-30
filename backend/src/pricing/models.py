@@ -1,50 +1,106 @@
-# TODO: SQLAlchemy models for the Pricing domain
-#
-# DemandElasticity
-#   - id: UUID primary key
-#   - product_id: ForeignKey -> Product.id, unique
-#   - elasticity_coefficient: Numeric(8, 4) - price elasticity of demand (PED)
-#     (e.g. -1.5 means 1% price increase leads to 1.5% demand decrease)
-#   - r_squared: Numeric(5, 4) - model fit quality (0 to 1)
-#   - data_points_used: Integer - number of price/quantity observations
-#   - calculation_date: Date
-#   - price_range_min: Numeric(12, 2) - observed price range
-#   - price_range_max: Numeric(12, 2)
-#   - demand_curve_data: JSON (list of {price, estimated_demand} for charting)
-#   - created_at: DateTime with timezone
-#
-# MarginTarget
-#   - id: UUID primary key
-#   - product_id: ForeignKey -> Product.id, nullable (null = category-level target)
-#   - category_id: ForeignKey -> ProductCategory.id, nullable
-#   - target_margin_pct: Numeric(5, 2) - desired gross margin percentage
-#   - min_margin_pct: Numeric(5, 2) - minimum acceptable margin (floor)
-#   - priority: Integer, default 1 (for optimization weighting)
-#   - set_by: ForeignKey -> User.id
-#   - created_at: DateTime with timezone
-#   - updated_at: DateTime with timezone
-#
-# PricingRecommendation
-#   - id: UUID primary key
-#   - product_id: ForeignKey -> Product.id
-#   - current_price: Numeric(12, 2)
-#   - recommended_price: Numeric(12, 2)
-#   - expected_demand_change_pct: Numeric(5, 2)
-#   - expected_revenue_change_pct: Numeric(5, 2)
-#   - expected_margin_change_pct: Numeric(5, 2)
-#   - confidence: Numeric(5, 2) - confidence score (0 to 100)
-#   - reasoning: Text - AI-generated explanation
-#   - status: String ("pending", "applied", "rejected", "expired")
-#   - applied_at: DateTime, nullable
-#   - applied_by: ForeignKey -> User.id, nullable
-#   - created_at: DateTime with timezone
-#
-# CrossSubsidyAnalysis
-#   - id: UUID primary key
-#   - analysis_date: Date
-#   - portfolio_total_margin: Numeric(14, 2)
-#   - subsidy_matrix: JSON (dict of product_id -> {subsidizes: [...], subsidized_by: [...]})
-#   - high_margin_products: JSON (list of product_ids carrying the portfolio)
-#   - low_margin_products: JSON (list of product_ids being subsidized)
-#   - recommendations: JSON (list of {product_id, action, reasoning})
-#   - created_at: DateTime with timezone
+"""Pricing domain SQLAlchemy models."""
+
+import enum
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
+
+from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Integer, Numeric, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from src.core.database import Base, TimestampMixin, UUIDMixin
+
+
+class RecommendationStatus(str, enum.Enum):
+    """Status of a pricing recommendation."""
+
+    PENDING = "pending"
+    APPLIED = "applied"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+
+
+class DemandElasticity(UUIDMixin, Base):
+    """Price elasticity of demand calculated per product."""
+
+    __tablename__ = "demand_elasticities"
+
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("products.id"), unique=True
+    )
+    elasticity_coefficient: Mapped[Decimal] = mapped_column(Numeric(8, 4))
+    r_squared: Mapped[Decimal] = mapped_column(Numeric(5, 4))
+    data_points_used: Mapped[int] = mapped_column(Integer)
+    calculation_date: Mapped[date] = mapped_column(Date)
+    price_range_min: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    price_range_max: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    demand_curve_data: Mapped[dict | None] = mapped_column(JSON, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<DemandElasticity(id={self.id}, product_id={self.product_id})>"
+
+
+class MarginTarget(UUIDMixin, TimestampMixin, Base):
+    """Target margin configuration per product or category."""
+
+    __tablename__ = "margin_targets"
+
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("products.id"), default=None
+    )
+    category_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("product_categories.id"), default=None
+    )
+    target_margin_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    min_margin_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    priority: Mapped[int] = mapped_column(Integer, default=1)
+    set_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+
+    def __repr__(self) -> str:
+        return f"<MarginTarget(id={self.id}, target={self.target_margin_pct}%)>"
+
+
+class PricingRecommendation(UUIDMixin, Base):
+    """AI-generated pricing recommendation for a product."""
+
+    __tablename__ = "pricing_recommendations"
+
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
+    current_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    recommended_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    expected_demand_change_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    expected_revenue_change_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    expected_margin_change_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    confidence: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    reasoning: Mapped[str] = mapped_column(Text)
+    status: Mapped[RecommendationStatus] = mapped_column(
+        Enum(RecommendationStatus), default=RecommendationStatus.PENDING
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
+    applied_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<PricingRecommendation(id={self.id}, product_id={self.product_id})>"
+
+
+class CrossSubsidyAnalysis(UUIDMixin, Base):
+    """Portfolio-level cross-subsidy analysis snapshot."""
+
+    __tablename__ = "cross_subsidy_analyses"
+
+    analysis_date: Mapped[date] = mapped_column(Date)
+    portfolio_total_margin: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    subsidy_matrix: Mapped[dict | None] = mapped_column(JSON, default=None)
+    high_margin_products: Mapped[dict | None] = mapped_column(JSON, default=None)
+    low_margin_products: Mapped[dict | None] = mapped_column(JSON, default=None)
+    recommendations: Mapped[dict | None] = mapped_column(JSON, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<CrossSubsidyAnalysis(id={self.id}, date={self.analysis_date})>"
