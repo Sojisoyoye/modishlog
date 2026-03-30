@@ -1,74 +1,116 @@
-# TODO: Pydantic schemas for the Sales domain
-#
-# --- Sale Schemas ---
-# SaleCreate
-#   - product_id: UUID
-#   - quantity: int (> 0)
-#   - unit_price: Decimal
-#   - sale_date: date
-#   - channel: str (validated against allowed channels)
-#   - notes: str | None
-#
-# SaleUpdate
-#   - quantity: int | None
-#   - unit_price: Decimal | None
-#   - sale_date: date | None
-#   - channel: str | None
-#   - status: str | None
-#   - notes: str | None
-#
-# SaleRead
-#   - id: UUID
-#   - product_id: UUID
-#   - product_name: str (joined from Product)
-#   - quantity, unit_price, total_amount, currency
-#   - sale_date, channel, status, notes
-#   - recorded_by: UUID
-#   - created_at, updated_at: datetime
-#
-# SaleListResponse
-#   - items: list[SaleRead]
-#   - total: int
-#   - page: int
-#   - page_size: int
-#
-# --- Bulk Upload Schemas ---
-# BulkUploadResponse
-#   - job_id: UUID
-#   - status: str
-#   - message: str
-#
-# BulkUploadStatus
-#   - job_id: UUID
-#   - status: str
-#   - total_rows, processed_rows, successful_rows, failed_rows: int
-#   - completed_at: datetime | None
-#
-# BulkUploadError
-#   - row: int
-#   - field: str
-#   - error: str
-#
-# --- Audit Schemas ---
-# AuditEntryRead
-#   - id: UUID
-#   - sale_id: UUID
-#   - action: str
-#   - field_changes: dict
-#   - performed_by: UUID
-#   - reason: str | None
-#   - created_at: datetime
-#
-# --- Reporting Schemas ---
-# SalesSummary
-#   - period: str (e.g. "2026-03")
-#   - total_revenue: Decimal
-#   - total_units_sold: int
-#   - transaction_count: int
-#   - top_products: list[dict] (product_id, name, revenue, units)
-#
-# SalesHistoryEntry
-#   - date: date
-#   - revenue: Decimal
-#   - units_sold: int
-#   - transaction_count: int
+"""Sales domain Pydantic schemas."""
+
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+# ---------------------------------------------------------------------------
+# Sale schemas
+# ---------------------------------------------------------------------------
+
+
+class SaleCreate(BaseModel):
+    product_id: uuid.UUID
+    quantity: int = Field(..., gt=0)
+    unit_price: Decimal = Field(..., gt=0)
+    sale_date: date
+    channel: str = Field(..., pattern="^(online|retail|wholesale)$")
+    notes: str | None = None
+
+
+class SaleUpdate(BaseModel):
+    quantity: int | None = Field(None, gt=0)
+    unit_price: Decimal | None = Field(None, gt=0)
+    sale_date: date | None = None
+    channel: str | None = Field(None, pattern="^(online|retail|wholesale)$")
+    notes: str | None = None
+
+
+class SaleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_id: uuid.UUID
+    quantity: int
+    unit_price: Decimal
+    total_amount: Decimal
+    currency: str
+    sale_date: date
+    channel: str
+    status: str
+    notes: str | None = None
+    recorded_by: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
+
+class SaleListResponse(BaseModel):
+    items: list[SaleRead]
+    total: int
+    page: int
+    page_size: int
+
+
+# ---------------------------------------------------------------------------
+# Bulk upload schemas
+# ---------------------------------------------------------------------------
+
+
+class BulkUploadResponse(BaseModel):
+    job_id: uuid.UUID
+    status: str
+    message: str
+
+
+class BulkUploadStatus(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    filename: str
+    status: str
+    total_rows: int
+    processed_rows: int
+    successful_rows: int
+    failed_rows: int
+    error_details: dict | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# Audit schemas
+# ---------------------------------------------------------------------------
+
+
+class AuditEntryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    sale_id: uuid.UUID
+    action: str
+    field_changes: dict | None = None
+    performed_by: uuid.UUID
+    reason: str | None = None
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Reporting schemas
+# ---------------------------------------------------------------------------
+
+
+class SalesSummary(BaseModel):
+    period: str
+    total_revenue: Decimal
+    total_units_sold: int
+    transaction_count: int
+
+
+class SalesHistoryEntry(BaseModel):
+    date: date
+    revenue: Decimal
+    units_sold: int
+    transaction_count: int

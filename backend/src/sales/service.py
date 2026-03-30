@@ -1,56 +1,467 @@
-# TODO: Async service functions for the Sales domain
-#
-# --- Daily Sales Entry ---
-# async def create_sale(db, sale_in: SaleCreate, user_id: UUID) -> Sale
-#   - Validate product exists and is active
-#   - Compute total_amount = quantity * unit_price
-#   - Create Sale record with status "completed"
-#   - Create initial SaleAuditEntry (action="created")
-#   - Trigger inventory depletion event (publish to inventory service)
-#
-# async def get_sale(db, sale_id: UUID) -> Sale
-#   - Fetch sale with product relationship loaded
-#   - Raise SaleNotFoundError if missing
-#
-# async def list_sales(db, filters: dict, page: int, page_size: int) -> tuple[list[Sale], int]
-#   - Support filtering by: date range, product_id, channel, status
-#   - Paginate and return (items, total_count)
-#
-# async def update_sale(db, sale_id: UUID, sale_in: SaleUpdate, user_id: UUID) -> Sale
-#   - Fetch existing, raise SaleNotFoundError if missing
-#   - Raise SaleAlreadyVoidedError if status is "voided"
-#   - Log field changes to SaleAuditEntry
-#   - If quantity changed, trigger inventory adjustment event
-#
-# async def void_sale(db, sale_id: UUID, reason: str, user_id: UUID) -> Sale
-#   - Soft-delete: set status = "voided"
-#   - Create audit entry with reason
-#   - Trigger inventory reversal event (restore stock)
-#
-# --- Bulk CSV Upload ---
-# async def process_bulk_upload(db, file: UploadFile, user_id: UUID) -> SaleBulkUploadJob
-#   - Create SaleBulkUploadJob with status "pending"
-#   - Parse CSV, validate headers
-#   - Kick off background task for row-by-row processing
-#
-# async def process_upload_rows(db, job_id: UUID) -> None
-#   - Background task: iterate rows, validate each, create Sale records
-#   - Track successful/failed rows, store error_details JSON
-#   - Update job status on completion
-#
-# async def get_upload_status(db, job_id: UUID) -> SaleBulkUploadJob
-# async def get_upload_errors(db, job_id: UUID) -> list[dict]
-#
-# --- Sales Audit Trail ---
-# async def get_sale_audit_trail(db, sale_id: UUID) -> list[SaleAuditEntry]
-# async def list_recent_audit_events(db, page: int, page_size: int) -> tuple[list[SaleAuditEntry], int]
-#
-# --- Sales History & Reporting ---
-# async def get_sales_history(db, granularity: str, date_from: date, date_to: date) -> list[SalesHistoryEntry]
-#   - Aggregate by day, week, or month
-#
-# async def get_sales_summary(db, date_from: date, date_to: date) -> SalesSummary
-#   - Total revenue, units, transaction count, top products
-#
-# async def get_sales_by_product(db, product_id: UUID, date_from: date, date_to: date) -> list[SalesHistoryEntry]
-# async def get_sales_by_channel(db, date_from: date, date_to: date) -> dict[str, SalesSummary]
+"""Sales domain business logic."""
+
+import csv
+import io
+import uuid
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
+
+import structlog
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.inventory.models import MovementType
+from src.inventory.service import adjust_stock
+from src.products.models import Product
+from src.sales.exceptions import (
+    BulkUploadJobNotFoundError,
+    InvalidCSVFormatError,
+    SaleAlreadyVoidedError,
+    SaleNotFoundError,
+)
+from src.sales.models import (
+    Sale,
+    SaleAuditEntry,
+    SaleBulkUploadJob,
+    SaleChannel,
+    SaleStatus,
+    UploadJobStatus,
+)
+from src.sales.schemas import SaleCreate, SalesHistoryEntry, SalesSummary, SaleUpdate
+
+logger = structlog.get_logger()
+
+REQUIRED_CSV_HEADERS = {"product_id", "quantity", "unit_price", "sale_date", "channel"}
+
+
+# ---------------------------------------------------------------------------
+# Daily sales entry
+# ---------------------------------------------------------------------------
+
+
+async def create_sale(
+    db: AsyncSession,
+    data: SaleCreate,
+    user_id: uuid.UUID,
+) -> Sale:
+    """Record a sale and deplete inventory atomically."""
+    # Validate product exists and is active
+    result = await db.execute(
+        select(Product).where(Product.id == data.product_id)
+    )
+    product = result.scalar_one_or_none()
+    if not product:
+        from src.products.exceptions import ProductNotFoundError
+
+        raise ProductNotFoundError(product_id=data.product_id)
+    if not product.is_active:
+        from src.sales.exceptions import SaleValidationError
+
+        raise SaleValidationError("product_id", str(data.product_id), "Product is inactive")
+
+    total_amount = data.unit_price * data.quantity
+
+    sale = Sale(
+        product_id=data.product_id,
+        quantity=data.quantity,
+        unit_price=data.unit_price,
+        total_amount=total_amount,
+        currency=product.currency,
+        sale_date=data.sale_date,
+        channel=SaleChannel(data.channel),
+        status=SaleStatus.COMPLETED,
+        notes=data.notes,
+        recorded_by=user_id,
+    )
+    db.add(sale)
+    await db.flush()
+
+    # Audit entry
+    audit = SaleAuditEntry(
+        sale_id=sale.id,
+        action="created",
+        field_changes=None,
+        performed_by=user_id,
+        reason=None,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(audit)
+
+    # Deplete inventory
+    await adjust_stock(
+        db,
+        product_id=data.product_id,
+        quantity_change=-data.quantity,
+        movement_type=MovementType.SALE_DEPLETION.value,
+        reason=f"Sale {sale.id}",
+        user_id=user_id,
+        reference_id=sale.id,
+        reference_type="sale",
+    )
+
+    await logger.ainfo(
+        "sale_created",
+        sale_id=str(sale.id),
+        product_id=str(data.product_id),
+        quantity=data.quantity,
+        total=str(total_amount),
+    )
+    return sale
+
+
+async def get_sale(db: AsyncSession, sale_id: uuid.UUID) -> Sale:
+    """Get a single sale by ID."""
+    result = await db.execute(
+        select(Sale).where(Sale.id == sale_id)
+    )
+    sale = result.scalar_one_or_none()
+    if not sale:
+        raise SaleNotFoundError(sale_id)
+    return sale
+
+
+async def list_sales(
+    db: AsyncSession,
+    *,
+    product_id: uuid.UUID | None = None,
+    channel: str | None = None,
+    status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[Sale], int]:
+    """List sales with filtering and pagination."""
+    query = select(Sale)
+    count_query = select(func.count()).select_from(Sale)
+
+    if product_id is not None:
+        query = query.where(Sale.product_id == product_id)
+        count_query = count_query.where(Sale.product_id == product_id)
+    if channel is not None:
+        query = query.where(Sale.channel == SaleChannel(channel))
+        count_query = count_query.where(Sale.channel == SaleChannel(channel))
+    if status is not None:
+        query = query.where(Sale.status == SaleStatus(status))
+        count_query = count_query.where(Sale.status == SaleStatus(status))
+    if date_from is not None:
+        query = query.where(Sale.sale_date >= date_from)
+        count_query = count_query.where(Sale.sale_date >= date_from)
+    if date_to is not None:
+        query = query.where(Sale.sale_date <= date_to)
+        count_query = count_query.where(Sale.sale_date <= date_to)
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    offset = (page - 1) * page_size
+    query = query.order_by(Sale.sale_date.desc()).offset(offset).limit(page_size)
+    result = await db.execute(query)
+    items = list(result.scalars().all())
+
+    return items, total
+
+
+async def update_sale(
+    db: AsyncSession,
+    sale_id: uuid.UUID,
+    data: SaleUpdate,
+    user_id: uuid.UUID,
+) -> Sale:
+    """Update a sale. Adjusts inventory if quantity changes."""
+    sale = await get_sale(db, sale_id)
+
+    if sale.status == SaleStatus.VOIDED:
+        raise SaleAlreadyVoidedError(sale_id)
+
+    update_fields = data.model_dump(exclude_unset=True)
+    if not update_fields:
+        return sale
+
+    # Track changes for audit
+    field_changes = {}
+    old_quantity = sale.quantity
+    quantity_changed = False
+
+    for field, value in update_fields.items():
+        old_value = getattr(sale, field)
+        if old_value != value:
+            field_changes[field] = {"old": str(old_value), "new": str(value)}
+
+    # Apply updates
+    for field, value in update_fields.items():
+        if field == "channel":
+            setattr(sale, field, SaleChannel(value))
+        else:
+            setattr(sale, field, value)
+
+    # Recalculate total if quantity or price changed
+    if "quantity" in update_fields or "unit_price" in update_fields:
+        sale.total_amount = sale.unit_price * sale.quantity
+
+    if "quantity" in update_fields and update_fields["quantity"] != old_quantity:
+        quantity_changed = True
+
+    await db.flush()
+
+    # Audit entry
+    if field_changes:
+        audit = SaleAuditEntry(
+            sale_id=sale.id,
+            action="updated",
+            field_changes=field_changes,
+            performed_by=user_id,
+            reason=None,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(audit)
+
+    # Adjust inventory if quantity changed
+    if quantity_changed:
+        quantity_diff = old_quantity - sale.quantity  # positive = restoring, negative = depleting more
+        await adjust_stock(
+            db,
+            product_id=sale.product_id,
+            quantity_change=quantity_diff,
+            movement_type=MovementType.SALE_DEPLETION.value,
+            reason=f"Sale {sale.id} quantity updated from {old_quantity} to {sale.quantity}",
+            user_id=user_id,
+            reference_id=sale.id,
+            reference_type="sale_update",
+        )
+
+    await logger.ainfo("sale_updated", sale_id=str(sale_id), changes=field_changes)
+    return sale
+
+
+async def void_sale(
+    db: AsyncSession,
+    sale_id: uuid.UUID,
+    reason: str,
+    user_id: uuid.UUID,
+) -> Sale:
+    """Void a sale and restore inventory."""
+    sale = await get_sale(db, sale_id)
+
+    if sale.status == SaleStatus.VOIDED:
+        raise SaleAlreadyVoidedError(sale_id)
+
+    sale.status = SaleStatus.VOIDED
+    await db.flush()
+
+    # Audit entry
+    audit = SaleAuditEntry(
+        sale_id=sale.id,
+        action="voided",
+        field_changes={"status": {"old": "completed", "new": "voided"}},
+        performed_by=user_id,
+        reason=reason,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(audit)
+
+    # Restore inventory
+    await adjust_stock(
+        db,
+        product_id=sale.product_id,
+        quantity_change=sale.quantity,
+        movement_type=MovementType.SALE_REVERSAL.value,
+        reason=f"Voided sale {sale.id}: {reason}",
+        user_id=user_id,
+        reference_id=sale.id,
+        reference_type="sale_void",
+    )
+
+    await logger.ainfo("sale_voided", sale_id=str(sale_id), reason=reason)
+    return sale
+
+
+# ---------------------------------------------------------------------------
+# Bulk CSV upload
+# ---------------------------------------------------------------------------
+
+
+async def process_bulk_upload(
+    db: AsyncSession,
+    file_content: bytes,
+    filename: str,
+    user_id: uuid.UUID,
+) -> SaleBulkUploadJob:
+    """Parse and process a CSV file of sales records."""
+    # Create job record
+    job = SaleBulkUploadJob(
+        filename=filename,
+        status=UploadJobStatus.PROCESSING,
+        total_rows=0,
+        processed_rows=0,
+        successful_rows=0,
+        failed_rows=0,
+        uploaded_by=user_id,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(job)
+    await db.flush()
+
+    # Parse CSV
+    try:
+        text = file_content.decode("utf-8")
+        reader = csv.DictReader(io.StringIO(text))
+        if not reader.fieldnames:
+            raise InvalidCSVFormatError(filename, "Empty CSV file")
+
+        headers = set(reader.fieldnames)
+        missing = REQUIRED_CSV_HEADERS - headers
+        if missing:
+            raise InvalidCSVFormatError(
+                filename, f"Missing required headers: {', '.join(sorted(missing))}"
+            )
+
+        rows = list(reader)
+    except UnicodeDecodeError:
+        raise InvalidCSVFormatError(filename, "File is not valid UTF-8")
+
+    job.total_rows = len(rows)
+    errors: list[dict] = []
+
+    for i, row in enumerate(rows, start=1):
+        job.processed_rows = i
+        try:
+            sale_data = SaleCreate(
+                product_id=uuid.UUID(row["product_id"]),
+                quantity=int(row["quantity"]),
+                unit_price=Decimal(row["unit_price"]),
+                sale_date=date.fromisoformat(row["sale_date"]),
+                channel=row["channel"],
+                notes=row.get("notes"),
+            )
+            await create_sale(db, sale_data, user_id)
+            job.successful_rows += 1
+        except (ValueError, InvalidOperation, KeyError) as e:
+            job.failed_rows += 1
+            errors.append({"row": i, "error": str(e)})
+        except Exception as e:
+            job.failed_rows += 1
+            errors.append({"row": i, "error": str(e)})
+
+    # Set final status
+    if job.failed_rows == 0:
+        job.status = UploadJobStatus.COMPLETED
+    elif job.successful_rows == 0:
+        job.status = UploadJobStatus.FAILED
+    else:
+        job.status = UploadJobStatus.PARTIAL
+
+    if errors:
+        job.error_details = {"errors": errors}
+
+    job.completed_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    await logger.ainfo(
+        "bulk_upload_completed",
+        job_id=str(job.id),
+        total=job.total_rows,
+        successful=job.successful_rows,
+        failed=job.failed_rows,
+    )
+    return job
+
+
+async def get_upload_status(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+) -> SaleBulkUploadJob:
+    """Get the status of a bulk upload job."""
+    result = await db.execute(
+        select(SaleBulkUploadJob).where(SaleBulkUploadJob.id == job_id)
+    )
+    job = result.scalar_one_or_none()
+    if not job:
+        raise BulkUploadJobNotFoundError(job_id)
+    return job
+
+
+# ---------------------------------------------------------------------------
+# Audit trail
+# ---------------------------------------------------------------------------
+
+
+async def get_sale_audit_trail(
+    db: AsyncSession,
+    sale_id: uuid.UUID,
+) -> list[SaleAuditEntry]:
+    """Get the full audit trail for a sale."""
+    await get_sale(db, sale_id)  # ensure sale exists
+    result = await db.execute(
+        select(SaleAuditEntry)
+        .where(SaleAuditEntry.sale_id == sale_id)
+        .order_by(SaleAuditEntry.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+# ---------------------------------------------------------------------------
+# Sales reporting
+# ---------------------------------------------------------------------------
+
+
+async def get_sales_summary(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+) -> SalesSummary:
+    """Get sales summary for a date range."""
+    base_filter = (
+        (Sale.sale_date >= date_from)
+        & (Sale.sale_date <= date_to)
+        & (Sale.status == SaleStatus.COMPLETED)
+    )
+
+    result = await db.execute(
+        select(
+            func.coalesce(func.sum(Sale.total_amount), 0),
+            func.coalesce(func.sum(Sale.quantity), 0),
+            func.count(Sale.id),
+        ).where(base_filter)
+    )
+    row = result.one()
+
+    return SalesSummary(
+        period=f"{date_from} to {date_to}",
+        total_revenue=row[0],
+        total_units_sold=row[1],
+        transaction_count=row[2],
+    )
+
+
+async def get_sales_history(
+    db: AsyncSession,
+    date_from: date,
+    date_to: date,
+) -> list[SalesHistoryEntry]:
+    """Get daily aggregated sales history."""
+    result = await db.execute(
+        select(
+            Sale.sale_date,
+            func.sum(Sale.total_amount),
+            func.sum(Sale.quantity),
+            func.count(Sale.id),
+        )
+        .where(
+            (Sale.sale_date >= date_from)
+            & (Sale.sale_date <= date_to)
+            & (Sale.status == SaleStatus.COMPLETED)
+        )
+        .group_by(Sale.sale_date)
+        .order_by(Sale.sale_date)
+    )
+    rows = result.all()
+    return [
+        SalesHistoryEntry(
+            date=row[0],
+            revenue=row[1],
+            units_sold=row[2],
+            transaction_count=row[3],
+        )
+        for row in rows
+    ]

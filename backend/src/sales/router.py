@@ -1,27 +1,209 @@
-from fastapi import APIRouter
+"""Sales API routes."""
+
+import uuid
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.auth.dependencies import get_current_active_user
+from src.auth.models import User
+from src.core.database import get_db
+from src.inventory.exceptions import (
+    InvalidStockAdjustmentError,
+    ProductStockNotFoundError,
+)
+from src.products.exceptions import ProductNotFoundError
+from src.sales.exceptions import (
+    BulkUploadJobNotFoundError,
+    InvalidCSVFormatError,
+    SaleAlreadyVoidedError,
+    SaleNotFoundError,
+    SaleValidationError,
+)
+from src.sales.schemas import (
+    AuditEntryRead,
+    BulkUploadResponse,
+    BulkUploadStatus,
+    SaleCreate,
+    SaleListResponse,
+    SaleRead,
+    SalesHistoryEntry,
+    SalesSummary,
+    SaleUpdate,
+)
+from src.sales.service import (
+    create_sale,
+    get_sale,
+    get_sale_audit_trail,
+    get_sales_history,
+    get_sales_summary,
+    get_upload_status,
+    list_sales,
+    process_bulk_upload,
+    update_sale,
+    void_sale,
+)
 
 router = APIRouter()
 
-# TODO: Planned endpoints for the Sales domain:
-#
-# --- Daily Sales Entry ---
-# POST   /sales/                        - Record a single sale (product_id, quantity, unit_price, sale_date, channel)
-# GET    /sales/                        - List sales with filters (date range, product, channel, status)
-# GET    /sales/{sale_id}               - Retrieve a single sale record by ID
-# PUT    /sales/{sale_id}               - Update a sale record (corrections, status changes)
-# DELETE /sales/{sale_id}               - Void / cancel a sale (soft-delete with audit entry)
-#
-# --- Bulk CSV Upload ---
-# POST   /sales/upload                  - Upload a CSV file of sales records for batch processing
-# GET    /sales/upload/{job_id}/status   - Check the status of a bulk upload job (pending, processing, completed, failed)
-# GET    /sales/upload/{job_id}/errors   - Retrieve row-level validation errors from a failed/partial upload
-#
-# --- Sales Audit Trail ---
-# GET    /sales/{sale_id}/audit          - Retrieve the full audit trail for a specific sale
-# GET    /sales/audit                    - List recent audit events across all sales (paginated)
-#
-# --- Sales History & Reporting ---
-# GET    /sales/history                  - Aggregated sales history (daily, weekly, monthly roll-ups)
-# GET    /sales/summary                  - Sales summary dashboard data (total revenue, units sold, top products)
-# GET    /sales/by-product/{product_id}  - Sales history filtered by a specific product
-# GET    /sales/by-channel               - Sales breakdown by channel (online, retail, wholesale)
+
+# ---------------------------------------------------------------------------
+# Daily sales entry
+# ---------------------------------------------------------------------------
+
+
+@router.post("", response_model=SaleRead, status_code=status.HTTP_201_CREATED)
+async def create_sale_endpoint(
+    body: SaleCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Record a new sale."""
+    try:
+        return await create_sale(db, body, current_user.id)
+    except ProductNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except SaleValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except (ProductStockNotFoundError, InvalidStockAdjustmentError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("", response_model=SaleListResponse)
+async def list_sales_endpoint(
+    product_id: uuid.UUID | None = None,
+    channel: str | None = None,
+    sale_status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    db: AsyncSession = Depends(get_db),
+):
+    """List sales with optional filters."""
+    items, total = await list_sales(
+        db,
+        product_id=product_id,
+        channel=channel,
+        status=sale_status,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        page_size=page_size,
+    )
+    return SaleListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/summary", response_model=SalesSummary)
+async def sales_summary_endpoint(
+    date_from: date,
+    date_to: date,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get sales summary for a date range."""
+    return await get_sales_summary(db, date_from, date_to)
+
+
+@router.get("/history", response_model=list[SalesHistoryEntry])
+async def sales_history_endpoint(
+    date_from: date,
+    date_to: date,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get daily aggregated sales history."""
+    return await get_sales_history(db, date_from, date_to)
+
+
+@router.post("/upload", response_model=BulkUploadResponse)
+async def upload_sales_csv_endpoint(
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Upload a CSV file of sales records."""
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only CSV files are accepted",
+        )
+    try:
+        content = await file.read()
+        job = await process_bulk_upload(db, content, file.filename, current_user.id)
+        return BulkUploadResponse(
+            job_id=job.id,
+            status=job.status.value,
+            message=f"Processed {job.total_rows} rows: {job.successful_rows} successful, {job.failed_rows} failed",
+        )
+    except InvalidCSVFormatError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/upload/{job_id}/status", response_model=BulkUploadStatus)
+async def upload_status_endpoint(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Check the status of a bulk upload job."""
+    try:
+        return await get_upload_status(db, job_id)
+    except BulkUploadJobNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/{sale_id}", response_model=SaleRead)
+async def get_sale_endpoint(
+    sale_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single sale by ID."""
+    try:
+        return await get_sale(db, sale_id)
+    except SaleNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.put("/{sale_id}", response_model=SaleRead)
+async def update_sale_endpoint(
+    sale_id: uuid.UUID,
+    body: SaleUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Update a sale record."""
+    try:
+        return await update_sale(db, sale_id, body, current_user.id)
+    except SaleNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except SaleAlreadyVoidedError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except (ProductStockNotFoundError, InvalidStockAdjustmentError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.delete("/{sale_id}", response_model=SaleRead)
+async def void_sale_endpoint(
+    sale_id: uuid.UUID,
+    reason: str = "No reason provided",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Void a sale (soft-delete with inventory reversal)."""
+    try:
+        return await void_sale(db, sale_id, reason, current_user.id)
+    except SaleNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except SaleAlreadyVoidedError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/{sale_id}/audit", response_model=list[AuditEntryRead])
+async def sale_audit_trail_endpoint(
+    sale_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the audit trail for a specific sale."""
+    try:
+        return await get_sale_audit_trail(db, sale_id)
+    except SaleNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
