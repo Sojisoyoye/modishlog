@@ -17,42 +17,54 @@ export const routes: Routes = [
         path: 'dashboard',
         loadComponent: () =>
           import('./features/dashboard/pages/dashboard-page.component').then(
-            (m) => m.DashboardPageComponent
+            (m) => m.DashboardPageComponent,
           ),
       },
       {
         path: 'sales',
         loadComponent: () =>
           import('./features/sales/pages/sales-page.component').then(
-            (m) => m.SalesPageComponent
+            (m) => m.SalesPageComponent,
           ),
       },
       {
         path: 'inventory',
         loadComponent: () =>
           import('./features/inventory/pages/inventory-page.component').then(
-            (m) => m.InventoryPageComponent
+            (m) => m.InventoryPageComponent,
           ),
       },
       {
         path: 'orders',
         loadComponent: () =>
           import('./features/orders/pages/orders-page.component').then(
-            (m) => m.OrdersPageComponent
+            (m) => m.OrdersPageComponent,
           ),
       },
       {
         path: 'pricing',
         loadComponent: () =>
           import('./features/pricing/pages/pricing-page.component').then(
-            (m) => m.PricingPageComponent
+            (m) => m.PricingPageComponent,
           ),
       },
       {
         path: 'cashflow',
         loadComponent: () =>
           import('./features/cashflow/pages/cashflow-page.component').then(
-            (m) => m.CashflowPageComponent
+            (m) => m.CashflowPageComponent,
+          ),
+      },
+      {
+        path: 'fx',
+        loadComponent: () =>
+          import('./features/fx/pages/fx-page.component').then((m) => m.FxPageComponent),
+      },
+      {
+        path: 'recommendations',
+        loadComponent: () =>
+          import('./features/recommendations/pages/recommendations-page.component').then(
+            (m) => m.RecommendationsPageComponent,
           ),
       },
     ],
@@ -61,7 +73,7 @@ export const routes: Routes = [
     path: 'login',
     loadComponent: () =>
       import('./features/auth/pages/login-page.component').then(
-        (m) => m.LoginPageComponent
+        (m) => m.LoginPageComponent,
       ),
   },
   {
