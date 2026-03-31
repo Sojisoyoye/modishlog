@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "primeicons/primeicons.css";
 @plugin "@tailwindcss/forms";
+@source "./app/**/*.{html,ts}";
 
 @theme {
   --color-primary: #1F4E79;
