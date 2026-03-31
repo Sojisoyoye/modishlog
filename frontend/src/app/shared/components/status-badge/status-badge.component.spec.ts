@@ -25,13 +25,13 @@ describe('StatusBadgeComponent', () => {
   it('applies success class for success status', () => {
     fixture.componentRef.setInput('status', 'success');
     fixture.detectChanges();
-    expect(fixture.componentInstance.badgeClass()).toContain('success');
+    expect(fixture.componentInstance.badgeClass()).toContain('green');
   });
 
   it('applies danger class for danger status', () => {
     fixture.componentRef.setInput('status', 'danger');
     fixture.detectChanges();
-    expect(fixture.componentInstance.badgeClass()).toContain('danger');
+    expect(fixture.componentInstance.badgeClass()).toContain('red');
   });
 
   it('defaults to neutral class', () => {

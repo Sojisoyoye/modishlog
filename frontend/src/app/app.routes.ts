@@ -4,8 +4,7 @@ import { authGuard } from './core/guards/auth.guard';
 export const routes: Routes = [
   {
     path: '',
-    loadComponent: () =>
-      import('./layout/shell/shell.component').then((m) => m.ShellComponent),
+    loadComponent: () => import('./layout/shell/shell.component').then((m) => m.ShellComponent),
     canActivate: [authGuard],
     children: [
       {
@@ -23,9 +22,7 @@ export const routes: Routes = [
       {
         path: 'sales',
         loadComponent: () =>
-          import('./features/sales/pages/sales-page.component').then(
-            (m) => m.SalesPageComponent,
-          ),
+          import('./features/sales/pages/sales-page.component').then((m) => m.SalesPageComponent),
       },
       {
         path: 'inventory',
@@ -72,9 +69,7 @@ export const routes: Routes = [
   {
     path: 'login',
     loadComponent: () =>
-      import('./features/auth/pages/login-page.component').then(
-        (m) => m.LoginPageComponent,
-      ),
+      import('./features/auth/pages/login-page.component').then((m) => m.LoginPageComponent),
   },
   {
     path: '**',

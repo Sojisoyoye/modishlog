@@ -11,20 +11,22 @@ interface TableColumn {
   standalone: true,
   imports: [],
   template: `
-    <div class="overflow-x-auto rounded-lg border border-gray-200 bg-surface">
+    <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white">
       <table class="min-w-full divide-y divide-gray-200">
-        <thead class="bg-gray-50">
-          <tr>
+        <thead>
+          <tr class="bg-gray-50/80">
             @for (col of columns(); track col.key) {
-              <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted">
+              <th
+                class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted"
+              >
                 {{ col.header }}
               </th>
             }
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-200">
+        <tbody class="divide-y divide-gray-100">
           @for (row of data(); track $index) {
-            <tr class="hover:bg-gray-50" [class.bg-gray-50]="$index % 2 === 1">
+            <tr class="transition-colors hover:bg-gray-50/50">
               @for (col of columns(); track col.key) {
                 <td class="whitespace-nowrap px-4 py-3 text-sm text-text">
                   {{ row[col.key] }}
@@ -33,7 +35,11 @@ interface TableColumn {
             </tr>
           } @empty {
             <tr>
-              <td [attr.colspan]="columns().length" class="px-4 py-8 text-center text-sm text-muted">
+              <td
+                [attr.colspan]="columns().length"
+                class="px-4 py-12 text-center text-sm text-muted"
+              >
+                <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
                 No data available
               </td>
             </tr>

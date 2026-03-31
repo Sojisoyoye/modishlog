@@ -21,35 +21,43 @@ import { ProductsService, Product } from '../../../core/services/products.servic
     <p-toast />
     <div>
       <div class="mb-6 flex items-center justify-between">
-        <h2 class="text-xl font-bold text-text">Orders</h2>
+        <div>
+          <h2 class="text-2xl font-bold text-text">Orders</h2>
+          <p class="mt-1 text-sm text-muted">Track purchase orders and pipeline</p>
+        </div>
         <button
           (click)="showCreate = true"
-          class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+          class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
         >
-          <i class="pi pi-plus mr-1"></i> New Order
+          <i class="pi pi-plus text-sm"></i> New Order
         </button>
       </div>
 
       <!-- Pipeline View -->
       <div class="mb-6 flex gap-4 overflow-x-auto pb-2">
         @for (status of pipelineStatuses; track status) {
-          <div class="min-w-48 rounded-lg border border-gray-200 bg-surface p-4">
-            <h4 class="mb-3 text-xs font-semibold uppercase text-muted">{{ status }}</h4>
+          <div class="min-w-48 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div class="mb-3 flex items-center justify-between">
+              <h4 class="text-xs font-bold uppercase tracking-wider text-muted">{{ status }}</h4>
+              <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-text">
+                {{ ordersByStatus(status).length }}
+              </span>
+            </div>
             <div class="space-y-2">
               @for (order of ordersByStatus(status); track order.id) {
                 <div
                   (click)="viewOrder(order)"
-                  class="cursor-pointer rounded-lg border border-gray-100 p-3 hover:border-secondary"
+                  class="cursor-pointer rounded-lg border border-gray-100 p-3 transition-all hover:border-secondary hover:shadow-sm"
                 >
-                  <p class="text-sm font-medium text-text">{{ order.order_number }}</p>
-                  <p class="text-xs text-muted">{{ order.supplier }}</p>
-                  <p class="mt-1 text-sm font-semibold text-text">
+                  <p class="text-sm font-semibold text-text">{{ order.order_number }}</p>
+                  <p class="mt-0.5 text-xs text-muted">{{ order.supplier }}</p>
+                  <p class="mt-1.5 text-sm font-bold text-text">
                     {{ order.total_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </p>
                 </div>
               }
               @if (ordersByStatus(status).length === 0) {
-                <p class="text-xs text-muted">No orders</p>
+                <p class="py-2 text-center text-xs text-muted">No orders</p>
               }
             </div>
           </div>
@@ -57,45 +65,74 @@ import { ProductsService, Product } from '../../../core/services/products.servic
       </div>
 
       <!-- Orders Table -->
-      <div class="rounded-lg border border-gray-200 bg-surface p-5">
-        <h3 class="mb-4 text-base font-semibold text-text">All Orders</h3>
+      <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+            <i class="pi pi-list text-sm text-secondary"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">All Orders</h3>
+        </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase text-muted">Order #</th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase text-muted">Supplier</th>
-                <th class="px-3 py-2 text-right text-xs font-medium uppercase text-muted">Total (USD)</th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase text-muted">Status</th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase text-muted">ETA</th>
-                <th class="px-3 py-2 text-right text-xs font-medium uppercase text-muted">FX Locked</th>
-                <th class="px-3 py-2 text-right text-xs font-medium uppercase text-muted">FX Float</th>
+            <thead>
+              <tr class="bg-gray-50/80">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                  Order #
+                </th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                  Supplier
+                </th>
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                  Total (USD)
+                </th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                  Status
+                </th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                  ETA
+                </th>
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                  FX Locked
+                </th>
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                  FX Float
+                </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200">
+            <tbody class="divide-y divide-gray-100">
               @for (order of orders(); track order.id) {
-                <tr class="cursor-pointer hover:bg-gray-50" (click)="viewOrder(order)">
-                  <td class="px-3 py-2 font-medium text-secondary">{{ order.order_number }}</td>
-                  <td class="px-3 py-2">{{ order.supplier }}</td>
-                  <td class="px-3 py-2 text-right">
+                <tr
+                  class="cursor-pointer transition-colors hover:bg-gray-50/50"
+                  (click)="viewOrder(order)"
+                >
+                  <td class="px-3 py-2.5 font-semibold text-secondary">{{ order.order_number }}</td>
+                  <td class="px-3 py-2.5">{{ order.supplier }}</td>
+                  <td class="px-3 py-2.5 text-right font-semibold">
                     {{ order.total_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </td>
-                  <td class="px-3 py-2">
+                  <td class="px-3 py-2.5">
                     <app-status-badge [label]="order.status" [status]="orderStatus(order.status)" />
                   </td>
-                  <td class="px-3 py-2 text-muted">
-                    {{ order.estimated_arrival_date ? (order.estimated_arrival_date | date: 'mediumDate') : '--' }}
+                  <td class="px-3 py-2.5 text-muted">
+                    {{
+                      order.estimated_arrival_date
+                        ? (order.estimated_arrival_date | date: 'mediumDate')
+                        : '--'
+                    }}
                   </td>
-                  <td class="px-3 py-2 text-right text-success">
+                  <td class="px-3 py-2.5 text-right font-medium text-success">
                     {{ order.locked_amount_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </td>
-                  <td class="px-3 py-2 text-right text-warning">
+                  <td class="px-3 py-2.5 text-right font-medium text-warning">
                     {{ order.floating_amount_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </td>
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="7" class="px-3 py-8 text-center text-muted">No orders found</td>
+                  <td colspan="7" class="px-3 py-10 text-center text-muted">
+                    <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
+                    No orders found
+                  </td>
                 </tr>
               }
             </tbody>
@@ -112,45 +149,56 @@ import { ProductsService, Product } from '../../../core/services/products.servic
       [style]="{ width: '600px' }"
     >
       @if (selectedOrder()) {
-        <div class="space-y-4">
+        <div class="space-y-5">
           <div class="flex items-center justify-between">
-            <h4 class="font-bold text-text">{{ selectedOrder()!.order_number }}</h4>
-            <app-status-badge [label]="selectedOrder()!.status" [status]="orderStatus(selectedOrder()!.status)" />
+            <h4 class="text-lg font-bold text-text">{{ selectedOrder()!.order_number }}</h4>
+            <app-status-badge
+              [label]="selectedOrder()!.status"
+              [status]="orderStatus(selectedOrder()!.status)"
+            />
           </div>
-          <div class="grid grid-cols-2 gap-3 text-sm">
+          <div class="grid grid-cols-2 gap-4 rounded-lg bg-gray-50 p-4 text-sm">
             <div>
-              <p class="text-xs text-muted">Supplier</p>
-              <p class="font-medium">{{ selectedOrder()!.supplier }}</p>
+              <p class="text-xs font-medium text-muted">Supplier</p>
+              <p class="mt-0.5 font-semibold text-text">{{ selectedOrder()!.supplier }}</p>
             </div>
             <div>
-              <p class="text-xs text-muted">Order Date</p>
-              <p class="font-medium">{{ selectedOrder()!.order_date | date: 'mediumDate' }}</p>
+              <p class="text-xs font-medium text-muted">Order Date</p>
+              <p class="mt-0.5 font-semibold text-text">
+                {{ selectedOrder()!.order_date | date: 'mediumDate' }}
+              </p>
             </div>
             <div>
-              <p class="text-xs text-muted">Total (USD)</p>
-              <p class="font-medium">{{ selectedOrder()!.total_usd | currency: 'USD' }}</p>
+              <p class="text-xs font-medium text-muted">Total (USD)</p>
+              <p class="mt-0.5 font-semibold text-text">
+                {{ selectedOrder()!.total_usd | currency: 'USD' }}
+              </p>
             </div>
             <div>
-              <p class="text-xs text-muted">ETA</p>
-              <p class="font-medium">
-                {{ selectedOrder()!.estimated_arrival_date ? (selectedOrder()!.estimated_arrival_date | date: 'mediumDate') : 'TBD' }}
+              <p class="text-xs font-medium text-muted">ETA</p>
+              <p class="mt-0.5 font-semibold text-text">
+                {{
+                  selectedOrder()!.estimated_arrival_date
+                    ? (selectedOrder()!.estimated_arrival_date | date: 'mediumDate')
+                    : 'TBD'
+                }}
               </p>
             </div>
           </div>
 
           <!-- FX Exposure -->
-          <div class="rounded-lg border border-gray-200 p-3">
-            <p class="mb-2 text-xs font-semibold uppercase text-muted">FX Exposure</p>
-            <div class="grid grid-cols-2 gap-3 text-sm">
+          <div class="rounded-lg border border-gray-200 p-4">
+            <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">FX Exposure</p>
+            <div class="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p class="text-xs text-muted">Locked (30%)</p>
-                <p class="font-medium text-success">
+                <p class="mt-0.5 text-lg font-bold text-success">
                   {{ selectedOrder()!.locked_amount_usd | currency: 'USD' }}
                 </p>
               </div>
               <div>
                 <p class="text-xs text-muted">Floating (70%)</p>
-                <p class="font-medium text-warning">
+                <p class="mt-0.5 text-lg font-bold text-warning">
                   {{ selectedOrder()!.floating_amount_usd | currency: 'USD' }}
                 </p>
               </div>
@@ -163,9 +211,9 @@ import { ProductsService, Product } from '../../../core/services/products.servic
               @for (ns of nextStatuses(selectedOrder()!.status); track ns) {
                 <button
                   (click)="transitionStatus(selectedOrder()!.id, ns)"
-                  class="rounded-lg border border-secondary px-3 py-1.5 text-sm font-medium text-secondary hover:bg-secondary hover:text-white"
+                  class="flex items-center gap-1.5 rounded-lg border border-secondary px-4 py-2 text-sm font-semibold text-secondary transition-all hover:bg-secondary hover:text-white"
                 >
-                  Move to {{ ns }}
+                  <i class="pi pi-arrow-right text-xs"></i> Move to {{ ns }}
                 </button>
               }
             </div>
@@ -183,21 +231,21 @@ import { ProductsService, Product } from '../../../core/services/products.servic
     >
       <div class="space-y-4">
         <div>
-          <label class="mb-1 block text-xs font-medium text-muted">Supplier</label>
+          <label class="mb-1.5 block text-xs font-medium text-muted">Supplier</label>
           <input
             [(ngModel)]="newOrder.supplier"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             placeholder="Supplier name"
           />
         </div>
 
         <div>
-          <label class="mb-1 block text-xs font-medium text-muted">Items</label>
+          <label class="mb-1.5 block text-xs font-medium text-muted">Items</label>
           @for (item of newOrderItems(); track $index) {
             <div class="mb-2 flex gap-2">
               <select
                 [(ngModel)]="item.product_id"
-                class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               >
                 <option value="">Select product</option>
                 @for (p of products(); track p.id) {
@@ -209,7 +257,7 @@ import { ProductsService, Product } from '../../../core/services/products.servic
                 [(ngModel)]="item.quantity"
                 placeholder="Qty"
                 min="1"
-                class="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                class="w-20 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               />
               <input
                 type="number"
@@ -217,45 +265,45 @@ import { ProductsService, Product } from '../../../core/services/products.servic
                 placeholder="$/unit"
                 min="0"
                 step="0.01"
-                class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                class="w-24 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               />
             </div>
           }
           <button
             (click)="addOrderItem()"
-            class="text-xs text-secondary hover:underline"
+            class="text-xs font-medium text-secondary transition-colors hover:text-primary hover:underline"
             type="button"
           >
-            + Add item
+            <i class="pi pi-plus text-[10px]"></i> Add item
           </button>
         </div>
 
         <div class="grid grid-cols-3 gap-3">
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Production (days)</label>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Production (days)</label>
             <input
               type="number"
               [(ngModel)]="newOrder.production_days"
               min="0"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Shipping (days)</label>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Shipping (days)</label>
             <input
               type="number"
               [(ngModel)]="newOrder.shipping_days"
               min="0"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Clearing (days)</label>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Clearing (days)</label>
             <input
               type="number"
               [(ngModel)]="newOrder.clearing_days"
               min="0"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             />
           </div>
         </div>
@@ -263,9 +311,13 @@ import { ProductsService, Product } from '../../../core/services/products.servic
         <button
           (click)="createOrder()"
           [disabled]="creating()"
-          class="w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+          class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
         >
-          {{ creating() ? 'Creating...' : 'Create Order' }}
+          @if (creating()) {
+            <i class="pi pi-spinner pi-spin text-sm"></i> Creating...
+          } @else {
+            <i class="pi pi-check text-sm"></i> Create Order
+          }
         </button>
       </div>
     </p-dialog>
@@ -339,13 +391,20 @@ export class OrdersPageComponent implements OnInit {
         this.loadOrders();
       },
       error: () => {
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Status update failed' });
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Status update failed',
+        });
       },
     });
   }
 
   addOrderItem(): void {
-    this.newOrderItems.update((items) => [...items, { product_id: '', quantity: 1, unit_cost_usd: 0 }]);
+    this.newOrderItems.update((items) => [
+      ...items,
+      { product_id: '', quantity: 1, unit_cost_usd: 0 },
+    ]);
   }
 
   createOrder(): void {
@@ -360,12 +419,20 @@ export class OrdersPageComponent implements OnInit {
         this.showCreate = false;
         this.newOrder = { supplier: '', production_days: 30, shipping_days: 21, clearing_days: 14 };
         this.newOrderItems.set([{ product_id: '', quantity: 1, unit_cost_usd: 0 }]);
-        this.messageService.add({ severity: 'success', summary: 'Created', detail: 'Order created successfully' });
+        this.messageService.add({
+          severity: 'success',
+          summary: 'Created',
+          detail: 'Order created successfully',
+        });
         this.loadOrders();
       },
       error: () => {
         this.creating.set(false);
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to create order' });
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Failed to create order',
+        });
       },
     });
   }

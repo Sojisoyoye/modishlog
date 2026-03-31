@@ -3,7 +3,11 @@ import { FormsModule } from '@angular/forms';
 import { DatePipe, CurrencyPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
-import { SalesService, SaleRecord, SalesHistoryResponse } from '../../../core/services/sales.service';
+import {
+  SalesService,
+  SaleRecord,
+  SalesHistoryResponse,
+} from '../../../core/services/sales.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
 
 interface EntryRow {
@@ -19,23 +23,31 @@ interface EntryRow {
   template: `
     <p-toast />
     <div>
-      <h2 class="mb-6 text-xl font-bold text-text">Sales</h2>
+      <div class="mb-6">
+        <h2 class="text-2xl font-bold text-text">Sales</h2>
+        <p class="mt-1 text-sm text-muted">Record and track your daily sales</p>
+      </div>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <!-- Entry Form -->
-        <div class="rounded-lg border border-gray-200 bg-surface p-5">
-          <h3 class="mb-4 text-base font-semibold text-text">Record Sales</h3>
+        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div class="mb-5 flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+              <i class="pi pi-plus text-sm text-secondary"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Record Sales</h3>
+          </div>
 
           @for (row of entryRows(); track $index) {
             <div class="mb-3 flex items-end gap-3">
               <div class="flex-1">
                 @if ($index === 0) {
-                  <label class="mb-1 block text-xs font-medium text-muted">Product</label>
+                  <label class="mb-1.5 block text-xs font-medium text-muted">Product</label>
                 }
                 <select
                   [(ngModel)]="row.product_id"
                   [name]="'product_' + $index"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                 >
                   <option value="">Select product</option>
                   @for (p of products(); track p.id) {
@@ -45,31 +57,31 @@ interface EntryRow {
               </div>
               <div class="w-24">
                 @if ($index === 0) {
-                  <label class="mb-1 block text-xs font-medium text-muted">Qty</label>
+                  <label class="mb-1.5 block text-xs font-medium text-muted">Qty</label>
                 }
                 <input
                   type="number"
                   [(ngModel)]="row.quantity"
                   [name]="'qty_' + $index"
                   min="1"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                 />
               </div>
               <div class="w-36">
                 @if ($index === 0) {
-                  <label class="mb-1 block text-xs font-medium text-muted">Date</label>
+                  <label class="mb-1.5 block text-xs font-medium text-muted">Date</label>
                 }
                 <input
                   type="date"
                   [(ngModel)]="row.sale_date"
                   [name]="'date_' + $index"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                 />
               </div>
               @if (entryRows().length > 1) {
                 <button
                   (click)="removeRow($index)"
-                  class="rounded p-2 text-danger hover:bg-red-50"
+                  class="rounded-lg p-2.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
                   type="button"
                 >
                   <i class="pi pi-trash text-sm"></i>
@@ -78,22 +90,24 @@ interface EntryRow {
             </div>
           }
 
-          <div class="mt-3 flex gap-3">
+          <div class="mt-4 flex gap-3">
             <button
               (click)="addRow()"
-              class="rounded-lg border border-gray-300 px-3 py-2 text-sm text-muted hover:bg-gray-50"
+              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
               type="button"
             >
-              <i class="pi pi-plus mr-1"></i> Add Row
+              <i class="pi pi-plus text-xs"></i> Add Row
             </button>
             <button
               (click)="submitEntries()"
               [disabled]="submitting()"
-              class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+              class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
             >
               @if (submitting()) {
+                <i class="pi pi-spinner pi-spin text-sm"></i>
                 Saving...
               } @else {
+                <i class="pi pi-check text-sm"></i>
                 Record Sales
               }
             </button>
@@ -101,32 +115,50 @@ interface EntryRow {
         </div>
 
         <!-- Sales History -->
-        <div class="rounded-lg border border-gray-200 bg-surface p-5">
-          <h3 class="mb-4 text-base font-semibold text-text">Recent Sales</h3>
+        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div class="mb-5 flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
+              <i class="pi pi-history text-sm text-success"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Recent Sales</h3>
+          </div>
 
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 text-sm">
-              <thead class="bg-gray-50">
-                <tr>
-                  <th class="px-3 py-2 text-left text-xs font-medium uppercase text-muted">Date</th>
-                  <th class="px-3 py-2 text-left text-xs font-medium uppercase text-muted">Product</th>
-                  <th class="px-3 py-2 text-right text-xs font-medium uppercase text-muted">Qty</th>
-                  <th class="px-3 py-2 text-right text-xs font-medium uppercase text-muted">Total</th>
+              <thead>
+                <tr class="bg-gray-50/80">
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                    Date
+                  </th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                    Product
+                  </th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                    Qty
+                  </th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                    Total
+                  </th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-gray-200">
+              <tbody class="divide-y divide-gray-100">
                 @for (sale of history(); track sale.id) {
-                  <tr class="hover:bg-gray-50">
-                    <td class="px-3 py-2 text-muted">{{ sale.sale_date | date: 'mediumDate' }}</td>
-                    <td class="px-3 py-2">{{ sale.product_name }}</td>
-                    <td class="px-3 py-2 text-right">{{ sale.quantity }}</td>
-                    <td class="px-3 py-2 text-right">
+                  <tr class="transition-colors hover:bg-gray-50/50">
+                    <td class="px-3 py-2.5 text-muted">
+                      {{ sale.sale_date | date: 'mediumDate' }}
+                    </td>
+                    <td class="px-3 py-2.5 font-medium">{{ sale.product_name }}</td>
+                    <td class="px-3 py-2.5 text-right">{{ sale.quantity }}</td>
+                    <td class="px-3 py-2.5 text-right font-semibold">
                       {{ sale.total_amount | currency: 'NGN' : 'symbol' : '1.0-0' }}
                     </td>
                   </tr>
                 } @empty {
                   <tr>
-                    <td colspan="4" class="px-3 py-6 text-center text-muted">No sales recorded yet</td>
+                    <td colspan="4" class="px-3 py-10 text-center text-sm text-muted">
+                      <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
+                      No sales recorded yet
+                    </td>
                   </tr>
                 }
               </tbody>

@@ -65,18 +65,16 @@ export class DashboardService {
       liquidity: this.api
         .get<LiquiditySnapshot>('/cashflow/liquidity')
         .pipe(catchError(() => of({ cash_runway_days: 0, dscr: 0, risk_rating: 'UNKNOWN' }))),
-      fxExposure: this.api
-        .get<FxExposureSummary>('/fx/exposure/summary')
-        .pipe(
-          catchError(() =>
-            of({
-              total_locked_usd: 0,
-              total_floating_usd: 0,
-              total_locked_ngn: 0,
-              total_floating_ngn: 0,
-            }),
-          ),
+      fxExposure: this.api.get<FxExposureSummary>('/fx/exposure/summary').pipe(
+        catchError(() =>
+          of({
+            total_locked_usd: 0,
+            total_floating_usd: 0,
+            total_locked_ngn: 0,
+            total_floating_ngn: 0,
+          }),
         ),
+      ),
       portfolioMargin: this.api
         .get<PortfolioMargin>('/pricing/portfolio-margin')
         .pipe(catchError(() => of({ blended_margin: 0, target_margin: 35, gap: -35 }))),

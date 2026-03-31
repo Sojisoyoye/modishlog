@@ -1,4 +1,3 @@
-version: '3.9'
 services:
   db:
     image: postgres:16-alpine
@@ -24,7 +23,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://modishlog:${POSTGRES_PASSWORD:-modishlog_dev}@db/modishlog
       REDIS_URL: redis://redis:6379
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ENVIRONMENT: development
     ports: ['8000:8000']
     depends_on: { db: { condition: service_healthy } }
@@ -32,11 +31,8 @@ services:
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
-    image: node:20-alpine
-    working_dir: /frontend
-    volumes: ['./frontend:/frontend']
+    build: { context: ./frontend, dockerfile: Dockerfile }
     ports: ['4200:4200']
-    command: npm start
     depends_on: [backend]
 
 volumes:

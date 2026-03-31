@@ -13,93 +13,159 @@ import { FxService, FxRate, FxForecast } from '../../../core/services/fx.service
   template: `
     <p-toast />
     <div>
-      <h2 class="mb-6 text-xl font-bold text-text">FX Rates</h2>
+      <div class="mb-6">
+        <h2 class="text-2xl font-bold text-text">FX Rates</h2>
+        <p class="mt-1 text-sm text-muted">Track and forecast NGN/USD exchange rates</p>
+      </div>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <!-- Current Rate -->
-        <div class="rounded-lg border border-gray-200 bg-surface p-6 text-center">
-          <p class="text-sm text-muted">Current NGN/USD Rate</p>
+        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div class="mb-4 flex items-center gap-2">
+            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+              <i class="pi pi-money-bill text-lg text-primary"></i>
+            </div>
+          </div>
+          <p class="text-sm font-medium text-muted">Current NGN/USD Rate</p>
           @if (latestRate()) {
-            <p class="mt-2 text-4xl font-bold text-primary">
+            <p class="mt-2 text-4xl font-bold text-text">
               &#8358;{{ latestRate()!.rate | number: '1.2-2' }}
             </p>
-            <p class="mt-1 text-xs text-muted">
-              {{ latestRate()!.rate_date | date: 'mediumDate' }} &middot; {{ latestRate()!.source }}
+            <p class="mt-2 text-xs text-muted">
+              <i class="pi pi-calendar mr-1 text-[10px]"></i>
+              {{ latestRate()!.rate_date | date: 'mediumDate' }}
+              <span class="mx-1">&middot;</span>
+              {{ latestRate()!.source }}
             </p>
           } @else {
-            <p class="mt-2 text-lg text-muted">Loading...</p>
+            <div class="mt-2 h-10 w-32 skeleton"></div>
           }
         </div>
 
         <!-- Manual Entry -->
-        <div class="rounded-lg border border-gray-200 bg-surface p-5 lg:col-span-2">
-          <h3 class="mb-4 text-base font-semibold text-text">Add Rate</h3>
-          <div class="flex flex-wrap gap-3">
-            <input
-              type="number"
-              [(ngModel)]="manualRate"
-              placeholder="Rate (e.g. 1500)"
-              step="0.01"
-              class="w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
-            <input
-              type="date"
-              [(ngModel)]="manualDate"
-              class="w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            />
-            <select [(ngModel)]="manualSource" class="rounded-lg border border-gray-300 px-3 py-2 text-sm">
-              <option value="MANUAL">Manual</option>
-              <option value="PARALLEL_MARKET">Parallel Market</option>
-              <option value="CBN_OFFICIAL">CBN Official</option>
-            </select>
+        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm lg:col-span-2">
+          <div class="mb-5 flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
+              <i class="pi pi-plus text-sm text-success"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Add Rate</h3>
+          </div>
+          <div class="flex flex-wrap items-end gap-3">
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Rate</label>
+              <input
+                type="number"
+                [(ngModel)]="manualRate"
+                placeholder="e.g. 1500"
+                step="0.01"
+                class="w-36 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Date</label>
+              <input
+                type="date"
+                [(ngModel)]="manualDate"
+                class="w-40 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Source</label>
+              <select
+                [(ngModel)]="manualSource"
+                class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="MANUAL">Manual</option>
+                <option value="PARALLEL_MARKET">Parallel Market</option>
+                <option value="CBN_OFFICIAL">CBN Official</option>
+              </select>
+            </div>
             <button
               (click)="addRate()"
-              class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+              class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
             >
-              Add
+              <i class="pi pi-check text-sm"></i> Add
             </button>
           </div>
         </div>
       </div>
 
       <!-- Historical Chart -->
-      <div class="mt-6 rounded-lg border border-gray-200 bg-surface p-5">
-        <h3 class="mb-4 text-base font-semibold text-text">Historical Rates (90 days)</h3>
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+            <i class="pi pi-chart-line text-sm text-secondary"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Historical Rates (90 days)</h3>
+        </div>
         @if (historyChartData()) {
-          <p-chart type="line" [data]="historyChartData()!" [options]="chartOptions" height="300px" />
+          <p-chart
+            type="line"
+            [data]="historyChartData()!"
+            [options]="chartOptions"
+            height="300px"
+          />
         } @else {
-          <p class="text-muted">Loading chart...</p>
+          <div class="flex h-[300px] items-center justify-center">
+            <p class="text-muted"><i class="pi pi-spinner pi-spin mr-2"></i>Loading chart...</p>
+          </div>
         }
       </div>
 
       <!-- Forecast -->
-      <div class="mt-6 rounded-lg border border-gray-200 bg-surface p-5">
-        <h3 class="mb-4 text-base font-semibold text-text">30-Day Forecast</h3>
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+            <i class="pi pi-sparkles text-sm text-warning"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">30-Day Forecast</h3>
+        </div>
         @if (forecastChartData()) {
-          <p-chart type="line" [data]="forecastChartData()!" [options]="chartOptions" height="300px" />
+          <p-chart
+            type="line"
+            [data]="forecastChartData()!"
+            [options]="chartOptions"
+            height="300px"
+          />
         } @else {
-          <p class="text-muted">Loading forecast...</p>
+          <div class="flex h-[300px] items-center justify-center">
+            <p class="text-muted"><i class="pi pi-spinner pi-spin mr-2"></i>Loading forecast...</p>
+          </div>
         }
 
         <!-- Forecast Table -->
         @if (forecasts().length > 0) {
-          <div class="mt-4 overflow-x-auto">
+          <div class="mt-5 overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 text-sm">
-              <thead class="bg-gray-50">
-                <tr>
-                  <th class="px-3 py-2 text-left text-xs font-medium uppercase text-muted">Date</th>
-                  <th class="px-3 py-2 text-right text-xs font-medium uppercase text-muted">Base</th>
-                  <th class="px-3 py-2 text-right text-xs font-medium uppercase text-muted">Best</th>
-                  <th class="px-3 py-2 text-right text-xs font-medium uppercase text-muted">Worst</th>
+              <thead>
+                <tr class="bg-gray-50/80">
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                    Date
+                  </th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                    Base
+                  </th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                    Best
+                  </th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                    Worst
+                  </th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-gray-200">
+              <tbody class="divide-y divide-gray-100">
                 @for (f of forecasts(); track f.date) {
-                  <tr class="hover:bg-gray-50">
-                    <td class="px-3 py-2 text-muted">{{ f.date | date: 'mediumDate' }}</td>
-                    <td class="px-3 py-2 text-right font-medium">{{ f.base | number: '1.2-2' }}</td>
-                    <td class="px-3 py-2 text-right text-success">{{ f.best_case | number: '1.2-2' }}</td>
-                    <td class="px-3 py-2 text-right text-danger">{{ f.worst_case | number: '1.2-2' }}</td>
+                  <tr class="transition-colors hover:bg-gray-50/50">
+                    <td class="px-3 py-2.5 text-muted">{{ f.date | date: 'mediumDate' }}</td>
+                    <td class="px-3 py-2.5 text-right font-semibold">
+                      {{ f.base | number: '1.2-2' }}
+                    </td>
+                    <td class="px-3 py-2.5 text-right font-medium text-success">
+                      {{ f.best_case | number: '1.2-2' }}
+                    </td>
+                    <td class="px-3 py-2.5 text-right font-medium text-danger">
+                      {{ f.worst_case | number: '1.2-2' }}
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -142,8 +208,11 @@ export class FxPageComponent implements OnInit {
               label: 'NGN/USD',
               data: rates.map((r) => r.rate),
               borderColor: '#1F4E79',
-              fill: false,
+              backgroundColor: 'rgba(31, 78, 121, 0.05)',
+              fill: true,
               tension: 0.3,
+              pointRadius: 2,
+              pointHoverRadius: 5,
             },
           ],
         });
@@ -159,8 +228,10 @@ export class FxPageComponent implements OnInit {
               label: 'Base',
               data: fc.map((f) => f.base),
               borderColor: '#1F4E79',
-              fill: false,
+              backgroundColor: 'rgba(31, 78, 121, 0.05)',
+              fill: true,
               tension: 0.3,
+              pointRadius: 2,
             },
             {
               label: 'Best Case',
@@ -169,6 +240,7 @@ export class FxPageComponent implements OnInit {
               fill: false,
               borderDash: [5, 5],
               tension: 0.3,
+              pointRadius: 0,
             },
             {
               label: 'Worst Case',
@@ -177,6 +249,7 @@ export class FxPageComponent implements OnInit {
               fill: false,
               borderDash: [5, 5],
               tension: 0.3,
+              pointRadius: 0,
             },
           ],
         });
