@@ -29,7 +29,7 @@ export class AuthService {
       tap((tokens) => {
         localStorage.setItem(this.TOKEN_KEY, tokens.access_token);
         this._isAuthenticated.set(true);
-      })
+      }),
     );
   }
 

@@ -28,9 +28,7 @@ describe('authGuard', () => {
   afterEach(() => localStorage.clear());
 
   it('should block when not authenticated', () => {
-    const result = TestBed.runInInjectionContext(() =>
-      authGuard({} as any, {} as any),
-    );
+    const result = TestBed.runInInjectionContext(() => authGuard({} as any, {} as any));
     // Returns UrlTree to /login
     expect(result).toBeTruthy();
     if (typeof result !== 'boolean') {
