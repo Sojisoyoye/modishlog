@@ -1156,7 +1156,7 @@
           "6",
           "9"
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -1284,7 +1284,7 @@
         "complexity": 8,
         "recommendedSubtasks": 10,
         "expansionPrompt": "Break down cashflow implementation: (1) Implement create_loan_obligation() with net_monthly_burden calculation (repayment - salary_offset), (2) Implement create_operating_cost() with frequency normalization to monthly equivalent, (3) Implement generate_cashflow_projection() for 6-month rolling projection, (4) For each month calculate: projected revenue from demand forecasts * selling_price, (5) Calculate projected loan payments, operating costs, and FX obligations (70% order payments with forecasted FX rates), (6) Calculate net cashflow, cumulative cashflow, and cash runway (cumulative / avg_monthly_burn), (7) Calculate DSCR (net_operating_income / total_debt_service), (8) Assign risk rating (LOW: DSCR≥1.5 AND runway>6, MEDIUM: DSCR 1.0-1.49 OR runway 3-6, HIGH: DSCR<1.0 OR runway<3), (9) Implement run_stress_scenario() with parameter variations (FX_SHOCK_10, FX_SHOCK_20, DEMAND_DROP_10, DEMAND_DROP_20, COMBINED_STRESS), (10) Implement check_liquidity_alerts() to flag negative cashflow months and DSCR<1.0.",
-        "updatedAt": "2026-03-31T05:20:56.923Z"
+        "updatedAt": "2026-03-31T05:28:41.243Z"
       },
       {
         "id": "11",
@@ -1297,7 +1297,7 @@
           "9",
           "10"
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -1449,7 +1449,8 @@
         ],
         "complexity": 9,
         "recommendedSubtasks": 12,
-        "expansionPrompt": "Break down AI recommendation engine: (1) Implement generate_unified_recommendations() orchestrating all recommendation types, (2) Price adjustments - call pricing.generate_pricing_recommendations() and convert to Recommendation objects with priority, (3) Order timing - for each product with inventory depletion within lead time, calculate optimal order date (lowest FX forecast in next 60 days), (4) Calculate optimal order quantity (demand_forecast * lead_time * 1.2 buffer), (5) Estimate FX-adjusted cost (0.3 * current_fx + 0.7 * forecast_fx) * order_value_usd, (6) Create ORDER_TIMING recommendations with HIGH priority if stock-out <14 days, (7) USD hedging - query orders with 70% payment due in 180 days, generate weekly USD accumulation schedules at favorable forecasted rates, (8) Inventory allocation - if cash runway <4 months, rank products by margin * turnover_velocity for restocking priority, (9) Liquidity alerts - if DSCR<1.5 or runway<4 months, recommend corrective actions (delay orders, increase prices, negotiate deferrals), (10) Implement prioritization algorithm: score = financial_impact * urgency * confidence, (11) Implement apply_recommendation() routing to appropriate service based on type, (12) Implement dismiss_recommendation() with reason logging for model improvement."
+        "expansionPrompt": "Break down AI recommendation engine: (1) Implement generate_unified_recommendations() orchestrating all recommendation types, (2) Price adjustments - call pricing.generate_pricing_recommendations() and convert to Recommendation objects with priority, (3) Order timing - for each product with inventory depletion within lead time, calculate optimal order date (lowest FX forecast in next 60 days), (4) Calculate optimal order quantity (demand_forecast * lead_time * 1.2 buffer), (5) Estimate FX-adjusted cost (0.3 * current_fx + 0.7 * forecast_fx) * order_value_usd, (6) Create ORDER_TIMING recommendations with HIGH priority if stock-out <14 days, (7) USD hedging - query orders with 70% payment due in 180 days, generate weekly USD accumulation schedules at favorable forecasted rates, (8) Inventory allocation - if cash runway <4 months, rank products by margin * turnover_velocity for restocking priority, (9) Liquidity alerts - if DSCR<1.5 or runway<4 months, recommend corrective actions (delay orders, increase prices, negotiate deferrals), (10) Implement prioritization algorithm: score = financial_impact * urgency * confidence, (11) Implement apply_recommendation() routing to appropriate service based on type, (12) Implement dismiss_recommendation() with reason logging for model improvement.",
+        "updatedAt": "2026-03-31T05:30:59.381Z"
       },
       {
         "id": "12",
@@ -1660,9 +1661,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-03-31T05:20:56.923Z",
+      "lastModified": "2026-03-31T05:30:59.382Z",
       "taskCount": 12,
-      "completedCount": 9,
+      "completedCount": 10,
       "tags": [
         "master"
       ]

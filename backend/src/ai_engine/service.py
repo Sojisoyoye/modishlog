@@ -1,88 +1,1071 @@
-# TODO: Async service functions for the AI Engine domain
-#
-# --- Unified Recommendation Engine ---
-# async def generate_all_recommendations(db) -> list[AIRecommendation]
-#   - Orchestrate sub-engines: pricing, inventory, FX, cashflow
-#   - Call pricing service for pricing recommendations
-#   - Call inventory service for reorder and low-stock recommendations
-#   - Call FX service for exposure and hedging recommendations
-#   - Call cashflow service for runway and DSCR recommendations
-#   - Deduplicate and prioritize recommendations
-#   - Assign confidence scores and expiry dates
-#   - Store as AIRecommendation records
-#
-# async def get_recommendations(db, category: str | None = None) -> list[AIRecommendation]
-#   - Return pending recommendations, optionally filtered by category
-#
-# async def accept_recommendation(db, rec_id: UUID, user_id: UUID, notes: str | None) -> AIRecommendation
-#   - Validate recommendation is still pending and not expired
-#   - Execute the action_payload (dispatch to appropriate domain service)
-#   - Mark as "accepted" and then "applied" on success
-#   - Raise RecommendationNotFoundError or RecommendationExpiredError as needed
-#
-# async def dismiss_recommendation(db, rec_id: UUID, reason: str) -> AIRecommendation
-#   - Mark as "dismissed" with reason
-#
-# async def get_impact_summary(db) -> ImpactSummary
-#   - Aggregate expected_impact across all pending recommendations
-#   - Compute total projected revenue impact, cost savings, margin improvement
-#
-# async def get_recommendation_history(db, page: int, page_size: int) -> list[RecommendationHistory]
-#   - Return accepted/dismissed recommendations with measured outcomes
-#
-# async def measure_recommendation_outcomes(db) -> None
-#   - Background task: for applied recommendations, measure actual vs expected impact
-#   - Update measured_outcome field
-#   - Feed accuracy data back into confidence scoring model
-#
-# --- USD Accumulation Strategy ---
-# async def get_usd_strategy(db) -> USDStrategyRead
-#   - Fetch current config, FX rate, and USD balance
-#   - Generate AI narrative summarizing current position and recommendation
-#   - Determine next recommended action (buy now, wait, etc.)
-#
-# async def get_usd_schedule(db) -> list[USDPurchaseSchedule]
-#   - Based on config (risk tolerance, target balance, rate analysis):
-#   - Compute optimal purchase dates and amounts for next 30-90 days
-#   - Use historical rate patterns, seasonality, and volatility
-#
-# async def update_usd_config(db, config_in: USDStrategyConfigCreate, user_id: UUID) -> USDStrategyConfig
-# async def get_usd_config(db) -> USDStrategyConfig
-#
-# async def get_usd_performance(db) -> USDStrategyPerformance
-#   - Compare actual weighted average rate from strategy purchases
-#   - vs. naive approach (buying at simple average rate)
-#   - Calculate savings percentage
-#
-# async def simulate_usd_strategy(db, request: USDSimulationRequest) -> USDSimulationResult
-#   - Replay strategy logic over historical rate data
-#   - Compare to naive approach over same period
-#   - Return simulated purchase events and performance metrics
-#
-# --- AI-Driven Reorder Suggestions ---
-# async def generate_reorder_suggestions(db) -> list[ReorderSuggestion]
-#   - For each active product:
-#     - Fetch current stock level (from inventory service)
-#     - Compute average daily demand and variability from sales history
-#     - Calculate safety stock using service level target and demand variability
-#     - Compute reorder point = (avg_daily_demand * lead_time) + safety_stock
-#     - Compute Economic Order Quantity (EOQ) using Wilson formula
-#     - If current_stock <= reorder_point, create suggestion
-#     - Assign urgency level based on estimated days until stockout
-#     - Generate AI reasoning explaining the suggestion
-#   - Store ReorderSuggestion records
-#
-# async def get_reorder_suggestion(db, product_id: UUID) -> ReorderSuggestion
-# async def get_all_reorder_suggestions(db) -> list[ReorderSuggestion]
-#
-# async def approve_reorder(db, product_id: UUID, user_id: UUID) -> ReorderSuggestion
-#   - Convert suggestion into a purchase order draft (call orders service)
-#   - Mark suggestion as "converted_to_order"
-#   - Link converted_order_id
-#
-# async def get_reorder_config(db) -> ReorderConfig
-# async def update_reorder_config(db, config_in: ReorderConfigUpdate, user_id: UUID) -> ReorderConfig
-#
-# async def get_reorder_performance(db) -> ReorderPerformance
-#   - Track: total suggestions, approved count, predicted vs actual stockouts
-#   - Measure lead time prediction accuracy
+"""AI Engine service: unified recommendations, USD accumulation, reorder suggestions."""
+
+import uuid
+from datetime import date, datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal
+
+import structlog
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.ai_engine.exceptions import (
+    RecommendationAlreadyProcessedError,
+    RecommendationExpiredError,
+    RecommendationNotFoundError,
+    ReorderSuggestionNotFoundError,
+    USDStrategyConfigNotFoundError,
+)
+from src.ai_engine.models import (
+    AIRecommendation,
+    ActionType,
+    RecommendationCategory,
+    RecommendationPriority,
+    RecommendationStatus,
+    ReorderConfig,
+    ReorderStatus,
+    ReorderSuggestion,
+    RiskTolerance,
+    USDStrategyConfig,
+)
+from src.cashflow.models import LoanObligation, LoanStatus
+from src.inventory.models import InventoryLevel, MovementType, StockMovement
+from src.orders.models import (
+    OrderPayment,
+    OrderStatus,
+    PaymentStatus,
+    PurchaseOrder,
+)
+from src.products.models import Product
+from src.sales.models import Sale, SaleStatus
+
+logger = structlog.get_logger()
+
+RECOMMENDATION_EXPIRY_DAYS = 30
+DEFAULT_FX_RATE = Decimal("1500.000000")
+DEFAULT_LEAD_TIME_DAYS = 30
+SAFETY_STOCK_MULTIPLIER = Decimal("1.50")
+
+
+# ---------------------------------------------------------------------------
+# Priority scoring helpers
+# ---------------------------------------------------------------------------
+
+
+def _calculate_urgency(days_until_action: int | None) -> Decimal:
+    """Calculate urgency score based on time horizon."""
+    if days_until_action is None or days_until_action < 7:
+        return Decimal("1.0")
+    if days_until_action <= 30:
+        return Decimal("0.7")
+    return Decimal("0.4")
+
+
+def _calculate_priority_score(
+    financial_impact: Decimal,
+    urgency: Decimal,
+    confidence: Decimal,
+) -> Decimal:
+    """Calculate priority score = financial_impact * urgency * confidence."""
+    # Normalize confidence from 0-100 to 0-1
+    conf_normalized = confidence / Decimal("100")
+    score = financial_impact * urgency * conf_normalized
+    return score.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _assign_priority_level(
+    score: Decimal,
+    high_threshold: Decimal = Decimal("5000"),
+    medium_threshold: Decimal = Decimal("1000"),
+) -> RecommendationPriority:
+    """Assign priority level based on score."""
+    if score >= high_threshold:
+        return RecommendationPriority.HIGH
+    if score >= medium_threshold:
+        return RecommendationPriority.MEDIUM
+    return RecommendationPriority.LOW
+
+
+# ---------------------------------------------------------------------------
+# Price Recommendation Generation
+# ---------------------------------------------------------------------------
+
+
+async def _generate_price_recommendations(
+    db: AsyncSession,
+    now: datetime,
+) -> list[AIRecommendation]:
+    """Generate price adjustment recommendations from pricing analysis."""
+    from src.pricing.service import calculate_portfolio_margin
+
+    try:
+        portfolio = await calculate_portfolio_margin(db)
+    except Exception:
+        return []
+
+    recommendations: list[AIRecommendation] = []
+    target_margin = float(portfolio.get("target_margin", 35))
+
+    for p in portfolio.get("products", []):
+        margin_pct = p.get("margin_pct", 0)
+        if margin_pct >= target_margin:
+            continue
+
+        margin_gap = target_margin - margin_pct
+        product_id = p["product_id"]
+        selling_price = p["selling_price"]
+        unit_cost = p["unit_cost"]
+        revenue_30d = p.get("revenue_30d", Decimal("0"))
+
+        # Estimate impact: potential revenue improvement from closing margin gap
+        financial_impact = Decimal(str(
+            round(float(revenue_30d) * margin_gap / 100, 2)
+        ))
+
+        urgency = Decimal("1.0")  # Price changes can be applied immediately
+        confidence = Decimal("75.00")
+
+        score = _calculate_priority_score(financial_impact, urgency, confidence)
+
+        # Suggest price increase to meet target margin
+        target_price = (unit_cost / (Decimal("1") - Decimal(str(target_margin)) / Decimal("100"))).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        price_change_pct = float((target_price - selling_price) / selling_price * 100) if selling_price else 0
+
+        rec = AIRecommendation(
+            category=RecommendationCategory.PRICING,
+            title=f"Increase price for product (margin gap: {margin_gap:.1f}%)",
+            description=(
+                f"Current margin {margin_pct:.1f}% is below {target_margin:.0f}% target. "
+                f"Suggested price increase of {price_change_pct:.1f}% to meet target margin."
+            ),
+            priority=_assign_priority_level(score),
+            confidence=confidence,
+            expected_impact={
+                "metric": "margin_improvement",
+                "current_margin": margin_pct,
+                "target_margin": target_margin,
+                "estimated_revenue_impact": str(financial_impact),
+            },
+            action_type=ActionType.PRICE_CHANGE,
+            action_payload={
+                "product_id": str(product_id),
+                "current_price": str(selling_price),
+                "suggested_price": str(target_price),
+            },
+            reference_id=product_id,
+            reference_type="product",
+            status=RecommendationStatus.PENDING,
+            created_at=now,
+            expires_at=now + timedelta(days=RECOMMENDATION_EXPIRY_DAYS),
+        )
+        recommendations.append(rec)
+
+    return recommendations
+
+
+# ---------------------------------------------------------------------------
+# Order Timing Recommendations
+# ---------------------------------------------------------------------------
+
+
+async def _generate_order_timing_recommendations(
+    db: AsyncSession,
+    now: datetime,
+) -> list[AIRecommendation]:
+    """Generate reorder recommendations based on inventory depletion and FX forecasts."""
+    # Get products with low stock
+    result = await db.execute(
+        select(InventoryLevel).where(
+            InventoryLevel.quantity_on_hand <= InventoryLevel.low_stock_threshold
+        )
+    )
+    low_stock_items = list(result.scalars().all())
+
+    if not low_stock_items:
+        return []
+
+    recommendations: list[AIRecommendation] = []
+
+    for inv in low_stock_items:
+        # Calculate avg daily depletion
+        depletion_result = await db.execute(
+            select(
+                func.coalesce(
+                    func.sum(func.abs(StockMovement.quantity_change)), 0
+                )
+            )
+            .where(
+                StockMovement.product_id == inv.product_id,
+                StockMovement.movement_type == MovementType.SALE_DEPLETION,
+            )
+        )
+        total_depleted = depletion_result.scalar() or 0
+        avg_daily = total_depleted / 30.0 if total_depleted > 0 else 0
+
+        if avg_daily <= 0:
+            continue
+
+        days_until_stockout = int(inv.quantity_on_hand / avg_daily)
+
+        # Calculate optimal order quantity (demand * lead_time * 1.2 buffer)
+        optimal_qty = int(avg_daily * DEFAULT_LEAD_TIME_DAYS * 1.2)
+
+        # Estimate cost
+        product_result = await db.execute(
+            select(Product).where(Product.id == inv.product_id)
+        )
+        product = product_result.scalar_one_or_none()
+        if product is None:
+            continue
+
+        estimated_cost = product.unit_cost * optimal_qty
+        financial_impact = estimated_cost  # Potential loss from stockout
+
+        urgency = _calculate_urgency(days_until_stockout)
+        confidence = Decimal("70.00")
+        score = _calculate_priority_score(financial_impact, urgency, confidence)
+
+        if days_until_stockout < 14:
+            priority = RecommendationPriority.HIGH
+        elif days_until_stockout < 30:
+            priority = RecommendationPriority.MEDIUM
+        else:
+            priority = _assign_priority_level(score)
+
+        rec = AIRecommendation(
+            category=RecommendationCategory.ORDERS,
+            title=f"Reorder {product.name} - {days_until_stockout} days to stockout",
+            description=(
+                f"Stock at {inv.quantity_on_hand} units (threshold: {inv.low_stock_threshold}). "
+                f"Estimated stockout in {days_until_stockout} days at current velocity. "
+                f"Suggested order: {optimal_qty} units."
+            ),
+            priority=priority,
+            confidence=confidence,
+            expected_impact={
+                "metric": "stockout_prevention",
+                "days_until_stockout": days_until_stockout,
+                "estimated_cost": str(estimated_cost),
+            },
+            action_type=ActionType.REORDER,
+            action_payload={
+                "product_id": str(inv.product_id),
+                "product_name": product.name,
+                "suggested_quantity": optimal_qty,
+                "lead_time_days": DEFAULT_LEAD_TIME_DAYS,
+                "estimated_cost_ngn": str(estimated_cost),
+            },
+            reference_id=inv.product_id,
+            reference_type="product",
+            status=RecommendationStatus.PENDING,
+            created_at=now,
+            expires_at=now + timedelta(days=RECOMMENDATION_EXPIRY_DAYS),
+        )
+        recommendations.append(rec)
+
+    return recommendations
+
+
+# ---------------------------------------------------------------------------
+# USD Hedging Recommendations
+# ---------------------------------------------------------------------------
+
+
+async def _generate_usd_hedge_recommendations(
+    db: AsyncSession,
+    now: datetime,
+) -> list[AIRecommendation]:
+    """Generate USD accumulation recommendations for upcoming FX obligations."""
+    today = now.date()
+    cutoff = today + timedelta(days=180)
+
+    # Find orders with upcoming USD payments
+    result = await db.execute(
+        select(PurchaseOrder).where(
+            PurchaseOrder.status.in_([
+                OrderStatus.PENDING,
+                OrderStatus.IN_PRODUCTION,
+                OrderStatus.SHIPPING,
+            ]),
+            PurchaseOrder.currency == "USD",
+            PurchaseOrder.expected_delivery_date <= cutoff,
+            PurchaseOrder.expected_delivery_date >= today,
+        )
+    )
+    orders = list(result.scalars().all())
+
+    if not orders:
+        return []
+
+    fx_rate = await _get_latest_fx_rate(db)
+    recommendations: list[AIRecommendation] = []
+
+    for order in orders:
+        # Calculate remaining balance
+        paid_result = await db.execute(
+            select(func.sum(OrderPayment.amount)).where(
+                OrderPayment.order_id == order.id,
+                OrderPayment.status == PaymentStatus.COMPLETED,
+            )
+        )
+        paid = paid_result.scalar() or Decimal("0")
+        balance_usd = order.total_amount - paid
+
+        if balance_usd <= 0:
+            continue
+
+        usd_needed = balance_usd * Decimal("0.70")
+        days_until = (order.expected_delivery_date - today).days if order.expected_delivery_date else 90
+        weeks = max(1, days_until // 7)
+        weekly_amount = (usd_needed / weeks).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        ngn_exposure = usd_needed * fx_rate
+
+        urgency = _calculate_urgency(days_until)
+        confidence = Decimal("65.00")
+        financial_impact = ngn_exposure
+        score = _calculate_priority_score(financial_impact, urgency, confidence)
+
+        rec = AIRecommendation(
+            category=RecommendationCategory.FX,
+            title=f"USD accumulation for order {order.order_number}",
+            description=(
+                f"Accumulate ${usd_needed:,.2f} USD over {weeks} weeks "
+                f"(${weekly_amount:,.2f}/week) for order arriving in {days_until} days. "
+                f"NGN exposure: {ngn_exposure:,.0f} at current rate {fx_rate}."
+            ),
+            priority=_assign_priority_level(score),
+            confidence=confidence,
+            expected_impact={
+                "metric": "fx_hedge",
+                "usd_needed": str(usd_needed),
+                "ngn_exposure": str(ngn_exposure),
+                "weeks": weeks,
+                "weekly_usd": str(weekly_amount),
+            },
+            action_type=ActionType.USD_PURCHASE,
+            action_payload={
+                "order_id": str(order.id),
+                "order_number": order.order_number,
+                "usd_needed": str(usd_needed),
+                "weekly_amount": str(weekly_amount),
+                "weeks": weeks,
+            },
+            reference_id=order.id,
+            reference_type="purchase_order",
+            status=RecommendationStatus.PENDING,
+            created_at=now,
+            expires_at=now + timedelta(days=RECOMMENDATION_EXPIRY_DAYS),
+        )
+        recommendations.append(rec)
+
+    return recommendations
+
+
+# ---------------------------------------------------------------------------
+# Liquidity Recommendations
+# ---------------------------------------------------------------------------
+
+
+async def _generate_liquidity_recommendations(
+    db: AsyncSession,
+    now: datetime,
+) -> list[AIRecommendation]:
+    """Generate liquidity and DSCR-based corrective action recommendations."""
+    from src.cashflow.service import (
+        _calculate_monthly_loan_payment,
+        _calculate_monthly_operating_costs,
+        _calculate_monthly_revenue,
+    )
+
+    try:
+        monthly_revenue = await _calculate_monthly_revenue(db)
+        monthly_opex = await _calculate_monthly_operating_costs(db)
+        monthly_loan = await _calculate_monthly_loan_payment(db)
+    except Exception:
+        return []
+
+    noi = monthly_revenue - monthly_opex
+    dscr = (noi / monthly_loan).quantize(
+        Decimal("0.001"), rounding=ROUND_HALF_UP
+    ) if monthly_loan > 0 else Decimal("999.000")
+
+    # Estimate simple runway
+    monthly_burn = monthly_opex + monthly_loan - monthly_revenue
+    if monthly_burn > 0 and monthly_revenue > 0:
+        runway_months = int(monthly_revenue * 3 / monthly_burn)  # ~3 months cash
+    else:
+        runway_months = 999
+
+    recommendations: list[AIRecommendation] = []
+
+    if dscr >= Decimal("1.5") and runway_months >= 4:
+        return recommendations
+
+    # Determine priority
+    if dscr < Decimal("1.0"):
+        priority = RecommendationPriority.HIGH
+    else:
+        priority = RecommendationPriority.MEDIUM
+
+    actions = []
+
+    # Suggest delaying non-critical orders
+    far_orders_result = await db.execute(
+        select(func.count(PurchaseOrder.id)).where(
+            PurchaseOrder.status == OrderStatus.PENDING,
+            PurchaseOrder.expected_delivery_date > now.date() + timedelta(days=90),
+        )
+    )
+    far_orders_count = far_orders_result.scalar() or 0
+    if far_orders_count > 0:
+        actions.append(
+            f"Consider delaying {far_orders_count} non-critical orders (delivery >90 days)"
+        )
+
+    # Suggest loan deferral
+    loan_result = await db.execute(
+        select(func.count(LoanObligation.id)).where(
+            LoanObligation.status == LoanStatus.ACTIVE
+        )
+    )
+    active_loans = loan_result.scalar() or 0
+    if active_loans > 0 and dscr < Decimal("1.2"):
+        actions.append(
+            f"Negotiate payment deferral on {active_loans} active loan(s) to improve DSCR"
+        )
+
+    # Suggest cost reduction
+    if monthly_opex > monthly_revenue * Decimal("0.7"):
+        actions.append(
+            f"Operating costs ({monthly_opex:,.0f}) exceed 70% of revenue. Review for reductions."
+        )
+
+    if not actions:
+        actions.append("Review pricing strategy to increase revenue margins")
+
+    confidence = Decimal("80.00")
+
+    rec = AIRecommendation(
+        category=RecommendationCategory.CASHFLOW,
+        title=f"Liquidity alert: DSCR {dscr} | Runway ~{runway_months}mo",
+        description=(
+            f"Current DSCR is {dscr} (target: 1.5+). "
+            f"Estimated cash runway: {runway_months} months. "
+            f"Corrective actions: {'; '.join(actions)}"
+        ),
+        priority=priority,
+        confidence=confidence,
+        expected_impact={
+            "metric": "liquidity_improvement",
+            "current_dscr": str(dscr),
+            "monthly_burn": str(monthly_burn),
+            "actions": actions,
+        },
+        action_type=ActionType.COST_CUT,
+        action_payload={
+            "dscr": str(dscr),
+            "runway_months": runway_months,
+            "actions": actions,
+        },
+        reference_type="cashflow",
+        status=RecommendationStatus.PENDING,
+        created_at=now,
+        expires_at=now + timedelta(days=14),  # Shorter expiry for urgency
+    )
+    recommendations.append(rec)
+
+    return recommendations
+
+
+# ---------------------------------------------------------------------------
+# Unified Recommendation Generation
+# ---------------------------------------------------------------------------
+
+
+async def generate_all_recommendations(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> list[AIRecommendation]:
+    """Orchestrate all recommendation generators and store results."""
+    now = datetime.now(timezone.utc)
+
+    # Expire old pending recommendations
+    await db.execute(
+        select(AIRecommendation).where(
+            AIRecommendation.status == RecommendationStatus.PENDING,
+            AIRecommendation.expires_at < now,
+        )
+    )
+    old_result = await db.execute(
+        select(AIRecommendation).where(
+            AIRecommendation.status == RecommendationStatus.PENDING,
+            AIRecommendation.expires_at < now,
+        )
+    )
+    for rec in old_result.scalars().all():
+        rec.status = RecommendationStatus.EXPIRED
+
+    # Generate from all sources
+    all_recs: list[AIRecommendation] = []
+
+    price_recs = await _generate_price_recommendations(db, now)
+    all_recs.extend(price_recs)
+
+    order_recs = await _generate_order_timing_recommendations(db, now)
+    all_recs.extend(order_recs)
+
+    usd_recs = await _generate_usd_hedge_recommendations(db, now)
+    all_recs.extend(usd_recs)
+
+    liquidity_recs = await _generate_liquidity_recommendations(db, now)
+    all_recs.extend(liquidity_recs)
+
+    # Store all recommendations
+    for rec in all_recs:
+        db.add(rec)
+
+    await db.flush()
+
+    await logger.ainfo(
+        "ai_recommendations_generated",
+        total=len(all_recs),
+        pricing=len(price_recs),
+        orders=len(order_recs),
+        usd_hedge=len(usd_recs),
+        liquidity=len(liquidity_recs),
+    )
+
+    # Sort by priority score heuristic: HIGH=3, MEDIUM=2, LOW=1
+    priority_order = {
+        RecommendationPriority.HIGH: 3,
+        RecommendationPriority.MEDIUM: 2,
+        RecommendationPriority.LOW: 1,
+    }
+    all_recs.sort(
+        key=lambda r: priority_order.get(r.priority, 0), reverse=True
+    )
+
+    return all_recs
+
+
+# ---------------------------------------------------------------------------
+# Recommendation CRUD
+# ---------------------------------------------------------------------------
+
+
+async def get_recommendations(
+    db: AsyncSession,
+    category: str | None = None,
+    status_filter: str | None = None,
+    limit: int = 50,
+) -> list[AIRecommendation]:
+    """Get recommendations with optional filters."""
+    query = select(AIRecommendation)
+
+    if status_filter:
+        query = query.where(AIRecommendation.status == status_filter)
+    else:
+        query = query.where(
+            AIRecommendation.status == RecommendationStatus.PENDING
+        )
+
+    if category:
+        query = query.where(AIRecommendation.category == category)
+
+    query = query.order_by(AIRecommendation.created_at.desc()).limit(limit)
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def get_recommendation(
+    db: AsyncSession,
+    recommendation_id: uuid.UUID,
+) -> AIRecommendation:
+    """Get a single recommendation by ID."""
+    result = await db.execute(
+        select(AIRecommendation).where(
+            AIRecommendation.id == recommendation_id
+        )
+    )
+    rec = result.scalar_one_or_none()
+    if rec is None:
+        raise RecommendationNotFoundError(recommendation_id)
+    return rec
+
+
+async def apply_recommendation(
+    db: AsyncSession,
+    recommendation_id: uuid.UUID,
+    user_id: uuid.UUID,
+    notes: str | None = None,
+) -> AIRecommendation:
+    """Apply a recommendation: update status and route to domain service."""
+    rec = await get_recommendation(db, recommendation_id)
+
+    if rec.status != RecommendationStatus.PENDING:
+        raise RecommendationAlreadyProcessedError(
+            recommendation_id, rec.status
+        )
+
+    now = datetime.now(timezone.utc)
+    if rec.expires_at < now:
+        rec.status = RecommendationStatus.EXPIRED
+        await db.flush()
+        raise RecommendationExpiredError(recommendation_id, rec.expires_at)
+
+    # Route based on action type
+    if rec.action_type == ActionType.PRICE_CHANGE and rec.action_payload:
+        # For price changes, update the product price
+        payload = rec.action_payload
+        product_id = uuid.UUID(payload["product_id"])
+        new_price = Decimal(payload["suggested_price"])
+
+        product_result = await db.execute(
+            select(Product).where(Product.id == product_id)
+        )
+        product = product_result.scalar_one_or_none()
+        if product:
+            product.selling_price = new_price
+
+    # For other types (REORDER, USD_PURCHASE, COST_CUT), flag for manual action
+    # The status update itself marks it as actioned
+
+    rec.status = RecommendationStatus.APPLIED
+    rec.accepted_by = user_id
+    rec.accepted_at = now
+
+    await db.flush()
+
+    await logger.ainfo(
+        "recommendation_applied",
+        recommendation_id=str(recommendation_id),
+        action_type=rec.action_type,
+        category=rec.category,
+    )
+    return rec
+
+
+async def dismiss_recommendation(
+    db: AsyncSession,
+    recommendation_id: uuid.UUID,
+    user_id: uuid.UUID,
+    reason: str,
+) -> AIRecommendation:
+    """Dismiss a recommendation with a reason."""
+    rec = await get_recommendation(db, recommendation_id)
+
+    if rec.status != RecommendationStatus.PENDING:
+        raise RecommendationAlreadyProcessedError(
+            recommendation_id, rec.status
+        )
+
+    now = datetime.now(timezone.utc)
+    rec.status = RecommendationStatus.DISMISSED
+    rec.dismissed_reason = reason
+    rec.accepted_by = user_id  # reuse field for tracking who dismissed
+    rec.accepted_at = now
+
+    await db.flush()
+
+    await logger.ainfo(
+        "recommendation_dismissed",
+        recommendation_id=str(recommendation_id),
+        reason=reason,
+    )
+    return rec
+
+
+async def get_impact_summary(db: AsyncSession) -> dict:
+    """Aggregate expected impact from pending recommendations."""
+    result = await db.execute(
+        select(AIRecommendation).where(
+            AIRecommendation.status == RecommendationStatus.PENDING
+        )
+    )
+    recs = list(result.scalars().all())
+
+    total_revenue_impact = Decimal("0")
+    total_cost_savings = Decimal("0")
+    by_category: dict[str, dict] = {}
+
+    for rec in recs:
+        cat = rec.category
+        if cat not in by_category:
+            by_category[cat] = {"category": cat, "count": 0, "projected_impact": Decimal("0")}
+        by_category[cat]["count"] += 1
+
+        if rec.expected_impact:
+            impact_val = Decimal(
+                rec.expected_impact.get("estimated_revenue_impact", "0")
+            )
+            if rec.category == RecommendationCategory.PRICING:
+                total_revenue_impact += impact_val
+            elif rec.category == RecommendationCategory.CASHFLOW:
+                total_cost_savings += abs(
+                    Decimal(rec.expected_impact.get("monthly_burn", "0"))
+                )
+            by_category[cat]["projected_impact"] += impact_val
+
+    return {
+        "total_pending": len(recs),
+        "projected_revenue_impact": total_revenue_impact,
+        "projected_cost_savings": total_cost_savings,
+        "by_category": [
+            {
+                "category": v["category"],
+                "count": v["count"],
+                "projected_impact": str(v["projected_impact"]),
+            }
+            for v in by_category.values()
+        ],
+    }
+
+
+async def get_recommendation_history(
+    db: AsyncSession,
+    limit: int = 50,
+) -> list[AIRecommendation]:
+    """Get applied/dismissed recommendation history."""
+    result = await db.execute(
+        select(AIRecommendation)
+        .where(
+            AIRecommendation.status.in_([
+                RecommendationStatus.APPLIED,
+                RecommendationStatus.DISMISSED,
+            ])
+        )
+        .order_by(AIRecommendation.accepted_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+# ---------------------------------------------------------------------------
+# USD Accumulation Schedule
+# ---------------------------------------------------------------------------
+
+
+async def _get_latest_fx_rate(db: AsyncSession) -> Decimal:
+    """Try to get the latest USDNGN rate from the database."""
+    try:
+        from src.fx.models import FXRate
+
+        fx_result = await db.execute(
+            select(FXRate.rate)
+            .where(FXRate.pair == "USDNGN")
+            .order_by(FXRate.timestamp.desc())
+            .limit(1)
+        )
+        latest = fx_result.scalar()
+        if latest:
+            return latest
+    except Exception:
+        pass
+    return DEFAULT_FX_RATE
+
+
+async def generate_usd_accumulation_schedule(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+) -> dict:
+    """Generate a weekly USD accumulation schedule for an order."""
+    result = await db.execute(
+        select(PurchaseOrder).where(PurchaseOrder.id == order_id)
+    )
+    order = result.scalar_one_or_none()
+    if order is None:
+        from src.orders.exceptions import OrderNotFoundError
+        raise OrderNotFoundError(order_id)
+
+    today = date.today()
+
+    # Calculate remaining balance
+    paid_result = await db.execute(
+        select(func.sum(OrderPayment.amount)).where(
+            OrderPayment.order_id == order_id,
+            OrderPayment.status == PaymentStatus.COMPLETED,
+        )
+    )
+    paid = paid_result.scalar() or Decimal("0")
+    balance_usd = order.total_amount - paid
+
+    usd_needed = balance_usd * Decimal("0.70")
+    delivery_date = order.expected_delivery_date or (today + timedelta(days=90))
+    days_until_arrival = max(1, (delivery_date - today).days)
+    weeks = max(1, days_until_arrival // 7)
+    weekly_amount = (usd_needed / weeks).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+    fx_rate = await _get_latest_fx_rate(db)
+
+    schedule = []
+    for week in range(weeks):
+        purchase_date = today + timedelta(days=week * 7)
+        # Try to get FX forecast for this date
+        forecasted_rate = fx_rate
+        try:
+            from src.fx.forecast_service import get_forecast_for_date
+
+            forecast = await get_forecast_for_date(
+                db, "USDNGN", purchase_date
+            )
+            forecasted_rate = forecast.base_rate
+        except Exception:
+            pass
+
+        ngn_amount = (weekly_amount * forecasted_rate).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
+        schedule.append({
+            "week": week + 1,
+            "purchase_date": purchase_date.isoformat(),
+            "usd_amount": str(weekly_amount),
+            "forecasted_fx_rate": str(forecasted_rate),
+            "ngn_amount": str(ngn_amount),
+        })
+
+    return {
+        "order_id": str(order_id),
+        "total_usd_needed": str(usd_needed),
+        "weeks": weeks,
+        "weekly_amount": str(weekly_amount),
+        "schedule": schedule,
+    }
+
+
+# ---------------------------------------------------------------------------
+# USD Strategy Config
+# ---------------------------------------------------------------------------
+
+
+async def get_usd_strategy_config(
+    db: AsyncSession,
+) -> USDStrategyConfig:
+    """Get the current USD strategy configuration."""
+    result = await db.execute(
+        select(USDStrategyConfig).order_by(
+            USDStrategyConfig.updated_at.desc()
+        ).limit(1)
+    )
+    config = result.scalar_one_or_none()
+    if config is None:
+        raise USDStrategyConfigNotFoundError()
+    return config
+
+
+async def update_usd_strategy_config(
+    db: AsyncSession,
+    data,
+    user_id: uuid.UUID,
+) -> USDStrategyConfig:
+    """Create or update USD strategy configuration."""
+    now = datetime.now(timezone.utc)
+
+    try:
+        config = await get_usd_strategy_config(db)
+        config.target_usd_balance = data.target_usd_balance
+        config.risk_tolerance = RiskTolerance(data.risk_tolerance)
+        config.max_single_purchase_pct = data.max_single_purchase_pct
+        config.preferred_rate_percentile = data.preferred_rate_percentile
+        config.lookback_days = data.lookback_days
+        config.updated_by = user_id
+        config.updated_at = now
+    except USDStrategyConfigNotFoundError:
+        config = USDStrategyConfig(
+            target_usd_balance=data.target_usd_balance,
+            current_usd_balance=Decimal("0"),
+            risk_tolerance=RiskTolerance(data.risk_tolerance),
+            max_single_purchase_pct=data.max_single_purchase_pct,
+            preferred_rate_percentile=data.preferred_rate_percentile,
+            lookback_days=data.lookback_days,
+            updated_by=user_id,
+            updated_at=now,
+        )
+        db.add(config)
+
+    await db.flush()
+    return config
+
+
+# ---------------------------------------------------------------------------
+# Reorder Suggestions
+# ---------------------------------------------------------------------------
+
+
+async def generate_reorder_suggestions(
+    db: AsyncSession,
+) -> list[ReorderSuggestion]:
+    """Generate reorder suggestions for products at or below reorder point."""
+    # Get all products with inventory
+    result = await db.execute(
+        select(InventoryLevel, Product)
+        .join(Product, Product.id == InventoryLevel.product_id)
+        .where(Product.is_active.is_(True))
+    )
+    rows = result.all()
+
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    suggestions: list[ReorderSuggestion] = []
+
+    for inv, product in rows:
+        # Calculate average daily demand from last 90 days
+        ninety_days_ago = today - timedelta(days=90)
+        sales_result = await db.execute(
+            select(func.sum(Sale.quantity)).where(
+                Sale.product_id == product.id,
+                Sale.status == SaleStatus.COMPLETED,
+                Sale.sale_date >= ninety_days_ago,
+            )
+        )
+        total_sold = sales_result.scalar() or 0
+
+        if total_sold <= 0:
+            continue
+
+        avg_daily_demand = Decimal(str(total_sold)) / Decimal("90")
+        demand_variability = avg_daily_demand * Decimal("0.2")  # Simple estimate
+
+        # Calculate reorder point and safety stock
+        safety_stock = int(
+            float(SAFETY_STOCK_MULTIPLIER) * float(demand_variability)
+            * (DEFAULT_LEAD_TIME_DAYS ** 0.5)
+        )
+        reorder_point = int(
+            float(avg_daily_demand) * DEFAULT_LEAD_TIME_DAYS + safety_stock
+        )
+
+        if inv.quantity_on_hand > reorder_point:
+            continue
+
+        # Economic Order Quantity (Wilson formula simplified)
+        annual_demand = float(avg_daily_demand) * 365
+        ordering_cost = 50000  # Fixed ordering cost NGN
+        holding_cost = float(product.unit_cost) * 0.20  # 20% of unit cost
+        eoq = int((2 * annual_demand * ordering_cost / holding_cost) ** 0.5) if holding_cost > 0 else 100
+        suggested_qty = max(eoq, int(float(avg_daily_demand) * DEFAULT_LEAD_TIME_DAYS * 1.2))
+
+        # Estimate stockout date
+        if float(avg_daily_demand) > 0:
+            days_left = int(inv.quantity_on_hand / float(avg_daily_demand))
+            stockout_date = today + timedelta(days=days_left)
+        else:
+            days_left = 999
+            stockout_date = None
+
+        confidence = Decimal("75.00")
+        reasoning = (
+            f"Current stock ({inv.quantity_on_hand}) at or below reorder point ({reorder_point}). "
+            f"Avg daily demand: {float(avg_daily_demand):.1f} units. "
+            f"Safety stock: {safety_stock}. Lead time: {DEFAULT_LEAD_TIME_DAYS} days. "
+            f"EOQ: {eoq}. Suggested order: {suggested_qty} units."
+        )
+
+        suggestion = ReorderSuggestion(
+            product_id=product.id,
+            current_stock=inv.quantity_on_hand,
+            reorder_point=reorder_point,
+            suggested_order_quantity=suggested_qty,
+            economic_order_quantity=eoq,
+            safety_stock=safety_stock,
+            lead_time_days=DEFAULT_LEAD_TIME_DAYS,
+            avg_daily_demand=avg_daily_demand.quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            ),
+            demand_variability=demand_variability.quantize(
+                Decimal("0.0001"), rounding=ROUND_HALF_UP
+            ),
+            estimated_stockout_date=stockout_date,
+            confidence=confidence,
+            reasoning=reasoning,
+            status=ReorderStatus.PENDING,
+            created_at=now,
+        )
+        db.add(suggestion)
+        suggestions.append(suggestion)
+
+    await db.flush()
+
+    await logger.ainfo(
+        "reorder_suggestions_generated", count=len(suggestions)
+    )
+    return suggestions
+
+
+async def get_reorder_suggestions(
+    db: AsyncSession,
+) -> list[ReorderSuggestion]:
+    """Get all pending reorder suggestions."""
+    result = await db.execute(
+        select(ReorderSuggestion)
+        .where(ReorderSuggestion.status == ReorderStatus.PENDING)
+        .order_by(ReorderSuggestion.estimated_stockout_date.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def get_reorder_suggestion(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+) -> ReorderSuggestion:
+    """Get reorder suggestion for a specific product."""
+    result = await db.execute(
+        select(ReorderSuggestion)
+        .where(
+            ReorderSuggestion.product_id == product_id,
+            ReorderSuggestion.status == ReorderStatus.PENDING,
+        )
+        .order_by(ReorderSuggestion.created_at.desc())
+        .limit(1)
+    )
+    suggestion = result.scalar_one_or_none()
+    if suggestion is None:
+        raise ReorderSuggestionNotFoundError(product_id)
+    return suggestion
+
+
+async def approve_reorder(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+) -> ReorderSuggestion:
+    """Approve a reorder suggestion (mark as approved for manual order creation)."""
+    suggestion = await get_reorder_suggestion(db, product_id)
+    suggestion.status = ReorderStatus.APPROVED
+    await db.flush()
+
+    await logger.ainfo(
+        "reorder_suggestion_approved",
+        product_id=str(product_id),
+        quantity=suggestion.suggested_order_quantity,
+    )
+    return suggestion
+
+
+# ---------------------------------------------------------------------------
+# Reorder Config
+# ---------------------------------------------------------------------------
+
+
+async def get_reorder_config(db: AsyncSession) -> ReorderConfig:
+    """Get global reorder configuration."""
+    result = await db.execute(
+        select(ReorderConfig).order_by(ReorderConfig.updated_at.desc()).limit(1)
+    )
+    config = result.scalar_one_or_none()
+    if config is None:
+        # Return defaults
+        return ReorderConfig(
+            default_lead_time_days=DEFAULT_LEAD_TIME_DAYS,
+            safety_stock_multiplier=SAFETY_STOCK_MULTIPLIER,
+            service_level_target=Decimal("95.00"),
+            demand_lookback_days=90,
+            holding_cost_pct=Decimal("20.00"),
+            updated_by=uuid.UUID("00000000-0000-0000-0000-000000000000"),
+            updated_at=datetime.now(timezone.utc),
+        )
+    return config
