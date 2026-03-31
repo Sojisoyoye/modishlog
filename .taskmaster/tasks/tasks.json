@@ -1297,7 +1297,7 @@
           "9",
           "10"
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -1450,7 +1450,7 @@
         "complexity": 9,
         "recommendedSubtasks": 12,
         "expansionPrompt": "Break down AI recommendation engine: (1) Implement generate_unified_recommendations() orchestrating all recommendation types, (2) Price adjustments - call pricing.generate_pricing_recommendations() and convert to Recommendation objects with priority, (3) Order timing - for each product with inventory depletion within lead time, calculate optimal order date (lowest FX forecast in next 60 days), (4) Calculate optimal order quantity (demand_forecast * lead_time * 1.2 buffer), (5) Estimate FX-adjusted cost (0.3 * current_fx + 0.7 * forecast_fx) * order_value_usd, (6) Create ORDER_TIMING recommendations with HIGH priority if stock-out <14 days, (7) USD hedging - query orders with 70% payment due in 180 days, generate weekly USD accumulation schedules at favorable forecasted rates, (8) Inventory allocation - if cash runway <4 months, rank products by margin * turnover_velocity for restocking priority, (9) Liquidity alerts - if DSCR<1.5 or runway<4 months, recommend corrective actions (delay orders, increase prices, negotiate deferrals), (10) Implement prioritization algorithm: score = financial_impact * urgency * confidence, (11) Implement apply_recommendation() routing to appropriate service based on type, (12) Implement dismiss_recommendation() with reason logging for model improvement.",
-        "updatedAt": "2026-03-31T05:30:59.381Z"
+        "updatedAt": "2026-03-31T06:37:03.140Z"
       },
       {
         "id": "12",
@@ -1462,7 +1462,7 @@
         "dependencies": [
           "11"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -1656,14 +1656,15 @@
         ],
         "complexity": 10,
         "recommendedSubtasks": 15,
-        "expansionPrompt": "Break down frontend implementation by feature area: (1) Auth infrastructure - implement auth.service.ts (login, logout, JWT storage), auth.interceptor.ts (add Bearer token to requests, handle 401), auth.guard.ts (protect routes), (2) Auth UI - LoginComponent with form validation and lockout error handling, (3) Dashboard HomeComponent - implement 7 dashboard cards (LiquidityRisk, FXExposureSummary, PortfolioMarginMeter, PendingOrdersPipeline, InventoryAlerts, TopRecommendations, ActivityTimeline) with responsive grid layout, (4) Sales feature - SalesEntryComponent with multi-product entry, SalesHistoryComponent with PrimeNG p-table (filters, pagination, edit/delete), SalesVelocityChartComponent with Chart.js, (5) Inventory feature - InventoryListComponent with color-coded rows, StockMovementHistoryComponent, (6) Orders feature - OrderListComponent with pipeline view, CreateOrderComponent with real-time FX exposure preview, OrderDetailComponent with profit projection scenarios, (7) FX feature - FXRatesComponent with current rate and historical chart, FXForecastComponent with confidence bands, (8) Cashflow feature - CashflowProjectionComponent with bar/line charts, LiquidityDashboardComponent with gauges, ScenarioSimulatorComponent, (9) Pricing feature - PortfolioMarginComponent with distribution chart, PricingRecommendationsComponent with apply/dismiss actions, (10) AI Recommendations - unified feed sorted by priority, (11) Layout - AppLayoutComponent with navbar/sidebar/main, responsive hamburger menu, (12) Implement PrimeNG components (p-table, p-chart, p-card, p-dialog, p-dropdown, p-calendar, p-badge, p-toast), (13) TailwindCSS responsive design (mobile: 1-col, tablet: 2-col, desktop: 3-4-col), (14) State management with Angular Signals, (15) Global error handling and user-friendly toast notifications."
+        "expansionPrompt": "Break down frontend implementation by feature area: (1) Auth infrastructure - implement auth.service.ts (login, logout, JWT storage), auth.interceptor.ts (add Bearer token to requests, handle 401), auth.guard.ts (protect routes), (2) Auth UI - LoginComponent with form validation and lockout error handling, (3) Dashboard HomeComponent - implement 7 dashboard cards (LiquidityRisk, FXExposureSummary, PortfolioMarginMeter, PendingOrdersPipeline, InventoryAlerts, TopRecommendations, ActivityTimeline) with responsive grid layout, (4) Sales feature - SalesEntryComponent with multi-product entry, SalesHistoryComponent with PrimeNG p-table (filters, pagination, edit/delete), SalesVelocityChartComponent with Chart.js, (5) Inventory feature - InventoryListComponent with color-coded rows, StockMovementHistoryComponent, (6) Orders feature - OrderListComponent with pipeline view, CreateOrderComponent with real-time FX exposure preview, OrderDetailComponent with profit projection scenarios, (7) FX feature - FXRatesComponent with current rate and historical chart, FXForecastComponent with confidence bands, (8) Cashflow feature - CashflowProjectionComponent with bar/line charts, LiquidityDashboardComponent with gauges, ScenarioSimulatorComponent, (9) Pricing feature - PortfolioMarginComponent with distribution chart, PricingRecommendationsComponent with apply/dismiss actions, (10) AI Recommendations - unified feed sorted by priority, (11) Layout - AppLayoutComponent with navbar/sidebar/main, responsive hamburger menu, (12) Implement PrimeNG components (p-table, p-chart, p-card, p-dialog, p-dropdown, p-calendar, p-badge, p-toast), (13) TailwindCSS responsive design (mobile: 1-col, tablet: 2-col, desktop: 3-4-col), (14) State management with Angular Signals, (15) Global error handling and user-friendly toast notifications.",
+        "updatedAt": "2026-03-31T06:09:44.808Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-03-31T05:30:59.382Z",
+      "lastModified": "2026-03-31T06:37:03.141Z",
       "taskCount": 12,
-      "completedCount": 10,
+      "completedCount": 12,
       "tags": [
         "master"
       ]
