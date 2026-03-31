@@ -1,32 +1,314 @@
-from fastapi import APIRouter
+"""FX API routes."""
+
+import uuid
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.auth.dependencies import get_current_active_user
+from src.auth.models import User
+from src.core.database import get_db
+from src.fx.exceptions import (
+    ExposureConfigError,
+    ExposureLockExceededError,
+    ExternalRateSyncError,
+    FXAlertNotFoundError,
+    FXPairNotFoundError,
+    InsufficientRateDataError,
+    SimulationNotFoundError,
+)
+from src.fx.schemas import (
+    ExposureConfigRead,
+    ExposureConfigUpdate,
+    ExposureDetailRead,
+    ExposureLockRequest,
+    ExposureSummary,
+    FXAlertCreate,
+    FXAlertRead,
+    FXAlertUpdate,
+    FXRateHistory,
+    FXRateIngest,
+    FXRateRead,
+    SimulationDistribution,
+    SimulationRequest,
+    SimulationResult,
+    VolatilityRead,
+)
+from src.fx.service import (
+    backfill_historical_data,
+    calculate_volatility,
+    create_alert,
+    delete_alert,
+    get_all_current_rates,
+    get_current_rate,
+    get_exposure_config,
+    get_exposure_detail,
+    get_exposure_summary,
+    get_rate_for_date,
+    get_rate_history,
+    get_simulation,
+    get_simulation_distribution,
+    get_triggered_alerts,
+    ingest_rate,
+    list_alerts,
+    lock_exposure,
+    run_simulation,
+    sync_external_rates,
+    update_alert,
+    update_exposure_config,
+)
 
 router = APIRouter()
 
-# TODO: Planned endpoints for the FX domain:
-#
-# --- FX Rate Ingestion ---
-# POST   /fx/rates/ingest                     - Manually ingest or update an FX rate (pair, rate, source, timestamp)
-# GET    /fx/rates/current                     - Get current rates for all tracked pairs (e.g. USD/NGN, EUR/NGN)
-# GET    /fx/rates/{pair}                      - Get current rate for a specific pair (e.g. "USDNGN")
-# GET    /fx/rates/{pair}/history              - Historical rate data for a pair (with date range filter)
-# POST   /fx/rates/sync                        - Trigger sync from external rate providers (CBN, parallel market)
-#
-# --- Exposure Engine ---
-# GET    /fx/exposure                          - Current FX exposure summary (locked vs floating breakdown)
-# GET    /fx/exposure/detail                   - Detailed exposure by order / liability
-# POST   /fx/exposure/lock                     - Lock a portion of exposure at a specific rate (create a forward/hedge)
-# PUT    /fx/exposure/config                   - Update exposure split config (default: 30% locked / 70% floating)
-# GET    /fx/exposure/config                   - Get current exposure split configuration
-#
-# --- FX Alerts ---
-# POST   /fx/alerts                            - Create a rate alert (pair, direction, threshold)
-# GET    /fx/alerts                            - List all active FX alerts
-# PUT    /fx/alerts/{alert_id}                 - Update an alert (threshold, enabled/disabled)
-# DELETE /fx/alerts/{alert_id}                 - Remove an alert
-# GET    /fx/alerts/triggered                  - List recently triggered alerts
-#
-# --- Monte Carlo Simulation ---
-# POST   /fx/simulate                          - Run Monte Carlo simulation for FX impact on cashflow
-#                                                (inputs: horizon_days, num_simulations, confidence_level)
-# GET    /fx/simulate/{sim_id}                 - Retrieve results of a previous simulation run
-# GET    /fx/simulate/{sim_id}/distribution     - Get probability distribution data for charting
+
+# ---------------------------------------------------------------------------
+# FX Rate Ingestion
+# ---------------------------------------------------------------------------
+
+
+@router.post("/rates/ingest", response_model=FXRateRead, status_code=status.HTTP_201_CREATED)
+async def ingest_rate_endpoint(
+    body: FXRateIngest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Manually ingest an FX rate observation."""
+    return await ingest_rate(db, body, current_user.id)
+
+
+@router.get("/rates/current", response_model=list[FXRateRead])
+async def current_rates_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get current rates for all tracked pairs."""
+    return await get_all_current_rates(db)
+
+
+@router.get("/rates/{pair}", response_model=FXRateRead)
+async def get_rate_endpoint(
+    pair: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get current rate for a specific pair."""
+    try:
+        return await get_current_rate(db, pair)
+    except FXPairNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/rates/{pair}/history", response_model=FXRateHistory)
+async def rate_history_endpoint(
+    pair: str,
+    date_from: date,
+    date_to: date,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get historical rate data for a pair."""
+    try:
+        return await get_rate_history(db, pair, date_from, date_to)
+    except FXPairNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/rates/{pair}/date", response_model=FXRateRead)
+async def rate_for_date_endpoint(
+    pair: str,
+    rate_date: date,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get rate for a specific date with nearest-previous fallback."""
+    try:
+        return await get_rate_for_date(db, pair, rate_date)
+    except FXPairNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/rates/sync", response_model=list[FXRateRead])
+async def sync_rates_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Trigger sync from external rate providers."""
+    try:
+        return await sync_external_rates(db)
+    except ExternalRateSyncError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)
+        )
+
+
+@router.post("/rates/backfill")
+async def backfill_endpoint(
+    pair: str,
+    date_from: date,
+    date_to: date,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Backfill historical data from API."""
+    try:
+        count = await backfill_historical_data(db, pair, date_from, date_to)
+        return {"pair": pair, "records_inserted": count}
+    except ExternalRateSyncError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)
+        )
+
+
+@router.get("/volatility/{pair}", response_model=VolatilityRead)
+async def volatility_endpoint(
+    pair: str,
+    days: int = 30,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get volatility metric for a pair."""
+    try:
+        return await calculate_volatility(db, pair, days)
+    except (FXPairNotFoundError, InsufficientRateDataError) as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Exposure Engine
+# ---------------------------------------------------------------------------
+
+
+@router.get("/exposure", response_model=list[ExposureSummary])
+async def exposure_summary_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get current FX exposure summary."""
+    data = await get_exposure_summary(db)
+    return [ExposureSummary(**d) for d in data]
+
+
+@router.get("/exposure/detail", response_model=list[ExposureDetailRead])
+async def exposure_detail_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get detailed exposure records."""
+    return await get_exposure_detail(db)
+
+
+@router.post("/exposure/lock", response_model=ExposureDetailRead, status_code=status.HTTP_201_CREATED)
+async def lock_exposure_endpoint(
+    body: ExposureLockRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Lock a portion of exposure at a specific rate."""
+    try:
+        return await lock_exposure(db, body, current_user.id)
+    except ExposureLockExceededError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/exposure/config", response_model=ExposureConfigRead | None)
+async def get_exposure_config_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get current exposure split configuration."""
+    return await get_exposure_config(db)
+
+
+@router.put("/exposure/config", response_model=ExposureConfigRead)
+async def update_exposure_config_endpoint(
+    body: ExposureConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Update exposure split config (locked_pct + floating_pct must = 100)."""
+    try:
+        return await update_exposure_config(db, body, current_user.id)
+    except ExposureConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# FX Alerts
+# ---------------------------------------------------------------------------
+
+
+@router.post("/alerts", response_model=FXAlertRead, status_code=status.HTTP_201_CREATED)
+async def create_alert_endpoint(
+    body: FXAlertCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create a rate threshold alert."""
+    return await create_alert(db, body, current_user.id)
+
+
+@router.get("/alerts", response_model=list[FXAlertRead])
+async def list_alerts_endpoint(db: AsyncSession = Depends(get_db)):
+    """List all FX alerts."""
+    return await list_alerts(db)
+
+
+@router.put("/alerts/{alert_id}", response_model=FXAlertRead)
+async def update_alert_endpoint(
+    alert_id: uuid.UUID,
+    body: FXAlertUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Update an alert."""
+    try:
+        return await update_alert(db, alert_id, body)
+    except FXAlertNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.delete("/alerts/{alert_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_alert_endpoint(
+    alert_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Delete an alert."""
+    try:
+        await delete_alert(db, alert_id)
+    except FXAlertNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/alerts/triggered", response_model=list[FXAlertRead])
+async def triggered_alerts_endpoint(db: AsyncSession = Depends(get_db)):
+    """List recently triggered alerts."""
+    return await get_triggered_alerts(db)
+
+
+# ---------------------------------------------------------------------------
+# Monte Carlo Simulation
+# ---------------------------------------------------------------------------
+
+
+@router.post("/simulate", response_model=SimulationResult, status_code=status.HTTP_201_CREATED)
+async def run_simulation_endpoint(
+    body: SimulationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Run a Monte Carlo simulation."""
+    try:
+        return await run_simulation(db, body, current_user.id)
+    except InsufficientRateDataError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/simulate/{sim_id}", response_model=SimulationResult)
+async def get_simulation_endpoint(
+    sim_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get results of a previous simulation."""
+    try:
+        return await get_simulation(db, sim_id)
+    except SimulationNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/simulate/{sim_id}/distribution", response_model=SimulationDistribution)
+async def simulation_distribution_endpoint(
+    sim_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get probability distribution for charting."""
+    try:
+        data = await get_simulation_distribution(db, sim_id)
+        return SimulationDistribution(**data)
+    except SimulationNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

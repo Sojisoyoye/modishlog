@@ -37,6 +37,7 @@ from src.auth.router import router as auth_router  # noqa: E402
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 
+from src.fx.router import router as fx_router  # noqa: E402
 from src.inventory.router import router as inventory_router  # noqa: E402
 from src.orders.router import router as orders_router  # noqa: E402
 from src.products.router import router as products_router  # noqa: E402
@@ -46,9 +47,9 @@ app.include_router(products_router, prefix="/api/v1/products", tags=["products"]
 app.include_router(inventory_router, prefix="/api/v1/inventory", tags=["inventory"])
 app.include_router(sales_router, prefix="/api/v1/sales", tags=["sales"])
 app.include_router(orders_router, prefix="/api/v1/orders", tags=["orders"])
+app.include_router(fx_router, prefix="/api/v1/fx", tags=["fx"])
 
 # TODO: Include remaining domain routers as they are implemented
-# from src.fx.router import router as fx_router
 # from src.cashflow.router import router as cashflow_router
 # from src.pricing.router import router as pricing_router
 # from src.ai_engine.router import router as ai_engine_router
