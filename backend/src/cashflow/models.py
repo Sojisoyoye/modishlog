@@ -101,6 +101,46 @@ class LoanObligation(UUIDMixin, TimestampMixin, Base):
         return f"<LoanObligation(id={self.id}, lender={self.lender_name})>"
 
 
+class CostFrequency(str, enum.Enum):
+    """Operating cost payment frequency."""
+
+    DAILY = "daily"
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    QUARTERLY = "quarterly"
+    ANNUALLY = "annually"
+
+
+class CostCategory(str, enum.Enum):
+    """Operating cost category."""
+
+    RENT = "rent"
+    UTILITIES = "utilities"
+    SALARIES = "salaries"
+    TRANSPORT = "transport"
+    MARKETING = "marketing"
+    OTHER = "other"
+
+
+class OperatingCost(UUIDMixin, TimestampMixin, Base):
+    """Recurring operating cost with frequency normalization."""
+
+    __tablename__ = "operating_costs"
+
+    cost_name: Mapped[str] = mapped_column(String(255))
+    cost_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    frequency: Mapped[CostFrequency] = mapped_column(Enum(CostFrequency))
+    monthly_equivalent: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    category: Mapped[CostCategory] = mapped_column(
+        Enum(CostCategory), default=CostCategory.OTHER
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+
+    def __repr__(self) -> str:
+        return f"<OperatingCost(id={self.id}, name={self.cost_name})>"
+
+
 class LoanPaymentSchedule(UUIDMixin, Base):
     """Scheduled payment within a loan amortization schedule."""
 

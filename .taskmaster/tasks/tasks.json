@@ -1005,7 +1005,7 @@
           "5",
           "8"
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -1143,7 +1143,7 @@
         "complexity": 9,
         "recommendedSubtasks": 11,
         "expansionPrompt": "Break down pricing optimization: (1) Implement calculate_demand_forecast() using Prophet on historical sales data with 90-day horizon, (2) Apply price elasticity adjustment to demand forecast (demand_adjusted = base_demand * (1 + elasticity * price_change_pct)), (3) Apply FX sensitivity adjustment for currency impact on demand, (4) Implement calculate_price_elasticity_impact() for proposed price changes, (5) Implement calculate_portfolio_margin() - query all active products, calculate per-product margins, compute blended margin, (6) Store results in PortfolioMargin table with daily updates, (7) Implement generate_pricing_recommendations() - identify products below 35% margin, (8) Use SciPy optimize.minimize with constraints to find optimal prices that maximize blended margin while maintaining revenue within 5%, (9) Implement cross-subsidization logic allowing high-margin products (>40%) to offset volume drivers (28-34%), (10) Create PricingRecommendation records with priority based on margin gap, (11) Implement apply_pricing_recommendation() to update product prices with PriceHistory creation.",
-        "updatedAt": "2026-03-31T02:12:48.552Z"
+        "updatedAt": "2026-03-31T05:20:47.101Z"
       },
       {
         "id": "10",
@@ -1156,7 +1156,7 @@
           "6",
           "9"
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -1283,7 +1283,8 @@
         ],
         "complexity": 8,
         "recommendedSubtasks": 10,
-        "expansionPrompt": "Break down cashflow implementation: (1) Implement create_loan_obligation() with net_monthly_burden calculation (repayment - salary_offset), (2) Implement create_operating_cost() with frequency normalization to monthly equivalent, (3) Implement generate_cashflow_projection() for 6-month rolling projection, (4) For each month calculate: projected revenue from demand forecasts * selling_price, (5) Calculate projected loan payments, operating costs, and FX obligations (70% order payments with forecasted FX rates), (6) Calculate net cashflow, cumulative cashflow, and cash runway (cumulative / avg_monthly_burn), (7) Calculate DSCR (net_operating_income / total_debt_service), (8) Assign risk rating (LOW: DSCR≥1.5 AND runway>6, MEDIUM: DSCR 1.0-1.49 OR runway 3-6, HIGH: DSCR<1.0 OR runway<3), (9) Implement run_stress_scenario() with parameter variations (FX_SHOCK_10, FX_SHOCK_20, DEMAND_DROP_10, DEMAND_DROP_20, COMBINED_STRESS), (10) Implement check_liquidity_alerts() to flag negative cashflow months and DSCR<1.0."
+        "expansionPrompt": "Break down cashflow implementation: (1) Implement create_loan_obligation() with net_monthly_burden calculation (repayment - salary_offset), (2) Implement create_operating_cost() with frequency normalization to monthly equivalent, (3) Implement generate_cashflow_projection() for 6-month rolling projection, (4) For each month calculate: projected revenue from demand forecasts * selling_price, (5) Calculate projected loan payments, operating costs, and FX obligations (70% order payments with forecasted FX rates), (6) Calculate net cashflow, cumulative cashflow, and cash runway (cumulative / avg_monthly_burn), (7) Calculate DSCR (net_operating_income / total_debt_service), (8) Assign risk rating (LOW: DSCR≥1.5 AND runway>6, MEDIUM: DSCR 1.0-1.49 OR runway 3-6, HIGH: DSCR<1.0 OR runway<3), (9) Implement run_stress_scenario() with parameter variations (FX_SHOCK_10, FX_SHOCK_20, DEMAND_DROP_10, DEMAND_DROP_20, COMBINED_STRESS), (10) Implement check_liquidity_alerts() to flag negative cashflow months and DSCR<1.0.",
+        "updatedAt": "2026-03-31T05:20:56.923Z"
       },
       {
         "id": "11",
@@ -1659,9 +1660,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-03-31T02:12:48.552Z",
+      "lastModified": "2026-03-31T05:20:56.923Z",
       "taskCount": 12,
-      "completedCount": 8,
+      "completedCount": 9,
       "tags": [
         "master"
       ]

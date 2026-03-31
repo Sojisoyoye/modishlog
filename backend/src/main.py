@@ -53,8 +53,11 @@ from src.pricing.router import router as pricing_router  # noqa: E402
 
 app.include_router(pricing_router, prefix="/api/v1/pricing", tags=["pricing"])
 
+from src.cashflow.router import router as cashflow_router  # noqa: E402
+
+app.include_router(cashflow_router, prefix="/api/v1/cashflow", tags=["cashflow"])
+
 # TODO: Include remaining domain routers as they are implemented
-# from src.cashflow.router import router as cashflow_router
 # from src.ai_engine.router import router as ai_engine_router
 
 

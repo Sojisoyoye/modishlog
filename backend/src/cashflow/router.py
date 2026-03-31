@@ -1,36 +1,209 @@
-from fastapi import APIRouter
+"""Cashflow API routes."""
+
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.auth.dependencies import get_current_active_user
+from src.auth.models import User
+from src.cashflow.exceptions import (
+    InvalidScenarioTypeError,
+    LoanNotFoundError,
+    ProjectionNotFoundError,
+)
+from src.cashflow.schemas import (
+    AlertResponse,
+    DSCRResponse,
+    LoanCreate,
+    LoanRead,
+    OperatingCostCreate,
+    OperatingCostRead,
+    ProjectionRead,
+    RunwayResponse,
+    ScenarioComparisonResponse,
+    ScenarioRead,
+    ScenarioRequest,
+)
+from src.cashflow.service import (
+    VALID_SCENARIO_TYPES,
+    calculate_cash_runway,
+    check_liquidity_alerts,
+    create_loan,
+    create_operating_cost,
+    generate_cashflow_projection,
+    get_current_dscr,
+    get_latest_projection,
+    get_loan,
+    get_loans,
+    get_operating_costs,
+    get_scenarios,
+    run_stress_scenario,
+)
+from src.core.database import get_db
 
 router = APIRouter()
 
-# TODO: Planned endpoints for the Cashflow domain:
-#
-# --- 6-Month Cashflow Projection ---
-# GET    /cashflow/projection                     - Get 6-month forward cashflow projection (monthly buckets)
-# POST   /cashflow/projection/refresh             - Recalculate projection from latest sales, orders, and FX data
-# GET    /cashflow/projection/assumptions          - View current projection assumptions (growth rate, seasonality)
-# PUT    /cashflow/projection/assumptions          - Update projection assumptions
-#
-# --- DSCR Calculation ---
-# GET    /cashflow/dscr                            - Get current Debt Service Coverage Ratio
-# GET    /cashflow/dscr/history                    - Historical DSCR values (monthly trend)
-# GET    /cashflow/dscr/threshold                  - Get DSCR alert threshold configuration
-# PUT    /cashflow/dscr/threshold                  - Update DSCR alert threshold (e.g. warn below 1.25)
-#
-# --- Cash Runway ---
-# GET    /cashflow/runway                          - Calculate months of cash runway remaining
-# GET    /cashflow/runway/history                  - Historical runway trend
-# POST   /cashflow/runway/what-if                  - What-if scenario: adjust burn rate and see runway impact
-#
-# --- Loan Obligations ---
-# POST   /cashflow/loans                           - Register a loan obligation (principal, rate, term, schedule)
-# GET    /cashflow/loans                           - List all active loan obligations
-# GET    /cashflow/loans/{loan_id}                 - Get a specific loan with amortization schedule
-# PUT    /cashflow/loans/{loan_id}                 - Update loan details
-# DELETE /cashflow/loans/{loan_id}                 - Mark a loan as settled / remove
-# GET    /cashflow/loans/schedule                  - Combined debt service schedule across all loans
-#
-# --- Stress Scenarios ---
-# POST   /cashflow/stress                          - Run a stress scenario (revenue drop %, FX shock %, cost increase %)
-# GET    /cashflow/stress/{scenario_id}            - Retrieve results of a saved stress scenario
-# GET    /cashflow/stress                          - List all saved stress scenarios
-# DELETE /cashflow/stress/{scenario_id}            - Delete a saved stress scenario
+
+# ---------------------------------------------------------------------------
+# Loan Obligations
+# ---------------------------------------------------------------------------
+
+
+@router.post("/loans", response_model=LoanRead, status_code=status.HTTP_201_CREATED)
+async def create_loan_endpoint(
+    body: LoanCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Register a new loan obligation."""
+    return await create_loan(db, body, current_user.id)
+
+
+@router.get("/loans", response_model=list[LoanRead])
+async def list_loans_endpoint(db: AsyncSession = Depends(get_db)):
+    """List active loan obligations."""
+    return await get_loans(db)
+
+
+@router.get("/loans/{loan_id}", response_model=LoanRead)
+async def get_loan_endpoint(
+    loan_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a specific loan obligation."""
+    try:
+        return await get_loan(db, loan_id)
+    except LoanNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Operating Costs
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/operating-costs",
+    response_model=OperatingCostRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_operating_cost_endpoint(
+    body: OperatingCostCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create a recurring operating cost."""
+    return await create_operating_cost(db, body, current_user.id)
+
+
+@router.get("/operating-costs", response_model=list[OperatingCostRead])
+async def list_operating_costs_endpoint(db: AsyncSession = Depends(get_db)):
+    """List active operating costs."""
+    return await get_operating_costs(db)
+
+
+# ---------------------------------------------------------------------------
+# Cashflow Projection
+# ---------------------------------------------------------------------------
+
+
+@router.get("/projection", response_model=ProjectionRead)
+async def get_projection_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get the latest 6-month cashflow projection (generates if none exists)."""
+    try:
+        return await get_latest_projection(db)
+    except ProjectionNotFoundError:
+        return await generate_cashflow_projection(db, current_user.id)
+
+
+@router.get("/projection/{scenario}", response_model=ProjectionRead)
+async def get_scenario_projection_endpoint(
+    scenario: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Generate a cashflow projection for a specific scenario."""
+    if scenario.upper() not in VALID_SCENARIO_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(InvalidScenarioTypeError(scenario)),
+        )
+    return await generate_cashflow_projection(
+        db, current_user.id, scenario_type=scenario.upper()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stress Scenarios
+# ---------------------------------------------------------------------------
+
+
+@router.post("/run-scenario", response_model=ScenarioComparisonResponse)
+async def run_scenario_endpoint(
+    body: ScenarioRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Run a stress scenario simulation and compare to base."""
+    if body.scenario_type.upper() not in VALID_SCENARIO_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(InvalidScenarioTypeError(body.scenario_type)),
+        )
+    result = await run_stress_scenario(
+        db, current_user.id, body.scenario_type.upper()
+    )
+    return ScenarioComparisonResponse(**result)
+
+
+@router.get("/scenarios", response_model=list[ScenarioRead])
+async def list_scenarios_endpoint(db: AsyncSession = Depends(get_db)):
+    """List saved stress scenario simulations."""
+    return await get_scenarios(db)
+
+
+# ---------------------------------------------------------------------------
+# Cash Runway
+# ---------------------------------------------------------------------------
+
+
+@router.get("/cash-runway", response_model=RunwayResponse)
+async def cash_runway_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get current cash runway in months."""
+    try:
+        data = await calculate_cash_runway(db)
+        return RunwayResponse(**data)
+    except ProjectionNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )
+
+
+# ---------------------------------------------------------------------------
+# DSCR
+# ---------------------------------------------------------------------------
+
+
+@router.get("/dscr", response_model=DSCRResponse)
+async def dscr_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get current Debt Service Coverage Ratio."""
+    data = await get_current_dscr(db)
+    return DSCRResponse(**data)
+
+
+# ---------------------------------------------------------------------------
+# Alerts
+# ---------------------------------------------------------------------------
+
+
+@router.get("/alerts", response_model=list[AlertResponse])
+async def alerts_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get liquidity shortage alerts."""
+    alerts = await check_liquidity_alerts(db)
+    return [AlertResponse(**a) for a in alerts]
