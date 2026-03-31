@@ -1,100 +1,143 @@
-# TODO: Pydantic schemas for the Pricing domain
-#
-# --- Demand Elasticity Schemas ---
-# ElasticityRead
-#   - product_id: UUID
-#   - product_name: str
-#   - elasticity_coefficient: Decimal
-#   - classification: str ("elastic" | "inelastic" | "unit_elastic")
-#   - r_squared: Decimal
-#   - data_points_used: int
-#   - calculation_date: date
-#
-# ElasticityCurve
-#   - product_id: UUID
-#   - price_points: list[dict] (price: Decimal, estimated_demand: int)
-#   - optimal_price: Decimal (revenue-maximizing price)
-#   - optimal_demand: int
-#
-# --- Margin Schemas ---
-# MarginAnalysis
-#   - product_id: UUID
-#   - product_name: str
-#   - unit_cost: Decimal
-#   - selling_price: Decimal
-#   - current_margin_pct: float
-#   - target_margin_pct: float | None
-#   - margin_gap: float (current - target)
-#   - volume_last_30d: int
-#   - revenue_contribution_pct: float
-#
-# PortfolioOptimization
-#   - total_products: int
-#   - current_portfolio_margin: Decimal
-#   - optimized_portfolio_margin: Decimal
-#   - improvement_pct: float
-#   - price_changes: list[dict] (product_id, current_price, suggested_price, margin_impact)
-#
-# MarginTargetCreate
-#   - product_id: UUID | None
-#   - category_id: UUID | None
-#   - target_margin_pct: Decimal
-#   - min_margin_pct: Decimal
-#   - priority: int = 1
-#
-# MarginTargetRead
-#   - id: UUID
-#   - product_id: UUID | None
-#   - category_id: UUID | None
-#   - target_margin_pct: Decimal
-#   - min_margin_pct: Decimal
-#   - priority: int
-#   - set_by: UUID
-#
-# --- Pricing Recommendation Schemas ---
-# RecommendationRead
-#   - id: UUID
-#   - product_id: UUID
-#   - product_name: str
-#   - current_price: Decimal
-#   - recommended_price: Decimal
-#   - price_change_pct: float
-#   - expected_demand_change_pct: Decimal
-#   - expected_revenue_change_pct: Decimal
-#   - expected_margin_change_pct: Decimal
-#   - confidence: Decimal
-#   - reasoning: str
-#   - status: str
-#   - created_at: datetime
-#
-# RecommendationApplyRequest
-#   - recommendation_ids: list[UUID] (which recommendations to apply)
-#
-# RecommendationHistoryRead
-#   - id: UUID
-#   - product_id: UUID
-#   - old_price: Decimal
-#   - new_price: Decimal
-#   - applied_at: datetime
-#   - actual_demand_change_pct: Decimal | None (measured after application)
-#   - actual_revenue_change_pct: Decimal | None
-#
-# --- Cross-Subsidization Schemas ---
-# CrossSubsidyRead
-#   - analysis_date: date
-#   - portfolio_total_margin: Decimal
-#   - high_margin_products: list[dict] (product_id, name, margin_pct, subsidy_contribution)
-#   - low_margin_products: list[dict] (product_id, name, margin_pct, subsidy_received)
-#   - recommendations: list[dict] (product_id, action, reasoning)
-#
-# SubsidyMatrix
-#   - products: list[dict] (product_id, name, margin_pct)
-#   - flows: list[dict] (from_product_id, to_product_id, subsidy_amount)
-#
-# SubsidySimulationRequest
-#   - price_changes: list[dict] (product_id, new_price)
-#
-# SubsidySimulationResult
-#   - before: CrossSubsidyRead
-#   - after: CrossSubsidyRead
-#   - impact_summary: dict (portfolio_margin_delta, subsidy_flow_changes)
+"""Pricing domain Pydantic schemas."""
+
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+# ---------------------------------------------------------------------------
+# Demand Elasticity schemas
+# ---------------------------------------------------------------------------
+
+
+class ElasticityRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_id: uuid.UUID
+    elasticity_coefficient: Decimal
+    r_squared: Decimal
+    data_points_used: int
+    calculation_date: date
+    price_range_min: Decimal
+    price_range_max: Decimal
+    demand_curve_data: dict | None = None
+    created_at: datetime
+
+
+class ElasticityConfigUpdate(BaseModel):
+    elasticity_coefficient: Decimal = Field(..., ge=-10, le=0)
+
+
+# ---------------------------------------------------------------------------
+# Portfolio Margin schemas
+# ---------------------------------------------------------------------------
+
+
+class ProductMarginDetail(BaseModel):
+    product_id: uuid.UUID
+    product_name: str
+    unit_cost: Decimal
+    selling_price: Decimal
+    margin_pct: float
+    revenue_30d: Decimal
+    cogs_30d: Decimal
+    quantity_30d: int
+
+
+class PortfolioMarginResponse(BaseModel):
+    blended_margin: Decimal
+    target_margin: Decimal
+    margin_gap: Decimal
+    total_revenue: Decimal
+    total_cogs: Decimal
+    products: list[ProductMarginDetail]
+
+
+class MarginTargetCreate(BaseModel):
+    product_id: uuid.UUID | None = None
+    category_id: uuid.UUID | None = None
+    target_margin_pct: Decimal = Field(..., ge=0, le=100)
+    min_margin_pct: Decimal = Field(..., ge=0, le=100)
+    priority: int = Field(default=1, ge=1)
+
+
+class MarginTargetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_id: uuid.UUID | None = None
+    category_id: uuid.UUID | None = None
+    target_margin_pct: Decimal
+    min_margin_pct: Decimal
+    priority: int
+    set_by: uuid.UUID
+
+
+# ---------------------------------------------------------------------------
+# Pricing Recommendation schemas
+# ---------------------------------------------------------------------------
+
+
+class RecommendationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_id: uuid.UUID
+    current_price: Decimal
+    recommended_price: Decimal
+    expected_demand_change_pct: Decimal
+    expected_revenue_change_pct: Decimal
+    expected_margin_change_pct: Decimal
+    confidence: Decimal
+    reasoning: str
+    status: str
+    applied_at: datetime | None = None
+    applied_by: uuid.UUID | None = None
+    created_at: datetime
+
+
+class RecommendationApplyRequest(BaseModel):
+    recommendation_ids: list[uuid.UUID]
+
+
+class GenerateRecommendationsRequest(BaseModel):
+    target_margin: Decimal = Field(default=Decimal("35.00"), ge=1, le=99)
+
+
+# ---------------------------------------------------------------------------
+# Demand Forecast schemas
+# ---------------------------------------------------------------------------
+
+
+class DemandForecastDay(BaseModel):
+    date: date
+    demand: float
+    demand_lower: float
+    demand_upper: float
+
+
+class DemandForecastResponse(BaseModel):
+    product_id: uuid.UUID
+    horizon_days: int
+    forecasts: list[DemandForecastDay]
+    total_projected_demand: float
+
+
+# ---------------------------------------------------------------------------
+# Cross-Subsidization schemas
+# ---------------------------------------------------------------------------
+
+
+class CrossSubsidyRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    analysis_date: date
+    portfolio_total_margin: Decimal
+    high_margin_products: dict | None = None
+    low_margin_products: dict | None = None
+    recommendations: dict | None = None
+    created_at: datetime

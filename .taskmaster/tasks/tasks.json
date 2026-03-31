@@ -868,7 +868,7 @@
         "dependencies": [
           "7"
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -992,7 +992,7 @@
         "complexity": 9,
         "recommendedSubtasks": 10,
         "expansionPrompt": "Break down FX forecasting implementation: (1) Implement train_fx_forecast_model() - fetch 180 days historical data, prepare Prophet format {ds, y}, (2) Configure Prophet with multiplicative seasonality and fit model, (3) Save trained model to disk with versioning and log MAE metrics, (4) Implement generate_fx_forecast() - load model, generate 180-day forecast, (5) Implement Monte Carlo simulation using NumPy - 10,000 runs per forecast date with normal distribution (mean=Prophet forecast, std=historical volatility), (6) Calculate percentiles (5th=best case, 50th=base, 95th=worst case) and store in FXForecast table, (7) Implement get_forecast_for_date() with staleness check (regenerate if >7 days old), (8) Implement get_forecast_range() for time series retrieval, (9) Implement update_forecast_accuracy() comparing past forecasts to actuals (MAE, MAPE), (10) Wrap Prophet operations in thread pool executor for async compatibility. Include comprehensive tests with synthetic data and performance validation (<10s for 180-day forecast).",
-        "updatedAt": "2026-03-31T01:56:51.761Z"
+        "updatedAt": "2026-03-31T02:12:32.812Z"
       },
       {
         "id": "9",
@@ -1005,7 +1005,7 @@
           "5",
           "8"
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -1142,7 +1142,8 @@
         ],
         "complexity": 9,
         "recommendedSubtasks": 11,
-        "expansionPrompt": "Break down pricing optimization: (1) Implement calculate_demand_forecast() using Prophet on historical sales data with 90-day horizon, (2) Apply price elasticity adjustment to demand forecast (demand_adjusted = base_demand * (1 + elasticity * price_change_pct)), (3) Apply FX sensitivity adjustment for currency impact on demand, (4) Implement calculate_price_elasticity_impact() for proposed price changes, (5) Implement calculate_portfolio_margin() - query all active products, calculate per-product margins, compute blended margin, (6) Store results in PortfolioMargin table with daily updates, (7) Implement generate_pricing_recommendations() - identify products below 35% margin, (8) Use SciPy optimize.minimize with constraints to find optimal prices that maximize blended margin while maintaining revenue within 5%, (9) Implement cross-subsidization logic allowing high-margin products (>40%) to offset volume drivers (28-34%), (10) Create PricingRecommendation records with priority based on margin gap, (11) Implement apply_pricing_recommendation() to update product prices with PriceHistory creation."
+        "expansionPrompt": "Break down pricing optimization: (1) Implement calculate_demand_forecast() using Prophet on historical sales data with 90-day horizon, (2) Apply price elasticity adjustment to demand forecast (demand_adjusted = base_demand * (1 + elasticity * price_change_pct)), (3) Apply FX sensitivity adjustment for currency impact on demand, (4) Implement calculate_price_elasticity_impact() for proposed price changes, (5) Implement calculate_portfolio_margin() - query all active products, calculate per-product margins, compute blended margin, (6) Store results in PortfolioMargin table with daily updates, (7) Implement generate_pricing_recommendations() - identify products below 35% margin, (8) Use SciPy optimize.minimize with constraints to find optimal prices that maximize blended margin while maintaining revenue within 5%, (9) Implement cross-subsidization logic allowing high-margin products (>40%) to offset volume drivers (28-34%), (10) Create PricingRecommendation records with priority based on margin gap, (11) Implement apply_pricing_recommendation() to update product prices with PriceHistory creation.",
+        "updatedAt": "2026-03-31T02:12:48.552Z"
       },
       {
         "id": "10",
@@ -1658,9 +1659,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-03-31T01:56:51.761Z",
+      "lastModified": "2026-03-31T02:12:48.552Z",
       "taskCount": 12,
-      "completedCount": 7,
+      "completedCount": 8,
       "tags": [
         "master"
       ]
