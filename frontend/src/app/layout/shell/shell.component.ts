@@ -12,7 +12,7 @@ import { TopbarComponent } from '../topbar/topbar.component';
       <app-sidebar [mobileOpen]="mobileOpen()" (closeMobile)="mobileOpen.set(false)" />
       <div class="flex flex-1 flex-col overflow-hidden">
         <app-topbar (toggleMenu)="mobileOpen.update((v) => !v)" />
-        <main class="flex-1 overflow-y-auto p-4 md:p-6">
+        <main class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
           <router-outlet />
         </main>
       </div>
@@ -20,7 +20,7 @@ import { TopbarComponent } from '../topbar/topbar.component';
 
     @if (mobileOpen()) {
       <div
-        class="fixed inset-0 z-30 bg-black/50 lg:hidden"
+        class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
         (click)="mobileOpen.set(false)"
       ></div>
     }

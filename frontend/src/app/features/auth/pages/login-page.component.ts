@@ -10,53 +10,83 @@ import { AuthService } from '../../../core/services/auth.service';
   imports: [FormsModule],
   template: `
     <div
-      class="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary to-secondary"
+      class="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary to-secondary p-4"
     >
-      <div class="w-full max-w-md rounded-lg bg-surface p-8 shadow-lg">
-        <h1 class="mb-2 text-center text-2xl font-bold text-primary">ModishLog</h1>
-        <p class="mb-6 text-center text-sm text-muted">Sign in to your account</p>
+      <div class="w-full max-w-md">
+        <!-- Card -->
+        <div class="rounded-2xl bg-white p-8 shadow-2xl">
+          <!-- Logo -->
+          <div class="mb-6 text-center">
+            <div
+              class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-xl font-bold text-white shadow-lg"
+            >
+              M
+            </div>
+            <h1 class="text-2xl font-bold text-text">ModishLog</h1>
+            <p class="mt-1 text-sm text-muted">Sign in to your business dashboard</p>
+          </div>
 
-        @if (errorMessage()) {
-          <div class="mb-4 rounded-lg border border-danger/20 bg-red-50 p-3 text-sm text-danger">
-            {{ errorMessage() }}
-          </div>
-        }
+          @if (errorMessage()) {
+            <div
+              class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-danger"
+            >
+              <i class="pi pi-exclamation-circle"></i>
+              {{ errorMessage() }}
+            </div>
+          }
 
-        <form (ngSubmit)="onLogin()">
-          <div class="mb-4">
-            <label class="mb-1 block text-sm font-medium text-text">Email</label>
-            <input
-              type="email"
-              [(ngModel)]="email"
-              name="email"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-              placeholder="you@example.com"
-              required
-            />
-          </div>
-          <div class="mb-6">
-            <label class="mb-1 block text-sm font-medium text-text">Password</label>
-            <input
-              type="password"
-              [(ngModel)]="password"
-              name="password"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-              required
-              minlength="8"
-            />
-          </div>
-          <button
-            type="submit"
-            [disabled]="loading()"
-            class="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
-          >
-            @if (loading()) {
-              Signing in...
-            } @else {
-              Sign In
-            }
-          </button>
-        </form>
+          <form (ngSubmit)="onLogin()">
+            <div class="mb-4">
+              <label class="mb-1.5 block text-sm font-medium text-text">Email</label>
+              <div class="relative">
+                <i
+                  class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted"
+                ></i>
+                <input
+                  type="email"
+                  [(ngModel)]="email"
+                  name="email"
+                  class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  placeholder="you@example.com"
+                  required
+                />
+              </div>
+            </div>
+            <div class="mb-6">
+              <label class="mb-1.5 block text-sm font-medium text-text">Password</label>
+              <div class="relative">
+                <i
+                  class="pi pi-lock absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted"
+                ></i>
+                <input
+                  type="password"
+                  [(ngModel)]="password"
+                  name="password"
+                  class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  required
+                  minlength="8"
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              [disabled]="loading()"
+              class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+            >
+              @if (loading()) {
+                <i class="pi pi-spinner pi-spin text-sm"></i>
+                Signing in...
+              } @else {
+                Sign In
+              }
+            </button>
+          </form>
+        </div>
+
+        <!-- Footer -->
+        <p class="mt-6 text-center text-xs text-white/70">
+          Smart business management for everyday traders
+        </p>
       </div>
     </div>
   `,

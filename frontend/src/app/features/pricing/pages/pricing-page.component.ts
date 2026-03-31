@@ -4,7 +4,11 @@ import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { UIChart } from 'primeng/chart';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
-import { PricingService, PortfolioMarginData, ProductMargin } from '../../../core/services/pricing.service';
+import {
+  PricingService,
+  PortfolioMarginData,
+  ProductMargin,
+} from '../../../core/services/pricing.service';
 import {
   RecommendationsService,
   Recommendation,
@@ -17,71 +21,123 @@ import {
   template: `
     <p-toast />
     <div>
-      <h2 class="mb-6 text-xl font-bold text-text">Pricing & Margins</h2>
+      <div class="mb-6">
+        <h2 class="text-2xl font-bold text-text">Pricing & Margins</h2>
+        <p class="mt-1 text-sm text-muted">Analyze margins and optimize pricing</p>
+      </div>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <!-- Blended Margin Card -->
-        <div class="rounded-lg border border-gray-200 bg-surface p-6 text-center">
-          <p class="text-sm text-muted">Blended Portfolio Margin</p>
+        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div class="mb-4 flex items-center gap-2">
+            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+              <i class="pi pi-percentage text-lg text-primary"></i>
+            </div>
+          </div>
+          <p class="text-sm font-medium text-muted">Blended Portfolio Margin</p>
           <p class="mt-2 text-4xl font-bold text-text">
             {{ marginData().blended_margin | number: '1.1-1' }}%
           </p>
-          <p class="mt-1 text-sm" [class]="marginData().gap >= 0 ? 'text-success' : 'text-danger'">
+          <p
+            class="mt-2 text-sm font-medium"
+            [class]="marginData().gap >= 0 ? 'text-success' : 'text-danger'"
+          >
             @if (marginData().gap >= 0) {
-              +{{ marginData().gap | number: '1.1-1' }}% above {{ marginData().target_margin }}% target
+              <i class="pi pi-arrow-up text-xs"></i>
+              +{{ marginData().gap | number: '1.1-1' }}% above {{ marginData().target_margin }}%
+              target
             } @else {
-              {{ marginData().gap | number: '1.1-1' }}% below {{ marginData().target_margin }}% target
+              <i class="pi pi-arrow-down text-xs"></i>
+              {{ marginData().gap | number: '1.1-1' }}% below {{ marginData().target_margin }}%
+              target
             }
           </p>
         </div>
 
         <!-- Margin Distribution Chart -->
-        <div class="rounded-lg border border-gray-200 bg-surface p-5 lg:col-span-2">
-          <h3 class="mb-4 text-base font-semibold text-text">Margin Distribution</h3>
+        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm lg:col-span-2">
+          <div class="mb-5 flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
+              <i class="pi pi-chart-bar text-sm text-purple-600"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Margin Distribution</h3>
+          </div>
           @if (distributionChart()) {
-            <p-chart type="bar" [data]="distributionChart()!" [options]="barOptions" height="200px" />
+            <p-chart
+              type="bar"
+              [data]="distributionChart()!"
+              [options]="barOptions"
+              height="200px"
+            />
           }
         </div>
       </div>
 
       <!-- Per-Product Margins -->
-      <div class="mt-6 rounded-lg border border-gray-200 bg-surface p-5">
-        <h3 class="mb-4 text-base font-semibold text-text">Per-Product Margins</h3>
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+            <i class="pi pi-list text-sm text-secondary"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Per-Product Margins</h3>
+        </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase text-muted">Product</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">Cost</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">Selling</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">Margin</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">Target</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">Gap</th>
+            <thead>
+              <tr class="bg-gray-50/80">
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                  Product
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  Cost
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  Selling
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  Margin
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  Target
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">Gap</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200">
+            <tbody class="divide-y divide-gray-100">
               @for (p of marginData().products; track p.product_id) {
-                <tr [class]="p.gap >= 0 ? 'hover:bg-gray-50' : 'bg-red-50 hover:bg-red-100'">
-                  <td class="px-4 py-3 font-medium">{{ p.product_name }}</td>
+                <tr
+                  [class]="
+                    p.gap >= 0
+                      ? 'transition-colors hover:bg-gray-50/50'
+                      : 'bg-red-50/50 hover:bg-red-50'
+                  "
+                >
+                  <td class="px-4 py-3 font-medium text-text">{{ p.product_name }}</td>
                   <td class="px-4 py-3 text-right text-muted">
                     {{ p.cost_price | currency: 'NGN' : 'symbol' : '1.0-0' }}
                   </td>
                   <td class="px-4 py-3 text-right">
                     {{ p.selling_price | currency: 'NGN' : 'symbol' : '1.0-0' }}
                   </td>
-                  <td class="px-4 py-3 text-right font-medium">
+                  <td class="px-4 py-3 text-right font-semibold">
                     {{ p.current_margin | number: '1.1-1' }}%
                   </td>
                   <td class="px-4 py-3 text-right text-muted">
                     {{ p.target_margin | number: '1.1-1' }}%
                   </td>
-                  <td class="px-4 py-3 text-right font-medium" [class]="p.gap >= 0 ? 'text-success' : 'text-danger'">
+                  <td
+                    class="px-4 py-3 text-right font-bold"
+                    [class]="p.gap >= 0 ? 'text-success' : 'text-danger'"
+                  >
                     {{ p.gap >= 0 ? '+' : '' }}{{ p.gap | number: '1.1-1' }}%
                   </td>
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="6" class="px-4 py-8 text-center text-muted">No pricing data available</td>
+                  <td colspan="6" class="px-4 py-10 text-center text-muted">
+                    <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
+                    No pricing data available
+                  </td>
                 </tr>
               }
             </tbody>
@@ -90,34 +146,42 @@ import {
       </div>
 
       <!-- Pricing Recommendations -->
-      <div class="mt-6 rounded-lg border border-gray-200 bg-surface p-5">
-        <h3 class="mb-4 text-base font-semibold text-text">Pricing Recommendations</h3>
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+            <i class="pi pi-sparkles text-sm text-warning"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Pricing Recommendations</h3>
+        </div>
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           @for (rec of pricingRecs(); track rec.id) {
-            <div class="rounded-lg border border-gray-200 p-4">
+            <div class="rounded-xl border border-gray-200 p-4 transition-shadow hover:shadow-md">
               <div class="mb-2 flex items-center justify-between">
-                <app-status-badge [label]="rec.priority" [status]="rec.priority === 'HIGH' ? 'danger' : 'warning'" />
+                <app-status-badge
+                  [label]="rec.priority"
+                  [status]="rec.priority === 'HIGH' ? 'danger' : 'warning'"
+                />
                 <span class="text-xs text-muted">{{ rec.category }}</span>
               </div>
-              <h4 class="text-sm font-medium text-text">{{ rec.title }}</h4>
-              <p class="mt-1 text-xs text-muted">{{ rec.description }}</p>
+              <h4 class="text-sm font-semibold text-text">{{ rec.title }}</h4>
+              <p class="mt-1 text-xs text-muted leading-relaxed">{{ rec.description }}</p>
               <div class="mt-3 flex gap-2">
                 <button
                   (click)="applyRec(rec.id)"
-                  class="rounded bg-success px-3 py-1 text-xs font-medium text-white hover:bg-success/90"
+                  class="flex items-center gap-1 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-success/90"
                 >
-                  Apply
+                  <i class="pi pi-check text-[10px]"></i> Apply
                 </button>
                 <button
                   (click)="dismissRec(rec.id)"
-                  class="rounded border border-gray-300 px-3 py-1 text-xs text-muted hover:bg-gray-50"
+                  class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
                 >
                   Dismiss
                 </button>
               </div>
             </div>
           } @empty {
-            <p class="col-span-2 text-muted">No pricing recommendations</p>
+            <p class="col-span-2 py-4 text-center text-muted">No pricing recommendations</p>
           }
         </div>
       </div>
@@ -143,7 +207,10 @@ export class PricingPageComponent implements OnInit {
     responsive: true,
     maintainAspectRatio: false,
     plugins: { legend: { display: false } },
-    scales: { y: { beginAtZero: true, title: { display: true, text: 'Products' } } },
+    scales: {
+      y: { beginAtZero: true, title: { display: true, text: 'Products' } },
+      x: { grid: { display: false } },
+    },
   };
 
   ngOnInit(): void {
@@ -176,6 +243,7 @@ export class PricingPageComponent implements OnInit {
           label: 'Products',
           data: counts,
           backgroundColor: ['#C0392B', '#D97706', '#2E75B6', '#1A7A4A', '#1F4E79'],
+          borderRadius: 6,
         },
       ],
     });

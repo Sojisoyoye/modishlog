@@ -18,29 +18,49 @@ import {
   template: `
     <p-toast />
     <div>
-      <h2 class="mb-6 text-xl font-bold text-text">Inventory</h2>
+      <div class="mb-6">
+        <h2 class="text-2xl font-bold text-text">Inventory</h2>
+        <p class="mt-1 text-sm text-muted">Monitor stock levels and movements</p>
+      </div>
 
       <!-- Stock Levels -->
-      <div class="mb-6 rounded-lg border border-gray-200 bg-surface p-5">
-        <h3 class="mb-4 text-base font-semibold text-text">Current Stock Levels</h3>
+      <div class="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+            <i class="pi pi-box text-sm text-secondary"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Current Stock Levels</h3>
+        </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase text-muted">Product</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">Stock</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">Threshold</th>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase text-muted">Status</th>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase text-muted">Depletion</th>
-                <th class="px-4 py-3 text-center text-xs font-medium uppercase text-muted">Actions</th>
+            <thead>
+              <tr class="bg-gray-50/80">
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                  Product
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  Stock
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  Threshold
+                </th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                  Status
+                </th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                  Depletion
+                </th>
+                <th class="px-4 py-3 text-center text-xs font-semibold uppercase text-muted">
+                  Actions
+                </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200">
+            <tbody class="divide-y divide-gray-100">
               @for (item of inventory(); track item.product_id) {
                 <tr [class]="stockRowClass(item)">
-                  <td class="px-4 py-3 font-medium">{{ item.product_name }}</td>
-                  <td class="px-4 py-3 text-right">{{ item.current_stock }}</td>
-                  <td class="px-4 py-3 text-right">{{ item.low_stock_threshold }}</td>
+                  <td class="px-4 py-3 font-medium text-text">{{ item.product_name }}</td>
+                  <td class="px-4 py-3 text-right font-semibold">{{ item.current_stock }}</td>
+                  <td class="px-4 py-3 text-right text-muted">{{ item.low_stock_threshold }}</td>
                   <td class="px-4 py-3">
                     <app-status-badge [label]="stockLabel(item)" [status]="stockStatus(item)" />
                   </td>
@@ -54,15 +74,18 @@ import {
                   <td class="px-4 py-3 text-center">
                     <button
                       (click)="openAdjust(item)"
-                      class="rounded px-2 py-1 text-xs text-secondary hover:bg-blue-50"
+                      class="rounded-lg px-3 py-1.5 text-xs font-medium text-secondary transition-colors hover:bg-blue-50"
                     >
-                      Adjust
+                      <i class="pi pi-pencil mr-1 text-[10px]"></i> Adjust
                     </button>
                   </td>
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="6" class="px-4 py-8 text-center text-muted">No inventory data</td>
+                  <td colspan="6" class="px-4 py-10 text-center text-muted">
+                    <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
+                    No inventory data
+                  </td>
                 </tr>
               }
             </tbody>
@@ -71,35 +94,59 @@ import {
       </div>
 
       <!-- Stock Movements -->
-      <div class="rounded-lg border border-gray-200 bg-surface p-5">
-        <h3 class="mb-4 text-base font-semibold text-text">Recent Movements</h3>
+      <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+            <i class="pi pi-arrow-right-arrow-left text-sm text-warning"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Recent Movements</h3>
+        </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase text-muted">Date</th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase text-muted">Product</th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase text-muted">Type</th>
-                <th class="px-3 py-2 text-right text-xs font-medium uppercase text-muted">Qty</th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase text-muted">Notes</th>
+            <thead>
+              <tr class="bg-gray-50/80">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                  Date
+                </th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                  Product
+                </th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                  Type
+                </th>
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                  Qty
+                </th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                  Notes
+                </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200">
+            <tbody class="divide-y divide-gray-100">
               @for (mov of movements(); track mov.id) {
-                <tr class="hover:bg-gray-50">
-                  <td class="px-3 py-2 text-muted">{{ mov.created_at | date: 'short' }}</td>
-                  <td class="px-3 py-2">{{ mov.product_name }}</td>
-                  <td class="px-3 py-2">
-                    <app-status-badge [label]="mov.movement_type" [status]="movementStatus(mov.movement_type)" />
+                <tr class="transition-colors hover:bg-gray-50/50">
+                  <td class="px-3 py-2.5 text-muted">{{ mov.created_at | date: 'short' }}</td>
+                  <td class="px-3 py-2.5 font-medium">{{ mov.product_name }}</td>
+                  <td class="px-3 py-2.5">
+                    <app-status-badge
+                      [label]="mov.movement_type"
+                      [status]="movementStatus(mov.movement_type)"
+                    />
                   </td>
-                  <td class="px-3 py-2 text-right font-medium" [class]="mov.quantity >= 0 ? 'text-success' : 'text-danger'">
+                  <td
+                    class="px-3 py-2.5 text-right font-semibold"
+                    [class]="mov.quantity >= 0 ? 'text-success' : 'text-danger'"
+                  >
                     {{ mov.quantity >= 0 ? '+' : '' }}{{ mov.quantity }}
                   </td>
-                  <td class="px-3 py-2 text-muted">{{ mov.notes ?? '--' }}</td>
+                  <td class="px-3 py-2.5 text-muted">{{ mov.notes ?? '--' }}</td>
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="5" class="px-3 py-6 text-center text-muted">No movements recorded</td>
+                  <td colspan="5" class="px-3 py-10 text-center text-muted">
+                    <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
+                    No movements recorded
+                  </td>
                 </tr>
               }
             </tbody>
@@ -117,12 +164,15 @@ import {
     >
       @if (adjustItem()) {
         <div class="space-y-4">
-          <p class="text-sm font-medium text-text">{{ adjustItem()!.product_name }}</p>
+          <div class="rounded-lg bg-gray-50 p-3">
+            <p class="text-sm font-semibold text-text">{{ adjustItem()!.product_name }}</p>
+            <p class="text-xs text-muted">Current stock: {{ adjustItem()!.current_stock }}</p>
+          </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Type</label>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Type</label>
             <select
               [(ngModel)]="adjustType"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             >
               <option value="PURCHASE">Purchase</option>
               <option value="MANUAL_CORRECTION">Manual Correction</option>
@@ -130,27 +180,28 @@ import {
             </select>
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Quantity</label>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Quantity</label>
             <input
               type="number"
               [(ngModel)]="adjustQty"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               min="1"
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Notes</label>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Notes</label>
             <textarea
               [(ngModel)]="adjustNotes"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               rows="2"
+              placeholder="Optional notes..."
             ></textarea>
           </div>
           <button
             (click)="submitAdjust()"
-            class="w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+            class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
           >
-            Save Adjustment
+            <i class="pi pi-check text-sm"></i> Save Adjustment
           </button>
         </div>
       }
@@ -194,9 +245,9 @@ export class InventoryPageComponent implements OnInit {
 
   stockRowClass(item: InventoryItem): string {
     const s = this.stockStatus(item);
-    if (s === 'danger') return 'bg-red-50 hover:bg-red-100';
-    if (s === 'warning') return 'bg-amber-50 hover:bg-amber-100';
-    return 'hover:bg-gray-50';
+    if (s === 'danger') return 'bg-red-50/50 hover:bg-red-50';
+    if (s === 'warning') return 'bg-amber-50/50 hover:bg-amber-50';
+    return 'transition-colors hover:bg-gray-50/50';
   }
 
   movementStatus(type: string): 'info' | 'success' | 'danger' | 'warning' {

@@ -16,24 +16,42 @@ import {
   imports: [FormsModule, DecimalPipe, CurrencyPipe, UIChart, StatusBadgeComponent],
   template: `
     <div>
-      <h2 class="mb-6 text-xl font-bold text-text">Cashflow</h2>
+      <div class="mb-6">
+        <h2 class="text-2xl font-bold text-text">Cashflow</h2>
+        <p class="mt-1 text-sm text-muted">Monitor liquidity and project future cashflows</p>
+      </div>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <!-- Liquidity Metrics -->
         <div class="space-y-4">
-          <div class="rounded-lg border bg-surface p-5" [class]="liquidityBorder()">
-            <p class="text-sm text-muted">Cash Runway</p>
-            <p class="mt-1 text-3xl font-bold text-text">{{ liquidity().cash_runway_days }} days</p>
+          <div class="rounded-xl border bg-white p-5 shadow-sm" [class]="liquidityBorder()">
+            <div class="mb-2 flex items-center gap-2">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+                <i class="pi pi-clock text-sm text-secondary"></i>
+              </div>
+              <p class="text-sm font-medium text-muted">Cash Runway</p>
+            </div>
+            <p class="text-3xl font-bold text-text">{{ liquidity().cash_runway_days }} days</p>
           </div>
-          <div class="rounded-lg border border-gray-200 bg-surface p-5">
-            <p class="text-sm text-muted">DSCR</p>
-            <p class="mt-1 text-3xl font-bold" [class]="dscrColor()">
+          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div class="mb-2 flex items-center gap-2">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
+                <i class="pi pi-chart-line text-sm text-success"></i>
+              </div>
+              <p class="text-sm font-medium text-muted">DSCR</p>
+            </div>
+            <p class="text-3xl font-bold" [class]="dscrColor()">
               {{ liquidity().dscr | number: '1.2-2' }}
             </p>
           </div>
-          <div class="rounded-lg border border-gray-200 bg-surface p-5">
+          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <div class="flex items-center justify-between">
-              <p class="text-sm text-muted">Risk Rating</p>
+              <div class="flex items-center gap-2">
+                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+                  <i class="pi pi-shield text-sm text-warning"></i>
+                </div>
+                <p class="text-sm font-medium text-muted">Risk Rating</p>
+              </div>
               <app-status-badge [label]="liquidity().risk_rating" [status]="riskStatus()" />
             </div>
           </div>
@@ -43,9 +61,13 @@ import {
             <div class="space-y-2">
               @for (alert of liquidity().alerts; track alert.message) {
                 <div
-                  class="rounded-lg border-l-4 bg-surface p-3 text-sm"
+                  class="rounded-lg border-l-4 bg-white p-3 text-sm shadow-sm"
                   [class]="alert.severity === 'HIGH' ? 'border-l-danger' : 'border-l-warning'"
                 >
+                  <i
+                    class="pi pi-exclamation-triangle mr-1 text-xs"
+                    [class]="alert.severity === 'HIGH' ? 'text-danger' : 'text-warning'"
+                  ></i>
                   {{ alert.message }}
                 </div>
               }
@@ -54,48 +76,87 @@ import {
         </div>
 
         <!-- Projection Chart -->
-        <div class="rounded-lg border border-gray-200 bg-surface p-5 lg:col-span-2">
-          <h3 class="mb-4 text-base font-semibold text-text">6-Month Projection</h3>
+        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm lg:col-span-2">
+          <div class="mb-5 flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50">
+              <i class="pi pi-chart-bar text-sm text-indigo-600"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">6-Month Projection</h3>
+          </div>
           @if (projectionChart()) {
-            <p-chart type="bar" [data]="projectionChart()!" [options]="projectionOptions" height="300px" />
+            <p-chart
+              type="bar"
+              [data]="projectionChart()!"
+              [options]="projectionOptions"
+              height="300px"
+            />
           } @else {
-            <p class="text-muted">Loading...</p>
+            <div class="flex h-[300px] items-center justify-center">
+              <p class="text-muted"><i class="pi pi-spinner pi-spin mr-2"></i>Loading...</p>
+            </div>
           }
         </div>
       </div>
 
       <!-- Projection Table -->
-      <div class="mt-6 rounded-lg border border-gray-200 bg-surface p-5">
-        <h3 class="mb-4 text-base font-semibold text-text">Month-by-Month</h3>
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+            <i class="pi pi-table text-sm text-secondary"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Month-by-Month</h3>
+        </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase text-muted">Month</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">Inflows</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">Outflows</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">Net</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">Cumulative</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase text-muted">DSCR</th>
+            <thead>
+              <tr class="bg-gray-50/80">
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                  Month
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  Inflows
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  Outflows
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">Net</th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  Cumulative
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  DSCR
+                </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200">
+            <tbody class="divide-y divide-gray-100">
               @for (m of projection(); track m.month) {
-                <tr class="hover:bg-gray-50">
-                  <td class="px-4 py-3 font-medium">{{ m.month }}</td>
-                  <td class="px-4 py-3 text-right text-success">
+                <tr class="transition-colors hover:bg-gray-50/50">
+                  <td class="px-4 py-3 font-semibold text-text">{{ m.month }}</td>
+                  <td class="px-4 py-3 text-right font-medium text-success">
                     {{ m.inflows | currency: 'NGN' : 'symbol' : '1.0-0' }}
                   </td>
-                  <td class="px-4 py-3 text-right text-danger">
+                  <td class="px-4 py-3 text-right font-medium text-danger">
                     {{ m.outflows | currency: 'NGN' : 'symbol' : '1.0-0' }}
                   </td>
-                  <td class="px-4 py-3 text-right font-medium" [class]="m.net_cashflow >= 0 ? 'text-success' : 'text-danger'">
+                  <td
+                    class="px-4 py-3 text-right font-bold"
+                    [class]="m.net_cashflow >= 0 ? 'text-success' : 'text-danger'"
+                  >
                     {{ m.net_cashflow | currency: 'NGN' : 'symbol' : '1.0-0' }}
                   </td>
                   <td class="px-4 py-3 text-right">
                     {{ m.cumulative | currency: 'NGN' : 'symbol' : '1.0-0' }}
                   </td>
-                  <td class="px-4 py-3 text-right" [class]="m.dscr >= 1.5 ? 'text-success' : m.dscr >= 1.0 ? 'text-warning' : 'text-danger'">
+                  <td
+                    class="px-4 py-3 text-right font-semibold"
+                    [class]="
+                      m.dscr >= 1.5
+                        ? 'text-success'
+                        : m.dscr >= 1.0
+                          ? 'text-warning'
+                          : 'text-danger'
+                    "
+                  >
                     {{ m.dscr | number: '1.2-2' }}
                   </td>
                 </tr>
@@ -106,67 +167,77 @@ import {
       </div>
 
       <!-- Scenario Simulator -->
-      <div class="mt-6 rounded-lg border border-gray-200 bg-surface p-5">
-        <h3 class="mb-4 text-base font-semibold text-text">Scenario Simulator</h3>
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
+            <i class="pi pi-sliders-h text-sm text-purple-600"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Scenario Simulator</h3>
+        </div>
         <div class="flex flex-wrap items-end gap-4">
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">FX Shock (%)</label>
+            <label class="mb-1.5 block text-xs font-medium text-muted">FX Shock (%)</label>
             <input
               type="number"
               [(ngModel)]="fxShock"
-              class="w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              class="w-28 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               step="5"
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Demand Drop (%)</label>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Demand Drop (%)</label>
             <input
               type="number"
               [(ngModel)]="demandDrop"
-              class="w-28 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              class="w-28 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               step="5"
             />
           </div>
           <div class="flex gap-2">
             <button
               (click)="fxShock = 10; demandDrop = 0; runScenario()"
-              class="rounded border border-gray-300 px-3 py-2 text-xs hover:bg-gray-50"
+              class="rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
             >
               FX +10%
             </button>
             <button
               (click)="fxShock = 20; demandDrop = 0; runScenario()"
-              class="rounded border border-gray-300 px-3 py-2 text-xs hover:bg-gray-50"
+              class="rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
             >
               FX +20%
             </button>
             <button
               (click)="fxShock = 0; demandDrop = 20; runScenario()"
-              class="rounded border border-gray-300 px-3 py-2 text-xs hover:bg-gray-50"
+              class="rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
             >
               Demand -20%
             </button>
           </div>
           <button
             (click)="runScenario()"
-            class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+            class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
           >
-            Simulate
+            <i class="pi pi-play text-sm"></i> Simulate
           </button>
         </div>
         @if (scenarioResult()) {
-          <div class="mt-4 rounded-lg border border-gray-200 p-4">
-            <p class="text-sm font-semibold text-text">{{ scenarioResult()!.label }}</p>
-            <div class="mt-2 grid grid-cols-2 gap-4 text-sm">
+          <div class="mt-5 rounded-xl border border-gray-200 bg-gray-50 p-5">
+            <p class="text-sm font-bold text-text">{{ scenarioResult()!.label }}</p>
+            <div class="mt-3 grid grid-cols-2 gap-6 text-sm">
               <div>
-                <p class="text-xs text-muted">Worst DSCR</p>
-                <p class="font-bold" [class]="scenarioResult()!.worst_dscr >= 1.0 ? 'text-success' : 'text-danger'">
+                <p class="text-xs font-medium text-muted">Worst DSCR</p>
+                <p
+                  class="mt-1 text-2xl font-bold"
+                  [class]="scenarioResult()!.worst_dscr >= 1.0 ? 'text-success' : 'text-danger'"
+                >
                   {{ scenarioResult()!.worst_dscr | number: '1.2-2' }}
                 </p>
               </div>
               <div>
-                <p class="text-xs text-muted">Cash Runway</p>
-                <p class="font-bold">{{ scenarioResult()!.cash_runway_days }} days</p>
+                <p class="text-xs font-medium text-muted">Cash Runway</p>
+                <p class="mt-1 text-2xl font-bold text-text">
+                  {{ scenarioResult()!.cash_runway_days }} days
+                </p>
               </div>
             </div>
           </div>
@@ -195,7 +266,10 @@ export class CashflowPageComponent implements OnInit {
     responsive: true,
     maintainAspectRatio: false,
     plugins: { legend: { position: 'top' as const } },
-    scales: { y: { beginAtZero: true } },
+    scales: {
+      y: { beginAtZero: true },
+      x: { grid: { display: false } },
+    },
   };
 
   ngOnInit(): void {
@@ -218,11 +292,13 @@ export class CashflowPageComponent implements OnInit {
           label: 'Inflows',
           data: months.map((m) => m.inflows),
           backgroundColor: '#1A7A4A',
+          borderRadius: 4,
         },
         {
           label: 'Outflows',
           data: months.map((m) => -Math.abs(m.outflows)),
           backgroundColor: '#C0392B',
+          borderRadius: 4,
         },
         {
           label: 'Cumulative',
@@ -231,6 +307,8 @@ export class CashflowPageComponent implements OnInit {
           borderColor: '#1F4E79',
           fill: false,
           tension: 0.3,
+          pointRadius: 3,
+          pointHoverRadius: 6,
         },
       ],
     });
@@ -253,9 +331,12 @@ export class CashflowPageComponent implements OnInit {
 
   liquidityBorder(): string {
     const s = this.riskStatus();
-    if (s === 'success') return 'border-success';
-    if (s === 'warning') return 'border-warning';
-    if (s === 'danger') return 'border-danger';
+    if (s === 'success')
+      return 'border-l-4 border-l-success border-t-gray-200 border-r-gray-200 border-b-gray-200';
+    if (s === 'warning')
+      return 'border-l-4 border-l-warning border-t-gray-200 border-r-gray-200 border-b-gray-200';
+    if (s === 'danger')
+      return 'border-l-4 border-l-danger border-t-gray-200 border-r-gray-200 border-b-gray-200';
     return 'border-gray-200';
   }
 

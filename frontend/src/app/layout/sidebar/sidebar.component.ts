@@ -13,26 +13,40 @@ interface NavItem {
   imports: [RouterLink, RouterLinkActive],
   template: `
     <aside
-      class="fixed inset-y-0 left-0 z-40 w-64 border-r border-gray-200 bg-surface transition-transform lg:static lg:translate-x-0"
+      class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-gray-200 bg-white transition-transform duration-200 lg:static lg:translate-x-0"
       [class.translate-x-0]="mobileOpen()"
       [class.-translate-x-full]="!mobileOpen()"
     >
-      <div class="flex h-16 items-center justify-center border-b border-gray-200">
-        <h1 class="text-xl font-bold text-primary">ModishLog</h1>
+      <!-- Brand -->
+      <div class="flex h-16 shrink-0 items-center gap-2 border-b border-gray-200 px-6">
+        <div
+          class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white"
+        >
+          M
+        </div>
+        <span class="text-lg font-bold text-primary">ModishLog</span>
       </div>
-      <nav class="mt-4 space-y-1 px-3">
+
+      <!-- Navigation -->
+      <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         @for (item of navItems(); track item.route) {
           <a
             [routerLink]="item.route"
-            routerLinkActive="bg-primary/10 text-primary"
+            routerLinkActive="!bg-primary/10 !text-primary !font-semibold"
+            [routerLinkActiveOptions]="{ exact: item.route === '/dashboard' }"
             (click)="closeMobile.emit()"
-            class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted hover:bg-gray-100"
+            class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-gray-100 hover:text-text"
           >
-            <i [class]="'pi ' + item.icon"></i>
+            <i [class]="'pi ' + item.icon + ' text-base'"></i>
             {{ item.label }}
           </a>
         }
       </nav>
+
+      <!-- Footer -->
+      <div class="border-t border-gray-200 px-4 py-3">
+        <p class="text-xs text-muted">ModishLog v1.0</p>
+      </div>
     </aside>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
