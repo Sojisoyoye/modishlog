@@ -94,6 +94,28 @@ class FXAlert(UUIDMixin, Base):
         return f"<FXAlert(id={self.id}, pair={self.pair}, direction={self.direction})>"
 
 
+class FXForecast(UUIDMixin, Base):
+    """Stored FX rate forecast from Prophet + Monte Carlo."""
+
+    __tablename__ = "fx_forecasts"
+
+    pair: Mapped[str] = mapped_column(String(6), index=True)
+    forecast_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    base_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    best_case_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    worst_case_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    prophet_lower: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    prophet_upper: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    model_version: Mapped[str] = mapped_column(String(50))
+    mae: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), default=None)
+    mape: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), default=None)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    generated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+
+    def __repr__(self) -> str:
+        return f"<FXForecast(pair={self.pair}, date={self.forecast_date})>"
+
+
 class FXSimulationRun(UUIDMixin, Base):
     """Results from a Monte Carlo FX simulation."""
 

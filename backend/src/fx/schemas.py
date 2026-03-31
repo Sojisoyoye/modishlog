@@ -169,3 +169,44 @@ class VolatilityRead(BaseModel):
     days: int
     volatility: Decimal
     data_points: int
+
+
+# ---------------------------------------------------------------------------
+# Forecast schemas
+# ---------------------------------------------------------------------------
+
+
+class ForecastRequest(BaseModel):
+    pair: str = Field(..., min_length=6, max_length=6)
+    horizon_days: int = Field(default=180, ge=1, le=365)
+    num_simulations: int = Field(default=10000, ge=1000, le=100000)
+
+
+class ForecastRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    pair: str
+    forecast_date: datetime
+    base_rate: Decimal
+    best_case_rate: Decimal
+    worst_case_rate: Decimal
+    prophet_lower: Decimal
+    prophet_upper: Decimal
+    model_version: str
+    mae: Decimal | None = None
+    mape: Decimal | None = None
+    generated_at: datetime
+
+
+class ForecastRangeResponse(BaseModel):
+    pair: str
+    forecasts: list[ForecastRead]
+    model_version: str
+
+
+class ForecastAccuracy(BaseModel):
+    pair: str
+    total_evaluated: int
+    mean_mae: Decimal
+    mean_mape: Decimal

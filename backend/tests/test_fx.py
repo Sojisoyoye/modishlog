@@ -1,10 +1,11 @@
 """Tests for FX rate ingestion, alerts, exposure, simulation, and endpoints."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -21,6 +22,7 @@ from src.fx.models import (
     AlertDirection,
     FXAlert,
     FXExposure,
+    FXForecast,
     FXRate,
     RateSource,
 )
@@ -215,8 +217,6 @@ class TestGetCurrentRate:
 class TestGetRateHistory:
     @pytest.mark.asyncio
     async def test_history_with_stats(self):
-        from datetime import date
-
         rates = [
             _make_fx_rate(rate=Decimal("1600")),
             _make_fx_rate(rate=Decimal("1650")),
@@ -233,8 +233,6 @@ class TestGetRateHistory:
 
     @pytest.mark.asyncio
     async def test_history_empty_raises(self):
-        from datetime import date
-
         db = _mock_db_with_execute(scalars_result=[])
         with pytest.raises(FXPairNotFoundError):
             await get_rate_history(db, "USDNGN", date(2026, 1, 1), date(2026, 1, 2))
@@ -676,3 +674,303 @@ class TestFXEndpoints:
                 json={"locked_pct": "40", "floating_pct": "60"},
             )
         assert resp.status_code == 401
+
+    def test_forecast_generate_requires_auth(self):
+        db = _mock_db()
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/fx/forecast/generate",
+                json={"pair": "USDNGN", "horizon_days": 30},
+            )
+        assert resp.status_code == 401
+
+    def test_forecast_date_not_found(self):
+        db = _mock_db_with_execute(scalar_result=None)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/fx/forecast/USDNGN/2026-06-01")
+        assert resp.status_code == 404
+
+    def test_forecast_range_empty(self):
+        db = _mock_db_with_execute(scalars_result=[])
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get(
+                "/api/v1/fx/forecast/USDNGN",
+                params={"date_from": "2026-06-01", "date_to": "2026-06-30"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["pair"] == "USDNGN"
+        assert data["forecasts"] == []
+
+
+# ---------------------------------------------------------------------------
+# Forecast service tests
+# ---------------------------------------------------------------------------
+
+
+def _make_forecast(pair="USDNGN", **overrides):
+    defaults = dict(
+        pair=pair,
+        forecast_date=datetime(2026, 6, 15, tzinfo=timezone.utc),
+        base_rate=Decimal("1650.000000"),
+        best_case_rate=Decimal("1600.000000"),
+        worst_case_rate=Decimal("1700.000000"),
+        prophet_lower=Decimal("1610.000000"),
+        prophet_upper=Decimal("1690.000000"),
+        model_version="prophet-v1",
+        mae=None,
+        mape=None,
+        generated_at=datetime.now(timezone.utc),
+        generated_by=uuid.uuid4(),
+    )
+    defaults.update(overrides)
+    fc = FXForecast(**defaults)
+    fc.id = overrides.get("id", uuid.uuid4())
+    return fc
+
+
+class TestForecastHelpers:
+    def test_compute_volatility(self):
+        from src.fx.forecast_service import _compute_volatility
+
+        df = pd.DataFrame({"y": [1650.0, 1660.0, 1655.0, 1670.0, 1665.0]})
+        vol = _compute_volatility(df)
+        assert vol > 0
+        assert vol < 1  # FX vol should be small
+
+    def test_compute_volatility_single_point(self):
+        from src.fx.forecast_service import _compute_volatility
+
+        df = pd.DataFrame({"y": [1650.0]})
+        vol = _compute_volatility(df)
+        assert vol == 0.01  # default fallback
+
+    def test_monte_carlo_scenarios(self):
+        from src.fx.forecast_service import _monte_carlo_scenarios
+
+        prophet_fc = pd.DataFrame({
+            "ds": pd.date_range("2026-06-01", periods=5, freq="D"),
+            "yhat": [1650.0, 1652.0, 1648.0, 1655.0, 1660.0],
+            "yhat_lower": [1640.0, 1642.0, 1638.0, 1645.0, 1650.0],
+            "yhat_upper": [1660.0, 1662.0, 1658.0, 1665.0, 1670.0],
+        })
+        scenarios = _monte_carlo_scenarios(prophet_fc, volatility=0.01, num_simulations=1000)
+        assert len(scenarios) == 5
+        for s in scenarios:
+            assert "date" in s
+            assert "base_rate" in s
+            assert "best_case_rate" in s
+            assert "worst_case_rate" in s
+            assert s["base_rate"] > 0
+            assert s["best_case_rate"] <= s["base_rate"] <= s["worst_case_rate"]
+
+    def test_monte_carlo_handles_zero_base(self):
+        from src.fx.forecast_service import _monte_carlo_scenarios
+
+        prophet_fc = pd.DataFrame({
+            "ds": [datetime(2026, 6, 1)],
+            "yhat": [0.0],  # zero base should become 0.01
+            "yhat_lower": [-0.1],
+            "yhat_upper": [0.1],
+        })
+        scenarios = _monte_carlo_scenarios(prophet_fc, volatility=0.01, num_simulations=1000)
+        assert len(scenarios) == 1
+        assert scenarios[0]["base_rate"] > 0
+
+
+class TestFetchHistoricalRates:
+    @pytest.mark.asyncio
+    async def test_insufficient_data_raises(self):
+        from src.fx.forecast_service import _fetch_historical_rates
+
+        rates = [_make_fx_rate() for _ in range(5)]
+        db = _mock_db_with_execute(scalars_result=rates)
+        with pytest.raises(InsufficientRateDataError):
+            await _fetch_historical_rates(db, "USDNGN")
+
+    @pytest.mark.asyncio
+    async def test_returns_dataframe(self):
+        from src.fx.forecast_service import _fetch_historical_rates
+
+        rates = [_make_fx_rate(rate=Decimal(str(1650 + i))) for i in range(35)]
+        db = _mock_db_with_execute(scalars_result=rates)
+        df = await _fetch_historical_rates(db, "USDNGN")
+        assert isinstance(df, pd.DataFrame)
+        assert "ds" in df.columns
+        assert "y" in df.columns
+        assert len(df) == 35
+
+
+class TestTrainAndForecast:
+    @pytest.mark.asyncio
+    async def test_train_and_forecast_full_pipeline(self):
+        from src.fx.forecast_service import train_and_forecast
+
+        # Create 50 rate points
+        rates = [
+            _make_fx_rate(rate=Decimal(str(round(1650 + i * 0.5, 2))))
+            for i in range(50)
+        ]
+        db = _mock_db_with_execute(scalars_result=rates)
+
+        # Mock Prophet to avoid actual training
+        mock_model = MagicMock()
+        mock_model.history = pd.DataFrame({
+            "ds": pd.date_range("2026-01-01", periods=50, freq="D"),
+        })
+        mock_future = pd.DataFrame({
+            "ds": pd.date_range("2026-01-01", periods=60, freq="D"),
+        })
+        mock_model.make_future_dataframe.return_value = mock_future
+        forecast_df = pd.DataFrame({
+            "ds": pd.date_range("2026-01-01", periods=60, freq="D"),
+            "yhat": [1650 + i * 0.5 for i in range(60)],
+            "yhat_lower": [1640 + i * 0.5 for i in range(60)],
+            "yhat_upper": [1660 + i * 0.5 for i in range(60)],
+        })
+        mock_model.predict.return_value = forecast_df
+
+        with patch("src.fx.forecast_service._train_prophet_model", return_value=mock_model):
+            forecasts = await train_and_forecast(
+                db, "USDNGN", uuid.uuid4(), horizon_days=10, num_simulations=1000,
+            )
+
+        assert len(forecasts) == 10
+        for fc in forecasts:
+            assert fc.pair == "USDNGN"
+            assert fc.model_version == "prophet-v1"
+            assert fc.base_rate > 0
+            assert fc.best_case_rate > 0
+            assert fc.worst_case_rate > 0
+        assert db.add.call_count == 10
+
+    @pytest.mark.asyncio
+    async def test_train_and_forecast_insufficient_data(self):
+        from src.fx.forecast_service import train_and_forecast
+
+        rates = [_make_fx_rate() for _ in range(5)]
+        db = _mock_db_with_execute(scalars_result=rates)
+
+        with pytest.raises(InsufficientRateDataError):
+            await train_and_forecast(db, "USDNGN", uuid.uuid4())
+
+
+class TestGetForecastForDate:
+    @pytest.mark.asyncio
+    async def test_success(self):
+        from src.fx.forecast_service import get_forecast_for_date
+
+        fc = _make_forecast()
+        db = _mock_db_with_execute(scalar_result=fc)
+        result = await get_forecast_for_date(db, "USDNGN", date(2026, 6, 15))
+        assert result.pair == "USDNGN"
+        assert result.base_rate == Decimal("1650.000000")
+
+    @pytest.mark.asyncio
+    async def test_not_found(self):
+        from src.fx.forecast_service import get_forecast_for_date
+
+        db = _mock_db_with_execute(scalar_result=None)
+        with pytest.raises(FXPairNotFoundError):
+            await get_forecast_for_date(db, "USDNGN", date(2026, 6, 15))
+
+    @pytest.mark.asyncio
+    async def test_stale_forecast_still_returned(self):
+        from src.fx.forecast_service import get_forecast_for_date
+
+        fc = _make_forecast(
+            generated_at=datetime.now(timezone.utc) - timedelta(days=10),
+        )
+        db = _mock_db_with_execute(scalar_result=fc)
+        result = await get_forecast_for_date(
+            db, "USDNGN", date(2026, 6, 15), user_id=uuid.uuid4(),
+        )
+        assert result.pair == "USDNGN"
+
+
+class TestGetForecastRange:
+    @pytest.mark.asyncio
+    async def test_returns_list(self):
+        from src.fx.forecast_service import get_forecast_range
+
+        forecasts = [_make_forecast(), _make_forecast()]
+        db = _mock_db_with_execute(scalars_result=forecasts)
+        result = await get_forecast_range(db, "USDNGN", date(2026, 6, 1), date(2026, 6, 30))
+        assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_empty_range(self):
+        from src.fx.forecast_service import get_forecast_range
+
+        db = _mock_db_with_execute(scalars_result=[])
+        result = await get_forecast_range(db, "USDNGN", date(2026, 6, 1), date(2026, 6, 30))
+        assert result == []
+
+
+class TestUpdateForecastAccuracy:
+    @pytest.mark.asyncio
+    async def test_no_forecasts(self):
+        from src.fx.forecast_service import update_forecast_accuracy
+
+        db = _mock_db_with_execute(scalars_result=[])
+        result = await update_forecast_accuracy(db, "USDNGN")
+        assert result.pair == "USDNGN"
+        assert result.total_evaluated == 0
+        assert result.mean_mae == Decimal("0")
+
+    @pytest.mark.asyncio
+    async def test_with_matching_actuals(self):
+        from src.fx.forecast_service import update_forecast_accuracy
+
+        fc = _make_forecast(
+            forecast_date=datetime(2026, 3, 15, tzinfo=timezone.utc),
+            base_rate=Decimal("1650.000000"),
+        )
+        actual_rate = _make_fx_rate(rate=Decimal("1645.000000"))
+
+        db = _mock_db()
+        # First execute: fetch forecasts
+        forecasts_result = MagicMock()
+        forecasts_scalars = MagicMock()
+        forecasts_scalars.all.return_value = [fc]
+        forecasts_result.scalars.return_value = forecasts_scalars
+
+        # Second execute: fetch actual rate for each forecast date
+        actual_result = MagicMock()
+        actual_result.scalar_one_or_none.return_value = actual_rate
+
+        db.execute = AsyncMock(side_effect=[forecasts_result, actual_result])
+
+        result = await update_forecast_accuracy(db, "USDNGN")
+        assert result.pair == "USDNGN"
+        assert result.total_evaluated == 1
+        assert result.mean_mae > 0
+        assert result.mean_mape > 0
+        # MAE should be |1650 - 1645| = 5
+        assert result.mean_mae == Decimal("5.000000")
+
+    @pytest.mark.asyncio
+    async def test_with_no_matching_actuals(self):
+        from src.fx.forecast_service import update_forecast_accuracy
+
+        fc = _make_forecast(
+            forecast_date=datetime(2026, 3, 15, tzinfo=timezone.utc),
+        )
+
+        db = _mock_db()
+        forecasts_result = MagicMock()
+        forecasts_scalars = MagicMock()
+        forecasts_scalars.all.return_value = [fc]
+        forecasts_result.scalars.return_value = forecasts_scalars
+
+        actual_result = MagicMock()
+        actual_result.scalar_one_or_none.return_value = None
+
+        db.execute = AsyncMock(side_effect=[forecasts_result, actual_result])
+
+        result = await update_forecast_accuracy(db, "USDNGN")
+        assert result.total_evaluated == 0
+        assert result.mean_mae == Decimal("0")

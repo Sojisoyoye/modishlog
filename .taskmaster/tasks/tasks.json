@@ -758,7 +758,7 @@
         "dependencies": [
           "3"
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -856,7 +856,7 @@
         "complexity": 6,
         "recommendedSubtasks": 8,
         "expansionPrompt": "Break down FX data ingestion: (1) Set up httpx async client for external FX API integration, (2) Implement fetch_latest_fx_rate() with proper error handling for API failures, (3) Implement manual_fx_entry() with validation (rate > 0, date not in future), (4) Implement get_latest_rate() with Redis caching (5-minute TTL), (5) Implement get_rate_for_date() with nearest-previous-date fallback logic, (6) Implement get_historical_rates() returning time series for model training, (7) Implement backfill_historical_data() for batch insertion of 180-day history, (8) Implement calculate_volatility() using 30-day rolling standard deviation for Monte Carlo inputs. Add router endpoints and comprehensive error handling for API failures.",
-        "updatedAt": "2026-03-30T20:18:13.277Z"
+        "updatedAt": "2026-03-31T01:56:29.939Z"
       },
       {
         "id": "8",
@@ -868,7 +868,7 @@
         "dependencies": [
           "7"
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -991,7 +991,8 @@
         ],
         "complexity": 9,
         "recommendedSubtasks": 10,
-        "expansionPrompt": "Break down FX forecasting implementation: (1) Implement train_fx_forecast_model() - fetch 180 days historical data, prepare Prophet format {ds, y}, (2) Configure Prophet with multiplicative seasonality and fit model, (3) Save trained model to disk with versioning and log MAE metrics, (4) Implement generate_fx_forecast() - load model, generate 180-day forecast, (5) Implement Monte Carlo simulation using NumPy - 10,000 runs per forecast date with normal distribution (mean=Prophet forecast, std=historical volatility), (6) Calculate percentiles (5th=best case, 50th=base, 95th=worst case) and store in FXForecast table, (7) Implement get_forecast_for_date() with staleness check (regenerate if >7 days old), (8) Implement get_forecast_range() for time series retrieval, (9) Implement update_forecast_accuracy() comparing past forecasts to actuals (MAE, MAPE), (10) Wrap Prophet operations in thread pool executor for async compatibility. Include comprehensive tests with synthetic data and performance validation (<10s for 180-day forecast)."
+        "expansionPrompt": "Break down FX forecasting implementation: (1) Implement train_fx_forecast_model() - fetch 180 days historical data, prepare Prophet format {ds, y}, (2) Configure Prophet with multiplicative seasonality and fit model, (3) Save trained model to disk with versioning and log MAE metrics, (4) Implement generate_fx_forecast() - load model, generate 180-day forecast, (5) Implement Monte Carlo simulation using NumPy - 10,000 runs per forecast date with normal distribution (mean=Prophet forecast, std=historical volatility), (6) Calculate percentiles (5th=best case, 50th=base, 95th=worst case) and store in FXForecast table, (7) Implement get_forecast_for_date() with staleness check (regenerate if >7 days old), (8) Implement get_forecast_range() for time series retrieval, (9) Implement update_forecast_accuracy() comparing past forecasts to actuals (MAE, MAPE), (10) Wrap Prophet operations in thread pool executor for async compatibility. Include comprehensive tests with synthetic data and performance validation (<10s for 180-day forecast).",
+        "updatedAt": "2026-03-31T01:56:51.761Z"
       },
       {
         "id": "9",
@@ -1657,9 +1658,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-03-30T20:18:13.277Z",
+      "lastModified": "2026-03-31T01:56:51.761Z",
       "taskCount": 12,
-      "completedCount": 6,
+      "completedCount": 7,
       "tags": [
         "master"
       ]

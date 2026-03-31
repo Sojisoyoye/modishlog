@@ -24,6 +24,10 @@ from src.fx.schemas import (
     ExposureDetailRead,
     ExposureLockRequest,
     ExposureSummary,
+    ForecastAccuracy,
+    ForecastRangeResponse,
+    ForecastRead,
+    ForecastRequest,
     FXAlertCreate,
     FXAlertRead,
     FXAlertUpdate,
@@ -312,3 +316,69 @@ async def simulation_distribution_endpoint(
         return SimulationDistribution(**data)
     except SimulationNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# FX Forecasting (Prophet + Monte Carlo)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/forecast/generate", response_model=list[ForecastRead], status_code=status.HTTP_201_CREATED)
+async def generate_forecast_endpoint(
+    body: ForecastRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Train Prophet model and generate FX forecast with Monte Carlo scenarios."""
+    from src.fx.forecast_service import train_and_forecast
+
+    try:
+        return await train_and_forecast(
+            db, body.pair, current_user.id, body.horizon_days, body.num_simulations,
+        )
+    except (FXPairNotFoundError, InsufficientRateDataError) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/forecast/{pair}/{target_date}", response_model=ForecastRead)
+async def get_forecast_for_date_endpoint(
+    pair: str,
+    target_date: date,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get forecast for a specific date."""
+    from src.fx.forecast_service import get_forecast_for_date
+
+    try:
+        return await get_forecast_for_date(db, pair, target_date)
+    except FXPairNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/forecast/{pair}", response_model=ForecastRangeResponse)
+async def get_forecast_range_endpoint(
+    pair: str,
+    date_from: date,
+    date_to: date,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get forecast time series for a date range."""
+    from src.fx.forecast_service import get_forecast_range
+
+    forecasts = await get_forecast_range(db, pair, date_from, date_to)
+    model_ver = forecasts[0].model_version if forecasts else ""
+    forecast_reads = [ForecastRead.model_validate(f) for f in forecasts]
+    return ForecastRangeResponse(
+        pair=pair, forecasts=forecast_reads, model_version=model_ver,
+    )
+
+
+@router.get("/forecast/{pair}/accuracy", response_model=ForecastAccuracy)
+async def forecast_accuracy_endpoint(
+    pair: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get forecast accuracy metrics."""
+    from src.fx.forecast_service import update_forecast_accuracy
+
+    return await update_forecast_accuracy(db, pair)
