@@ -44,4 +44,37 @@ export class InventoryService {
   adjust(data: StockAdjustment): Observable<unknown> {
     return this.api.post('/inventory/adjust', data);
   }
+
+  getBatches(productId: string): Observable<InventoryBatch[]> {
+    return this.api.get<InventoryBatch[]>('/inventory/batches', { product_id: productId });
+  }
+
+  getLiquidationCandidates(targetNgn = 500000): Observable<LiquidationCandidate[]> {
+    return this.api.get<LiquidationCandidate[]>('/inventory/batches/liquidation-candidates', {
+      target_ngn: String(targetNgn),
+    });
+  }
+}
+
+export interface InventoryBatch {
+  id: string;
+  product_id: string;
+  order_id: string;
+  quantity_received: number;
+  quantity_remaining: number;
+  unit_cost_usd: number;
+  fx_rate_at_arrival: number;
+  logistics_allocation_per_unit: number;
+  landed_cost_per_unit: number;
+  received_at: string;
+  created_at: string;
+}
+
+export interface LiquidationCandidate {
+  batch_id: string;
+  product_id: string;
+  quantity_remaining: number;
+  landed_cost_per_unit: number;
+  total_batch_value: number;
+  discount_pct_needed: number;
 }

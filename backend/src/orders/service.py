@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.inventory.models import MovementType
-from src.inventory.service import adjust_stock
+from src.inventory.service import adjust_stock, create_batch
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
     OrderLineItemError,
@@ -352,7 +352,14 @@ async def transition_status(
     if new_status == OrderStatus.DELIVERED:
         order.actual_delivery_date = transition.actual_delivery_date or date.today()
 
-        # Restock inventory for each line item
+        # Restock inventory and create FIFO batches for each line item
+        fx_rate = order.fx_rate_at_creation or Decimal("1500")
+        total_logistics = (order.shipping_cost or Decimal("0")) + (order.clearing_cost or Decimal("0"))
+        total_units = sum(li.quantity for li in order.line_items) or 1
+        logistics_per_unit = (total_logistics / Decimal(str(total_units))).quantize(
+            Decimal("0.000001"), rounding=ROUND_HALF_UP
+        )
+
         for item in order.line_items:
             await adjust_stock(
                 db,
@@ -363,6 +370,16 @@ async def transition_status(
                 user_id=user_id,
                 reference_id=order.id,
                 reference_type="purchase_order",
+            )
+            await create_batch(
+                db,
+                product_id=item.product_id,
+                order_id=order.id,
+                quantity=item.quantity,
+                unit_cost_usd=item.unit_cost,
+                fx_rate_at_arrival=fx_rate,
+                logistics_allocation_per_unit=logistics_per_unit,
+                received_at=order.actual_delivery_date,
             )
 
     await db.flush()

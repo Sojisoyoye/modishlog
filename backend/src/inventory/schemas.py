@@ -63,3 +63,33 @@ class DepletionForecastRead(BaseModel):
     avg_daily_depletion: float
     days_until_stockout: int | None = None
     estimated_stockout_date: date | None = None
+
+
+# ---------------------------------------------------------------------------
+# Inventory Batch schemas
+# ---------------------------------------------------------------------------
+
+
+class InventoryBatchRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_id: uuid.UUID
+    order_id: uuid.UUID
+    quantity_received: int
+    quantity_remaining: int
+    unit_cost_usd: float
+    fx_rate_at_arrival: float
+    logistics_allocation_per_unit: float
+    landed_cost_per_unit: float
+    received_at: date
+    created_at: datetime
+
+
+class LiquidationCandidate(BaseModel):
+    batch_id: uuid.UUID
+    product_id: uuid.UUID
+    quantity_remaining: int
+    landed_cost_per_unit: float
+    total_batch_value: float
+    discount_pct_needed: float

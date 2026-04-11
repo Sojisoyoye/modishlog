@@ -52,6 +52,12 @@ class Sale(UUIDMixin, TimestampMixin, Base):
     status: Mapped[SaleStatus] = mapped_column(
         Enum(SaleStatus), default=SaleStatus.COMPLETED
     )
+    fifo_cogs: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6), nullable=True, default=None
+    )
+    fifo_gross_profit: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6), nullable=True, default=None
+    )
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
 

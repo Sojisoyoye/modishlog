@@ -14,14 +14,18 @@ from src.inventory.exceptions import (
 )
 from src.inventory.schemas import (
     DepletionForecastRead,
+    InventoryBatchRead,
     InventoryLevelRead,
+    LiquidationCandidate,
     StockAdjustmentRequest,
     StockMovementRead,
 )
 from src.inventory.service import (
     adjust_stock,
     calculate_depletion_forecast,
+    get_batches_for_product,
     get_inventory_level,
+    get_liquidation_candidates,
     get_stock_movements,
     list_inventory_levels,
 )
@@ -98,3 +102,29 @@ async def depletion_forecast_endpoint(
         return await calculate_depletion_forecast(db, product_id)
     except ProductStockNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Inventory Batches
+# ---------------------------------------------------------------------------
+
+
+@router.get("/batches", response_model=list[InventoryBatchRead])
+async def list_batches_endpoint(
+    product_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """List inventory batches for a product ordered by received_at."""
+    return await get_batches_for_product(db, product_id)
+
+
+@router.get("/batches/liquidation-candidates", response_model=list[LiquidationCandidate])
+async def liquidation_candidates_endpoint(
+    target_ngn: float = 500000,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get cheapest batches with discount needed to generate target NGN amount."""
+    from decimal import Decimal
+
+    data = await get_liquidation_candidates(db, Decimal(str(target_ngn)))
+    return [LiquidationCandidate(**d) for d in data]
