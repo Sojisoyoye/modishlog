@@ -75,6 +75,12 @@ async def ingest_rate(
     # Check alerts asynchronously
     await check_alerts(db, data.pair, data.rate)
 
+    # Check EUR/USD threshold alert on ingestion
+    if data.pair == "EURUSD":
+        from src.cashflow.service import check_eur_usd_alert
+
+        await check_eur_usd_alert(db)
+
     await logger.ainfo(
         "fx_rate_ingested",
         pair=data.pair,

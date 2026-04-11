@@ -28,8 +28,7 @@ def upgrade() -> None:
         sa.Column(
             'current_balance_currency',
             sa.String(length=3),
-            nullable=False,
-            server_default='EUR',
+            nullable=True,
         ),
     )
 

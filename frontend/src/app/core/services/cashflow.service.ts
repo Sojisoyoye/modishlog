@@ -39,6 +39,7 @@ export interface ScenarioResult {
 export interface GlobalExposure {
   eur_loan_balance_eur: number;
   eur_usd_rate: number;
+  eur_usd_rate_available: boolean;
   eur_ngn_derived_rate: number;
   open_order_usd_obligations: number;
   ngn_usd_rate: number;
@@ -143,6 +144,7 @@ export class CashflowService {
       map((d) => ({
         eur_loan_balance_eur: Number(d.eur_loan_balance_eur),
         eur_usd_rate: Number(d.eur_usd_rate),
+        eur_usd_rate_available: d.eur_usd_rate_available,
         eur_ngn_derived_rate: Number(d.eur_ngn_derived_rate),
         open_order_usd_obligations: Number(d.open_order_usd_obligations),
         ngn_usd_rate: Number(d.ngn_usd_rate),

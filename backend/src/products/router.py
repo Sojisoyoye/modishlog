@@ -179,12 +179,26 @@ async def upload_product_image(
     current_user: User = Depends(get_current_active_user),
 ):
     """Upload or replace a product image."""
-    ext = os.path.splitext(file.filename or "")[1] or ".jpg"
+    ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".jpg"
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File type '{ext}' not allowed. Accepted: {', '.join(ALLOWED_EXTENSIONS)}",
+        )
+
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large ({len(contents)} bytes). Maximum: {MAX_FILE_SIZE} bytes (5MB).",
+        )
+
     upload_dir = os.path.join(os.environ.get("UPLOAD_DIR", "/uploads"), "products")
     os.makedirs(upload_dir, exist_ok=True)
     upload_path = f"{upload_dir}/{product_id}{ext}"
-
-    contents = await file.read()
 
     def _write() -> None:
         with open(upload_path, "wb") as f_out:

@@ -170,6 +170,7 @@ class AlertResponse(BaseModel):
 class GlobalExposureResponse(BaseModel):
     eur_loan_balance_eur: Decimal
     eur_usd_rate: Decimal
+    eur_usd_rate_available: bool
     eur_ngn_derived_rate: Decimal
     open_order_usd_obligations: Decimal
     ngn_usd_rate: Decimal

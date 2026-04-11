@@ -95,8 +95,8 @@ class LoanObligation(UUIDMixin, TimestampMixin, Base):
     current_balance: Mapped[Decimal | None] = mapped_column(
         Numeric(18, 6), nullable=True, default=None
     )
-    current_balance_currency: Mapped[str] = mapped_column(
-        String(3), default="EUR"
+    current_balance_currency: Mapped[str | None] = mapped_column(
+        String(3), nullable=True, default=None
     )
     status: Mapped[LoanStatus] = mapped_column(
         Enum(LoanStatus), default=LoanStatus.ACTIVE

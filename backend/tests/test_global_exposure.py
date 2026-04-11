@@ -132,8 +132,8 @@ class TestGlobalExposure:
             # 1: get_latest_rate_value USDNGN
             # 2: get_latest_rate_value EURUSD
             # 3: sum(current_balance) for EUR loans
-            # 4-N: open order queries (returns empty)
-            # last: trailing revenue
+            # 4: _sum_open_order_usd_obligations (single aggregate)
+            # 5: trailing revenue
             if call_count == 1:
                 return _scalar_result(ngn_usd)
             if call_count == 2:
@@ -141,7 +141,7 @@ class TestGlobalExposure:
             if call_count == 3:
                 return _scalar_result(eur_balance)
             if call_count == 4:
-                return _rows_result([])  # no open orders
+                return _scalar_result(Decimal("0"))  # no open USD orders
             # trailing revenue query
             return _scalar_result(Decimal("0"))
 
@@ -156,6 +156,7 @@ class TestGlobalExposure:
 
         assert result["eur_loan_balance_eur"] == eur_balance
         assert result["eur_usd_rate"] == eur_usd
+        assert result["eur_usd_rate_available"] is True
         assert result["ngn_usd_rate"] == ngn_usd
         assert result["open_order_usd_obligations"] == usd_obligations
         assert result["total_global_exposure_ngn"] == expected_total
@@ -175,7 +176,7 @@ class TestGlobalExposure:
             if call_count == 3:
                 return _scalar_result(Decimal("10000"))  # EUR balance
             if call_count == 4:
-                return _rows_result([])  # no open orders
+                return _scalar_result(Decimal("0"))  # no open USD orders
             return _scalar_result(Decimal("0"))  # zero revenue
 
         db = _make_mock_db()
@@ -221,7 +222,8 @@ class TestEurUsdAlert:
                 return _scalar_result(Decimal("1.150"))  # current (big jump)
             if call_count == 2:
                 return _scalar_result(Decimal("1.080"))  # previous
-            # Any subsequent calls (for recommendation creation)
+            if call_count == 3:
+                return _scalar_result(0)  # dedup count: no existing alert
             return _scalar_result(None)
 
         db = _make_mock_db()
@@ -229,8 +231,30 @@ class TestEurUsdAlert:
 
         triggered = await check_eur_usd_alert(db)
         assert triggered is True
-        # Should have called db.add for the recommendation
         db.add.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_alert_dedup_skips_duplicate(self):
+        """If a pending EURUSD alert already exists, skip creating another."""
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return _scalar_result(Decimal("1.150"))  # current
+            if call_count == 2:
+                return _scalar_result(Decimal("1.080"))  # previous
+            if call_count == 3:
+                return _scalar_result(1)  # dedup count: existing alert found
+            return _scalar_result(None)
+
+        db = _make_mock_db()
+        db.execute = mock_execute
+
+        triggered = await check_eur_usd_alert(db)
+        assert triggered is False
+        db.add.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_alert_missing_rates(self):

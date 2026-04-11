@@ -30,7 +30,6 @@ from src.cashflow.service import (
     VALID_SCENARIO_TYPES,
     calculate_cash_runway,
     calculate_global_exposure,
-    check_eur_usd_alert,
     check_liquidity_alerts,
     create_loan,
     create_operating_cost,
@@ -219,6 +218,4 @@ async def alerts_endpoint(db: AsyncSession = Depends(get_db)):
 async def global_exposure_endpoint(db: AsyncSession = Depends(get_db)):
     """Get multi-currency global exposure summary (EUR/USD/NGN)."""
     data = await calculate_global_exposure(db)
-    # Also check EUR/USD alert threshold
-    await check_eur_usd_alert(db)
     return GlobalExposureResponse(**data)
