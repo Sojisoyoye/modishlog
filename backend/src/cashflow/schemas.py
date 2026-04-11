@@ -160,3 +160,18 @@ class AlertResponse(BaseModel):
     type: str
     severity: str
     message: str
+
+
+# ---------------------------------------------------------------------------
+# Global Exposure schemas
+# ---------------------------------------------------------------------------
+
+
+class GlobalExposureResponse(BaseModel):
+    eur_loan_balance_eur: Decimal
+    eur_usd_rate: Decimal
+    eur_ngn_derived_rate: Decimal
+    open_order_usd_obligations: Decimal
+    ngn_usd_rate: Decimal
+    total_global_exposure_ngn: Decimal
+    debt_to_trade_ratio: Decimal

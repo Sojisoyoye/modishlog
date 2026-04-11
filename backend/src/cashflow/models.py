@@ -92,6 +92,12 @@ class LoanObligation(UUIDMixin, TimestampMixin, Base):
     payment_frequency: Mapped[PaymentFrequency] = mapped_column(Enum(PaymentFrequency))
     monthly_payment: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     currency: Mapped[str] = mapped_column(String(3), default="NGN")
+    current_balance: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6), nullable=True, default=None
+    )
+    current_balance_currency: Mapped[str] = mapped_column(
+        String(3), default="EUR"
+    )
     status: Mapped[LoanStatus] = mapped_column(
         Enum(LoanStatus), default=LoanStatus.ACTIVE
     )
