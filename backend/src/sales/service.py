@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.inventory.models import MovementType
-from src.inventory.service import adjust_stock
+from src.inventory.service import adjust_stock, fifo_deduct
 from src.products.models import Product
 from src.sales.exceptions import (
     BulkUploadJobNotFoundError,
@@ -98,6 +98,12 @@ async def create_sale(
         reference_id=sale.id,
         reference_type="sale",
     )
+
+    # FIFO cost matching
+    cogs_result = await fifo_deduct(db, data.product_id, data.quantity)
+    sale.fifo_cogs = cogs_result
+    sale.fifo_gross_profit = sale.total_amount - cogs_result
+    await db.flush()
 
     await logger.ainfo(
         "sale_created",

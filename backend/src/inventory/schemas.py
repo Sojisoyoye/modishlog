@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -78,10 +79,10 @@ class InventoryBatchRead(BaseModel):
     order_id: uuid.UUID
     quantity_received: int
     quantity_remaining: int
-    unit_cost_usd: float
-    fx_rate_at_arrival: float
-    logistics_allocation_per_unit: float
-    landed_cost_per_unit: float
+    unit_cost_usd: Decimal
+    fx_rate_at_arrival: Decimal
+    logistics_allocation_per_unit: Decimal
+    landed_cost_per_unit: Decimal
     received_at: date
     created_at: datetime
 
@@ -90,6 +91,6 @@ class LiquidationCandidate(BaseModel):
     batch_id: uuid.UUID
     product_id: uuid.UUID
     quantity_remaining: int
-    landed_cost_per_unit: float
-    total_batch_value: float
-    discount_pct_needed: float
+    landed_cost_per_unit: Decimal
+    total_batch_value: Decimal
+    discount_pct_needed: Decimal

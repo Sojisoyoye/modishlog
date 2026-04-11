@@ -157,6 +157,11 @@ class TestCreateSale:
             elif call_count == 2:
                 # get_inventory_level (inside adjust_stock)
                 result.scalar_one_or_none.return_value = inventory
+            elif call_count == 3:
+                # fifo_deduct batch query (no batches)
+                scalars_mock = MagicMock()
+                scalars_mock.all.return_value = []
+                result.scalars.return_value = scalars_mock
             else:
                 result.scalar_one_or_none.return_value = None
             return result
@@ -176,6 +181,9 @@ class TestCreateSale:
         assert sale.status == SaleStatus.COMPLETED
         # Inventory should be depleted
         assert inventory.quantity_on_hand == 95
+        # FIFO fields set (no batches => cogs=0)
+        assert sale.fifo_cogs == Decimal("0")
+        assert sale.fifo_gross_profit == Decimal("750")
 
     @pytest.mark.asyncio
     async def test_create_sale_product_not_found(self):
@@ -412,11 +420,17 @@ class TestBulkUpload:
             nonlocal call_count
             call_count += 1
             result = MagicMock()
-            # Odd calls = product lookup, even calls = inventory lookup
-            if call_count % 2 == 1:
+            # Each create_sale does: 1=product, 2=inventory, 3=fifo batches
+            phase = (call_count - 1) % 3
+            if phase == 0:
                 result.scalar_one_or_none.return_value = product
-            else:
+            elif phase == 1:
                 result.scalar_one_or_none.return_value = inventory
+            else:
+                # fifo_deduct batch query (no batches)
+                scalars_mock = MagicMock()
+                scalars_mock.all.return_value = []
+                result.scalars.return_value = scalars_mock
             return result
 
         db.execute = mock_execute_multi

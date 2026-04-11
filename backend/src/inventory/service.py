@@ -296,6 +296,7 @@ async def fifo_deduct(
             InventoryBatch.quantity_remaining > 0,
         )
         .order_by(InventoryBatch.received_at.asc())
+        .with_for_update()
     )
     batches = list(result.scalars().all())
 
@@ -350,10 +351,10 @@ async def get_liquidation_candidates(
             "batch_id": batch.id,
             "product_id": batch.product_id,
             "quantity_remaining": batch.quantity_remaining,
-            "landed_cost_per_unit": float(batch.landed_cost_per_unit),
-            "total_batch_value": float(batch_value),
-            "discount_pct_needed": float(
-                discount_pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            "landed_cost_per_unit": batch.landed_cost_per_unit,
+            "total_batch_value": batch_value,
+            "discount_pct_needed": discount_pct.quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
             ),
         })
     return candidates

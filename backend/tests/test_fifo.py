@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.inventory.models import InventoryBatch
+from src.inventory.models import InventoryBatch, InventoryLevel
 from src.inventory.service import (
     compute_landed_cost,
     create_batch,
@@ -15,6 +15,9 @@ from src.inventory.service import (
     get_batches_for_product,
     get_liquidation_candidates,
 )
+from src.sales.models import SaleStatus
+from src.sales.schemas import SaleCreate
+from src.sales.service import create_sale
 
 
 # ---------------------------------------------------------------------------
@@ -230,3 +233,92 @@ class TestLiquidationCandidates:
 
         candidates = await get_liquidation_candidates(db, Decimal("500000"))
         assert candidates == []
+
+
+# ---------------------------------------------------------------------------
+# FIFO wired to create_sale
+# ---------------------------------------------------------------------------
+
+
+class TestFifoWiredToSale:
+    @pytest.mark.asyncio
+    async def test_create_sale_sets_fifo_fields(self):
+        """create_sale should call fifo_deduct and set fifo_cogs / fifo_gross_profit."""
+        from src.products.models import Product
+
+        product_id = uuid.uuid4()
+        product = Product(
+            name="Widget",
+            sku="WGT-001",
+            description="A widget",
+            category_id=uuid.uuid4(),
+            unit_cost=Decimal("100"),
+            selling_price=Decimal("200"),
+            currency="NGN",
+            is_active=True,
+        )
+        product.id = product_id
+        product.created_at = datetime.now(timezone.utc)
+        product.updated_at = datetime.now(timezone.utc)
+
+        inventory = InventoryLevel(
+            product_id=product_id,
+            quantity_on_hand=50,
+            quantity_reserved=0,
+            low_stock_threshold=5,
+        )
+        inventory.id = uuid.uuid4()
+        inventory.created_at = datetime.now(timezone.utc)
+        inventory.updated_at = datetime.now(timezone.utc)
+
+        batch = _make_batch(
+            quantity_remaining=50,
+            unit_cost_usd=Decimal("10"),
+            fx_rate=Decimal("1500"),
+            logistics=Decimal("0"),
+            product_id=product_id,
+        )
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                # Product lookup
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:
+                # get_inventory_level (inside adjust_stock)
+                result.scalar_one_or_none.return_value = inventory
+            elif call_count == 3:
+                # fifo_deduct batch query
+                scalars_mock = MagicMock()
+                scalars_mock.all.return_value = [batch]
+                result.scalars.return_value = scalars_mock
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = SaleCreate(
+            product_id=product_id,
+            quantity=5,
+            unit_price=Decimal("200"),
+            sale_date=date(2026, 3, 15),
+            channel="retail",
+        )
+        sale = await create_sale(db, data, uuid.uuid4())
+
+        # 5 units × 15000.000000 landed cost = 75000.000000
+        expected_cogs = Decimal("75000.000000")
+        expected_profit = Decimal("1000") - expected_cogs  # total_amount=1000
+
+        assert sale.fifo_cogs == expected_cogs
+        assert sale.fifo_gross_profit == expected_profit
+        assert batch.quantity_remaining == 45
