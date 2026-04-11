@@ -29,3 +29,4 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://modishlog:test@localhost/modishlog_test
           SECRET_KEY: test-secret-key
           ENVIRONMENT: test
+          UPLOAD_DIR: /tmp/modishlog_uploads
