@@ -183,7 +183,7 @@ class ForecastRequest(BaseModel):
 
 
 class ForecastRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
 
     id: uuid.UUID
     pair: str
@@ -200,6 +200,8 @@ class ForecastRead(BaseModel):
 
 
 class ForecastRangeResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     pair: str
     forecasts: list[ForecastRead]
     model_version: str
