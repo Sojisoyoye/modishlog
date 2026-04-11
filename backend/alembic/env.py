@@ -40,6 +40,7 @@ from src.cashflow.models import (  # noqa: F401
     LoanObligation,
     LoanPaymentSchedule,
     StressScenario,
+    TriageRecord,
 )
 from src.pricing.models import (  # noqa: F401
     DemandElasticity,

@@ -3,7 +3,7 @@ import { DecimalPipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { DashboardService, DashboardData } from '../../../core/services/dashboard.service';
-import { CashflowService, GlobalExposure } from '../../../core/services/cashflow.service';
+import { CashflowService, GlobalExposure, TriageStatusResponse } from '../../../core/services/cashflow.service';
 import { OrdersService, LogisticsEfficiency } from '../../../core/services/orders.service';
 
 @Component({
@@ -16,6 +16,33 @@ import { OrdersService, LogisticsEfficiency } from '../../../core/services/order
         <h2 class="text-2xl font-bold text-text">Dashboard</h2>
         <p class="mt-1 text-sm text-muted">Business overview at a glance</p>
       </div>
+
+      @if (triageStatus()) {
+        <div class="mb-4 rounded-xl border-l-4 border-l-danger bg-red-50 p-4 shadow-sm">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                <i class="pi pi-exclamation-triangle text-lg text-danger"></i>
+              </div>
+              <div>
+                <h3 class="text-sm font-bold text-danger">Liquidity Squeeze Alert</h3>
+                <p class="text-xs text-red-700">
+                  Shortfall of {{ triageStatus()!.shortfall_amount | number: '1.0-0' }} NGN detected
+                  within {{ triageStatus()!.horizon_days }} days
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-danger">
+                {{ triageStatus()!.status | uppercase }}
+              </span>
+              <span class="text-xs text-red-600">
+                Since {{ triageStatus()!.trigger_date }}
+              </span>
+            </div>
+          </div>
+        </div>
+      }
 
       @if (loading()) {
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -307,6 +334,7 @@ export class DashboardPageComponent implements OnInit {
   private readonly ordersService = inject(OrdersService);
 
   loading = signal(true);
+  triageStatus = signal<TriageStatusResponse | null>(null);
   globalExposure = signal<GlobalExposure | null>(null);
   exposureCurrency = signal<'NGN' | 'USD' | 'EUR'>('NGN');
   readonly currencies: ('NGN' | 'USD' | 'EUR')[] = ['NGN', 'USD', 'EUR'];
@@ -333,6 +361,9 @@ export class DashboardPageComponent implements OnInit {
         this.loading.set(false);
       },
       error: () => this.loading.set(false),
+    });
+    this.cashflowService.getTriageStatus().subscribe({
+      next: (t) => this.triageStatus.set(t),
     });
     this.cashflowService.getGlobalExposure().subscribe({
       next: (e) => this.globalExposure.set(e),

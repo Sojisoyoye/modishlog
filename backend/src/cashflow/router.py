@@ -20,20 +20,28 @@ from src.cashflow.schemas import (
     LoanRead,
     OperatingCostCreate,
     OperatingCostRead,
+    PaymentCalendarResponse,
     ProjectionRead,
     RunwayResponse,
     ScenarioComparisonResponse,
     ScenarioRead,
     ScenarioRequest,
+    TriageCheckResponse,
+    TriageRecommendationsResponse,
+    TriageStatusResponse,
 )
 from src.cashflow.service import (
     VALID_SCENARIO_TYPES,
+    build_payment_calendar,
     calculate_cash_runway,
     calculate_global_exposure,
+    check_and_activate_triage,
     check_liquidity_alerts,
     create_loan,
     create_operating_cost,
     generate_cashflow_projection,
+    generate_triage_recommendations,
+    get_active_triage,
     get_current_dscr,
     get_latest_projection,
     get_loan,
@@ -219,3 +227,59 @@ async def global_exposure_endpoint(db: AsyncSession = Depends(get_db)):
     """Get multi-currency global exposure summary (EUR/USD/NGN)."""
     data = await calculate_global_exposure(db)
     return GlobalExposureResponse(**data)
+
+
+# ---------------------------------------------------------------------------
+# Payment Calendar
+# ---------------------------------------------------------------------------
+
+
+@router.get("/payment-calendar", response_model=PaymentCalendarResponse)
+async def payment_calendar_endpoint(
+    horizon_days: int = 90,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get upcoming payment calendar with shortfall detection."""
+    data = await build_payment_calendar(db, horizon_days)
+    return PaymentCalendarResponse(**data)
+
+
+# ---------------------------------------------------------------------------
+# Triage Mode
+# ---------------------------------------------------------------------------
+
+
+@router.get("/triage-status", response_model=TriageStatusResponse | None)
+async def triage_status_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get active triage status or null."""
+    triage = await get_active_triage(db)
+    if triage is None:
+        return None
+    return triage
+
+
+@router.post("/triage-check", response_model=TriageCheckResponse)
+async def triage_check_endpoint(
+    horizon_days: int = 90,
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger triage check: detect shortfalls and activate/resolve triage."""
+    triage = await check_and_activate_triage(db, horizon_days)
+    if triage is None:
+        return TriageCheckResponse(
+            triage_active=False,
+            triage=None,
+            message="No shortfall detected within the horizon",
+        )
+    return TriageCheckResponse(
+        triage_active=True,
+        triage=TriageStatusResponse.model_validate(triage),
+        message=f"Triage active: shortfall of {triage.shortfall_amount} detected",
+    )
+
+
+@router.get("/triage-recommendations", response_model=TriageRecommendationsResponse)
+async def triage_recommendations_endpoint(db: AsyncSession = Depends(get_db)):
+    """Generate ranked corrective actions for the active triage."""
+    data = await generate_triage_recommendations(db)
+    return TriageRecommendationsResponse(**data)

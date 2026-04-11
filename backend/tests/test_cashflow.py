@@ -15,9 +15,12 @@ from src.cashflow.models import (
     CostCategory,
     CostFrequency,
     LoanObligation,
+    LoanPaymentSchedule,
     LoanStatus,
     OperatingCost,
     PaymentFrequency,
+    TriageRecord,
+    TriageStatus,
 )
 from src.core.security import get_password_hash
 
@@ -691,3 +694,330 @@ class TestCashflowEndpoints:
             resp = client.get("/api/v1/cashflow/alerts")
         assert resp.status_code == 200
         assert resp.json() == []
+
+    def test_triage_status_none(self):
+        db = _mock_db_with_execute(scalar_result=None)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/cashflow/triage-status")
+        assert resp.status_code == 200
+        assert resp.json() is None
+
+    def test_payment_calendar_empty(self):
+        """Payment calendar returns empty when no scheduled payments."""
+        db = _mock_db()
+        # Sequential calls: loan schedules, opex, fx_rate, fx_orders, projection
+        loan_result = MagicMock()
+        loan_result.all.return_value = []
+        opex_result = MagicMock()
+        opex_scalars = MagicMock()
+        opex_scalars.all.return_value = []
+        opex_result.scalars.return_value = opex_scalars
+        fx_rate_result = MagicMock()
+        fx_rate_result.scalar.return_value = None
+        fx_orders_result = MagicMock()
+        fx_orders_scalars = MagicMock()
+        fx_orders_scalars.all.return_value = []
+        fx_orders_result.scalars.return_value = fx_orders_scalars
+        proj_result = MagicMock()
+        proj_result.scalar_one_or_none.return_value = None
+
+        db.execute = AsyncMock(
+            side_effect=[
+                loan_result,
+                opex_result,
+                fx_rate_result,
+                fx_orders_result,
+                proj_result,
+            ]
+        )
+
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/cashflow/payment-calendar?horizon_days=30")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["has_shortfall"] is False
+        assert body["entries"] == []
+
+
+# ---------------------------------------------------------------------------
+# Triage Functions
+# ---------------------------------------------------------------------------
+
+
+def _make_triage(**overrides):
+    defaults = dict(
+        trigger_date=date.today(),
+        shortfall_amount=Decimal("500000.000000"),
+        horizon_days=90,
+        status=TriageStatus.ACTIVE,
+        resolution_date=None,
+    )
+    defaults.update(overrides)
+    triage = TriageRecord(**defaults)
+    triage.id = overrides.get("id", uuid.uuid4())
+    triage.created_at = datetime.now(timezone.utc)
+    triage.updated_at = datetime.now(timezone.utc)
+    return triage
+
+
+def _make_loan_payment_schedule(**overrides):
+    defaults = dict(
+        loan_id=uuid.uuid4(),
+        due_date=date.today() + timedelta(days=30),
+        principal_portion=Decimal("40000.000000"),
+        interest_portion=Decimal("10000.000000"),
+        total_payment=Decimal("50000.000000"),
+        is_paid=False,
+        paid_date=None,
+    )
+    defaults.update(overrides)
+    schedule = LoanPaymentSchedule(**defaults)
+    schedule.id = overrides.get("id", uuid.uuid4())
+    return schedule
+
+
+class TestOperatingCostDates:
+    """Test _generate_operating_cost_dates helper."""
+
+    def test_monthly_cost_dates(self):
+        from src.cashflow.service import _generate_operating_cost_dates
+
+        cost = _make_operating_cost(frequency=CostFrequency.MONTHLY)
+        start = date(2026, 4, 1)
+        end = date(2026, 6, 30)
+        dates = _generate_operating_cost_dates(cost, start, end)
+        # Monthly ~ every 30 days over ~91 days -> should get ~3-4 entries
+        assert len(dates) >= 3
+        for d, amount in dates:
+            assert amount == cost.cost_amount
+
+    def test_weekly_cost_dates(self):
+        from src.cashflow.service import _generate_operating_cost_dates
+
+        cost = _make_operating_cost(frequency=CostFrequency.WEEKLY)
+        start = date(2026, 4, 1)
+        end = date(2026, 4, 30)
+        dates = _generate_operating_cost_dates(cost, start, end)
+        # Weekly over 30 days -> ~4-5 entries
+        assert len(dates) >= 4
+
+    def test_quarterly_cost_dates(self):
+        from src.cashflow.service import _generate_operating_cost_dates
+
+        cost = _make_operating_cost(frequency=CostFrequency.QUARTERLY)
+        start = date(2026, 4, 1)
+        end = date(2026, 7, 1)
+        dates = _generate_operating_cost_dates(cost, start, end)
+        # Quarterly (~91 days) over 91 days -> 1 entry
+        assert len(dates) >= 1
+
+
+class TestTriageFunctions:
+    @pytest.mark.asyncio
+    async def test_get_active_triage_none(self):
+        from src.cashflow.service import get_active_triage
+
+        db = _mock_db_with_execute(scalar_result=None)
+        result = await get_active_triage(db)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_active_triage_found(self):
+        from src.cashflow.service import get_active_triage
+
+        triage = _make_triage()
+        db = _mock_db_with_execute(scalar_result=triage)
+        result = await get_active_triage(db)
+        assert result is not None
+        assert result.status == TriageStatus.ACTIVE
+
+    @pytest.mark.asyncio
+    async def test_auto_resolve_no_active(self):
+        from src.cashflow.service import auto_resolve_triage
+
+        db = _mock_db_with_execute(scalar_result=None)
+        result = await auto_resolve_triage(db)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_auto_resolve_active(self):
+        from src.cashflow.service import auto_resolve_triage
+
+        triage = _make_triage()
+        db = _mock_db_with_execute(scalar_result=triage)
+        result = await auto_resolve_triage(db)
+        assert result is True
+        assert triage.status == TriageStatus.RESOLVED
+        assert triage.resolution_date == date.today()
+
+    @pytest.mark.asyncio
+    async def test_check_and_activate_no_shortfall(self):
+        """When no shortfall exists, triage should not be activated."""
+        from src.cashflow.service import check_and_activate_triage
+
+        db = _mock_db()
+
+        # build_payment_calendar calls: loan schedules, opex, fx_rate, fx_orders, projection
+        loan_result = MagicMock()
+        loan_result.all.return_value = []
+        opex_result = MagicMock()
+        opex_scalars = MagicMock()
+        opex_scalars.all.return_value = []
+        opex_result.scalars.return_value = opex_scalars
+        fx_rate_result = MagicMock()
+        fx_rate_result.scalar.return_value = None
+        fx_orders_result = MagicMock()
+        fx_orders_scalars = MagicMock()
+        fx_orders_scalars.all.return_value = []
+        fx_orders_result.scalars.return_value = fx_orders_scalars
+        # Projection for starting balance
+        proj_result = MagicMock()
+        proj_result.scalar_one_or_none.return_value = None
+        # auto_resolve_triage: get_active_triage
+        triage_result = MagicMock()
+        triage_result.scalar_one_or_none.return_value = None
+
+        db.execute = AsyncMock(
+            side_effect=[
+                loan_result,    # loan schedules
+                opex_result,    # opex
+                fx_rate_result, # fx rate
+                fx_orders_result,  # fx orders
+                proj_result,    # projection for starting balance
+                triage_result,  # get_active_triage in auto_resolve
+            ]
+        )
+
+        result = await check_and_activate_triage(db, horizon_days=30)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_generate_recommendations_with_active_triage(self):
+        """Test recommendation generation with an active triage."""
+        from src.cashflow.service import generate_triage_recommendations
+
+        triage = _make_triage(shortfall_amount=Decimal("200000.000000"))
+        db = _mock_db()
+
+        # Calls: get_active_triage, get_liquidation_candidates,
+        # opex (deferrable), pending sales
+        triage_result = MagicMock()
+        triage_result.scalar_one_or_none.return_value = triage
+
+        # Liquidation candidates
+        liquidation_result = MagicMock()
+        liquidation_scalars = MagicMock()
+        liquidation_scalars.all.return_value = []
+        liquidation_result.scalars.return_value = liquidation_scalars
+
+        # Deferrable opex
+        opex_result = MagicMock()
+        opex_scalars = MagicMock()
+        opex_scalars.all.return_value = []
+        opex_result.scalars.return_value = opex_scalars
+
+        # Pending sales
+        pending_result = MagicMock()
+        pending_result.one.return_value = (0, Decimal("0"))
+
+        db.execute = AsyncMock(
+            side_effect=[
+                triage_result,      # get_active_triage
+                liquidation_result, # get_liquidation_candidates
+                opex_result,        # deferrable opex
+                pending_result,     # pending sales
+            ]
+        )
+
+        result = await generate_triage_recommendations(db)
+        assert result["shortfall_amount"] == Decimal("200000.000000")
+        assert result["triage_id"] == triage.id
+        # LIQUIDATE should be present (even with empty candidates)
+        action_types = [r["action_type"] for r in result["recommendations"]]
+        assert "LIQUIDATE" in action_types
+
+    @pytest.mark.asyncio
+    async def test_generate_recommendations_with_pending_sales(self):
+        """Test that ACCELERATE_COLLECTION appears when pending sales exist."""
+        from src.cashflow.service import generate_triage_recommendations
+
+        triage = _make_triage(shortfall_amount=Decimal("100000.000000"))
+        db = _mock_db()
+
+        triage_result = MagicMock()
+        triage_result.scalar_one_or_none.return_value = triage
+
+        liquidation_result = MagicMock()
+        liquidation_scalars = MagicMock()
+        liquidation_scalars.all.return_value = []
+        liquidation_result.scalars.return_value = liquidation_scalars
+
+        opex_result = MagicMock()
+        opex_scalars = MagicMock()
+        opex_scalars.all.return_value = []
+        opex_result.scalars.return_value = opex_scalars
+
+        pending_result = MagicMock()
+        pending_result.one.return_value = (3, Decimal("150000.000000"))
+
+        db.execute = AsyncMock(
+            side_effect=[
+                triage_result,
+                liquidation_result,
+                opex_result,
+                pending_result,
+            ]
+        )
+
+        result = await generate_triage_recommendations(db)
+        action_types = [r["action_type"] for r in result["recommendations"]]
+        assert "ACCELERATE_COLLECTION" in action_types
+        accel = next(r for r in result["recommendations"] if r["action_type"] == "ACCELERATE_COLLECTION")
+        assert accel["estimated_impact"] == Decimal("150000.000000")
+        assert accel["priority"] == 3
+
+    @pytest.mark.asyncio
+    async def test_generate_recommendations_with_deferrable_costs(self):
+        """Test that DELAY_PAYMENT appears when deferrable costs exist."""
+        from src.cashflow.service import generate_triage_recommendations
+
+        triage = _make_triage(shortfall_amount=Decimal("100000.000000"))
+        db = _mock_db()
+
+        triage_result = MagicMock()
+        triage_result.scalar_one_or_none.return_value = triage
+
+        liquidation_result = MagicMock()
+        liquidation_scalars = MagicMock()
+        liquidation_scalars.all.return_value = []
+        liquidation_result.scalars.return_value = liquidation_scalars
+
+        marketing_cost = _make_operating_cost(
+            cost_name="Facebook Ads",
+            category=CostCategory.MARKETING,
+            monthly_equivalent=Decimal("50000.00"),
+        )
+        opex_result = MagicMock()
+        opex_scalars = MagicMock()
+        opex_scalars.all.return_value = [marketing_cost]
+        opex_result.scalars.return_value = opex_scalars
+
+        pending_result = MagicMock()
+        pending_result.one.return_value = (0, Decimal("0"))
+
+        db.execute = AsyncMock(
+            side_effect=[
+                triage_result,
+                liquidation_result,
+                opex_result,
+                pending_result,
+            ]
+        )
+
+        result = await generate_triage_recommendations(db)
+        action_types = [r["action_type"] for r in result["recommendations"]]
+        assert "DELAY_PAYMENT" in action_types
+        delay = next(r for r in result["recommendations"] if r["action_type"] == "DELAY_PAYMENT")
+        assert delay["estimated_impact"] == Decimal("50000.00")

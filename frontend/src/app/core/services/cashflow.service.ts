@@ -47,6 +47,38 @@ export interface GlobalExposure {
   debt_to_trade_ratio: number;
 }
 
+export interface PaymentCalendarEntry {
+  date: string;
+  type: string;
+  amount: number;
+  description: string;
+  cumulative_balance: number;
+}
+
+export interface PaymentCalendarResponse {
+  entries: PaymentCalendarEntry[];
+  has_shortfall: boolean;
+  first_shortfall_date: string | null;
+  total_shortfall: number;
+}
+
+export interface TriageStatusResponse {
+  id: string;
+  trigger_date: string;
+  shortfall_amount: number;
+  horizon_days: number;
+  status: string;
+  resolution_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TriageCheckResponse {
+  triage_active: boolean;
+  triage: TriageStatusResponse | null;
+  message: string;
+}
+
 interface MonthlyBucket {
   month: string;
   projected_revenue: number;
@@ -152,6 +184,24 @@ export class CashflowService {
         debt_to_trade_ratio: Number(d.debt_to_trade_ratio),
       }))
     );
+  }
+
+  // -----------------------------------------------------------------------
+  // Triage Mode
+  // -----------------------------------------------------------------------
+
+  getPaymentCalendar(horizonDays = 90): Observable<PaymentCalendarResponse> {
+    return this.api.get<PaymentCalendarResponse>('/cashflow/payment-calendar', {
+      horizon_days: String(horizonDays),
+    });
+  }
+
+  getTriageStatus(): Observable<TriageStatusResponse | null> {
+    return this.api.get<TriageStatusResponse | null>('/cashflow/triage-status');
+  }
+
+  checkTriage(horizonDays = 90): Observable<TriageCheckResponse> {
+    return this.api.post<TriageCheckResponse>('/cashflow/triage-check', null);
   }
 
   private colorToRiskRating(color: string): string {

@@ -176,3 +176,61 @@ class GlobalExposureResponse(BaseModel):
     ngn_usd_rate: Decimal
     total_global_exposure_ngn: Decimal
     debt_to_trade_ratio: Decimal
+
+
+# ---------------------------------------------------------------------------
+# Payment Calendar schemas
+# ---------------------------------------------------------------------------
+
+
+class PaymentCalendarEntry(BaseModel):
+    date: date
+    type: str  # loan_payment, operating_cost, fx_obligation
+    amount: Decimal
+    description: str
+    cumulative_balance: Decimal
+
+
+class PaymentCalendarResponse(BaseModel):
+    entries: list[PaymentCalendarEntry]
+    has_shortfall: bool
+    first_shortfall_date: date | None = None
+    total_shortfall: Decimal = Decimal("0")
+
+
+# ---------------------------------------------------------------------------
+# Triage schemas
+# ---------------------------------------------------------------------------
+
+
+class TriageStatusResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    trigger_date: date
+    shortfall_amount: Decimal
+    horizon_days: int
+    status: str
+    resolution_date: date | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TriageRecommendation(BaseModel):
+    action_type: str  # LIQUIDATE, DELAY_PAYMENT, ACCELERATE_COLLECTION
+    priority: int
+    description: str
+    estimated_impact: Decimal
+    details: list[dict] | None = None
+
+
+class TriageRecommendationsResponse(BaseModel):
+    triage_id: uuid.UUID | None = None
+    shortfall_amount: Decimal
+    recommendations: list[TriageRecommendation]
+
+
+class TriageCheckResponse(BaseModel):
+    triage_active: bool
+    triage: TriageStatusResponse | None = None
+    message: str
