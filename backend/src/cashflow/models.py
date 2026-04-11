@@ -164,6 +164,30 @@ class LoanPaymentSchedule(UUIDMixin, Base):
         return f"<LoanPaymentSchedule(id={self.id}, loan_id={self.loan_id})>"
 
 
+class TriageStatus(str, enum.Enum):
+    """Triage mode status."""
+
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+
+
+class TriageRecord(UUIDMixin, TimestampMixin, Base):
+    """Liquidity squeeze triage record."""
+
+    __tablename__ = "triage_records"
+
+    trigger_date: Mapped[date] = mapped_column(Date)
+    shortfall_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    horizon_days: Mapped[int] = mapped_column(Integer)
+    status: Mapped[TriageStatus] = mapped_column(
+        Enum(TriageStatus), default=TriageStatus.ACTIVE
+    )
+    resolution_date: Mapped[date | None] = mapped_column(Date, nullable=True, default=None)
+
+    def __repr__(self) -> str:
+        return f"<TriageRecord(id={self.id}, status={self.status}, shortfall={self.shortfall_amount})>"
+
+
 class StressScenario(UUIDMixin, Base):
     """Stress-test scenario applied to a cashflow projection."""
 

@@ -14,9 +14,12 @@ from src.cashflow.models import (
     CashflowProjection,
     CostFrequency,
     LoanObligation,
+    LoanPaymentSchedule,
     LoanStatus,
     OperatingCost,
     StressScenario,
+    TriageRecord,
+    TriageStatus,
 )
 from src.fx.service import get_latest_rate_value, get_previous_rate_value
 from src.orders.models import OrderPayment, OrderStatus, PaymentStatus, PurchaseOrder
@@ -839,3 +842,354 @@ async def check_eur_usd_alert(db: AsyncSession) -> bool:
         direction=direction,
     )
     return True
+
+
+# ---------------------------------------------------------------------------
+# Payment Calendar
+# ---------------------------------------------------------------------------
+
+
+def _generate_operating_cost_dates(
+    cost: OperatingCost,
+    start: date,
+    end: date,
+) -> list[tuple[date, Decimal]]:
+    """Generate payment dates for an operating cost within the horizon."""
+    dates: list[tuple[date, Decimal]] = []
+    freq = cost.frequency
+
+    if freq == CostFrequency.DAILY:
+        delta = timedelta(days=1)
+    elif freq == CostFrequency.WEEKLY:
+        delta = timedelta(weeks=1)
+    elif freq == CostFrequency.MONTHLY:
+        delta = timedelta(days=30)
+    elif freq == CostFrequency.QUARTERLY:
+        delta = timedelta(days=91)
+    elif freq == CostFrequency.ANNUALLY:
+        delta = timedelta(days=365)
+    else:
+        delta = timedelta(days=30)
+
+    current = start
+    while current <= end:
+        dates.append((current, cost.cost_amount))
+        current += delta
+
+    return dates
+
+
+async def build_payment_calendar(
+    db: AsyncSession,
+    horizon_days: int = 90,
+    starting_balance: Decimal | None = None,
+) -> dict:
+    """Build a payment calendar over the given horizon.
+
+    Returns entries sorted by date with cumulative balance tracking,
+    and shortfall detection.
+    """
+    today = date.today()
+    horizon_end = today + timedelta(days=horizon_days)
+
+    entries: list[dict] = []
+
+    # 1. Loan payment schedule entries (unpaid, within horizon)
+    loan_result = await db.execute(
+        select(LoanPaymentSchedule, LoanObligation.lender_name)
+        .join(LoanObligation, LoanPaymentSchedule.loan_id == LoanObligation.id)
+        .where(
+            LoanPaymentSchedule.is_paid.is_(False),
+            LoanPaymentSchedule.due_date >= today,
+            LoanPaymentSchedule.due_date <= horizon_end,
+        )
+        .order_by(LoanPaymentSchedule.due_date)
+    )
+    for schedule, lender_name in loan_result.all():
+        entries.append({
+            "date": schedule.due_date,
+            "type": "loan_payment",
+            "amount": schedule.total_payment,
+            "description": f"Loan payment to {lender_name}",
+        })
+
+    # 2. Operating cost entries (active, within horizon)
+    opex_result = await db.execute(
+        select(OperatingCost).where(OperatingCost.is_active.is_(True))
+    )
+    for cost in opex_result.scalars().all():
+        payment_dates = _generate_operating_cost_dates(cost, today, horizon_end)
+        for payment_date, amount in payment_dates:
+            entries.append({
+                "date": payment_date,
+                "type": "operating_cost",
+                "amount": amount,
+                "description": f"{cost.cost_name} ({cost.category.value})",
+            })
+
+    # 3. FX obligations from open purchase orders
+    fx_rate = await _get_latest_fx_rate(db)
+    fx_result = await db.execute(
+        select(PurchaseOrder)
+        .where(
+            PurchaseOrder.status.in_([
+                OrderStatus.PENDING,
+                OrderStatus.IN_PRODUCTION,
+                OrderStatus.SHIPPING,
+            ]),
+            PurchaseOrder.currency == "USD",
+            PurchaseOrder.expected_delivery_date >= today,
+            PurchaseOrder.expected_delivery_date <= horizon_end,
+        )
+    )
+    for order in fx_result.scalars().all():
+        paid_result = await db.execute(
+            select(func.sum(OrderPayment.amount)).where(
+                OrderPayment.order_id == order.id,
+                OrderPayment.status == PaymentStatus.COMPLETED,
+            )
+        )
+        paid = paid_result.scalar() or Decimal("0")
+        balance_usd = order.total_amount - paid
+        balance_ngn = (balance_usd * Decimal("0.70") * fx_rate).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        if balance_ngn > 0:
+            entries.append({
+                "date": order.expected_delivery_date,
+                "type": "fx_obligation",
+                "amount": balance_ngn,
+                "description": f"FX payment for order (USD balance: {balance_usd})",
+            })
+
+    # Sort by date
+    entries.sort(key=lambda e: e["date"])
+
+    # Calculate cumulative balance
+    if starting_balance is None:
+        # Estimate starting balance from latest projection
+        try:
+            projection = await get_latest_projection(db)
+            buckets = projection.monthly_buckets or []
+            if buckets:
+                starting_balance = Decimal(buckets[0]["cumulative_cashflow"])
+            else:
+                starting_balance = Decimal("0")
+        except ProjectionNotFoundError:
+            starting_balance = Decimal("0")
+
+    cumulative = starting_balance
+    has_shortfall = False
+    first_shortfall_date = None
+    total_shortfall = Decimal("0")
+
+    for entry in entries:
+        cumulative -= entry["amount"]
+        entry["cumulative_balance"] = cumulative.quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        if cumulative < 0:
+            has_shortfall = True
+            total_shortfall = min(total_shortfall, cumulative)
+            if first_shortfall_date is None:
+                first_shortfall_date = entry["date"]
+
+    return {
+        "entries": entries,
+        "has_shortfall": has_shortfall,
+        "first_shortfall_date": first_shortfall_date,
+        "total_shortfall": abs(total_shortfall).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Triage Mode
+# ---------------------------------------------------------------------------
+
+
+async def get_active_triage(db: AsyncSession) -> TriageRecord | None:
+    """Return the active triage record, or None."""
+    result = await db.execute(
+        select(TriageRecord)
+        .where(TriageRecord.status == TriageStatus.ACTIVE)
+        .order_by(TriageRecord.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def check_and_activate_triage(
+    db: AsyncSession,
+    horizon_days: int = 90,
+) -> TriageRecord | None:
+    """Check for shortfalls and activate triage if needed.
+
+    Returns the active TriageRecord (existing or newly created), or None
+    if no shortfall detected.
+    """
+    calendar = await build_payment_calendar(db, horizon_days)
+
+    if not calendar["has_shortfall"]:
+        # Auto-resolve any active triage
+        await auto_resolve_triage(db)
+        return None
+
+    # Check if active triage already exists
+    existing = await get_active_triage(db)
+    if existing is not None:
+        # Update shortfall amount if it changed
+        existing.shortfall_amount = calendar["total_shortfall"]
+        existing.horizon_days = horizon_days
+        await db.flush()
+        await logger.ainfo(
+            "triage_updated",
+            triage_id=str(existing.id),
+            shortfall=str(calendar["total_shortfall"]),
+        )
+        return existing
+
+    # Create new triage record
+    triage = TriageRecord(
+        trigger_date=date.today(),
+        shortfall_amount=calendar["total_shortfall"],
+        horizon_days=horizon_days,
+        status=TriageStatus.ACTIVE,
+    )
+    db.add(triage)
+    await db.flush()
+
+    await logger.ainfo(
+        "triage_activated",
+        triage_id=str(triage.id),
+        shortfall=str(calendar["total_shortfall"]),
+        horizon_days=horizon_days,
+    )
+    return triage
+
+
+async def auto_resolve_triage(db: AsyncSession) -> bool:
+    """Resolve active triage if no shortfall is currently detected.
+
+    Returns True if a triage was resolved.
+    """
+    active = await get_active_triage(db)
+    if active is None:
+        return False
+
+    active.status = TriageStatus.RESOLVED
+    active.resolution_date = date.today()
+    await db.flush()
+
+    await logger.ainfo(
+        "triage_auto_resolved",
+        triage_id=str(active.id),
+    )
+    return True
+
+
+async def generate_triage_recommendations(
+    db: AsyncSession,
+) -> dict:
+    """Generate ranked corrective actions for the active triage.
+
+    Priority order:
+    1. LIQUIDATE - sell slow-moving inventory
+    2. DELAY_PAYMENT - defer operating costs
+    3. ACCELERATE_COLLECTION - flag outstanding receivables
+    """
+    active = await get_active_triage(db)
+    shortfall = active.shortfall_amount if active else Decimal("0")
+    triage_id = active.id if active else None
+
+    recommendations: list[dict] = []
+
+    # 1. LIQUIDATE: get liquidation candidates from inventory
+    from src.inventory.service import get_liquidation_candidates
+
+    try:
+        candidates = await get_liquidation_candidates(db, shortfall)
+        total_liquidation_value = sum(
+            c["total_batch_value"] for c in candidates[:5]
+        )
+        recommendations.append({
+            "action_type": "LIQUIDATE",
+            "priority": 1,
+            "description": (
+                f"Liquidate slow-moving inventory to raise up to "
+                f"{total_liquidation_value} NGN"
+            ),
+            "estimated_impact": total_liquidation_value,
+            "details": [
+                {
+                    "batch_id": str(c["batch_id"]),
+                    "product_id": str(c["product_id"]),
+                    "quantity": c["quantity_remaining"],
+                    "batch_value": str(c["total_batch_value"]),
+                    "discount_pct": str(c["discount_pct_needed"]),
+                }
+                for c in candidates[:5]
+            ],
+        })
+    except Exception:
+        await logger.awarning("triage_liquidation_candidates_failed", exc_info=True)
+
+    # 2. DELAY_PAYMENT: identify deferrable operating costs
+    opex_result = await db.execute(
+        select(OperatingCost).where(
+            OperatingCost.is_active.is_(True),
+            OperatingCost.category.in_(["marketing", "transport", "other"]),
+        )
+    )
+    deferrable_costs = list(opex_result.scalars().all())
+    total_deferrable = sum(c.monthly_equivalent for c in deferrable_costs)
+
+    if deferrable_costs:
+        recommendations.append({
+            "action_type": "DELAY_PAYMENT",
+            "priority": 2,
+            "description": (
+                f"Defer {len(deferrable_costs)} non-essential operating "
+                f"costs to save {total_deferrable} NGN/month"
+            ),
+            "estimated_impact": total_deferrable,
+            "details": [
+                {
+                    "cost_id": str(c.id),
+                    "cost_name": c.cost_name,
+                    "category": c.category.value,
+                    "monthly_amount": str(c.monthly_equivalent),
+                }
+                for c in deferrable_costs
+            ],
+        })
+
+    # 3. ACCELERATE_COLLECTION: flag outstanding receivables (pending sales)
+    pending_result = await db.execute(
+        select(
+            func.count(Sale.id),
+            func.coalesce(func.sum(Sale.total_amount), Decimal("0")),
+        ).where(Sale.status == SaleStatus.PENDING)
+    )
+    row = pending_result.one()
+    pending_count = row[0] or 0
+    pending_total = row[1] or Decimal("0")
+
+    if pending_count > 0:
+        recommendations.append({
+            "action_type": "ACCELERATE_COLLECTION",
+            "priority": 3,
+            "description": (
+                f"Collect {pending_count} outstanding receivables "
+                f"totaling {pending_total} NGN"
+            ),
+            "estimated_impact": pending_total,
+            "details": None,
+        })
+
+    return {
+        "triage_id": triage_id,
+        "shortfall_amount": shortfall,
+        "recommendations": recommendations,
+    }
