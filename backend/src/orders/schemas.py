@@ -44,6 +44,8 @@ class OrderCreate(BaseModel):
     production_days: int | None = None
     shipping_days: int | None = None
     clearing_days: int | None = None
+    shipping_cost: Decimal = Field(default=Decimal("0"), ge=0)
+    clearing_cost: Decimal = Field(default=Decimal("0"), ge=0)
     notes: str | None = None
     line_items: list[OrderLineItemCreate] = Field(..., min_length=1)
 
@@ -75,6 +77,8 @@ class OrderRead(BaseModel):
     total_amount: Decimal
     currency: str
     fx_rate_at_creation: Decimal | None = None
+    shipping_cost: Decimal = Decimal("0")
+    clearing_cost: Decimal = Decimal("0")
     expected_delivery_date: date | None = None
     actual_delivery_date: date | None = None
     notes: str | None = None
@@ -158,3 +162,24 @@ class OrdersSummary(BaseModel):
     total_orders: int
     total_value: Decimal
     by_status: dict[str, int]
+
+
+# ---------------------------------------------------------------------------
+# Logistics Efficiency schemas
+# ---------------------------------------------------------------------------
+
+
+class OrderLogisticsRead(BaseModel):
+    order_id: uuid.UUID
+    order_number: str
+    logistics_pct: Decimal
+    logistics_ngn: Decimal
+    total_cogs_ngn: Decimal
+
+
+class LogisticsEfficiencyResponse(BaseModel):
+    per_order: list[OrderLogisticsRead]
+    rolling_90d_avg_pct: Decimal
+    amber_threshold_pct: Decimal
+    red_threshold_pct: Decimal
+    status: str  # "healthy", "amber", "red"

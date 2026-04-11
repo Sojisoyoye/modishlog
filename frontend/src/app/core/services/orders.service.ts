@@ -75,4 +75,24 @@ export class OrdersService {
   getProfitProjection(id: string): Observable<ProfitProjection> {
     return this.api.get<ProfitProjection>(`/orders/${id}/profit-projection`);
   }
+
+  getLogisticsEfficiency(): Observable<LogisticsEfficiency> {
+    return this.api.get<LogisticsEfficiency>('/orders/logistics-efficiency');
+  }
+}
+
+export interface LogisticsEfficiency {
+  per_order: OrderLogistics[];
+  rolling_90d_avg_pct: number;
+  amber_threshold_pct: number;
+  red_threshold_pct: number;
+  status: string;
+}
+
+export interface OrderLogistics {
+  order_id: string;
+  order_number: string;
+  logistics_pct: number;
+  logistics_ngn: number;
+  total_cogs_ngn: number;
 }

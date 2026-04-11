@@ -22,6 +22,7 @@ from src.orders.exceptions import (
     PaymentNotFoundError,
 )
 from src.orders.schemas import (
+    LogisticsEfficiencyResponse,
     OrderCreate,
     OrderDetailRead,
     OrderListResponse,
@@ -36,7 +37,9 @@ from src.orders.schemas import (
 )
 from src.orders.service import (
     cancel_order,
+    check_logistics_alerts,
     create_order,
+    get_logistics_efficiency,
     get_order,
     get_orders_summary,
     get_overdue_orders,
@@ -251,3 +254,15 @@ async def void_payment_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except PaymentNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Logistics Efficiency
+# ---------------------------------------------------------------------------
+
+
+@router.get("/logistics-efficiency", response_model=LogisticsEfficiencyResponse)
+async def logistics_efficiency_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get logistics cost efficiency metrics (per-order and rolling 90d average)."""
+    data = await get_logistics_efficiency(db)
+    return LogisticsEfficiencyResponse(**data)
