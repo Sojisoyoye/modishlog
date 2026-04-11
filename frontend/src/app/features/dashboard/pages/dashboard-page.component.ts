@@ -209,6 +209,8 @@ import { OrdersService, LogisticsEfficiency } from '../../../core/services/order
                 <span>EUR/NGN: {{ globalExposure()!.eur_ngn_derived_rate | number: '1.2-2' }}</span>
               </div>
             </div>
+          } @else if (!loading()) {
+            <div class="h-40 rounded-xl skeleton md:col-span-2"></div>
           }
 
           <!-- Logistics Efficiency -->
@@ -242,6 +244,8 @@ import { OrdersService, LogisticsEfficiency } from '../../../core/services/order
                 Target: &lt;{{ logistics()!.amber_threshold_pct }}%
               </p>
             </div>
+          } @else if (!loading()) {
+            <div class="h-32 rounded-xl skeleton"></div>
           }
 
           <!-- Inventory Alerts -->

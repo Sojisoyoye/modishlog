@@ -96,8 +96,9 @@ async def create_product(
     user_id: uuid.UUID,
 ) -> Product:
     """Create a new product, auto-generating SKU if not provided."""
-    # Validate category exists
-    await get_category(db, data.category_id)
+    # Validate category exists (only if provided)
+    if data.category_id is not None:
+        await get_category(db, data.category_id)
 
     sku = data.sku
     if not sku:
