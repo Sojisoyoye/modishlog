@@ -48,6 +48,27 @@ async def low_stock_endpoint(db: AsyncSession = Depends(get_db)):
     return await list_inventory_levels(db, low_stock_only=True)
 
 
+@router.get("/batches", response_model=list[InventoryBatchRead])
+async def list_batches_endpoint(
+    product_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """List inventory batches for a product ordered by received_at."""
+    return await get_batches_for_product(db, product_id)
+
+
+@router.get("/batches/liquidation-candidates", response_model=list[LiquidationCandidate])
+async def liquidation_candidates_endpoint(
+    target_ngn: float = 500000,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get cheapest batches with discount needed to generate target NGN amount."""
+    from decimal import Decimal
+
+    data = await get_liquidation_candidates(db, Decimal(str(target_ngn)))
+    return [LiquidationCandidate(**d) for d in data]
+
+
 @router.get("/{product_id}", response_model=InventoryLevelRead)
 async def get_inventory_endpoint(
     product_id: uuid.UUID,
@@ -102,29 +123,3 @@ async def depletion_forecast_endpoint(
         return await calculate_depletion_forecast(db, product_id)
     except ProductStockNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-
-
-# ---------------------------------------------------------------------------
-# Inventory Batches
-# ---------------------------------------------------------------------------
-
-
-@router.get("/batches", response_model=list[InventoryBatchRead])
-async def list_batches_endpoint(
-    product_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-):
-    """List inventory batches for a product ordered by received_at."""
-    return await get_batches_for_product(db, product_id)
-
-
-@router.get("/batches/liquidation-candidates", response_model=list[LiquidationCandidate])
-async def liquidation_candidates_endpoint(
-    target_ngn: float = 500000,
-    db: AsyncSession = Depends(get_db),
-):
-    """Get cheapest batches with discount needed to generate target NGN amount."""
-    from decimal import Decimal
-
-    data = await get_liquidation_candidates(db, Decimal(str(target_ngn)))
-    return [LiquidationCandidate(**d) for d in data]

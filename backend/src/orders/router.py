@@ -97,6 +97,13 @@ async def list_orders_endpoint(
     return OrderListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
+@router.get("/logistics-efficiency", response_model=LogisticsEfficiencyResponse)
+async def logistics_efficiency_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get logistics cost efficiency metrics (per-order and rolling 90d average)."""
+    data = await get_logistics_efficiency(db)
+    return LogisticsEfficiencyResponse(**data)
+
+
 @router.get("/summary", response_model=OrdersSummary)
 async def orders_summary_endpoint(db: AsyncSession = Depends(get_db)):
     """Get order summary statistics."""
@@ -254,15 +261,3 @@ async def void_payment_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except PaymentNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-
-
-# ---------------------------------------------------------------------------
-# Logistics Efficiency
-# ---------------------------------------------------------------------------
-
-
-@router.get("/logistics-efficiency", response_model=LogisticsEfficiencyResponse)
-async def logistics_efficiency_endpoint(db: AsyncSession = Depends(get_db)):
-    """Get logistics cost efficiency metrics (per-order and rolling 90d average)."""
-    data = await get_logistics_efficiency(db)
-    return LogisticsEfficiencyResponse(**data)

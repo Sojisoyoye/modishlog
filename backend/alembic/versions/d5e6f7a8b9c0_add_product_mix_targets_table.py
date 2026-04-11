@@ -1,7 +1,7 @@
 """add product_mix_targets table
 
-Revision ID: d4e5f6a7b8c9
-Revises: c47911aa433e
+Revision ID: d5e6f7a8b9c0
+Revises: d4e5f6a7b8c9
 Create Date: 2026-04-10 10:00:00.000000
 
 """
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = "d4e5f6a7b8c9"
-down_revision: Union[str, None] = "c47911aa433e"
+revision: str = "d5e6f7a8b9c0"
+down_revision: Union[str, None] = "d4e5f6a7b8c9"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

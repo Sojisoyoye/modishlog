@@ -34,7 +34,7 @@ class ProductCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     sku: str | None = None
     description: str | None = None
-    category_id: uuid.UUID
+    category_id: uuid.UUID | None = None
     unit_cost: Decimal = Field(..., ge=0)
     selling_price: Decimal = Field(..., ge=0)
     currency: str = "NGN"
@@ -56,11 +56,12 @@ class ProductRead(BaseModel):
     name: str
     sku: str
     description: str | None = None
-    category_id: uuid.UUID
+    category_id: uuid.UUID | None = None
     unit_cost: Decimal
     selling_price: Decimal
     currency: str
     is_active: bool
+    image_url: str | None = None
     created_at: datetime
     updated_at: datetime
 
