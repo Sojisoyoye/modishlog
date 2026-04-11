@@ -12,6 +12,7 @@ from src.pricing.exceptions import (
     CrossSubsidyAnalysisError,
     ElasticityNotFoundError,
     InsufficientPriceDataError,
+    MixTargetSumError,
     OptimizationInfeasibleError,
     RecommendationExpiredError,
     RecommendationNotFoundError,
@@ -24,6 +25,9 @@ from src.pricing.schemas import (
     GenerateRecommendationsRequest,
     MarginTargetCreate,
     MarginTargetRead,
+    MixStatusResponse,
+    MixTargetBulkCreate,
+    MixTargetRead,
     PortfolioMarginResponse,
     RecommendationRead,
 )
@@ -37,9 +41,11 @@ from src.pricing.service import (
     generate_recommendations,
     get_elasticity,
     get_margin_targets,
+    get_mix_status,
     get_recommendations,
     set_margin_target,
     update_elasticity_config,
+    upsert_mix_targets,
 )
 
 router = APIRouter()
@@ -226,6 +232,44 @@ async def create_margin_target_endpoint(
 async def list_margin_targets_endpoint(db: AsyncSession = Depends(get_db)):
     """View current margin targets."""
     return await get_margin_targets(db)
+
+
+# ---------------------------------------------------------------------------
+# Product Mix Targets
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/mix-targets",
+    response_model=list[MixTargetRead],
+    status_code=status.HTTP_200_OK,
+)
+async def upsert_mix_targets_endpoint(
+    body: MixTargetBulkCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Bulk upsert product mix targets (must sum to 100%)."""
+    try:
+        targets_data = [
+            {"category_id": t.category_id, "target_pct": t.target_pct}
+            for t in body.targets
+        ]
+        return await upsert_mix_targets(db, targets_data)
+    except MixTargetSumError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )
+
+
+@router.get("/mix-status", response_model=MixStatusResponse)
+async def mix_status_endpoint(
+    days: int = 90,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get actual vs target product mix status."""
+    statuses = await get_mix_status(db, days)
+    return MixStatusResponse(categories=statuses)
 
 
 # ---------------------------------------------------------------------------

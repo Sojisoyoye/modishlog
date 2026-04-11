@@ -65,3 +65,13 @@ class CrossSubsidyAnalysisError(Exception):
     def __init__(self, reason):
         self.reason = reason
         super().__init__(f"Cross-subsidy analysis error: {reason}")
+
+
+class MixTargetSumError(Exception):
+    """Product mix target percentages do not sum to 100."""
+
+    def __init__(self, total):
+        self.total = total
+        super().__init__(
+            f"Mix target percentages must sum to 100, got {total}"
+        )
