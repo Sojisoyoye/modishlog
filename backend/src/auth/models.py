@@ -26,7 +26,9 @@ class User(UUIDMixin, TimestampMixin, Base):
     full_name: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(default=True)
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole), default=UserRole.ADMIN, server_default="admin"
+        Enum(UserRole, values_callable=lambda x: [e.value for e in x]),
+        default=UserRole.ADMIN,
+        server_default="admin",
     )
     failed_login_attempts: Mapped[int] = mapped_column(default=0)
     locked_until: Mapped[datetime | None] = mapped_column(default=None)

@@ -180,7 +180,8 @@ class TriageRecord(UUIDMixin, TimestampMixin, Base):
     shortfall_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     horizon_days: Mapped[int] = mapped_column(Integer)
     status: Mapped[TriageStatus] = mapped_column(
-        Enum(TriageStatus), default=TriageStatus.ACTIVE
+        Enum(TriageStatus, values_callable=lambda x: [e.value for e in x]),
+        default=TriageStatus.ACTIVE,
     )
     resolution_date: Mapped[date | None] = mapped_column(Date, nullable=True, default=None)
 

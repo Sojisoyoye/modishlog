@@ -249,13 +249,13 @@ async def payment_calendar_endpoint(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/triage-status", response_model=TriageStatusResponse | None)
+@router.get("/triage-status")
 async def triage_status_endpoint(db: AsyncSession = Depends(get_db)):
     """Get active triage status or null."""
     triage = await get_active_triage(db)
     if triage is None:
         return None
-    return triage
+    return TriageStatusResponse.model_validate(triage)
 
 
 @router.post("/triage-check", response_model=TriageCheckResponse)
