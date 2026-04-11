@@ -46,6 +46,7 @@ from src.pricing.models import (  # noqa: F401
     DemandElasticity,
     MarginTarget,
     PricingRecommendation,
+    ProductMixTarget,
     CrossSubsidyAnalysis,
 )
 from src.ai_engine.models import (  # noqa: F401

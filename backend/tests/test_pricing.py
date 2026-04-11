@@ -13,6 +13,7 @@ from src.auth.service import build_token
 from src.core.security import get_password_hash
 from src.pricing.exceptions import (
     ElasticityNotFoundError,
+    MixTargetSumError,
     RecommendationExpiredError,
     RecommendationNotFoundError,
 )
@@ -20,9 +21,10 @@ from src.pricing.models import (
     DemandElasticity,
     MarginTarget,
     PricingRecommendation,
+    ProductMixTarget,
     RecommendationStatus,
 )
-from src.products.models import Product
+from src.products.models import Product, ProductCategory
 
 VALID_PASSWORD = "Str0ng!Pass#99"
 
@@ -579,3 +581,287 @@ class TestPricingEndpoints:
                 headers=headers,
             )
         assert resp.status_code == 404
+
+    def test_mix_targets_requires_auth(self):
+        db = _mock_db()
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/pricing/mix-targets",
+                json={"targets": []},
+            )
+        assert resp.status_code == 401
+
+    def test_mix_targets_rejects_bad_sum(self):
+        db = _mock_db()
+        self._override_db(db)
+        headers, user = self._auth_headers()
+        cat1 = str(uuid.uuid4())
+        cat2 = str(uuid.uuid4())
+        with TestClient(self.app) as client:
+            # upsert_mix_targets will raise MixTargetSumError => 400
+            resp = client.post(
+                "/api/v1/pricing/mix-targets",
+                headers=headers,
+                json={
+                    "targets": [
+                        {"category_id": cat1, "target_pct": "60.00"},
+                        {"category_id": cat2, "target_pct": "30.00"},
+                    ]
+                },
+            )
+        assert resp.status_code == 400
+        assert "sum to 100" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Product Mix Target Service Tests
+# ---------------------------------------------------------------------------
+
+
+class TestMixTargets:
+    @pytest.mark.asyncio
+    async def test_upsert_rejects_sum_not_100(self):
+        """Target percentages that don't sum to 100 must be rejected."""
+        from src.pricing.service import upsert_mix_targets
+
+        db = _mock_db()
+        targets = [
+            {"category_id": uuid.uuid4(), "target_pct": Decimal("60.00")},
+            {"category_id": uuid.uuid4(), "target_pct": Decimal("30.00")},
+        ]
+        with pytest.raises(MixTargetSumError):
+            await upsert_mix_targets(db, targets)
+
+    @pytest.mark.asyncio
+    async def test_upsert_accepts_sum_100(self):
+        """Valid targets summing to 100 should be upserted."""
+        from src.pricing.service import upsert_mix_targets
+
+        cat1_id = uuid.uuid4()
+        cat2_id = uuid.uuid4()
+
+        db = _mock_db()
+        # Each target lookup returns None (no existing), so new records created
+        none_result = MagicMock()
+        none_result.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=none_result)
+
+        targets = [
+            {"category_id": cat1_id, "target_pct": Decimal("60.00")},
+            {"category_id": cat2_id, "target_pct": Decimal("40.00")},
+        ]
+        result = await upsert_mix_targets(db, targets)
+        assert len(result) == 2
+        assert db.add.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_upsert_updates_existing(self):
+        """Existing target should be updated, not duplicated."""
+        from src.pricing.service import upsert_mix_targets
+
+        cat_id = uuid.uuid4()
+        existing = ProductMixTarget(
+            category_id=cat_id,
+            target_pct=Decimal("50.00"),
+        )
+        existing.id = uuid.uuid4()
+        existing.created_at = datetime.now(timezone.utc)
+        existing.updated_at = datetime.now(timezone.utc)
+
+        db = _mock_db()
+        existing_result = MagicMock()
+        existing_result.scalar_one_or_none.return_value = existing
+        none_result = MagicMock()
+        none_result.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(side_effect=[existing_result, none_result])
+
+        targets = [
+            {"category_id": cat_id, "target_pct": Decimal("70.00")},
+            {"category_id": uuid.uuid4(), "target_pct": Decimal("30.00")},
+        ]
+        result = await upsert_mix_targets(db, targets)
+        assert len(result) == 2
+        # First was updated in-place
+        assert result[0].target_pct == Decimal("70.00")
+        # Second was added
+        assert db.add.call_count == 1
+
+
+class TestMixStatus:
+    @pytest.mark.asyncio
+    async def test_mix_status_calculation(self):
+        """Mix status should correctly compute actual vs target percentages."""
+        from src.pricing.service import get_mix_status
+
+        cat1_id = uuid.uuid4()
+        cat2_id = uuid.uuid4()
+
+        db = _mock_db()
+
+        # Revenue rows: cat1 has 7000, cat2 has 3000 => 70% / 30%
+        revenue_result = MagicMock()
+        revenue_result.all.return_value = [
+            (cat1_id, "Electronics", Decimal("7000")),
+            (cat2_id, "Clothing", Decimal("3000")),
+        ]
+
+        # Targets: cat1=60%, cat2=40%
+        target1 = ProductMixTarget(
+            category_id=cat1_id, target_pct=Decimal("60.00")
+        )
+        target1.id = uuid.uuid4()
+        target2 = ProductMixTarget(
+            category_id=cat2_id, target_pct=Decimal("40.00")
+        )
+        target2.id = uuid.uuid4()
+        targets_result = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [target1, target2]
+        targets_result.scalars.return_value = scalars_mock
+
+        db.execute = AsyncMock(side_effect=[revenue_result, targets_result])
+
+        result = await get_mix_status(db)
+        assert len(result) == 2
+
+        # cat1: actual 70%, target 60%, variance +10%
+        cat1_status = next(s for s in result if s["category_id"] == cat1_id)
+        assert cat1_status["actual_pct"] == Decimal("70.00")
+        assert cat1_status["target_pct"] == Decimal("60.00")
+        assert cat1_status["variance_pct"] == Decimal("10.00")
+
+        # cat2: actual 30%, target 40%, variance -10%
+        cat2_status = next(s for s in result if s["category_id"] == cat2_id)
+        assert cat2_status["actual_pct"] == Decimal("30.00")
+        assert cat2_status["target_pct"] == Decimal("40.00")
+        assert cat2_status["variance_pct"] == Decimal("-10.00")
+
+
+class TestMixDriftAlert:
+    @pytest.mark.asyncio
+    async def test_drift_alert_created_when_variance_exceeds_threshold(self):
+        """An AI recommendation should be created when drift > 5%."""
+        from src.pricing.service import check_mix_drift_alert
+
+        cat1_id = uuid.uuid4()
+        cat2_id = uuid.uuid4()
+
+        db = _mock_db()
+
+        # get_mix_status internal calls
+        # 1. Revenue query
+        revenue_result = MagicMock()
+        revenue_result.all.return_value = [
+            (cat1_id, "Electronics", Decimal("8000")),
+            (cat2_id, "Clothing", Decimal("2000")),
+        ]
+
+        # 2. Targets query
+        target1 = ProductMixTarget(
+            category_id=cat1_id, target_pct=Decimal("50.00")
+        )
+        target1.id = uuid.uuid4()
+        target2 = ProductMixTarget(
+            category_id=cat2_id, target_pct=Decimal("50.00")
+        )
+        target2.id = uuid.uuid4()
+        targets_result = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [target1, target2]
+        targets_result.scalars.return_value = scalars_mock
+
+        # 3. Dedup check: no existing recommendation
+        dedup_result = MagicMock()
+        dedup_result.scalar_one_or_none.return_value = None
+
+        db.execute = AsyncMock(
+            side_effect=[revenue_result, targets_result, dedup_result]
+        )
+
+        await check_mix_drift_alert(db)
+
+        # Should have added one AIRecommendation
+        assert db.add.called
+        added_obj = db.add.call_args[0][0]
+        assert added_obj.reference_type == "mix_drift"
+        assert "drift" in added_obj.title.lower()
+
+    @pytest.mark.asyncio
+    async def test_drift_alert_deduplicated(self):
+        """No new alert if a pending mix_drift recommendation already exists."""
+        from src.ai_engine.models import AIRecommendation
+        from src.pricing.service import check_mix_drift_alert
+
+        cat1_id = uuid.uuid4()
+
+        db = _mock_db()
+
+        # get_mix_status calls
+        revenue_result = MagicMock()
+        revenue_result.all.return_value = [
+            (cat1_id, "Electronics", Decimal("10000")),
+        ]
+
+        target1 = ProductMixTarget(
+            category_id=cat1_id, target_pct=Decimal("50.00")
+        )
+        target1.id = uuid.uuid4()
+        targets_result = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [target1]
+        targets_result.scalars.return_value = scalars_mock
+
+        # Dedup check: existing pending recommendation
+        existing_rec = MagicMock(spec=AIRecommendation)
+        existing_rec.id = uuid.uuid4()
+        dedup_result = MagicMock()
+        dedup_result.scalar_one_or_none.return_value = existing_rec
+
+        db.execute = AsyncMock(
+            side_effect=[revenue_result, targets_result, dedup_result]
+        )
+
+        await check_mix_drift_alert(db)
+
+        # Should NOT have added any new recommendation
+        assert not db.add.called
+
+    @pytest.mark.asyncio
+    async def test_no_alert_when_within_threshold(self):
+        """No alert when variance is within 5% threshold."""
+        from src.pricing.service import check_mix_drift_alert
+
+        cat1_id = uuid.uuid4()
+        cat2_id = uuid.uuid4()
+
+        db = _mock_db()
+
+        # Revenue: 52%/48% against 50%/50% targets => 2% variance, under 5%
+        revenue_result = MagicMock()
+        revenue_result.all.return_value = [
+            (cat1_id, "Electronics", Decimal("5200")),
+            (cat2_id, "Clothing", Decimal("4800")),
+        ]
+
+        target1 = ProductMixTarget(
+            category_id=cat1_id, target_pct=Decimal("50.00")
+        )
+        target1.id = uuid.uuid4()
+        target2 = ProductMixTarget(
+            category_id=cat2_id, target_pct=Decimal("50.00")
+        )
+        target2.id = uuid.uuid4()
+        targets_result = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [target1, target2]
+        targets_result.scalars.return_value = scalars_mock
+
+        db.execute = AsyncMock(
+            side_effect=[revenue_result, targets_result]
+        )
+
+        await check_mix_drift_alert(db)
+
+        # No alert should be created
+        assert not db.add.called

@@ -131,6 +131,42 @@ class DemandForecastResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Product Mix Target schemas
+# ---------------------------------------------------------------------------
+
+
+class MixTargetCreate(BaseModel):
+    category_id: uuid.UUID
+    target_pct: Decimal = Field(..., ge=0, le=100)
+
+
+class MixTargetBulkCreate(BaseModel):
+    targets: list[MixTargetCreate]
+
+
+class MixTargetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    category_id: uuid.UUID
+    target_pct: Decimal
+    created_at: datetime
+    updated_at: datetime
+
+
+class MixCategoryStatus(BaseModel):
+    category_id: uuid.UUID
+    category_name: str
+    actual_pct: Decimal
+    target_pct: Decimal
+    variance_pct: Decimal
+
+
+class MixStatusResponse(BaseModel):
+    categories: list[MixCategoryStatus]
+
+
 class CrossSubsidyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

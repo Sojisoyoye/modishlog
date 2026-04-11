@@ -89,6 +89,20 @@ class PricingRecommendation(UUIDMixin, Base):
         return f"<PricingRecommendation(id={self.id}, product_id={self.product_id})>"
 
 
+class ProductMixTarget(UUIDMixin, TimestampMixin, Base):
+    """Target revenue-mix percentage per product category."""
+
+    __tablename__ = "product_mix_targets"
+
+    category_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("product_categories.id"), unique=True
+    )
+    target_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+
+    def __repr__(self) -> str:
+        return f"<ProductMixTarget(id={self.id}, category_id={self.category_id}, target={self.target_pct}%)>"
+
+
 class CrossSubsidyAnalysis(UUIDMixin, Base):
     """Portfolio-level cross-subsidy analysis snapshot."""
 

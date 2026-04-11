@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.pricing.exceptions import (
     ElasticityNotFoundError,
     InsufficientPriceDataError,
+    MixTargetSumError,
     OptimizationInfeasibleError,
     RecommendationExpiredError,
     RecommendationNotFoundError,
@@ -24,9 +25,10 @@ from src.pricing.models import (
     DemandElasticity,
     MarginTarget,
     PricingRecommendation,
+    ProductMixTarget,
     RecommendationStatus,
 )
-from src.products.models import PriceHistory, Product
+from src.products.models import PriceHistory, Product, ProductCategory
 from src.sales.models import Sale, SaleStatus
 
 logger = structlog.get_logger()
@@ -674,3 +676,184 @@ async def analyze_cross_subsidization(
     db.add(analysis)
     await db.flush()
     return analysis
+
+
+# ---------------------------------------------------------------------------
+# Product Mix Targets
+# ---------------------------------------------------------------------------
+
+MIX_DRIFT_THRESHOLD = Decimal("5.00")
+
+
+async def upsert_mix_targets(
+    db: AsyncSession,
+    targets: list[dict],
+) -> list[ProductMixTarget]:
+    """Bulk upsert product-mix targets. Sum of target_pct must equal 100."""
+    total = sum(Decimal(str(t["target_pct"])) for t in targets)
+    if total != Decimal("100"):
+        raise MixTargetSumError(total)
+
+    result_targets: list[ProductMixTarget] = []
+    for t in targets:
+        category_id = t["category_id"]
+        target_pct = Decimal(str(t["target_pct"]))
+
+        result = await db.execute(
+            select(ProductMixTarget).where(
+                ProductMixTarget.category_id == category_id
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+        if existing is not None:
+            existing.target_pct = target_pct
+            result_targets.append(existing)
+        else:
+            new_target = ProductMixTarget(
+                category_id=category_id,
+                target_pct=target_pct,
+            )
+            db.add(new_target)
+            result_targets.append(new_target)
+
+    await db.flush()
+
+    await logger.ainfo(
+        "mix_targets_upserted",
+        count=len(result_targets),
+        total_pct=str(total),
+    )
+    return result_targets
+
+
+async def get_mix_status(
+    db: AsyncSession,
+    days: int = 90,
+) -> list[dict]:
+    """Compare actual revenue % by category against mix targets."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date()
+
+    # Get actual revenue per category
+    result = await db.execute(
+        select(
+            ProductCategory.id,
+            ProductCategory.name,
+            func.coalesce(func.sum(Sale.total_amount), Decimal("0")).label(
+                "category_revenue"
+            ),
+        )
+        .join(Product, Product.category_id == ProductCategory.id)
+        .join(Sale, Sale.product_id == Product.id)
+        .where(
+            Sale.status == SaleStatus.COMPLETED,
+            Sale.sale_date >= cutoff,
+        )
+        .group_by(ProductCategory.id, ProductCategory.name)
+    )
+    revenue_rows = result.all()
+
+    total_revenue = sum(row[2] for row in revenue_rows)
+
+    # Get targets
+    target_result = await db.execute(select(ProductMixTarget))
+    targets = {t.category_id: t.target_pct for t in target_result.scalars().all()}
+
+    statuses: list[dict] = []
+    for cat_id, cat_name, cat_revenue in revenue_rows:
+        actual_pct = (
+            (cat_revenue / total_revenue * Decimal("100"))
+            if total_revenue > 0
+            else Decimal("0")
+        )
+        target_pct = targets.get(cat_id, Decimal("0"))
+        variance_pct = actual_pct - target_pct
+
+        statuses.append({
+            "category_id": cat_id,
+            "category_name": cat_name,
+            "actual_pct": actual_pct.quantize(Decimal("0.01")),
+            "target_pct": target_pct,
+            "variance_pct": variance_pct.quantize(Decimal("0.01")),
+        })
+
+    # Include categories with targets but no revenue
+    seen_ids = {s["category_id"] for s in statuses}
+    for cat_id, target_pct in targets.items():
+        if cat_id not in seen_ids:
+            # Look up category name
+            cat_result = await db.execute(
+                select(ProductCategory.name).where(ProductCategory.id == cat_id)
+            )
+            cat_name = cat_result.scalar_one_or_none() or "Unknown"
+            statuses.append({
+                "category_id": cat_id,
+                "category_name": cat_name,
+                "actual_pct": Decimal("0.00"),
+                "target_pct": target_pct,
+                "variance_pct": (Decimal("0") - target_pct).quantize(Decimal("0.01")),
+            })
+
+    return statuses
+
+
+async def check_mix_drift_alert(db: AsyncSession) -> None:
+    """Create INVENTORY AI recommendation if any category drifts > 5%."""
+    from src.ai_engine.models import (
+        AIRecommendation,
+        ActionType,
+        RecommendationCategory,
+        RecommendationPriority,
+        RecommendationStatus as AIRecommendationStatus,
+    )
+
+    statuses = await get_mix_status(db)
+    drifted = [
+        s for s in statuses if abs(s["variance_pct"]) > MIX_DRIFT_THRESHOLD
+    ]
+
+    if not drifted:
+        return
+
+    # Dedup: check for existing pending mix-drift recommendation
+    result = await db.execute(
+        select(AIRecommendation).where(
+            AIRecommendation.category == RecommendationCategory.INVENTORY,
+            AIRecommendation.reference_type == "mix_drift",
+            AIRecommendation.status == AIRecommendationStatus.PENDING,
+        )
+    )
+    existing = result.scalar_one_or_none()
+    if existing is not None:
+        await logger.ainfo("mix_drift_alert_already_exists", rec_id=str(existing.id))
+        return
+
+    drift_details = "; ".join(
+        f"{s['category_name']}: {s['variance_pct']:+}% (actual {s['actual_pct']}% vs target {s['target_pct']}%)"
+        for s in drifted
+    )
+
+    now = datetime.now(timezone.utc)
+    rec = AIRecommendation(
+        category=RecommendationCategory.INVENTORY,
+        title="Product mix drift detected",
+        description=(
+            f"The following categories have drifted more than "
+            f"{MIX_DRIFT_THRESHOLD}% from target: {drift_details}"
+        ),
+        priority=RecommendationPriority.MEDIUM,
+        confidence=Decimal("80.00"),
+        action_type=ActionType.REORDER,
+        reference_type="mix_drift",
+        status=AIRecommendationStatus.PENDING,
+        created_at=now,
+        expires_at=now + timedelta(days=30),
+    )
+    db.add(rec)
+    await db.flush()
+
+    await logger.ainfo(
+        "mix_drift_alert_created",
+        drifted_count=len(drifted),
+        rec_id=str(rec.id),
+    )
