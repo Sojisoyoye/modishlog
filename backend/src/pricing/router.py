@@ -30,6 +30,10 @@ from src.pricing.schemas import (
     MixTargetRead,
     PortfolioMarginResponse,
     RecommendationRead,
+    ScenarioCreate,
+    ScenarioRead,
+    SensitivityCalcRequest,
+    SensitivityCalcResponse,
 )
 from src.pricing.service import (
     analyze_cross_subsidization,
@@ -43,6 +47,9 @@ from src.pricing.service import (
     get_margin_targets,
     get_mix_status,
     get_recommendations,
+    list_scenarios,
+    save_scenario,
+    sensitivity_calc,
     set_margin_target,
     update_elasticity_config,
     upsert_mix_targets,
@@ -288,3 +295,62 @@ async def cross_subsidy_endpoint(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         )
+
+
+# ---------------------------------------------------------------------------
+# Price-FX Sensitivity Playground
+# ---------------------------------------------------------------------------
+
+
+@router.post("/sensitivity-calc", response_model=SensitivityCalcResponse)
+async def sensitivity_calc_endpoint(
+    body: SensitivityCalcRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Stateless price-FX sensitivity calculation."""
+    try:
+        data = await sensitivity_calc(
+            db,
+            selling_price=body.selling_price_override,
+            fx_rate=body.fx_rate_override,
+            quantity=body.quantity,
+            product_id=body.product_id,
+            unit_cost_usd_override=body.unit_cost_usd,
+        )
+        return SensitivityCalcResponse(**data)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        )
+
+
+@router.post(
+    "/scenarios",
+    response_model=ScenarioRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def save_scenario_endpoint(
+    body: ScenarioCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Save a pricing scenario (max 10 per user)."""
+    return await save_scenario(
+        db,
+        name=body.name,
+        user_id=current_user.id,
+        selling_price=body.selling_price,
+        fx_rate=body.fx_rate,
+        quantity=body.quantity,
+        product_id=body.product_id,
+        results=body.results,
+    )
+
+
+@router.get("/scenarios", response_model=list[ScenarioRead])
+async def list_scenarios_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """List saved pricing scenarios for the current user."""
+    return await list_scenarios(db, current_user.id)

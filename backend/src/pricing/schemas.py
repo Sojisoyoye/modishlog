@@ -177,3 +177,51 @@ class CrossSubsidyRead(BaseModel):
     low_margin_products: dict | None = None
     recommendations: dict | None = None
     created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Price-FX Sensitivity Playground schemas
+# ---------------------------------------------------------------------------
+
+
+class SensitivityCalcRequest(BaseModel):
+    product_id: uuid.UUID | None = None
+    selling_price_override: Decimal = Field(..., gt=0)
+    fx_rate_override: Decimal = Field(..., gt=0)
+    quantity: int = Field(..., ge=1)
+    unit_cost_usd: Decimal | None = Field(default=None, gt=0)
+
+
+class SensitivityCalcResponse(BaseModel):
+    unit_cost_usd: Decimal
+    fx_rate: Decimal
+    landed_cost_ngn: Decimal
+    selling_price: Decimal
+    margin_pct: Decimal
+    quantity: int
+    total_revenue: Decimal
+    total_cost: Decimal
+    gross_profit: Decimal
+
+
+class ScenarioCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    product_id: uuid.UUID | None = None
+    selling_price: Decimal = Field(..., gt=0)
+    fx_rate: Decimal = Field(..., gt=0)
+    quantity: int = Field(..., ge=1)
+    results: dict | None = None
+
+
+class ScenarioRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    product_id: uuid.UUID | None = None
+    selling_price: Decimal
+    fx_rate: Decimal
+    quantity: int
+    results: dict | None = None
+    created_by: uuid.UUID
+    created_at: datetime
