@@ -3,6 +3,7 @@ import { DecimalPipe, CurrencyPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { DashboardService, DashboardData } from '../../../core/services/dashboard.service';
+import { CashflowService, GlobalExposure } from '../../../core/services/cashflow.service';
 
 @Component({
   selector: 'app-dashboard-page',
@@ -132,6 +133,56 @@ import { DashboardService, DashboardData } from '../../../core/services/dashboar
             </div>
           </div>
 
+          <!-- Global Exposure -->
+          @if (globalExposure()) {
+            <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm md:col-span-2">
+              <div class="mb-3 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50">
+                    <i class="pi pi-globe text-sm text-indigo-600"></i>
+                  </div>
+                  <p class="text-sm font-semibold text-text">Global Exposure</p>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  @for (cur of currencies; track cur) {
+                    <button
+                      (click)="exposureCurrency.set(cur)"
+                      [class]="exposureCurrency() === cur
+                        ? 'rounded-md bg-primary px-2 py-0.5 text-xs font-semibold text-white'
+                        : 'rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-muted hover:bg-gray-200'"
+                    >{{ cur }}</button>
+                  }
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                <div>
+                  <p class="text-xs text-muted">EUR Debt</p>
+                  <p class="text-lg font-bold text-text">{{ formatExposureValue(globalExposure()!.eur_loan_balance_eur, 'EUR') }}</p>
+                </div>
+                <div>
+                  <p class="text-xs text-muted">USD Obligations</p>
+                  <p class="text-lg font-bold text-text">{{ formatExposureValue(globalExposure()!.open_order_usd_obligations, 'USD') }}</p>
+                </div>
+                <div>
+                  <p class="text-xs text-muted">Total Exposure (NGN)</p>
+                  <p class="text-lg font-bold text-primary">{{ globalExposure()!.total_global_exposure_ngn | number: '1.0-0' }}</p>
+                </div>
+                <div>
+                  <p class="text-xs text-muted">Debt/Trade Ratio</p>
+                  <p class="text-lg font-bold" [class]="globalExposure()!.debt_to_trade_ratio > 1.5 ? 'text-danger' : globalExposure()!.debt_to_trade_ratio > 0.8 ? 'text-warning' : 'text-success'">
+                    {{ globalExposure()!.debt_to_trade_ratio | number: '1.2-2' }}
+                    <i [class]="globalExposure()!.debt_to_trade_ratio > 1.5 ? 'pi pi-arrow-up text-xs text-danger' : 'pi pi-arrow-down text-xs text-success'"></i>
+                  </p>
+                </div>
+              </div>
+              <div class="mt-3 flex items-center gap-4 border-t border-gray-100 pt-3 text-xs text-muted">
+                <span>EUR/USD: {{ globalExposure()!.eur_usd_rate | number: '1.4-4' }}</span>
+                <span>NGN/USD: {{ globalExposure()!.ngn_usd_rate | number: '1.2-2' }}</span>
+                <span>EUR/NGN: {{ globalExposure()!.eur_ngn_derived_rate | number: '1.2-2' }}</span>
+              </div>
+            </div>
+          }
+
           <!-- Inventory Alerts -->
           <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm md:col-span-2">
             <div class="mb-3 flex items-center justify-between">
@@ -218,8 +269,12 @@ import { DashboardService, DashboardData } from '../../../core/services/dashboar
 })
 export class DashboardPageComponent implements OnInit {
   private readonly dashboardService = inject(DashboardService);
+  private readonly cashflowService = inject(CashflowService);
 
   loading = signal(true);
+  globalExposure = signal<GlobalExposure | null>(null);
+  exposureCurrency = signal<'NGN' | 'USD' | 'EUR'>('NGN');
+  readonly currencies: ('NGN' | 'USD' | 'EUR')[] = ['NGN', 'USD', 'EUR'];
   data = signal<DashboardData>({
     liquidity: { cash_runway_days: 0, dscr: 0, risk_rating: 'UNKNOWN' },
     fxExposure: {
@@ -242,6 +297,21 @@ export class DashboardPageComponent implements OnInit {
       },
       error: () => this.loading.set(false),
     });
+    this.cashflowService.getGlobalExposure().subscribe({
+      next: (e) => this.globalExposure.set(e),
+    });
+  }
+
+  formatExposureValue(value: number, baseCurrency: string): string {
+    const cur = this.exposureCurrency();
+    const ge = this.globalExposure();
+    if (!ge) return value.toFixed(0);
+    if (cur === baseCurrency) return value.toLocaleString('en', { maximumFractionDigits: 0 });
+    if (baseCurrency === 'EUR' && cur === 'USD') return (value * ge.eur_usd_rate).toLocaleString('en', { maximumFractionDigits: 0 });
+    if (baseCurrency === 'EUR' && cur === 'NGN') return (value * ge.eur_ngn_derived_rate).toLocaleString('en', { maximumFractionDigits: 0 });
+    if (baseCurrency === 'USD' && cur === 'EUR') return ge.eur_usd_rate > 0 ? (value / ge.eur_usd_rate).toLocaleString('en', { maximumFractionDigits: 0 }) : '0';
+    if (baseCurrency === 'USD' && cur === 'NGN') return (value * ge.ngn_usd_rate).toLocaleString('en', { maximumFractionDigits: 0 });
+    return value.toLocaleString('en', { maximumFractionDigits: 0 });
   }
 
   riskStatus(): 'success' | 'warning' | 'danger' | 'neutral' {

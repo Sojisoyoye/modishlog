@@ -160,6 +160,37 @@ class TestCategoryCRUD:
 
 class TestProductCRUD:
     @pytest.mark.asyncio
+    async def test_create_product_without_category(self):
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=None)
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar.return_value = 0
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = ProductCreate(
+            name="No Category Widget",
+            unit_cost=Decimal("10"),
+            selling_price=Decimal("20"),
+        )
+        product = await create_product(db, data, uuid.uuid4())
+        assert product.name == "No Category Widget"
+        assert product.category_id is None
+        assert product.sku.startswith("PRD-")
+
+    @pytest.mark.asyncio
     async def test_create_product_auto_sku(self):
         cat = _make_category()
         db = AsyncMock()
@@ -440,6 +471,51 @@ class TestProductEndpoints:
             resp = client.get("/api/v1/inventory/low-stock")
         assert resp.status_code == 200
         assert resp.json() == []
+
+    def test_upload_product_image_requires_auth(self):
+        db = _mock_db_with_execute()
+        self._override_db(db)
+        fake_id = str(uuid.uuid4())
+        with TestClient(self.app) as client:
+            resp = client.post(
+                f"/api/v1/products/{fake_id}/image",
+                files={"file": ("test.jpg", b"fake-image-data", "image/jpeg")},
+            )
+        assert resp.status_code == 401
+
+    def test_upload_product_image_invalid_extension(self):
+        db = _mock_db_with_execute()
+        user = _make_user()
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        headers, _ = self._auth_headers()
+        fake_id = str(uuid.uuid4())
+        with TestClient(self.app) as client:
+            resp = client.post(
+                f"/api/v1/products/{fake_id}/image",
+                files={"file": ("test.svg", b"fake-svg-data", "image/svg+xml")},
+                headers=headers,
+            )
+        assert resp.status_code == 400
+        assert "not allowed" in resp.json()["detail"]
+
+    def test_upload_product_image_too_large(self):
+        db = _mock_db_with_execute()
+        user = _make_user()
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        headers, _ = self._auth_headers()
+        fake_id = str(uuid.uuid4())
+        # 6MB file exceeds 5MB limit
+        large_data = b"x" * (6 * 1024 * 1024)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                f"/api/v1/products/{fake_id}/image",
+                files={"file": ("big.jpg", large_data, "image/jpeg")},
+                headers=headers,
+            )
+        assert resp.status_code == 400
+        assert "too large" in resp.json()["detail"].lower()
 
     def test_inventory_adjust_requires_auth(self):
         db = _mock_db_with_execute()

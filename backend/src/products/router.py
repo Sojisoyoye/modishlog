@@ -1,8 +1,10 @@
 """Products API routes."""
 
+import os
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+import anyio
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user
@@ -165,5 +167,48 @@ async def get_price_history_endpoint(
     """Get price change history for a product."""
     try:
         return await get_price_history(db, product_id)
+    except ProductNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{product_id}/image", response_model=ProductRead)
+async def upload_product_image(
+    product_id: uuid.UUID,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Upload or replace a product image."""
+    ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+
+    ext = os.path.splitext(file.filename or "")[1].lower() or ".jpg"
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File type '{ext}' not allowed. Accepted: {', '.join(ALLOWED_EXTENSIONS)}",
+        )
+
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large ({len(contents)} bytes). Maximum: {MAX_FILE_SIZE} bytes (5MB).",
+        )
+
+    upload_dir = os.path.join(os.environ.get("UPLOAD_DIR", "/uploads"), "products")
+    os.makedirs(upload_dir, exist_ok=True)
+    upload_path = f"{upload_dir}/{product_id}{ext}"
+
+    def _write() -> None:
+        with open(upload_path, "wb") as f_out:
+            f_out.write(contents)
+
+    await anyio.to_thread.run_sync(_write)
+
+    image_url = f"/static/products/{product_id}{ext}"
+    update_data = ProductUpdate(image_url=image_url)
+    try:
+        return await update_product(db, product_id, update_data, current_user.id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

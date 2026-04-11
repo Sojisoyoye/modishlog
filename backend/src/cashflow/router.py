@@ -15,6 +15,7 @@ from src.cashflow.exceptions import (
 from src.cashflow.schemas import (
     AlertResponse,
     DSCRResponse,
+    GlobalExposureResponse,
     LoanCreate,
     LoanRead,
     OperatingCostCreate,
@@ -28,6 +29,7 @@ from src.cashflow.schemas import (
 from src.cashflow.service import (
     VALID_SCENARIO_TYPES,
     calculate_cash_runway,
+    calculate_global_exposure,
     check_liquidity_alerts,
     create_loan,
     create_operating_cost,
@@ -179,10 +181,8 @@ async def cash_runway_endpoint(db: AsyncSession = Depends(get_db)):
     try:
         data = await calculate_cash_runway(db)
         return RunwayResponse(**data)
-    except ProjectionNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        )
+    except ProjectionNotFoundError:
+        return RunwayResponse(runway_months=0, avg_monthly_burn=0)
 
 
 # ---------------------------------------------------------------------------
@@ -207,3 +207,15 @@ async def alerts_endpoint(db: AsyncSession = Depends(get_db)):
     """Get liquidity shortage alerts."""
     alerts = await check_liquidity_alerts(db)
     return [AlertResponse(**a) for a in alerts]
+
+
+# ---------------------------------------------------------------------------
+# Global Exposure
+# ---------------------------------------------------------------------------
+
+
+@router.get("/global-exposure", response_model=GlobalExposureResponse)
+async def global_exposure_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get multi-currency global exposure summary (EUR/USD/NGN)."""
+    data = await calculate_global_exposure(db)
+    return GlobalExposureResponse(**data)

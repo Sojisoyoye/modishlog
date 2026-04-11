@@ -75,6 +75,12 @@ async def ingest_rate(
     # Check alerts asynchronously
     await check_alerts(db, data.pair, data.rate)
 
+    # Check EUR/USD threshold alert on ingestion
+    if data.pair == "EURUSD":
+        from src.cashflow.service import check_eur_usd_alert
+
+        await check_eur_usd_alert(db)
+
     await logger.ainfo(
         "fx_rate_ingested",
         pair=data.pair,
@@ -316,6 +322,56 @@ async def backfill_historical_data(
         records_inserted=count,
     )
     return count
+
+
+# ---------------------------------------------------------------------------
+# Cross-Rate Derivation
+# ---------------------------------------------------------------------------
+
+
+async def get_latest_rate_value(
+    db: AsyncSession,
+    pair: str,
+) -> Decimal | None:
+    """Get the latest rate value for a pair, or None if not found."""
+    result = await db.execute(
+        select(FXRate.rate)
+        .where(FXRate.pair == pair)
+        .order_by(FXRate.timestamp.desc())
+        .limit(1)
+    )
+    return result.scalar()
+
+
+async def get_cross_rate(
+    db: AsyncSession,
+    base_pair: str,
+    quote_pair: str,
+) -> Decimal | None:
+    """Derive a cross-rate from two pairs sharing a common currency.
+
+    e.g. EUR/NGN = EUR/USD × USD/NGN  (base_pair="EURUSD", quote_pair="USDNGN")
+    """
+    base_rate = await get_latest_rate_value(db, base_pair)
+    quote_rate = await get_latest_rate_value(db, quote_pair)
+    if base_rate is None or quote_rate is None:
+        return None
+    return base_rate * quote_rate
+
+
+async def get_previous_rate_value(
+    db: AsyncSession,
+    pair: str,
+) -> Decimal | None:
+    """Get the second-most-recent rate for a pair (for change detection)."""
+    result = await db.execute(
+        select(FXRate.rate)
+        .where(FXRate.pair == pair)
+        .order_by(FXRate.timestamp.desc())
+        .offset(1)
+        .limit(1)
+    )
+    return result.scalar()
 
 
 # ---------------------------------------------------------------------------

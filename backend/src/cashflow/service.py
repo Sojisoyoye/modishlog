@@ -18,6 +18,7 @@ from src.cashflow.models import (
     OperatingCost,
     StressScenario,
 )
+from src.fx.service import get_latest_rate_value, get_previous_rate_value
 from src.orders.models import OrderPayment, OrderStatus, PaymentStatus, PurchaseOrder
 from src.sales.models import Sale, SaleStatus
 
@@ -629,3 +630,212 @@ async def check_liquidity_alerts(db: AsyncSession) -> list[dict]:
             })
 
     return alerts
+
+
+# ---------------------------------------------------------------------------
+# Global Exposure
+# ---------------------------------------------------------------------------
+
+EUR_USD_ALERT_THRESHOLD_PCT = Decimal("3")
+
+
+async def _sum_open_order_usd_obligations(db: AsyncSession) -> Decimal:
+    """Sum outstanding USD balance across open orders (not yet delivered).
+
+    Single aggregate query: total_amount - sum(completed payments) per order.
+    """
+    from sqlalchemy import case, literal_column, outerjoin
+
+    paid_subq = (
+        select(
+            OrderPayment.order_id,
+            func.coalesce(func.sum(OrderPayment.amount), Decimal("0")).label("paid"),
+        )
+        .where(OrderPayment.status == PaymentStatus.COMPLETED)
+        .group_by(OrderPayment.order_id)
+        .subquery()
+    )
+
+    result = await db.execute(
+        select(
+            func.coalesce(
+                func.sum(
+                    PurchaseOrder.total_amount
+                    - func.coalesce(paid_subq.c.paid, Decimal("0"))
+                ),
+                Decimal("0"),
+            )
+        )
+        .outerjoin(paid_subq, PurchaseOrder.id == paid_subq.c.order_id)
+        .where(
+            PurchaseOrder.status.in_([
+                OrderStatus.PENDING,
+                OrderStatus.IN_PRODUCTION,
+                OrderStatus.SHIPPING,
+            ]),
+            PurchaseOrder.currency == "USD",
+        )
+    )
+    return result.scalar() or Decimal("0")
+
+
+async def _trailing_30d_avg_monthly_revenue_usd(
+    db: AsyncSession, ngn_usd_rate: Decimal
+) -> Decimal:
+    """Calculate trailing 30-day revenue in USD terms."""
+    thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).date()
+    result = await db.execute(
+        select(func.sum(Sale.total_amount)).where(
+            Sale.status == SaleStatus.COMPLETED,
+            Sale.sale_date >= thirty_days_ago,
+        )
+    )
+    total_ngn = result.scalar() or Decimal("0")
+    if ngn_usd_rate <= 0:
+        return Decimal("0")
+    return (total_ngn / ngn_usd_rate).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+
+async def calculate_global_exposure(db: AsyncSession) -> dict:
+    """Calculate global multi-currency exposure in NGN terms.
+
+    total_global_exposure_ngn =
+        (usd_obligations × ngn_usd_rate) + (eur_balance × eur_usd_rate × ngn_usd_rate)
+
+    debt_to_trade_ratio =
+        eur_balance_usd_equivalent / trailing_30d_avg_monthly_revenue_usd
+    """
+    # Fetch FX rates
+    ngn_usd_rate = await get_latest_rate_value(db, "USDNGN") or DEFAULT_FX_RATE
+    raw_eur_usd = await get_latest_rate_value(db, "EURUSD")
+    eur_usd_rate_available = raw_eur_usd is not None
+    eur_usd_rate = raw_eur_usd or Decimal("0")
+
+    # Derived cross-rate: EUR → NGN = EUR/USD × USD/NGN
+    eur_ngn_derived = eur_usd_rate * ngn_usd_rate
+
+    # EUR loan balances
+    result = await db.execute(
+        select(func.sum(LoanObligation.current_balance)).where(
+            LoanObligation.status == LoanStatus.ACTIVE,
+            LoanObligation.current_balance_currency == "EUR",
+            LoanObligation.current_balance.isnot(None),
+        )
+    )
+    eur_loan_balance = result.scalar() or Decimal("0")
+
+    # Open USD order obligations
+    usd_obligations = await _sum_open_order_usd_obligations(db)
+
+    # Total global exposure in NGN
+    usd_exposure_ngn = usd_obligations * ngn_usd_rate
+    eur_exposure_ngn = eur_loan_balance * eur_usd_rate * ngn_usd_rate
+    total_exposure_ngn = (usd_exposure_ngn + eur_exposure_ngn).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+    # Debt-to-trade ratio
+    eur_balance_usd_equiv = eur_loan_balance * eur_usd_rate
+    trailing_revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(
+        db, ngn_usd_rate
+    )
+    if trailing_revenue_usd > 0:
+        debt_to_trade = (eur_balance_usd_equiv / trailing_revenue_usd).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+    else:
+        debt_to_trade = Decimal("0")
+
+    await logger.ainfo(
+        "global_exposure_calculated",
+        total_ngn=str(total_exposure_ngn),
+        eur_balance=str(eur_loan_balance),
+        usd_obligations=str(usd_obligations),
+    )
+
+    return {
+        "eur_loan_balance_eur": eur_loan_balance,
+        "eur_usd_rate": eur_usd_rate,
+        "eur_usd_rate_available": eur_usd_rate_available,
+        "eur_ngn_derived_rate": eur_ngn_derived.quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        ),
+        "open_order_usd_obligations": usd_obligations,
+        "ngn_usd_rate": ngn_usd_rate,
+        "total_global_exposure_ngn": total_exposure_ngn,
+        "debt_to_trade_ratio": debt_to_trade,
+    }
+
+
+async def check_eur_usd_alert(db: AsyncSession) -> bool:
+    """Check if EUR/USD rate changed by more than threshold.
+
+    If so, create a LIQUIDITY recommendation via the AI engine.
+    Called from fx.service.ingest_rate when pair == "EURUSD".
+    Returns True if an alert was triggered.
+    """
+    current_rate = await get_latest_rate_value(db, "EURUSD")
+    previous_rate = await get_previous_rate_value(db, "EURUSD")
+
+    if current_rate is None or previous_rate is None or previous_rate == 0:
+        return False
+
+    pct_change = abs(
+        (current_rate / previous_rate - Decimal("1")) * Decimal("100")
+    )
+
+    if pct_change <= EUR_USD_ALERT_THRESHOLD_PCT:
+        return False
+
+    # Lazy import to avoid circular dependency: cashflow -> ai_engine
+    from src.ai_engine.models import (
+        AIRecommendation,
+        ActionType,
+        RecommendationCategory,
+        RecommendationPriority,
+        RecommendationStatus,
+    )
+
+    # Dedup: skip if a PENDING EURUSD alert already exists
+    existing = await db.execute(
+        select(func.count()).select_from(AIRecommendation).where(
+            AIRecommendation.category == RecommendationCategory.CASHFLOW,
+            AIRecommendation.action_type == ActionType.FX_LOCK,
+            AIRecommendation.status == RecommendationStatus.PENDING,
+            AIRecommendation.action_payload["pair"].as_string() == "EURUSD",
+        )
+    )
+    if (existing.scalar() or 0) > 0:
+        await logger.ainfo("eur_usd_alert_skipped_duplicate")
+        return False
+
+    now = datetime.now(timezone.utc)
+    direction = "up" if current_rate > previous_rate else "down"
+    rec = AIRecommendation(
+        category=RecommendationCategory.CASHFLOW,
+        action_type=ActionType.FX_LOCK,
+        title=f"EUR/USD moved {pct_change:.1f}% {direction}",
+        description=(
+            f"EUR/USD rate changed from {previous_rate} to {current_rate} "
+            f"({pct_change:.1f}% {direction}). Review EUR-denominated "
+            f"loan exposure and consider hedging."
+        ),
+        priority=RecommendationPriority.HIGH if pct_change > Decimal("5") else RecommendationPriority.MEDIUM,
+        confidence=Decimal("0.85"),
+        expected_impact={"eur_usd_change_pct": str(pct_change)},
+        action_payload={"pair": "EURUSD", "pct_change": str(pct_change)},
+        status=RecommendationStatus.PENDING,
+        created_at=now,
+        expires_at=now + timedelta(days=7),
+    )
+    db.add(rec)
+    await db.flush()
+
+    await logger.ainfo(
+        "eur_usd_alert_triggered",
+        pct_change=str(pct_change),
+        direction=direction,
+    )
+    return True

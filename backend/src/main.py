@@ -1,19 +1,25 @@
 """ModishLog FastAPI application entry point."""
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from src.core.config import settings
 from src.core.logging import setup_logging
+
+
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/uploads")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown events."""
     setup_logging()
+    os.makedirs(os.path.join(UPLOAD_DIR, "products"), exist_ok=True)
     yield
 
 
@@ -31,6 +37,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve uploaded files as static assets
+os.makedirs(os.path.join(UPLOAD_DIR, "products"), exist_ok=True)
+app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
 
 # Include domain routers
 from src.auth.router import router as auth_router  # noqa: E402
