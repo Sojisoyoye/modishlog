@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Integer, Numeric, Text
+from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -118,3 +118,23 @@ class CrossSubsidyAnalysis(UUIDMixin, Base):
 
     def __repr__(self) -> str:
         return f"<CrossSubsidyAnalysis(id={self.id}, date={self.analysis_date})>"
+
+
+class PricingScenario(UUIDMixin, Base):
+    """Saved price-FX sensitivity scenario for the playground."""
+
+    __tablename__ = "pricing_scenarios"
+
+    name: Mapped[str] = mapped_column(String(255))
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("products.id"), default=None
+    )
+    selling_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    fx_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    quantity: Mapped[int] = mapped_column(Integer)
+    results: Mapped[dict | None] = mapped_column(JSON, default=None)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<PricingScenario(id={self.id}, name={self.name})>"

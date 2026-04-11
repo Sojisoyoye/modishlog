@@ -25,6 +25,7 @@ from src.pricing.models import (
     DemandElasticity,
     MarginTarget,
     PricingRecommendation,
+    PricingScenario,
     ProductMixTarget,
     RecommendationStatus,
 )
@@ -857,3 +858,140 @@ async def check_mix_drift_alert(db: AsyncSession) -> None:
         drifted_count=len(drifted),
         rec_id=str(rec.id),
     )
+
+
+# ---------------------------------------------------------------------------
+# Price-FX Sensitivity Playground
+# ---------------------------------------------------------------------------
+
+MAX_SAVED_SCENARIOS = 10
+
+
+async def sensitivity_calc(
+    db: AsyncSession,
+    selling_price: Decimal,
+    fx_rate: Decimal,
+    quantity: int,
+    product_id: uuid.UUID | None = None,
+    unit_cost_usd_override: Decimal | None = None,
+) -> dict:
+    """Stateless price-FX sensitivity calculation.
+
+    Uses FIFO batches to get landed cost when a product_id is supplied,
+    otherwise requires unit_cost_usd_override.
+    """
+    from src.inventory.service import get_batches_for_product
+
+    unit_cost_usd: Decimal
+
+    if product_id is not None:
+        # Try to get FIFO batch cost from inventory
+        batches = await get_batches_for_product(db, product_id)
+        active_batches = [b for b in batches if b.quantity_remaining > 0]
+        if active_batches:
+            # Use the weighted-average unit cost from active batches
+            unit_cost_usd = active_batches[0].unit_cost_usd
+        else:
+            # Fall back to the product's unit_cost
+            product = await _get_product(db, product_id)
+            unit_cost_usd = product.unit_cost
+
+    if unit_cost_usd_override is not None:
+        unit_cost_usd = unit_cost_usd_override
+
+    if product_id is None and unit_cost_usd_override is None:
+        raise ValueError("Either product_id or unit_cost_usd must be provided")
+
+    landed_cost_ngn = (unit_cost_usd * fx_rate).quantize(
+        Decimal("0.000001")
+    )
+
+    margin_pct = Decimal("0")
+    if selling_price > 0:
+        margin_pct = (
+            (selling_price - landed_cost_ngn) / selling_price * Decimal("100")
+        ).quantize(Decimal("0.01"))
+
+    total_revenue = selling_price * Decimal(str(quantity))
+    total_cost = landed_cost_ngn * Decimal(str(quantity))
+    gross_profit = total_revenue - total_cost
+
+    return {
+        "unit_cost_usd": unit_cost_usd,
+        "fx_rate": fx_rate,
+        "landed_cost_ngn": landed_cost_ngn,
+        "selling_price": selling_price,
+        "margin_pct": margin_pct,
+        "quantity": quantity,
+        "total_revenue": total_revenue,
+        "total_cost": total_cost,
+        "gross_profit": gross_profit,
+    }
+
+
+async def save_scenario(
+    db: AsyncSession,
+    name: str,
+    user_id: uuid.UUID,
+    selling_price: Decimal,
+    fx_rate: Decimal,
+    quantity: int,
+    product_id: uuid.UUID | None = None,
+    results: dict | None = None,
+) -> PricingScenario:
+    """Save a pricing scenario (max 10 per user, archive oldest)."""
+    # Count existing scenarios for user
+    count_result = await db.execute(
+        select(func.count(PricingScenario.id)).where(
+            PricingScenario.created_by == user_id
+        )
+    )
+    count = count_result.scalar() or 0
+
+    if count >= MAX_SAVED_SCENARIOS:
+        # Delete the oldest scenarios to make room
+        excess = count - MAX_SAVED_SCENARIOS + 1
+        oldest_result = await db.execute(
+            select(PricingScenario)
+            .where(PricingScenario.created_by == user_id)
+            .order_by(PricingScenario.created_at.asc())
+            .limit(excess)
+        )
+        oldest_scenarios = list(oldest_result.scalars().all())
+        for old in oldest_scenarios:
+            await db.delete(old)
+
+    now = datetime.now(timezone.utc)
+    scenario = PricingScenario(
+        name=name,
+        product_id=product_id,
+        selling_price=selling_price,
+        fx_rate=fx_rate,
+        quantity=quantity,
+        results=results,
+        created_by=user_id,
+        created_at=now,
+    )
+    db.add(scenario)
+    await db.flush()
+
+    await logger.ainfo(
+        "pricing_scenario_saved",
+        scenario_id=str(scenario.id),
+        name=name,
+        user_id=str(user_id),
+    )
+    return scenario
+
+
+async def list_scenarios(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> list[PricingScenario]:
+    """List saved scenarios for a user, newest first."""
+    result = await db.execute(
+        select(PricingScenario)
+        .where(PricingScenario.created_by == user_id)
+        .order_by(PricingScenario.created_at.desc())
+    )
+    return list(result.scalars().all())
