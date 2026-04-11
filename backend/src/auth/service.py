@@ -13,7 +13,7 @@ from src.auth.exceptions import (
     UserAlreadyExistsError,
     WeakPasswordError,
 )
-from src.auth.models import User
+from src.auth.models import User, UserRole
 from src.core.security import create_access_token, get_password_hash, verify_password
 
 logger = structlog.get_logger()
@@ -53,6 +53,7 @@ async def create_user(
         hashed_password=get_password_hash(password),
         full_name=full_name,
         is_active=True,
+        role=UserRole.ADMIN,
         failed_login_attempts=0,
     )
     db.add(user)

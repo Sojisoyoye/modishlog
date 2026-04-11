@@ -114,3 +114,22 @@ class SalesHistoryEntry(BaseModel):
     revenue: Decimal
     units_sold: int
     transaction_count: int
+
+
+# ---------------------------------------------------------------------------
+# Quick Quote schemas
+# ---------------------------------------------------------------------------
+
+
+class QuickQuoteRequest(BaseModel):
+    product_id: uuid.UUID
+    quantity: int = Field(..., gt=0)
+
+
+class QuickQuoteResponse(BaseModel):
+    product_id: uuid.UUID
+    quantity: int
+    fifo_landed_cost_per_unit: Decimal
+    floor_margin_pct: Decimal
+    min_sell_price_per_unit: Decimal
+    total_min_price: Decimal

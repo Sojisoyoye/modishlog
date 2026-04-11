@@ -37,4 +37,5 @@ class UserProfile(BaseModel):
     email: str
     full_name: str
     is_active: bool
+    role: str = "admin"
     created_at: datetime

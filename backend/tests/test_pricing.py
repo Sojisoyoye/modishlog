@@ -33,13 +33,14 @@ VALID_PASSWORD = "Str0ng!Pass#99"
 
 
 def _make_user(**overrides):
-    from src.auth.models import User
+    from src.auth.models import User, UserRole
 
     defaults = dict(
         email="test@example.com",
         hashed_password=get_password_hash(VALID_PASSWORD),
         full_name="Test User",
         is_active=True,
+        role=UserRole.ADMIN,
         failed_login_attempts=0,
         locked_until=None,
     )

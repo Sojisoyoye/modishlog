@@ -1,11 +1,19 @@
 """Auth domain SQLAlchemy models."""
 
+import enum
 from datetime import datetime
 
-from sqlalchemy import String
+from sqlalchemy import Enum, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
+
+
+class UserRole(str, enum.Enum):
+    """Available user roles."""
+
+    ADMIN = "admin"
+    SALES_MANAGER = "sales_manager"
 
 
 class User(UUIDMixin, TimestampMixin, Base):
@@ -17,6 +25,9 @@ class User(UUIDMixin, TimestampMixin, Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
     full_name: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(default=True)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole), default=UserRole.ADMIN, server_default="admin"
+    )
     failed_login_attempts: Mapped[int] = mapped_column(default=0)
     locked_until: Mapped[datetime | None] = mapped_column(default=None)
 

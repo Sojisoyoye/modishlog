@@ -4,7 +4,7 @@ import csv
 import io
 import uuid
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 import structlog
 from sqlalchemy import func, select
@@ -27,7 +27,14 @@ from src.sales.models import (
     SaleStatus,
     UploadJobStatus,
 )
-from src.sales.schemas import SaleCreate, SalesHistoryEntry, SalesSummary, SaleUpdate
+from src.sales.schemas import (
+    QuickQuoteResponse,
+    SaleCreate,
+    SalesHistoryEntry,
+    SalesSummary,
+    SaleUpdate,
+)
+from src.inventory.models import InventoryBatch
 
 logger = structlog.get_logger()
 
@@ -471,3 +478,88 @@ async def get_sales_history(
         )
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Quick Quote
+# ---------------------------------------------------------------------------
+
+DEFAULT_FLOOR_MARGIN_PCT = Decimal("15")
+
+
+async def quick_quote(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    quantity: int,
+    floor_margin_pct: Decimal = DEFAULT_FLOOR_MARGIN_PCT,
+) -> QuickQuoteResponse:
+    """Calculate minimum sell price using FIFO weighted-average landed cost.
+
+    Queries FIFO batches (oldest first with quantity_remaining > 0),
+    computes a weighted average landed cost for the requested quantity,
+    then applies the floor margin to derive the minimum sell price.
+    """
+    result = await db.execute(
+        select(InventoryBatch)
+        .where(
+            InventoryBatch.product_id == product_id,
+            InventoryBatch.quantity_remaining > 0,
+        )
+        .order_by(InventoryBatch.received_at.asc())
+    )
+    batches = list(result.scalars().all())
+
+    if not batches:
+        zero = Decimal("0")
+        return QuickQuoteResponse(
+            product_id=product_id,
+            quantity=quantity,
+            fifo_landed_cost_per_unit=zero,
+            floor_margin_pct=floor_margin_pct,
+            min_sell_price_per_unit=zero,
+            total_min_price=zero,
+        )
+
+    remaining = quantity
+    total_cost = Decimal("0")
+    units_costed = 0
+
+    for batch in batches:
+        if remaining <= 0:
+            break
+        consume = min(remaining, batch.quantity_remaining)
+        total_cost += Decimal(str(consume)) * batch.landed_cost_per_unit
+        units_costed += consume
+        remaining -= consume
+
+    if units_costed > 0:
+        avg_cost = (total_cost / Decimal(str(units_costed))).quantize(
+            Decimal("0.000001"), rounding=ROUND_HALF_UP
+        )
+    else:
+        avg_cost = Decimal("0")
+
+    margin_multiplier = Decimal("1") + floor_margin_pct / Decimal("100")
+    min_sell = (avg_cost * margin_multiplier).quantize(
+        Decimal("0.000001"), rounding=ROUND_HALF_UP
+    )
+    total_min = (min_sell * Decimal(str(quantity))).quantize(
+        Decimal("0.000001"), rounding=ROUND_HALF_UP
+    )
+
+    await logger.ainfo(
+        "quick_quote_calculated",
+        product_id=str(product_id),
+        quantity=quantity,
+        avg_cost=str(avg_cost),
+        min_sell=str(min_sell),
+    )
+
+    return QuickQuoteResponse(
+        product_id=product_id,
+        quantity=quantity,
+        fifo_landed_cost_per_unit=avg_cost,
+        floor_margin_pct=floor_margin_pct,
+        min_sell_price_per_unit=min_sell,
+        total_min_price=total_min,
+    )
