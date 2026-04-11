@@ -1,14 +1,15 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
-import { DecimalPipe, CurrencyPipe } from '@angular/common';
+import { DecimalPipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { DashboardService, DashboardData } from '../../../core/services/dashboard.service';
 import { CashflowService, GlobalExposure } from '../../../core/services/cashflow.service';
+import { OrdersService, LogisticsEfficiency } from '../../../core/services/orders.service';
 
 @Component({
   selector: 'app-dashboard-page',
   standalone: true,
-  imports: [DecimalPipe, CurrencyPipe, RouterLink, StatusBadgeComponent],
+  imports: [DecimalPipe, CurrencyPipe, UpperCasePipe, RouterLink, StatusBadgeComponent],
   template: `
     <div>
       <div class="mb-6">
@@ -183,6 +184,39 @@ import { CashflowService, GlobalExposure } from '../../../core/services/cashflow
             </div>
           }
 
+          <!-- Logistics Efficiency -->
+          @if (logistics()) {
+            <div class="rounded-xl border bg-white p-5 shadow-sm"
+              [class]="logistics()!.status === 'red' ? 'border-l-4 border-l-danger border-t-gray-200 border-r-gray-200 border-b-gray-200' : logistics()!.status === 'amber' ? 'border-l-4 border-l-warning border-t-gray-200 border-r-gray-200 border-b-gray-200' : 'border-gray-200'"
+            >
+              <div class="mb-3 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
+                    <i class="pi pi-percentage text-sm text-purple-600"></i>
+                  </div>
+                  <p class="text-sm font-semibold text-text">Logistics %</p>
+                </div>
+                <span [class]="logistics()!.status === 'red' ? 'rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700' : logistics()!.status === 'amber' ? 'rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700' : 'rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700'">
+                  {{ logistics()!.status | uppercase }}
+                </span>
+              </div>
+              <p class="text-3xl font-bold" [class]="logistics()!.status === 'red' ? 'text-danger' : logistics()!.status === 'amber' ? 'text-warning' : 'text-success'">
+                {{ logistics()!.rolling_90d_avg_pct | number: '1.1-1' }}%
+              </p>
+              <p class="mt-1 text-xs text-muted">90-day rolling average</p>
+              <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                <div
+                  class="h-2 rounded-full transition-all"
+                  [class]="logistics()!.status === 'red' ? 'bg-danger' : logistics()!.status === 'amber' ? 'bg-warning' : 'bg-success'"
+                  [style.width.%]="Math.min(logistics()!.rolling_90d_avg_pct / 25 * 100, 100)"
+                ></div>
+              </div>
+              <p class="mt-1 text-xs text-muted">
+                Target: &lt;{{ logistics()!.amber_threshold_pct }}%
+              </p>
+            </div>
+          }
+
           <!-- Inventory Alerts -->
           <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm md:col-span-2">
             <div class="mb-3 flex items-center justify-between">
@@ -270,11 +304,14 @@ import { CashflowService, GlobalExposure } from '../../../core/services/cashflow
 export class DashboardPageComponent implements OnInit {
   private readonly dashboardService = inject(DashboardService);
   private readonly cashflowService = inject(CashflowService);
+  private readonly ordersService = inject(OrdersService);
 
   loading = signal(true);
   globalExposure = signal<GlobalExposure | null>(null);
   exposureCurrency = signal<'NGN' | 'USD' | 'EUR'>('NGN');
   readonly currencies: ('NGN' | 'USD' | 'EUR')[] = ['NGN', 'USD', 'EUR'];
+  logistics = signal<LogisticsEfficiency | null>(null);
+  Math = Math;
   data = signal<DashboardData>({
     liquidity: { cash_runway_days: 0, dscr: 0, risk_rating: 'UNKNOWN' },
     fxExposure: {
@@ -299,6 +336,9 @@ export class DashboardPageComponent implements OnInit {
     });
     this.cashflowService.getGlobalExposure().subscribe({
       next: (e) => this.globalExposure.set(e),
+    });
+    this.ordersService.getLogisticsEfficiency().subscribe({
+      next: (l) => this.logistics.set(l),
     });
   }
 

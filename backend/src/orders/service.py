@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
 from sqlalchemy import func, select
@@ -117,6 +117,8 @@ async def create_order(
         total_amount=total_amount,
         currency=data.currency,
         fx_rate_at_creation=data.fx_rate_at_creation,
+        shipping_cost=data.shipping_cost,
+        clearing_cost=data.clearing_cost,
         expected_delivery_date=expected_delivery,
         notes=data.notes,
         created_by=user_id,
@@ -556,3 +558,141 @@ async def get_orders_summary(db: AsyncSession) -> dict:
         "total_value": total_value,
         "by_status": by_status,
     }
+
+
+# ---------------------------------------------------------------------------
+# Logistics Efficiency
+# ---------------------------------------------------------------------------
+
+LOGISTICS_AMBER_THRESHOLD = Decimal("15")
+LOGISTICS_RED_THRESHOLD = Decimal("20")
+
+
+def calculate_logistics_pct(
+    shipping_cost: Decimal, clearing_cost: Decimal, total_cogs: Decimal
+) -> Decimal:
+    """Compute logistics % = (shipping + clearing) / total_cogs × 100."""
+    if total_cogs <= 0:
+        return Decimal("0")
+    return (
+        (shipping_cost + clearing_cost) / total_cogs * Decimal("100")
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+async def get_logistics_efficiency(db: AsyncSession) -> dict:
+    """Calculate per-order logistics % and rolling 90-day average."""
+    ninety_days_ago = (datetime.now(timezone.utc) - timedelta(days=90)).date()
+
+    result = await db.execute(
+        select(PurchaseOrder)
+        .options(selectinload(PurchaseOrder.line_items))
+        .where(
+            PurchaseOrder.status != OrderStatus.CANCELLED,
+            PurchaseOrder.created_at >= datetime.combine(
+                ninety_days_ago, datetime.min.time()
+            ).replace(tzinfo=timezone.utc),
+        )
+        .order_by(PurchaseOrder.created_at.desc())
+    )
+    orders = list(result.scalars().all())
+
+    per_order = []
+    total_logistics = Decimal("0")
+    total_cogs_sum = Decimal("0")
+
+    for order in orders:
+        total_cogs = order.total_amount
+        logistics_ngn = order.shipping_cost + order.clearing_cost
+        lp = calculate_logistics_pct(
+            order.shipping_cost, order.clearing_cost, total_cogs
+        )
+        per_order.append({
+            "order_id": order.id,
+            "order_number": order.order_number,
+            "logistics_pct": lp,
+            "logistics_ngn": logistics_ngn,
+            "total_cogs_ngn": total_cogs,
+        })
+        total_logistics += logistics_ngn
+        total_cogs_sum += total_cogs
+
+    rolling_avg = calculate_logistics_pct(
+        total_logistics, Decimal("0"), total_cogs_sum
+    )
+
+    if rolling_avg > LOGISTICS_RED_THRESHOLD:
+        status = "red"
+    elif rolling_avg > LOGISTICS_AMBER_THRESHOLD:
+        status = "amber"
+    else:
+        status = "healthy"
+
+    return {
+        "per_order": per_order,
+        "rolling_90d_avg_pct": rolling_avg,
+        "amber_threshold_pct": LOGISTICS_AMBER_THRESHOLD,
+        "red_threshold_pct": LOGISTICS_RED_THRESHOLD,
+        "status": status,
+    }
+
+
+async def check_logistics_alerts(db: AsyncSession) -> bool:
+    """Check logistics thresholds and create recommendations if breached."""
+    data = await get_logistics_efficiency(db)
+    avg = data["rolling_90d_avg_pct"]
+
+    if avg <= LOGISTICS_AMBER_THRESHOLD:
+        return False
+
+    # Lazy import to avoid circular dependency
+    from src.ai_engine.models import (
+        AIRecommendation,
+        ActionType,
+        RecommendationCategory,
+        RecommendationPriority,
+        RecommendationStatus,
+    )
+
+    # Dedup: skip if pending logistics alert exists
+    existing = await db.execute(
+        select(func.count()).select_from(AIRecommendation).where(
+            AIRecommendation.category == RecommendationCategory.INVENTORY,
+            AIRecommendation.status == RecommendationStatus.PENDING,
+            AIRecommendation.action_payload["type"].as_string() == "logistics_alert",
+        )
+    )
+    if (existing.scalar() or 0) > 0:
+        return False
+
+    priority = (
+        RecommendationPriority.HIGH
+        if avg > LOGISTICS_RED_THRESHOLD
+        else RecommendationPriority.MEDIUM
+    )
+    now = datetime.now(timezone.utc)
+    rec = AIRecommendation(
+        category=RecommendationCategory.INVENTORY,
+        action_type=ActionType.REORDER,
+        title=f"Logistics costs at {avg}% of COGS",
+        description=(
+            f"Rolling 90-day logistics (shipping + clearing) is {avg}% of COGS, "
+            f"above the {'red' if avg > LOGISTICS_RED_THRESHOLD else 'amber'} "
+            f"threshold. Consider consolidating shipments or negotiating rates."
+        ),
+        priority=priority,
+        confidence=Decimal("0.90"),
+        expected_impact={"logistics_pct": str(avg)},
+        action_payload={"type": "logistics_alert", "avg_pct": str(avg)},
+        status=RecommendationStatus.PENDING,
+        created_at=now,
+        expires_at=now + timedelta(days=14),
+    )
+    db.add(rec)
+    await db.flush()
+
+    await logger.ainfo(
+        "logistics_alert_triggered",
+        avg_pct=str(avg),
+        priority=priority.value,
+    )
+    return True

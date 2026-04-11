@@ -55,6 +55,12 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     )
     expected_delivery_date: Mapped[date | None] = mapped_column(Date, default=None)
     actual_delivery_date: Mapped[date | None] = mapped_column(Date, default=None)
+    shipping_cost: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6), default=Decimal("0")
+    )
+    clearing_cost: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6), default=Decimal("0")
+    )
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
 
