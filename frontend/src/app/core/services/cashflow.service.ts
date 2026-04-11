@@ -201,7 +201,9 @@ export class CashflowService {
   }
 
   checkTriage(horizonDays = 90): Observable<TriageCheckResponse> {
-    return this.api.post<TriageCheckResponse>('/cashflow/triage-check', null);
+    return this.api.post<TriageCheckResponse>(
+      `/cashflow/triage-check?horizon_days=${horizonDays}`, null
+    );
   }
 
   private colorToRiskRating(color: string): string {

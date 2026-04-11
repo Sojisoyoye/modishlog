@@ -1133,7 +1133,7 @@ async def generate_triage_recommendations(
             ],
         })
     except Exception:
-        await logger.awarning("triage_liquidation_candidates_failed")
+        await logger.awarning("triage_liquidation_candidates_failed", exc_info=True)
 
     # 2. DELAY_PAYMENT: identify deferrable operating costs
     opex_result = await db.execute(
