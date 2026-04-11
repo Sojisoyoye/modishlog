@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -63,3 +64,33 @@ class DepletionForecastRead(BaseModel):
     avg_daily_depletion: float
     days_until_stockout: int | None = None
     estimated_stockout_date: date | None = None
+
+
+# ---------------------------------------------------------------------------
+# Inventory Batch schemas
+# ---------------------------------------------------------------------------
+
+
+class InventoryBatchRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_id: uuid.UUID
+    order_id: uuid.UUID
+    quantity_received: int
+    quantity_remaining: int
+    unit_cost_usd: Decimal
+    fx_rate_at_arrival: Decimal
+    logistics_allocation_per_unit: Decimal
+    landed_cost_per_unit: Decimal
+    received_at: date
+    created_at: datetime
+
+
+class LiquidationCandidate(BaseModel):
+    batch_id: uuid.UUID
+    product_id: uuid.UUID
+    quantity_remaining: int
+    landed_cost_per_unit: Decimal
+    total_batch_value: Decimal
+    discount_pct_needed: Decimal

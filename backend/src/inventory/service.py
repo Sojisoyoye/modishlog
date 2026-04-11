@@ -11,7 +11,9 @@ from src.inventory.exceptions import (
     InvalidStockAdjustmentError,
     ProductStockNotFoundError,
 )
-from src.inventory.models import InventoryLevel, MovementType, StockMovement
+from decimal import ROUND_HALF_UP, Decimal
+
+from src.inventory.models import InventoryBatch, InventoryLevel, MovementType, StockMovement
 from src.inventory.schemas import DepletionForecastRead
 
 logger = structlog.get_logger()
@@ -208,3 +210,151 @@ async def calculate_depletion_forecast(
         days_until_stockout=days_left,
         estimated_stockout_date=stockout_date,
     )
+
+
+# ---------------------------------------------------------------------------
+# Inventory Batches
+# ---------------------------------------------------------------------------
+
+
+def compute_landed_cost(
+    unit_cost_usd: Decimal,
+    fx_rate: Decimal,
+    logistics_per_unit: Decimal,
+) -> Decimal:
+    """landed_cost = (unit_cost_usd × fx_rate) + logistics_per_unit."""
+    return (unit_cost_usd * fx_rate + logistics_per_unit).quantize(
+        Decimal("0.000001"), rounding=ROUND_HALF_UP
+    )
+
+
+async def create_batch(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    order_id: uuid.UUID,
+    quantity: int,
+    unit_cost_usd: Decimal,
+    fx_rate_at_arrival: Decimal,
+    logistics_allocation_per_unit: Decimal = Decimal("0"),
+    received_at: date | None = None,
+) -> InventoryBatch:
+    """Create an inventory batch when an order is delivered."""
+    landed = compute_landed_cost(
+        unit_cost_usd, fx_rate_at_arrival, logistics_allocation_per_unit
+    )
+    batch = InventoryBatch(
+        product_id=product_id,
+        order_id=order_id,
+        quantity_received=quantity,
+        quantity_remaining=quantity,
+        unit_cost_usd=unit_cost_usd,
+        fx_rate_at_arrival=fx_rate_at_arrival,
+        logistics_allocation_per_unit=logistics_allocation_per_unit,
+        landed_cost_per_unit=landed,
+        received_at=received_at or date.today(),
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(batch)
+    await db.flush()
+
+    await logger.ainfo(
+        "inventory_batch_created",
+        product_id=str(product_id),
+        order_id=str(order_id),
+        quantity=quantity,
+        landed_cost=str(landed),
+    )
+    return batch
+
+
+async def get_batches_for_product(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+) -> list[InventoryBatch]:
+    """List batches for a product ordered by received_at ASC (oldest first)."""
+    result = await db.execute(
+        select(InventoryBatch)
+        .where(InventoryBatch.product_id == product_id)
+        .order_by(InventoryBatch.received_at.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def fifo_deduct(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    quantity: int,
+) -> Decimal:
+    """FIFO cost matching: deduct quantity from oldest batches first.
+
+    Returns total FIFO COGS for the consumed units.
+    """
+    result = await db.execute(
+        select(InventoryBatch)
+        .where(
+            InventoryBatch.product_id == product_id,
+            InventoryBatch.quantity_remaining > 0,
+        )
+        .order_by(InventoryBatch.received_at.asc())
+        .with_for_update()
+    )
+    batches = list(result.scalars().all())
+
+    remaining_to_deduct = quantity
+    total_cogs = Decimal("0")
+
+    for batch in batches:
+        if remaining_to_deduct <= 0:
+            break
+
+        consume = min(remaining_to_deduct, batch.quantity_remaining)
+        total_cogs += Decimal(str(consume)) * batch.landed_cost_per_unit
+        batch.quantity_remaining -= consume
+        remaining_to_deduct -= consume
+
+    if remaining_to_deduct > 0:
+        await logger.awarning(
+            "fifo_insufficient_batches",
+            product_id=str(product_id),
+            requested=quantity,
+            unmatched=remaining_to_deduct,
+        )
+
+    await db.flush()
+    return total_cogs.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+
+async def get_liquidation_candidates(
+    db: AsyncSession,
+    target_ngn: Decimal,
+) -> list[dict]:
+    """Return batches ordered by cheapest landed cost with discount needed."""
+    result = await db.execute(
+        select(InventoryBatch)
+        .where(InventoryBatch.quantity_remaining > 0)
+        .order_by(InventoryBatch.landed_cost_per_unit.asc())
+    )
+    batches = list(result.scalars().all())
+
+    candidates = []
+    for batch in batches:
+        batch_value = Decimal(str(batch.quantity_remaining)) * batch.landed_cost_per_unit
+        if batch_value > 0 and target_ngn > 0:
+            discount_pct = max(
+                Decimal("0"),
+                Decimal("1") - (target_ngn / batch_value),
+            ) * Decimal("100")
+        else:
+            discount_pct = Decimal("0")
+
+        candidates.append({
+            "batch_id": batch.id,
+            "product_id": batch.product_id,
+            "quantity_remaining": batch.quantity_remaining,
+            "landed_cost_per_unit": batch.landed_cost_per_unit,
+            "total_batch_value": batch_value,
+            "discount_pct_needed": discount_pct.quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            ),
+        })
+    return candidates

@@ -2,9 +2,10 @@
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -88,3 +89,33 @@ class LowStockAlert(UUIDMixin, Base):
 
     def __repr__(self) -> str:
         return f"<LowStockAlert(id={self.id}, product_id={self.product_id})>"
+
+
+class InventoryBatch(UUIDMixin, Base):
+    """A batch of inventory received from a purchase order.
+
+    Tracks quantity remaining for FIFO cost matching on sales.
+    landed_cost_per_unit = (unit_cost_usd × fx_rate_at_arrival) + logistics_allocation_per_unit
+    """
+
+    __tablename__ = "inventory_batches"
+
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("products.id"), index=True
+    )
+    order_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("purchase_orders.id"), index=True
+    )
+    quantity_received: Mapped[int] = mapped_column(Integer)
+    quantity_remaining: Mapped[int] = mapped_column(Integer)
+    unit_cost_usd: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    fx_rate_at_arrival: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    logistics_allocation_per_unit: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6), default=Decimal("0")
+    )
+    landed_cost_per_unit: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    received_at: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<InventoryBatch(id={self.id}, product_id={self.product_id}, remaining={self.quantity_remaining})>"
