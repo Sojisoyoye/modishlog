@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.models import User
+from src.auth.models import User, UserRole
 from src.core.database import get_db
 from src.core.security import decode_access_token
 
@@ -51,4 +51,23 @@ async def get_current_active_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is inactive",
         )
+    return current_user
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """Ensure the authenticated user has the ADMIN role."""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
+    return current_user
+
+
+async def require_any_role(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """Allow any authenticated and active user regardless of role."""
     return current_user

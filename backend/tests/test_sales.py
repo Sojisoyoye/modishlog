@@ -6,6 +6,7 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from src.auth.service import build_token
@@ -34,13 +35,14 @@ VALID_PASSWORD = "Str0ng!Pass#99"
 
 
 def _make_user(**overrides):
-    from src.auth.models import User
+    from src.auth.models import User, UserRole
 
     defaults = dict(
         email="test@example.com",
         hashed_password=get_password_hash(VALID_PASSWORD),
         full_name="Test User",
         is_active=True,
+        role=UserRole.ADMIN,
         failed_login_attempts=0,
         locked_until=None,
     )
@@ -617,3 +619,125 @@ class TestSalesEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["transaction_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Quick Quote tests
+# ---------------------------------------------------------------------------
+
+
+class TestQuickQuote:
+    @pytest.mark.asyncio
+    async def test_quick_quote_two_batches_different_costs(self):
+        """Weighted average landed cost across two FIFO batches."""
+        from src.inventory.models import InventoryBatch
+        from src.inventory.service import compute_landed_cost
+        from src.sales.service import quick_quote
+
+        product_id = uuid.uuid4()
+        batch1 = InventoryBatch(
+            product_id=product_id,
+            order_id=uuid.uuid4(),
+            quantity_received=10,
+            quantity_remaining=10,
+            unit_cost_usd=Decimal("10"),
+            fx_rate_at_arrival=Decimal("1500"),
+            logistics_allocation_per_unit=Decimal("0"),
+            landed_cost_per_unit=compute_landed_cost(
+                Decimal("10"), Decimal("1500"), Decimal("0")
+            ),
+            received_at=date(2026, 1, 1),
+            created_at=datetime.now(timezone.utc),
+        )
+        batch1.id = uuid.uuid4()
+
+        batch2 = InventoryBatch(
+            product_id=product_id,
+            order_id=uuid.uuid4(),
+            quantity_received=20,
+            quantity_remaining=20,
+            unit_cost_usd=Decimal("12"),
+            fx_rate_at_arrival=Decimal("1600"),
+            logistics_allocation_per_unit=Decimal("100"),
+            landed_cost_per_unit=compute_landed_cost(
+                Decimal("12"), Decimal("1600"), Decimal("100")
+            ),
+            received_at=date(2026, 2, 1),
+            created_at=datetime.now(timezone.utc),
+        )
+        batch2.id = uuid.uuid4()
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [batch1, batch2]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        quote = await quick_quote(db, product_id, 15)
+
+        # batch1: 10 units @ 15000, batch2: 5 units @ 19300
+        # total cost = 150000 + 96500 = 246500
+        # avg = 246500 / 15 = 16433.333333
+        assert quote.product_id == product_id
+        assert quote.quantity == 15
+        assert quote.fifo_landed_cost_per_unit == Decimal("16433.333333")
+        assert quote.floor_margin_pct == Decimal("15")
+        # min_sell = 16433.333333 * 1.15 = 18898.333333 (rounded)
+        expected_min = (Decimal("16433.333333") * Decimal("1.15")).quantize(
+            Decimal("0.000001")
+        )
+        assert quote.min_sell_price_per_unit == expected_min
+        assert quote.total_min_price == (expected_min * Decimal("15")).quantize(
+            Decimal("0.000001")
+        )
+
+    @pytest.mark.asyncio
+    async def test_quick_quote_no_batches_returns_zero(self):
+        """No batches available returns all-zero response."""
+        from src.sales.service import quick_quote
+
+        product_id = uuid.uuid4()
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        quote = await quick_quote(db, product_id, 10)
+
+        assert quote.product_id == product_id
+        assert quote.quantity == 10
+        assert quote.fifo_landed_cost_per_unit == Decimal("0")
+        assert quote.min_sell_price_per_unit == Decimal("0")
+        assert quote.total_min_price == Decimal("0")
+
+
+# ---------------------------------------------------------------------------
+# Role-based access tests
+# ---------------------------------------------------------------------------
+
+
+class TestRequireAdmin:
+    @pytest.mark.asyncio
+    async def test_require_admin_rejects_sales_manager(self):
+        """SALES_MANAGER role must be rejected by require_admin dependency."""
+        from src.auth.dependencies import require_admin
+        from src.auth.models import UserRole
+
+        user = _make_user(role=UserRole.SALES_MANAGER)
+        with pytest.raises(HTTPException) as exc_info:
+            await require_admin(current_user=user)
+        assert exc_info.value.status_code == 403
+        assert "Admin role required" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_require_admin_allows_admin(self):
+        """ADMIN role should pass require_admin dependency."""
+        from src.auth.dependencies import require_admin
+        from src.auth.models import UserRole
+
+        user = _make_user(role=UserRole.ADMIN)
+        result = await require_admin(current_user=user)
+        assert result.role == UserRole.ADMIN

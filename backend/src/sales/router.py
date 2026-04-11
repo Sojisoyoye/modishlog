@@ -6,7 +6,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, require_any_role
 from src.auth.models import User
 from src.core.database import get_db
 from src.inventory.exceptions import (
@@ -25,6 +25,8 @@ from src.sales.schemas import (
     AuditEntryRead,
     BulkUploadResponse,
     BulkUploadStatus,
+    QuickQuoteRequest,
+    QuickQuoteResponse,
     SaleCreate,
     SaleListResponse,
     SaleRead,
@@ -41,6 +43,7 @@ from src.sales.service import (
     get_upload_status,
     list_sales,
     process_bulk_upload,
+    quick_quote,
     update_sale,
     void_sale,
 )
@@ -113,6 +116,16 @@ async def sales_history_endpoint(
 ):
     """Get daily aggregated sales history."""
     return await get_sales_history(db, date_from, date_to)
+
+
+@router.post("/quick-quote", response_model=QuickQuoteResponse)
+async def quick_quote_endpoint(
+    body: QuickQuoteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    """Calculate minimum sell price using FIFO weighted-average landed cost."""
+    return await quick_quote(db, body.product_id, body.quantity)
 
 
 @router.post("/upload", response_model=BulkUploadResponse)

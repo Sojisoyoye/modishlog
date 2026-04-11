@@ -30,6 +30,15 @@ export interface VelocityPoint {
   quantity: number;
 }
 
+export interface QuickQuote {
+  product_id: string;
+  quantity: number;
+  fifo_landed_cost_per_unit: number;
+  floor_margin_pct: number;
+  min_sell_price_per_unit: number;
+  total_min_price: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SalesService {
   private readonly api = inject(ApiService);
@@ -48,5 +57,12 @@ export class SalesService {
 
   deleteSale(id: string): Observable<void> {
     return this.api.delete<void>(`/sales/${id}`);
+  }
+
+  quickQuote(productId: string, quantity: number): Observable<QuickQuote> {
+    return this.api.post<QuickQuote>('/sales/quick-quote', {
+      product_id: productId,
+      quantity,
+    });
   }
 }
