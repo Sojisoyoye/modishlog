@@ -81,6 +81,65 @@ import { AuthService } from '../../../core/services/auth.service';
               }
             </button>
           </form>
+
+          <!-- Forgot password link -->
+          <div class="mt-4 text-center">
+            <button
+              type="button"
+              (click)="showForgotPassword.set(!showForgotPassword())"
+              class="text-sm text-primary hover:underline"
+            >
+              Forgot password?
+            </button>
+          </div>
+
+          <!-- Forgot password inline form -->
+          @if (showForgotPassword()) {
+            <div class="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <p class="mb-3 text-sm text-muted">
+                Enter your email address and we'll send you a reset link.
+              </p>
+
+              @if (forgotPasswordMessage()) {
+                <div
+                  class="mb-3 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700"
+                >
+                  <i class="pi pi-check-circle"></i>
+                  {{ forgotPasswordMessage() }}
+                </div>
+              }
+
+              <form (ngSubmit)="onForgotPassword()">
+                <div class="mb-3">
+                  <div class="relative">
+                    <i
+                      class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted"
+                    ></i>
+                    <input
+                      type="email"
+                      [(ngModel)]="forgotEmail"
+                      name="forgotEmail"
+                      class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                      placeholder="you@example.com"
+                      required
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  [disabled]="forgotLoading()"
+                  class="flex w-full items-center justify-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-secondary/90 disabled:opacity-50"
+                >
+                  @if (forgotLoading()) {
+                    <i class="pi pi-spinner pi-spin text-sm"></i>
+                    Sending...
+                  } @else {
+                    Send Reset Link
+                  }
+                </button>
+              </form>
+            </div>
+          }
         </div>
 
         <!-- Footer -->
@@ -101,6 +160,12 @@ export class LoginPageComponent {
   loading = signal(false);
   errorMessage = signal('');
 
+  // Forgot password state
+  showForgotPassword = signal(false);
+  forgotEmail = '';
+  forgotLoading = signal(false);
+  forgotPasswordMessage = signal('');
+
   onLogin(): void {
     if (!this.email || !this.password) return;
     this.loading.set(true);
@@ -120,6 +185,25 @@ export class LoginPageComponent {
         } else {
           this.errorMessage.set('An unexpected error occurred. Please try again.');
         }
+      },
+    });
+  }
+
+  onForgotPassword(): void {
+    if (!this.forgotEmail) return;
+    this.forgotLoading.set(true);
+    this.forgotPasswordMessage.set('');
+
+    this.authService.forgotPassword(this.forgotEmail).subscribe({
+      next: (res) => {
+        this.forgotLoading.set(false);
+        this.forgotPasswordMessage.set(res.message);
+      },
+      error: () => {
+        this.forgotLoading.set(false);
+        this.forgotPasswordMessage.set(
+          'If an account with that email exists, a reset link has been sent.',
+        );
       },
     });
   }

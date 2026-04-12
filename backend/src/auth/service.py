@@ -1,6 +1,7 @@
 """Auth business logic -- all async operations."""
 
 import re
+import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 
 import structlog
@@ -10,10 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.exceptions import (
     AccountLockedError,
     InvalidCredentialsError,
+    InvalidResetTokenError,
     UserAlreadyExistsError,
     WeakPasswordError,
 )
-from src.auth.models import User, UserRole
+from src.auth.models import PasswordResetToken, User, UserRole
 from src.core.security import create_access_token, get_password_hash, verify_password
 
 logger = structlog.get_logger()
@@ -99,3 +101,72 @@ async def authenticate_user(
 def build_token(user: User) -> str:
     """Create JWT access token for authenticated user."""
     return create_access_token(data={"sub": str(user.id)})
+
+
+RESET_TOKEN_EXPIRE_HOURS = 1
+
+
+async def generate_password_reset_token(
+    db: AsyncSession,
+    email: str,
+) -> str | None:
+    """Create a password-reset token for the given email.
+
+    Returns the raw token string, or *None* if the email is not found
+    (silently -- never reveal whether the email exists).
+    """
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        await logger.ainfo("password_reset_requested_unknown_email", email=email)
+        return None
+
+    token_str = _uuid.uuid4().hex  # 32-char hex string
+    reset_token = PasswordResetToken(
+        user_id=user.id,
+        token=token_str,
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(hours=RESET_TOKEN_EXPIRE_HOURS),
+        used=False,
+    )
+    db.add(reset_token)
+    await db.flush()
+    await logger.ainfo("password_reset_token_created", user_id=str(user.id))
+    return token_str
+
+
+async def reset_password(
+    db: AsyncSession,
+    token: str,
+    new_password: str,
+) -> None:
+    """Validate a password-reset token and update the user's password.
+
+    Raises ``InvalidResetTokenError`` if the token is missing, expired,
+    or already used.  Raises ``WeakPasswordError`` if the new password
+    doesn't meet complexity requirements.
+    """
+    result = await db.execute(
+        select(PasswordResetToken).where(PasswordResetToken.token == token)
+    )
+    token_obj = result.scalar_one_or_none()
+
+    if token_obj is None:
+        raise InvalidResetTokenError("Invalid or expired reset token.")
+
+    now = datetime.now(timezone.utc)
+    if token_obj.used or token_obj.expires_at < now:
+        raise InvalidResetTokenError("Invalid or expired reset token.")
+
+    # Validate new password strength before touching user record
+    validate_password(new_password)
+
+    # Fetch user and update password
+    user = await db.get(User, token_obj.user_id)
+    user.hashed_password = get_password_hash(new_password)
+
+    # Mark token as consumed
+    token_obj.used = True
+    await db.flush()
+    await logger.ainfo("password_reset_success", user_id=str(user.id))

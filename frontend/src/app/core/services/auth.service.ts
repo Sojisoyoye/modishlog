@@ -43,6 +43,10 @@ export class AuthService {
     return localStorage.getItem(this.TOKEN_KEY);
   }
 
+  forgotPassword(email: string): Observable<{ message: string }> {
+    return this.api.post<{ message: string }>('/auth/forgot-password', { email });
+  }
+
   private hasStoredToken(): boolean {
     return !!localStorage.getItem(this.TOKEN_KEY);
   }

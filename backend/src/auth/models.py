@@ -1,10 +1,11 @@
 """Auth domain SQLAlchemy models."""
 
 import enum
+import uuid as _uuid
 from datetime import datetime
 
-from sqlalchemy import Enum, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
 
@@ -35,3 +36,18 @@ class User(UUIDMixin, TimestampMixin, Base):
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email})>"
+
+
+class PasswordResetToken(UUIDMixin, TimestampMixin, Base):
+    """Token issued for password-reset requests."""
+
+    __tablename__ = "password_reset_tokens"
+
+    user_id: Mapped[_uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+    )
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    user: Mapped["User"] = relationship(lazy="joined")

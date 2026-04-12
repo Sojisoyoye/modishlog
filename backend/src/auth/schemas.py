@@ -39,3 +39,22 @@ class UserProfile(BaseModel):
     is_active: bool
     role: str = "admin"
     created_at: datetime
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Forgot-password request -- just an email."""
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Reset-password request -- token + new password."""
+
+    token: str
+    new_password: str
+
+
+class MessageResponse(BaseModel):
+    """Generic message response."""
+
+    message: str
