@@ -1,4 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { DecimalPipe, CurrencyPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
@@ -8,16 +9,35 @@ import {
   PricingService,
   PortfolioMarginData,
   ProductMargin,
+  ElasticityRead,
 } from '../../../core/services/pricing.service';
 import {
   RecommendationsService,
   Recommendation,
 } from '../../../core/services/recommendations.service';
+import { ProductsService, Product } from '../../../core/services/products.service';
+
+interface CrossSubsidyItem {
+  product_name: string;
+  margin_pct: number;
+  is_above: boolean;
+}
+
+interface SubsidyPair {
+  high: CrossSubsidyItem;
+  low: CrossSubsidyItem;
+}
+
+interface ElasticityEntry {
+  product_id: string;
+  product_name: string;
+  elasticity_coefficient: number;
+}
 
 @Component({
   selector: 'app-pricing-page',
   standalone: true,
-  imports: [DecimalPipe, CurrencyPipe, Toast, UIChart, StatusBadgeComponent],
+  imports: [FormsModule, DecimalPipe, CurrencyPipe, Toast, UIChart, StatusBadgeComponent],
   template: `
     <p-toast />
     <div>
@@ -185,6 +205,160 @@ import {
           }
         </div>
       </div>
+
+      <!-- Cross-Subsidisation Display (Task 32) -->
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-50">
+            <i class="pi pi-arrows-h text-sm text-orange-600"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Cross-Subsidisation</h3>
+        </div>
+        @if (subsidyPairs().length > 0) {
+          <div class="space-y-3">
+            @for (pair of subsidyPairs(); track pair.high.product_name + pair.low.product_name) {
+              <div
+                class="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50/50 px-4 py-3"
+              >
+                <span
+                  class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700"
+                >
+                  {{ pair.high.product_name }} ({{ pair.high.margin_pct | number: '1.0-0' }}%)
+                </span>
+                <span class="text-xs font-medium text-muted">subsidises</span>
+                <span
+                  class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700"
+                >
+                  {{ pair.low.product_name }} ({{ pair.low.margin_pct | number: '1.0-0' }}%)
+                </span>
+              </div>
+            }
+          </div>
+          <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <h4 class="mb-2 text-xs font-semibold uppercase text-muted">
+                Above Target ({{ marginData().target_margin }}%)
+              </h4>
+              @for (item of aboveTarget(); track item.product_name) {
+                <div class="flex items-center justify-between py-1.5">
+                  <span class="text-sm text-text">{{ item.product_name }}</span>
+                  <span class="text-sm font-semibold text-success">
+                    {{ item.margin_pct | number: '1.1-1' }}%
+                  </span>
+                </div>
+              } @empty {
+                <p class="text-sm text-muted">None</p>
+              }
+            </div>
+            <div>
+              <h4 class="mb-2 text-xs font-semibold uppercase text-muted">
+                Below Target ({{ marginData().target_margin }}%)
+              </h4>
+              @for (item of belowTarget(); track item.product_name) {
+                <div class="flex items-center justify-between py-1.5">
+                  <span class="text-sm text-text">{{ item.product_name }}</span>
+                  <span class="text-sm font-semibold text-danger">
+                    {{ item.margin_pct | number: '1.1-1' }}%
+                  </span>
+                </div>
+              } @empty {
+                <p class="text-sm text-muted">None</p>
+              }
+            </div>
+          </div>
+        } @else {
+          <p class="py-4 text-center text-sm text-muted">
+            <i class="pi pi-info-circle mr-1"></i> Not enough product data to show
+            cross-subsidisation
+          </p>
+        }
+      </div>
+
+      <!-- Demand Elasticity Configuration (Task 31) -->
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50">
+            <i class="pi pi-sliders-h text-sm text-indigo-600"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Demand Elasticity</h3>
+        </div>
+
+        <!-- Elasticity Config Form -->
+        <div class="mb-5 flex flex-wrap items-end gap-3">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Product</label>
+            <select
+              [(ngModel)]="elasticityProductId"
+              class="w-52 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              <option value="">Select product...</option>
+              @for (p of products(); track p.id) {
+                <option [value]="p.id">{{ p.name }}</option>
+              }
+            </select>
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted"
+              >Elasticity Coefficient</label
+            >
+            <input
+              type="number"
+              [(ngModel)]="elasticityCoeff"
+              placeholder="e.g. -1.5"
+              step="0.1"
+              max="0"
+              class="w-40 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <button
+            (click)="updateElasticity()"
+            [disabled]="!elasticityProductId || !elasticityCoeff"
+            class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <i class="pi pi-save text-sm"></i> Save
+          </button>
+          <button
+            (click)="loadElasticity()"
+            [disabled]="!elasticityProductId"
+            class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <i class="pi pi-refresh text-sm"></i> Load
+          </button>
+        </div>
+
+        <!-- Elasticity List -->
+        @if (elasticityEntries().length > 0) {
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <thead>
+                <tr class="bg-gray-50/80">
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                    Product
+                  </th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                    Coefficient
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                @for (e of elasticityEntries(); track e.product_id) {
+                  <tr class="transition-colors hover:bg-gray-50/50">
+                    <td class="px-3 py-2.5 font-medium text-text">{{ e.product_name }}</td>
+                    <td class="px-3 py-2.5 text-right font-semibold">
+                      {{ e.elasticity_coefficient | number: '1.2-2' }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <p class="py-4 text-center text-sm text-muted">
+            <i class="pi pi-info-circle mr-1"></i> No elasticity data loaded yet. Select a product
+            and click Load.
+          </p>
+        }
+      </div>
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -192,6 +366,7 @@ import {
 export class PricingPageComponent implements OnInit {
   private readonly pricingService = inject(PricingService);
   private readonly recsService = inject(RecommendationsService);
+  private readonly productsService = inject(ProductsService);
   private readonly messageService = inject(MessageService);
 
   marginData = signal<PortfolioMarginData>({
@@ -202,6 +377,17 @@ export class PricingPageComponent implements OnInit {
   });
   pricingRecs = signal<Recommendation[]>([]);
   distributionChart = signal<unknown>(null);
+
+  // Task 32: Cross-subsidisation
+  aboveTarget = signal<CrossSubsidyItem[]>([]);
+  belowTarget = signal<CrossSubsidyItem[]>([]);
+  subsidyPairs = signal<SubsidyPair[]>([]);
+
+  // Task 31: Demand elasticity
+  products = signal<Product[]>([]);
+  elasticityEntries = signal<ElasticityEntry[]>([]);
+  elasticityProductId = '';
+  elasticityCoeff = 0;
 
   readonly barOptions = {
     responsive: true,
@@ -218,10 +404,14 @@ export class PricingPageComponent implements OnInit {
       next: (d) => {
         this.marginData.set(d);
         this.buildDistribution(d.products);
+        this.buildCrossSubsidy(d);
       },
     });
     this.recsService.getAll({ category: 'PRICING' }).subscribe({
       next: (r) => this.pricingRecs.set(r.items.filter((i) => i.status === 'PENDING')),
+    });
+    this.productsService.getAll().subscribe({
+      next: (p) => this.products.set(p),
     });
   }
 
@@ -273,5 +463,101 @@ export class PricingPageComponent implements OnInit {
         });
       },
     });
+  }
+
+  // Task 32: Cross-subsidisation computation
+  private buildCrossSubsidy(data: PortfolioMarginData): void {
+    const target = data.target_margin;
+    const above: CrossSubsidyItem[] = [];
+    const below: CrossSubsidyItem[] = [];
+
+    for (const p of data.products) {
+      const item: CrossSubsidyItem = {
+        product_name: p.product_name,
+        margin_pct: p.current_margin,
+        is_above: p.current_margin >= target,
+      };
+      if (item.is_above) {
+        above.push(item);
+      } else {
+        below.push(item);
+      }
+    }
+
+    above.sort((a, b) => b.margin_pct - a.margin_pct);
+    below.sort((a, b) => a.margin_pct - b.margin_pct);
+
+    this.aboveTarget.set(above);
+    this.belowTarget.set(below);
+
+    // Build pairs: each high-margin product "subsidises" each low-margin product
+    const pairs: SubsidyPair[] = [];
+    for (const high of above) {
+      for (const low of below) {
+        pairs.push({ high, low });
+      }
+    }
+    this.subsidyPairs.set(pairs);
+  }
+
+  // Task 31: Demand elasticity
+  loadElasticity(): void {
+    if (!this.elasticityProductId) return;
+    const product = this.products().find((p) => p.id === this.elasticityProductId);
+    this.pricingService.getElasticity(this.elasticityProductId).subscribe({
+      next: (e) => {
+        const entry: ElasticityEntry = {
+          product_id: e.product_id,
+          product_name: product?.name ?? 'Unknown',
+          elasticity_coefficient: Number(e.elasticity_coefficient),
+        };
+        this.elasticityEntries.update((list) => {
+          const filtered = list.filter((x) => x.product_id !== e.product_id);
+          return [...filtered, entry];
+        });
+        this.elasticityCoeff = Number(e.elasticity_coefficient);
+      },
+      error: () => {
+        this.messageService.add({
+          severity: 'warn',
+          summary: 'Not Found',
+          detail: 'No elasticity data for this product',
+        });
+      },
+    });
+  }
+
+  updateElasticity(): void {
+    if (!this.elasticityProductId || !this.elasticityCoeff) return;
+    const product = this.products().find((p) => p.id === this.elasticityProductId);
+    this.pricingService
+      .updateElasticity(this.elasticityProductId, {
+        elasticity_coefficient: this.elasticityCoeff,
+      })
+      .subscribe({
+        next: (e) => {
+          const entry: ElasticityEntry = {
+            product_id: e.product_id,
+            product_name: product?.name ?? 'Unknown',
+            elasticity_coefficient: Number(e.elasticity_coefficient),
+          };
+          this.elasticityEntries.update((list) => {
+            const filtered = list.filter((x) => x.product_id !== e.product_id);
+            return [...filtered, entry];
+          });
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Saved',
+            detail: `Elasticity updated for ${product?.name ?? 'product'}`,
+          });
+        },
+        error: () => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'Failed to update elasticity',
+          });
+        },
+      });
   }
 }

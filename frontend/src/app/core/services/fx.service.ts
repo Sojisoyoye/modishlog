@@ -55,6 +55,30 @@ interface ForecastRangeResponse {
   model_version: string;
 }
 
+export interface FXAlertCreate {
+  pair: string;
+  direction: 'above' | 'below';
+  threshold_rate: number;
+}
+
+export interface FXAlertRead {
+  id: string;
+  pair: string;
+  direction: string;
+  threshold_rate: number;
+  is_enabled: boolean;
+  is_triggered: boolean;
+  triggered_at: string | null;
+  triggered_rate: number | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface FXAlertUpdate {
+  threshold_rate?: number;
+  is_enabled?: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class FxService {
   private readonly api = inject(ApiService);
@@ -144,6 +168,22 @@ export class FxService {
           created_at: r.created_at,
         }))
       );
+  }
+
+  getAlerts(): Observable<FXAlertRead[]> {
+    return this.api.get<FXAlertRead[]>('/fx/alerts');
+  }
+
+  createAlert(body: FXAlertCreate): Observable<FXAlertRead> {
+    return this.api.post<FXAlertRead>('/fx/alerts', body);
+  }
+
+  updateAlert(id: string, body: FXAlertUpdate): Observable<FXAlertRead> {
+    return this.api.put<FXAlertRead>(`/fx/alerts/${id}`, body);
+  }
+
+  deleteAlert(id: string): Observable<void> {
+    return this.api.delete<void>(`/fx/alerts/${id}`);
   }
 
   getLatestEurUsd(): Observable<FxRate | null> {
