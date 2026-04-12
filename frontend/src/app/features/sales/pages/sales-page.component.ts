@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, CurrencyPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -9,6 +9,7 @@ import {
   SalesHistoryResponse,
 } from '../../../core/services/sales.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
+import { InventoryService } from '../../../core/services/inventory.service';
 
 interface EntryRow {
   product_id: string;
@@ -39,53 +40,70 @@ interface EntryRow {
           </div>
 
           @for (row of entryRows(); track $index) {
-            <div class="mb-3 flex items-end gap-3">
-              <div class="flex-1">
-                @if ($index === 0) {
-                  <label class="mb-1.5 block text-xs font-medium text-muted">Product</label>
-                }
-                <select
-                  [(ngModel)]="row.product_id"
-                  [name]="'product_' + $index"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                >
-                  <option value="">Select product</option>
-                  @for (p of products(); track p.id) {
-                    <option [value]="p.id">{{ p.name }}</option>
+            <div class="mb-3">
+              <div class="flex items-end gap-3">
+                <div class="flex-1">
+                  @if ($index === 0) {
+                    <label class="mb-1.5 block text-xs font-medium text-muted">Product</label>
                   }
-                </select>
-              </div>
-              <div class="w-24">
-                @if ($index === 0) {
-                  <label class="mb-1.5 block text-xs font-medium text-muted">Qty</label>
+                  <div class="flex items-center gap-2">
+                    <select
+                      [(ngModel)]="row.product_id"
+                      [name]="'product_' + $index"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="">Select product</option>
+                      @for (p of products(); track p.id) {
+                        <option [value]="p.id">{{ p.name }}</option>
+                      }
+                    </select>
+                    @if (row.product_id && getStock(row.product_id) !== undefined) {
+                      <span
+                        data-testid="stock-indicator"
+                        class="whitespace-nowrap text-xs font-medium text-muted"
+                      >(Stock: {{ getStock(row.product_id) }})</span>
+                    }
+                  </div>
+                </div>
+                <div class="w-24">
+                  @if ($index === 0) {
+                    <label class="mb-1.5 block text-xs font-medium text-muted">Qty</label>
+                  }
+                  <input
+                    type="number"
+                    [(ngModel)]="row.quantity"
+                    [name]="'qty_' + $index"
+                    min="1"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    [class.border-red-500]="exceedsStock(row)"
+                  />
+                </div>
+                <div class="w-36">
+                  @if ($index === 0) {
+                    <label class="mb-1.5 block text-xs font-medium text-muted">Date</label>
+                  }
+                  <input
+                    type="date"
+                    [(ngModel)]="row.sale_date"
+                    [name]="'date_' + $index"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                @if (entryRows().length > 1) {
+                  <button
+                    (click)="removeRow($index)"
+                    class="rounded-lg p-2.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                    type="button"
+                  >
+                    <i class="pi pi-trash text-sm"></i>
+                  </button>
                 }
-                <input
-                  type="number"
-                  [(ngModel)]="row.quantity"
-                  [name]="'qty_' + $index"
-                  min="1"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                />
               </div>
-              <div class="w-36">
-                @if ($index === 0) {
-                  <label class="mb-1.5 block text-xs font-medium text-muted">Date</label>
-                }
-                <input
-                  type="date"
-                  [(ngModel)]="row.sale_date"
-                  [name]="'date_' + $index"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              @if (entryRows().length > 1) {
-                <button
-                  (click)="removeRow($index)"
-                  class="rounded-lg p-2.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
-                  type="button"
-                >
-                  <i class="pi pi-trash text-sm"></i>
-                </button>
+              @if (exceedsStock(row)) {
+                <p
+                  data-testid="stock-warning"
+                  class="mt-1 text-xs font-medium text-red-600"
+                >Exceeds available stock ({{ getStock(row.product_id) }})</p>
               }
             </div>
           }
@@ -100,7 +118,7 @@ interface EntryRow {
             </button>
             <button
               (click)="submitEntries()"
-              [disabled]="submitting()"
+              [disabled]="submitting() || hasStockExceeded()"
               class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
             >
               @if (submitting()) {
@@ -173,16 +191,49 @@ interface EntryRow {
 export class SalesPageComponent implements OnInit {
   private readonly salesService = inject(SalesService);
   private readonly productsService = inject(ProductsService);
+  private readonly inventoryService = inject(InventoryService);
   private readonly messageService = inject(MessageService);
 
   products = signal<Product[]>([]);
   history = signal<SaleRecord[]>([]);
   entryRows = signal<EntryRow[]>([this.newRow()]);
   submitting = signal(false);
+  stockMap = signal<Map<string, number>>(new Map());
+
+  hasStockExceeded = computed(() => {
+    const map = this.stockMap();
+    return this.entryRows().some((row) => {
+      if (!row.product_id) return false;
+      const available = map.get(row.product_id);
+      return available !== undefined && row.quantity > available;
+    });
+  });
 
   ngOnInit(): void {
     this.productsService.getAll().subscribe({ next: (p) => this.products.set(p) });
     this.loadHistory();
+    this.loadInventory();
+  }
+
+  private loadInventory(): void {
+    this.inventoryService.getCurrent().subscribe({
+      next: (items) => {
+        const map = new Map<string, number>();
+        items.forEach((item) => map.set(item.product_id, item.current_stock));
+        this.stockMap.set(map);
+      },
+    });
+  }
+
+  getStock(productId: string): number | undefined {
+    if (!productId) return undefined;
+    return this.stockMap().get(productId);
+  }
+
+  exceedsStock(row: EntryRow): boolean {
+    if (!row.product_id) return false;
+    const available = this.stockMap().get(row.product_id);
+    return available !== undefined && row.quantity > available;
   }
 
   private newRow(): EntryRow {
