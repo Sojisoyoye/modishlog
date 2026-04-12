@@ -60,13 +60,38 @@ import {
                 <tr [class]="stockRowClass(item)">
                   <td class="px-4 py-3 font-medium text-text">{{ item.product_name }}</td>
                   <td class="px-4 py-3 text-right font-semibold">{{ item.current_stock }}</td>
-                  <td class="px-4 py-3 text-right text-muted">{{ item.low_stock_threshold }}</td>
+                  <td class="px-4 py-3 text-right text-muted">
+                    @if (editingThresholdId() === item.product_id) {
+                      <input
+                        type="number"
+                        [value]="item.low_stock_threshold"
+                        min="0"
+                        class="w-20 rounded border border-primary px-2 py-1 text-right text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                        (keydown.enter)="saveThreshold(item.product_id, $event)"
+                        (blur)="saveThreshold(item.product_id, $event)"
+                        #thresholdInput
+                      />
+                    } @else {
+                      <span
+                        class="cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-blue-50 hover:text-secondary"
+                        (click)="startEditThreshold(item.product_id)"
+                        title="Click to edit threshold"
+                      >
+                        {{ item.low_stock_threshold }}
+                        <i class="pi pi-pencil ml-0.5 text-[9px] text-gray-300"></i>
+                      </span>
+                    }
+                  </td>
                   <td class="px-4 py-3">
                     <app-status-badge [label]="stockLabel(item)" [status]="stockStatus(item)" />
                   </td>
                   <td class="px-4 py-3 text-muted">
                     @if (item.depletion_date) {
                       {{ item.depletion_date | date: 'mediumDate' }}
+                      <span class="ml-1 text-xs text-gray-400"
+                        title="Confidence interval: +/- 20% of estimated days">
+                        (+/- {{ depletionConfidence(item) }}d)
+                      </span>
                     } @else {
                       --
                     }
@@ -215,6 +240,7 @@ export class InventoryPageComponent implements OnInit {
 
   inventory = signal<InventoryItem[]>([]);
   movements = signal<StockMovement[]>([]);
+  editingThresholdId = signal<string | null>(null);
   adjustVisible = false;
   adjustItem = signal<InventoryItem | null>(null);
   adjustType = 'PURCHASE';
@@ -250,11 +276,48 @@ export class InventoryPageComponent implements OnInit {
     return 'transition-colors hover:bg-gray-50/50';
   }
 
+  depletionConfidence(item: InventoryItem): number {
+    // Estimate days until stockout from depletion_date, then +/- 20%
+    if (!item.depletion_date) return 0;
+    const now = new Date();
+    const depDate = new Date(item.depletion_date);
+    const daysUntil = Math.max(0, Math.round((depDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+    return Math.max(1, Math.round(daysUntil * 0.2));
+  }
+
   movementStatus(type: string): 'info' | 'success' | 'danger' | 'warning' {
     if (type === 'PURCHASE') return 'info';
     if (type === 'SALE') return 'success';
     if (type === 'DAMAGE') return 'danger';
     return 'warning';
+  }
+
+  startEditThreshold(productId: string): void {
+    this.editingThresholdId.set(productId);
+  }
+
+  saveThreshold(productId: string, event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const value = parseInt(input.value, 10);
+    this.editingThresholdId.set(null);
+    if (isNaN(value) || value < 0) return;
+    this.inventoryService.updateThreshold(productId, value).subscribe({
+      next: () => {
+        this.messageService.add({
+          severity: 'success',
+          summary: 'Updated',
+          detail: 'Threshold updated',
+        });
+        this.loadData();
+      },
+      error: () => {
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Failed to update threshold',
+        });
+      },
+    });
   }
 
   openAdjust(item: InventoryItem): void {

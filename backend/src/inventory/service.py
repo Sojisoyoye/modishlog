@@ -98,6 +98,28 @@ async def list_inventory_levels(
 
 
 # ---------------------------------------------------------------------------
+# Threshold update
+# ---------------------------------------------------------------------------
+
+
+async def update_threshold(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    low_stock_threshold: int,
+) -> InventoryLevel:
+    """Update the low-stock threshold for a product."""
+    inventory = await get_inventory_level(db, product_id)
+    inventory.low_stock_threshold = low_stock_threshold
+    await db.flush()
+    await logger.ainfo(
+        "threshold_updated",
+        product_id=str(product_id),
+        new_threshold=low_stock_threshold,
+    )
+    return inventory
+
+
+# ---------------------------------------------------------------------------
 # Stock adjustments
 # ---------------------------------------------------------------------------
 

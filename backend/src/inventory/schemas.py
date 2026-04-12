@@ -87,6 +87,10 @@ class InventoryBatchRead(BaseModel):
     created_at: datetime
 
 
+class ThresholdUpdateRequest(BaseModel):
+    low_stock_threshold: int = Field(..., ge=0)
+
+
 class LiquidationCandidate(BaseModel):
     batch_id: uuid.UUID
     product_id: uuid.UUID
