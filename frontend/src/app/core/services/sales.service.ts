@@ -1,6 +1,8 @@
 import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
+import { environment } from '../../../environments/environment';
 
 export interface DailyEntry {
   product_id: string;
@@ -70,9 +72,16 @@ export interface QuickQuote {
   total_min_price: number;
 }
 
+export interface BulkUploadResponse {
+  job_id: string;
+  status: string;
+  message: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SalesService {
   private readonly api = inject(ApiService);
+  private readonly http = inject(HttpClient);
 
   createDailyEntry(entries: DailyEntry[]): Observable<SaleRecord[]> {
     return this.api.post<SaleRecord[]>('/sales/daily-entry', { entries });
@@ -111,5 +120,14 @@ export class SalesService {
       product_id: productId,
       quantity,
     });
+  }
+
+  uploadCsv(file: File): Observable<BulkUploadResponse> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    return this.http.post<BulkUploadResponse>(
+      `${environment.apiBaseUrl}/sales/upload`,
+      formData,
+    );
   }
 }

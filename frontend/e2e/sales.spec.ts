@@ -109,6 +109,39 @@ test.describe('Sales history table', () => {
   });
 });
 
+test.describe('CSV Upload tab', () => {
+  test('"Upload CSV" tab is visible', async ({ page }) => {
+    const uploadTab = page.locator('[data-testid="tab-upload-csv"]');
+    await expect(uploadTab).toBeVisible();
+    await expect(uploadTab).toHaveText(/Upload CSV/);
+  });
+
+  test('clicking "Upload CSV" tab shows file input', async ({ page }) => {
+    await page.locator('[data-testid="tab-upload-csv"]').click();
+    const fileInput = page.locator('[data-testid="csv-file-input"]');
+    await expect(fileInput).toBeVisible();
+  });
+
+  test('"Download Template" link is present in Upload CSV tab', async ({ page }) => {
+    await page.locator('[data-testid="tab-upload-csv"]').click();
+    const templateLink = page.locator('[data-testid="download-template-link"]');
+    await expect(templateLink).toBeVisible();
+    await expect(templateLink).toHaveText(/Download Template/);
+  });
+
+  test('upload button is disabled when no file is selected', async ({ page }) => {
+    await page.locator('[data-testid="tab-upload-csv"]').click();
+    const uploadBtn = page.locator('[data-testid="upload-csv-btn"]');
+    await expect(uploadBtn).toBeDisabled();
+  });
+
+  test('all three tabs are visible', async ({ page }) => {
+    await expect(page.locator('[data-testid="tab-record-sales"]')).toBeVisible();
+    await expect(page.locator('[data-testid="tab-all-sales"]')).toBeVisible();
+    await expect(page.locator('[data-testid="tab-upload-csv"]')).toBeVisible();
+  });
+});
+
 test.describe('Sales edit/delete/audit buttons', () => {
   test('Edit button is visible on each non-voided sales row', async ({ page }) => {
     const editButtons = page.locator('[data-testid="edit-sale-btn"]');

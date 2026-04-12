@@ -9,6 +9,7 @@ import {
   SaleRecord,
   AuditEntry,
   SaleUpdatePayload,
+  BulkUploadResponse,
 } from '../../../core/services/sales.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
@@ -31,148 +32,260 @@ interface EntryRow {
         <p class="mt-1 text-sm text-muted">Record and track your daily sales</p>
       </div>
 
-      <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <!-- Entry Form -->
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div class="mb-5 flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-              <i class="pi pi-plus text-sm text-secondary"></i>
-            </div>
-            <h3 class="text-base font-semibold text-text">Record Sales</h3>
-          </div>
+      <!-- Tab Navigation -->
+      <div class="mb-6 border-b border-gray-200">
+        <nav class="-mb-px flex gap-4" aria-label="Sales tabs">
+          <button
+            type="button"
+            data-testid="tab-record-sales"
+            (click)="activeTab.set('record')"
+            class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+            [class.border-primary]="activeTab() === 'record'"
+            [class.text-primary]="activeTab() === 'record'"
+            [class.border-transparent]="activeTab() !== 'record'"
+            [class.text-muted]="activeTab() !== 'record'"
+            [class.hover:border-gray-300]="activeTab() !== 'record'"
+            [class.hover:text-text]="activeTab() !== 'record'"
+          >
+            <i class="pi pi-plus-circle mr-1.5 text-xs"></i>
+            Record Sales
+          </button>
+          <button
+            type="button"
+            data-testid="tab-all-sales"
+            (click)="activeTab.set('all')"
+            class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+            [class.border-primary]="activeTab() === 'all'"
+            [class.text-primary]="activeTab() === 'all'"
+            [class.border-transparent]="activeTab() !== 'all'"
+            [class.text-muted]="activeTab() !== 'all'"
+            [class.hover:border-gray-300]="activeTab() !== 'all'"
+            [class.hover:text-text]="activeTab() !== 'all'"
+          >
+            <i class="pi pi-list mr-1.5 text-xs"></i>
+            All Sales
+          </button>
+          <button
+            type="button"
+            data-testid="tab-upload-csv"
+            (click)="activeTab.set('upload')"
+            class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+            [class.border-primary]="activeTab() === 'upload'"
+            [class.text-primary]="activeTab() === 'upload'"
+            [class.border-transparent]="activeTab() !== 'upload'"
+            [class.text-muted]="activeTab() !== 'upload'"
+            [class.hover:border-gray-300]="activeTab() !== 'upload'"
+            [class.hover:text-text]="activeTab() !== 'upload'"
+          >
+            <i class="pi pi-upload mr-1.5 text-xs"></i>
+            Upload CSV
+          </button>
+        </nav>
+      </div>
 
-          @for (row of entryRows(); track $index) {
-            <div class="mb-3">
-              <div class="flex items-end gap-3">
-                <div class="flex-1">
-                  @if ($index === 0) {
-                    <label class="mb-1.5 block text-xs font-medium text-muted">Product</label>
-                  }
-                  <div class="flex items-center gap-2">
-                    <select
-                      [(ngModel)]="row.product_id"
-                      [name]="'product_' + $index"
-                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                    >
-                      <option value="">Select product</option>
-                      @for (p of products(); track p.id) {
-                        <option [value]="p.id">{{ p.name }}</option>
-                      }
-                    </select>
-                    @if (row.product_id && getStock(row.product_id) !== undefined) {
-                      <span
-                        data-testid="stock-indicator"
-                        class="whitespace-nowrap text-xs font-medium text-muted"
-                      >(Stock: {{ getStock(row.product_id) }})</span>
+      <!-- Record Sales Tab -->
+      @if (activeTab() === 'record') {
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <!-- Entry Form -->
+          <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div class="mb-5 flex items-center gap-2">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+                <i class="pi pi-plus text-sm text-secondary"></i>
+              </div>
+              <h3 class="text-base font-semibold text-text">Record Sales</h3>
+            </div>
+
+            @for (row of entryRows(); track $index) {
+              <div class="mb-3">
+                <div class="flex items-end gap-3">
+                  <div class="flex-1">
+                    @if ($index === 0) {
+                      <label class="mb-1.5 block text-xs font-medium text-muted">Product</label>
                     }
+                    <div class="flex items-center gap-2">
+                      <select
+                        [(ngModel)]="row.product_id"
+                        [name]="'product_' + $index"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                      >
+                        <option value="">Select product</option>
+                        @for (p of products(); track p.id) {
+                          <option [value]="p.id">{{ p.name }}</option>
+                        }
+                      </select>
+                      @if (row.product_id && getStock(row.product_id) !== undefined) {
+                        <span
+                          data-testid="stock-indicator"
+                          class="whitespace-nowrap text-xs font-medium text-muted"
+                        >(Stock: {{ getStock(row.product_id) }})</span>
+                      }
+                    </div>
                   </div>
-                </div>
-                <div class="w-24">
-                  @if ($index === 0) {
-                    <label class="mb-1.5 block text-xs font-medium text-muted">Qty</label>
+                  <div class="w-24">
+                    @if ($index === 0) {
+                      <label class="mb-1.5 block text-xs font-medium text-muted">Qty</label>
+                    }
+                    <input
+                      type="number"
+                      [(ngModel)]="row.quantity"
+                      [name]="'qty_' + $index"
+                      min="1"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                      [class.border-red-500]="exceedsStock(row)"
+                    />
+                  </div>
+                  <div class="w-36">
+                    @if ($index === 0) {
+                      <label class="mb-1.5 block text-xs font-medium text-muted">Date</label>
+                    }
+                    <input
+                      type="date"
+                      [(ngModel)]="row.sale_date"
+                      [name]="'date_' + $index"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  @if (entryRows().length > 1) {
+                    <button
+                      (click)="removeRow($index)"
+                      class="rounded-lg p-2.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                      type="button"
+                    >
+                      <i class="pi pi-trash text-sm"></i>
+                    </button>
                   }
-                  <input
-                    type="number"
-                    [(ngModel)]="row.quantity"
-                    [name]="'qty_' + $index"
-                    min="1"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                    [class.border-red-500]="exceedsStock(row)"
-                  />
                 </div>
-                <div class="w-36">
-                  @if ($index === 0) {
-                    <label class="mb-1.5 block text-xs font-medium text-muted">Date</label>
-                  }
-                  <input
-                    type="date"
-                    [(ngModel)]="row.sale_date"
-                    [name]="'date_' + $index"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-                @if (entryRows().length > 1) {
-                  <button
-                    (click)="removeRow($index)"
-                    class="rounded-lg p-2.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
-                    type="button"
-                  >
-                    <i class="pi pi-trash text-sm"></i>
-                  </button>
+                @if (exceedsStock(row)) {
+                  <p
+                    data-testid="stock-warning"
+                    class="mt-1 text-xs font-medium text-red-600"
+                  >Exceeds available stock ({{ getStock(row.product_id) }})</p>
                 }
               </div>
-              @if (exceedsStock(row)) {
-                <p
-                  data-testid="stock-warning"
-                  class="mt-1 text-xs font-medium text-red-600"
-                >Exceeds available stock ({{ getStock(row.product_id) }})</p>
-              }
-            </div>
-          }
+            }
 
-          <div class="mt-4 flex gap-3">
-            <button
-              (click)="addRow()"
-              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
-              type="button"
-            >
-              <i class="pi pi-plus text-xs"></i> Add Row
-            </button>
-            <button
-              (click)="submitEntries()"
-              [disabled]="submitting() || hasStockExceeded()"
-              class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
-            >
-              @if (submitting()) {
-                <i class="pi pi-spinner pi-spin text-sm"></i>
-                Saving...
-              } @else {
-                <i class="pi pi-check text-sm"></i>
-                Record Sales
-              }
-            </button>
+            <div class="mt-4 flex gap-3">
+              <button
+                (click)="addRow()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+                type="button"
+              >
+                <i class="pi pi-plus text-xs"></i> Add Row
+              </button>
+              <button
+                (click)="submitEntries()"
+                [disabled]="submitting() || hasStockExceeded()"
+                class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+              >
+                @if (submitting()) {
+                  <i class="pi pi-spinner pi-spin text-sm"></i>
+                  Saving...
+                } @else {
+                  <i class="pi pi-check text-sm"></i>
+                  Record Sales
+                }
+              </button>
+            </div>
+          </div>
+
+          <!-- Recent Sales (shown alongside entry form) -->
+          <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div class="mb-5 flex items-center gap-2">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
+                <i class="pi pi-history text-sm text-success"></i>
+              </div>
+              <h3 class="text-base font-semibold text-text">Recent Sales</h3>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200 text-sm">
+                <thead>
+                  <tr class="bg-gray-50/80">
+                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
+                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Product</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Qty</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total</th>
+                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Status</th>
+                    <th class="px-3 py-2.5 text-center text-xs font-semibold uppercase text-muted">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  @for (sale of history(); track sale.id) {
+                    <tr class="transition-colors hover:bg-gray-50/50">
+                      <td class="px-3 py-2.5 text-muted">{{ sale.sale_date | date: 'mediumDate' }}</td>
+                      <td class="px-3 py-2.5 font-medium">{{ getProductName(sale.product_id) }}</td>
+                      <td class="px-3 py-2.5 text-right">{{ sale.quantity }}</td>
+                      <td class="px-3 py-2.5 text-right font-semibold">
+                        {{ sale.total_amount | currency: (sale.currency || 'NGN') : 'symbol' : '1.0-0' }}
+                      </td>
+                      <td class="px-3 py-2.5">
+                        <span
+                          class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+                          [class.bg-green-100]="sale.status === 'completed'"
+                          [class.text-green-700]="sale.status === 'completed'"
+                          [class.bg-red-100]="sale.status === 'voided'"
+                          [class.text-red-700]="sale.status === 'voided'"
+                          [class.bg-yellow-100]="sale.status === 'pending'"
+                          [class.text-yellow-700]="sale.status === 'pending'"
+                        >{{ sale.status }}</span>
+                      </td>
+                      <td class="px-3 py-2.5 text-center">
+                        <div class="flex items-center justify-center gap-1">
+                          @if (sale.status !== 'voided') {
+                            <button data-testid="edit-sale-btn" (click)="openEditDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary" title="Edit sale" type="button">
+                              <i class="pi pi-pencil text-xs"></i>
+                            </button>
+                            <button data-testid="void-sale-btn" (click)="openVoidDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger" title="Void sale" type="button">
+                              <i class="pi pi-trash text-xs"></i>
+                            </button>
+                          }
+                          <button data-testid="audit-sale-btn" (click)="openAuditDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text" title="View audit trail" type="button">
+                            <i class="pi pi-clock text-xs"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="6" class="px-3 py-10 text-center text-sm text-muted">
+                        <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
+                        No sales recorded yet
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
+      }
 
-        <!-- Sales History -->
+      <!-- All Sales Tab -->
+      @if (activeTab() === 'all') {
         <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
           <div class="mb-5 flex items-center gap-2">
             <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
-              <i class="pi pi-history text-sm text-success"></i>
+              <i class="pi pi-list text-sm text-success"></i>
             </div>
-            <h3 class="text-base font-semibold text-text">Recent Sales</h3>
+            <h3 class="text-base font-semibold text-text">All Sales</h3>
           </div>
 
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 text-sm">
               <thead>
                 <tr class="bg-gray-50/80">
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
-                    Date
-                  </th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
-                    Product
-                  </th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
-                    Qty
-                  </th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
-                    Total
-                  </th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
-                    Status
-                  </th>
-                  <th class="px-3 py-2.5 text-center text-xs font-semibold uppercase text-muted">
-                    Actions
-                  </th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Product</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Qty</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Status</th>
+                  <th class="px-3 py-2.5 text-center text-xs font-semibold uppercase text-muted">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 @for (sale of history(); track sale.id) {
                   <tr class="transition-colors hover:bg-gray-50/50">
-                    <td class="px-3 py-2.5 text-muted">
-                      {{ sale.sale_date | date: 'mediumDate' }}
-                    </td>
+                    <td class="px-3 py-2.5 text-muted">{{ sale.sale_date | date: 'mediumDate' }}</td>
                     <td class="px-3 py-2.5 font-medium">{{ getProductName(sale.product_id) }}</td>
                     <td class="px-3 py-2.5 text-right">{{ sale.quantity }}</td>
                     <td class="px-3 py-2.5 text-right font-semibold">
@@ -187,39 +300,19 @@ interface EntryRow {
                         [class.text-red-700]="sale.status === 'voided'"
                         [class.bg-yellow-100]="sale.status === 'pending'"
                         [class.text-yellow-700]="sale.status === 'pending'"
-                      >
-                        {{ sale.status }}
-                      </span>
+                      >{{ sale.status }}</span>
                     </td>
                     <td class="px-3 py-2.5 text-center">
                       <div class="flex items-center justify-center gap-1">
                         @if (sale.status !== 'voided') {
-                          <button
-                            data-testid="edit-sale-btn"
-                            (click)="openEditDialog(sale)"
-                            class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary"
-                            title="Edit sale"
-                            type="button"
-                          >
+                          <button data-testid="edit-sale-btn" (click)="openEditDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary" title="Edit sale" type="button">
                             <i class="pi pi-pencil text-xs"></i>
                           </button>
-                          <button
-                            data-testid="void-sale-btn"
-                            (click)="openVoidDialog(sale)"
-                            class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
-                            title="Void sale"
-                            type="button"
-                          >
+                          <button data-testid="void-sale-btn" (click)="openVoidDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger" title="Void sale" type="button">
                             <i class="pi pi-trash text-xs"></i>
                           </button>
                         }
-                        <button
-                          data-testid="audit-sale-btn"
-                          (click)="openAuditDialog(sale)"
-                          class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text"
-                          title="View audit trail"
-                          type="button"
-                        >
+                        <button data-testid="audit-sale-btn" (click)="openAuditDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text" title="View audit trail" type="button">
                           <i class="pi pi-clock text-xs"></i>
                         </button>
                       </div>
@@ -237,7 +330,102 @@ interface EntryRow {
             </table>
           </div>
         </div>
-      </div>
+      }
+
+      <!-- Upload CSV Tab -->
+      @if (activeTab() === 'upload') {
+        <div class="mx-auto max-w-2xl">
+          <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div class="mb-5 flex items-center gap-2">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
+                <i class="pi pi-upload text-sm text-purple-600"></i>
+              </div>
+              <h3 class="text-base font-semibold text-text">Upload CSV</h3>
+            </div>
+
+            <p class="mb-4 text-sm text-muted">
+              Upload a CSV file to bulk-import sales records. The file must include the required headers.
+            </p>
+
+            <!-- Download Template Link -->
+            <div class="mb-5">
+              <a
+                data-testid="download-template-link"
+                (click)="downloadTemplate()"
+                class="inline-flex cursor-pointer items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80 hover:underline"
+              >
+                <i class="pi pi-download text-xs"></i>
+                Download Template
+              </a>
+            </div>
+
+            <!-- File Picker -->
+            <div class="mb-5">
+              <label class="mb-1.5 block text-xs font-medium text-muted">CSV File</label>
+              <input
+                type="file"
+                accept=".csv"
+                data-testid="csv-file-input"
+                (change)="onFileSelected($event)"
+                class="block w-full text-sm text-muted file:mr-4 file:rounded-lg file:border-0 file:bg-primary/10 file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-primary hover:file:bg-primary/20"
+              />
+              @if (selectedFile()) {
+                <p class="mt-1.5 text-xs text-muted">
+                  Selected: {{ selectedFile()!.name }} ({{ formatFileSize(selectedFile()!.size) }})
+                </p>
+              }
+            </div>
+
+            <!-- Upload Button -->
+            <button
+              (click)="uploadCsv()"
+              [disabled]="!selectedFile() || uploading()"
+              data-testid="upload-csv-btn"
+              class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+            >
+              @if (uploading()) {
+                <i class="pi pi-spinner pi-spin text-sm"></i>
+                Uploading...
+              } @else {
+                <i class="pi pi-upload text-sm"></i>
+                Upload CSV
+              }
+            </button>
+
+            <!-- Upload Results -->
+            @if (uploadResult()) {
+              <div class="mt-6" data-testid="upload-results">
+                <h4 class="mb-3 text-sm font-semibold text-text">Upload Results</h4>
+                <div class="rounded-lg border p-4"
+                  [class.border-green-200]="uploadResult()!.status === 'completed'"
+                  [class.bg-green-50]="uploadResult()!.status === 'completed'"
+                  [class.border-yellow-200]="uploadResult()!.status === 'partial'"
+                  [class.bg-yellow-50]="uploadResult()!.status === 'partial'"
+                  [class.border-red-200]="uploadResult()!.status === 'failed'"
+                  [class.bg-red-50]="uploadResult()!.status === 'failed'"
+                >
+                  <p class="text-sm font-medium"
+                    [class.text-green-800]="uploadResult()!.status === 'completed'"
+                    [class.text-yellow-800]="uploadResult()!.status === 'partial'"
+                    [class.text-red-800]="uploadResult()!.status === 'failed'"
+                  >
+                    {{ uploadResult()!.message }}
+                  </p>
+                </div>
+              </div>
+            }
+
+            <!-- Upload Error -->
+            @if (uploadError()) {
+              <div class="mt-6" data-testid="upload-error">
+                <div class="rounded-lg border border-red-200 bg-red-50 p-4">
+                  <p class="text-sm font-medium text-red-800">{{ uploadError() }}</p>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+      }
     </div>
 
     <!-- Edit Sale Dialog -->
@@ -445,6 +633,15 @@ export class SalesPageComponent implements OnInit {
   saving = signal(false);
   stockMap = signal<Map<string, number>>(new Map());
   productMap = signal<Map<string, string>>(new Map());
+
+  // Tab state
+  activeTab = signal<'record' | 'all' | 'upload'>('record');
+
+  // CSV upload state
+  selectedFile = signal<File | null>(null);
+  uploading = signal(false);
+  uploadResult = signal<BulkUploadResponse | null>(null);
+  uploadError = signal<string | null>(null);
 
   // Edit dialog state
   editDialogVisible = false;
@@ -657,6 +854,86 @@ export class SalesPageComponent implements OnInit {
         });
       },
     });
+  }
+
+  // ---- CSV Upload ----
+
+  onFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    this.selectedFile.set(file);
+    this.uploadResult.set(null);
+    this.uploadError.set(null);
+  }
+
+  downloadTemplate(): void {
+    const csvContent = 'product_id,quantity,unit_price,sale_date,channel\n';
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'sales_upload_template.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  uploadCsv(): void {
+    const file = this.selectedFile();
+    if (!file) return;
+
+    this.uploading.set(true);
+    this.uploadResult.set(null);
+    this.uploadError.set(null);
+
+    this.salesService.uploadCsv(file).subscribe({
+      next: (result) => {
+        this.uploading.set(false);
+        this.uploadResult.set(result);
+        this.selectedFile.set(null);
+
+        if (result.status === 'completed') {
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Upload Complete',
+            detail: result.message,
+          });
+          // Auto-switch to All Sales tab and reload
+          this.activeTab.set('all');
+          this.loadHistory();
+          this.loadInventory();
+        } else if (result.status === 'partial') {
+          this.messageService.add({
+            severity: 'warn',
+            summary: 'Partial Upload',
+            detail: result.message,
+          });
+          this.loadHistory();
+          this.loadInventory();
+        } else {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Upload Failed',
+            detail: result.message,
+          });
+        }
+      },
+      error: (err) => {
+        this.uploading.set(false);
+        const detail = err?.error?.detail || 'Failed to upload CSV file';
+        this.uploadError.set(detail);
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Upload Error',
+          detail,
+        });
+      },
+    });
+  }
+
+  formatFileSize(bytes: number): string {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
   }
 
   private loadHistory(): void {
