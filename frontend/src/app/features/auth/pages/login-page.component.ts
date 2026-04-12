@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, signal, inject } from '@angular/core';
+import { Component, ChangeDetectionStrategy, signal, computed, inject, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -26,7 +26,14 @@ import { AuthService } from '../../../core/services/auth.service';
             <p class="mt-1 text-sm text-muted">Sign in to your business dashboard</p>
           </div>
 
-          @if (errorMessage()) {
+          @if (lockoutDisplay()) {
+            <div
+              class="mb-4 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700"
+            >
+              <i class="pi pi-clock"></i>
+              Account locked. Try again in {{ lockoutDisplay() }}
+            </div>
+          } @else if (errorMessage()) {
             <div
               class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-danger"
             >
@@ -70,7 +77,7 @@ import { AuthService } from '../../../core/services/auth.service';
             </div>
             <button
               type="submit"
-              [disabled]="loading()"
+              [disabled]="loading() || lockoutSeconds() > 0"
               class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
             >
               @if (loading()) {
@@ -151,20 +158,62 @@ import { AuthService } from '../../../core/services/auth.service';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class LoginPageComponent {
+export class LoginPageComponent implements OnDestroy {
   private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
+  private lockoutTimer: ReturnType<typeof setInterval> | null = null;
 
   email = '';
   password = '';
   loading = signal(false);
   errorMessage = signal('');
 
+  // Lockout countdown state
+  lockoutSeconds = signal(0);
+  lockoutDisplay = computed(() => {
+    const secs = this.lockoutSeconds();
+    if (secs <= 0) return '';
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  });
+
   // Forgot password state
   showForgotPassword = signal(false);
   forgotEmail = '';
   forgotLoading = signal(false);
   forgotPasswordMessage = signal('');
+
+  ngOnDestroy(): void {
+    this.clearLockoutTimer();
+  }
+
+  private clearLockoutTimer(): void {
+    if (this.lockoutTimer !== null) {
+      clearInterval(this.lockoutTimer);
+      this.lockoutTimer = null;
+    }
+  }
+
+  private startLockoutCountdown(lockedUntilIso: string): void {
+    this.clearLockoutTimer();
+    const lockedUntil = new Date(lockedUntilIso).getTime();
+    const remaining = Math.max(0, Math.ceil((lockedUntil - Date.now()) / 1000));
+    this.lockoutSeconds.set(remaining);
+    this.errorMessage.set('');
+
+    if (remaining <= 0) return;
+
+    this.lockoutTimer = setInterval(() => {
+      const current = this.lockoutSeconds();
+      if (current <= 1) {
+        this.lockoutSeconds.set(0);
+        this.clearLockoutTimer();
+      } else {
+        this.lockoutSeconds.set(current - 1);
+      }
+    }, 1000);
+  }
 
   onLogin(): void {
     if (!this.email || !this.password) return;
@@ -178,8 +227,10 @@ export class LoginPageComponent {
       },
       error: (err: HttpErrorResponse) => {
         this.loading.set(false);
-        if (err.status === 429) {
-          this.errorMessage.set('Account locked for 15 minutes due to failed login attempts.');
+        if (err.status === 429 && err.error?.locked_until) {
+          this.startLockoutCountdown(err.error.locked_until);
+        } else if (err.status === 429) {
+          this.errorMessage.set('Account locked due to failed login attempts. Try again later.');
         } else if (err.status === 401) {
           this.errorMessage.set('Invalid email or password.');
         } else {
