@@ -1,0 +1,295 @@
+import { test, expect, request as pwRequest } from '@playwright/test';
+import { ensureTestUser, loginViaUI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
+
+const API = 'http://localhost:8000/api/v1';
+
+// Create the test user once for this suite
+test.beforeAll(async () => {
+  await ensureTestUser();
+});
+
+// Authenticate and land on /products before every test
+test.beforeEach(async ({ page }) => {
+  await loginViaUI(page);
+  await page.goto('/products');
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Products page basics
+// ---------------------------------------------------------------------------
+
+test('shows the Products page heading and New Product button', async ({ page }) => {
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New Product' })).toBeVisible();
+});
+
+test('displays product tabs (All Products, Stock Report, Add Product, Categories)', async ({
+  page,
+}) => {
+  await expect(page.getByRole('button', { name: /All Products/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Stock Report/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Add Product/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Categories/ })).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Grid / List view toggle
+// ---------------------------------------------------------------------------
+
+test('toggles between grid and list view', async ({ page }) => {
+  // Default is list view (table should be visible)
+  const listToggle = page.locator('button[title="List view"]');
+  const gridToggle = page.locator('button[title="Grid view"]');
+
+  await expect(listToggle).toBeVisible();
+  await expect(gridToggle).toBeVisible();
+
+  // Click grid view
+  await gridToggle.click();
+  await expect(gridToggle).toHaveClass(/bg-primary/);
+
+  // Click list view
+  await listToggle.click();
+  await expect(listToggle).toHaveClass(/bg-primary/);
+});
+
+// ---------------------------------------------------------------------------
+// Search filter
+// ---------------------------------------------------------------------------
+
+test('search input filters products', async ({ page }) => {
+  const searchInput = page.getByPlaceholder('Search products...');
+  await expect(searchInput).toBeVisible();
+
+  // Type a search that is unlikely to match anything
+  await searchInput.fill('zzzznonexistent');
+  // Wait for filtering to apply
+  await page.waitForTimeout(500);
+
+  // The table body should either show "No products found" or have zero data rows
+  const noResults = page.getByText(/No products/i);
+  const isNoResults = await noResults.isVisible().catch(() => false);
+  if (!isNoResults) {
+    // If the table just becomes empty, at least the rows should be less
+    const rows = await page.locator('tbody tr').count();
+    // With a nonsense search, there should be very few or zero rows
+    expect(rows).toBeLessThanOrEqual(1);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// New Product button opens add form
+// ---------------------------------------------------------------------------
+
+test('"New Product" button switches to Add Product tab', async ({ page }) => {
+  await page.getByRole('button', { name: 'New Product' }).click();
+
+  // The add product form should be visible
+  const addForm = page.locator('#add-product-form');
+  await expect(addForm).toBeVisible();
+  await expect(addForm.getByPlaceholder('Product name')).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Create product flow
+// ---------------------------------------------------------------------------
+
+test('can create a product without a category', async ({ page }) => {
+  const name = `E2E Product ${Date.now()}`;
+
+  // Open Add Product tab via the "New Product" button
+  await page.getByRole('button', { name: 'New Product' }).click();
+
+  const addForm = page.locator('#add-product-form');
+  await expect(addForm).toBeVisible();
+
+  // Fill form
+  await addForm.getByPlaceholder('Product name').fill(name);
+  const numberInputs = addForm.locator('input[type="number"]');
+  await numberInputs.nth(0).fill('200'); // unit_cost
+  await numberInputs.nth(1).fill('350'); // selling_price
+
+  // Submit
+  await addForm.getByRole('button', { name: 'Create Product' }).click();
+
+  // Switches back to All Products tab; new product appears
+  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+});
+
+// ---------------------------------------------------------------------------
+// Edit a product
+// ---------------------------------------------------------------------------
+
+test('can edit a product name and price', async ({ page }) => {
+  const name = `E2E Edit ${Date.now()}`;
+  const updatedName = `${name} Updated`;
+
+  // Create product first via Add tab
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+  await addForm.getByPlaceholder('Product name').fill(name);
+  const createNumbers = addForm.locator('input[type="number"]');
+  await createNumbers.nth(0).fill('100');
+  await createNumbers.nth(1).fill('180');
+  await addForm.getByRole('button', { name: 'Create Product' }).click();
+  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+
+  // Open the actions menu for this product row
+  const row = page.locator('tr').filter({ hasText: name });
+  await row.locator('button').last().click(); // ellipsis button
+
+  // Click Edit in the dropdown
+  await page.locator('button[title="Edit product"]').click();
+
+  // The edit dialog should open
+  const editDialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Product' });
+  await expect(editDialog).toBeVisible();
+
+  const nameInput = editDialog.locator('input').first();
+  await nameInput.clear();
+  await nameInput.fill(updatedName);
+
+  await editDialog.getByRole('button', { name: 'Save Changes' }).click();
+
+  await expect(page.getByText(updatedName)).toBeVisible({ timeout: 10_000 });
+});
+
+// ---------------------------------------------------------------------------
+// Delete a product
+// ---------------------------------------------------------------------------
+
+test('can delete a product', async ({ page }) => {
+  const name = `E2E Delete ${Date.now()}`;
+
+  // Create product via Add tab
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+  await addForm.getByPlaceholder('Product name').fill(name);
+  const nums = addForm.locator('input[type="number"]');
+  await nums.nth(0).fill('50');
+  await nums.nth(1).fill('90');
+  await addForm.getByRole('button', { name: 'Create Product' }).click();
+  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+
+  // Open actions menu then click Delete
+  const row = page.locator('tr').filter({ hasText: name });
+  await row.locator('button').last().click(); // ellipsis button
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.locator('button[title="Delete product"]').click();
+
+  // Row should disappear
+  await expect(page.getByText(name)).not.toBeVisible({ timeout: 10_000 });
+});
+
+// ---------------------------------------------------------------------------
+// Category management tab
+// ---------------------------------------------------------------------------
+
+test('Categories tab shows category list', async ({ page }) => {
+  await page.getByRole('button', { name: /Categories/ }).click();
+  // The categories tab should be active and show a form or list
+  await page.waitForTimeout(1000);
+  // Either "Add Category" or an existing category list is visible
+  const hasCategoryContent =
+    (await page.getByText(/category/i).count()) > 0 ||
+    (await page.getByPlaceholder('Category name').isVisible().catch(() => false));
+  expect(hasCategoryContent).toBeTruthy();
+});
+
+// ---------------------------------------------------------------------------
+// Inline category creation inside Add Product tab
+// ---------------------------------------------------------------------------
+
+test('Add Product tab shows a "New category" toggle', async ({ page }) => {
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+  await expect(addForm).toBeVisible();
+  await expect(addForm.getByRole('button', { name: /New category/i })).toBeVisible();
+});
+
+test('clicking "New category" reveals the inline input', async ({ page }) => {
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+
+  await addForm.getByRole('button', { name: /New category/i }).click();
+
+  // Inline input and Save category button should appear
+  await expect(addForm.getByPlaceholder('Category name')).toBeVisible();
+  await expect(addForm.locator('button[title="Save category"]')).toBeVisible();
+
+  // The category select should be hidden
+  await expect(addForm.locator('#add-cat-select')).not.toBeVisible();
+});
+
+test('can create a category inline and it is auto-selected', async ({ page }) => {
+  const catName = `E2E Cat ${Date.now()}`;
+
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+
+  // Open inline form
+  await addForm.getByRole('button', { name: /New category/i }).click();
+  await addForm.getByPlaceholder('Category name').fill(catName);
+  await addForm.locator('button[title="Save category"]').click();
+
+  // Inline form closes, select reappears with new category auto-selected
+  await expect(addForm.getByPlaceholder('Category name')).not.toBeVisible({ timeout: 8_000 });
+  await expect(addForm.locator('#add-cat-select')).toBeVisible();
+
+  const selectedText = await addForm.locator('#add-cat-select').evaluate(
+    (sel: HTMLSelectElement) => sel.options[sel.selectedIndex]?.text ?? '',
+  );
+  expect(selectedText).toContain(catName);
+});
+
+test('can create a product with the inline-created category', async ({ page }) => {
+  const catName = `E2E Cat ${Date.now()}`;
+  const productName = `E2E Product Cat ${Date.now()}`;
+
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+
+  // Create category inline
+  await addForm.getByRole('button', { name: /New category/i }).click();
+  await addForm.getByPlaceholder('Category name').fill(catName);
+  await addForm.locator('button[title="Save category"]').click();
+  await expect(addForm.locator('#add-cat-select')).toBeVisible({ timeout: 8_000 });
+
+  // Fill product details
+  await addForm.getByPlaceholder('Product name').fill(productName);
+  const prodNums = addForm.locator('input[type="number"]');
+  await prodNums.nth(0).fill('75');
+  await prodNums.nth(1).fill('120');
+
+  await addForm.getByRole('button', { name: 'Create Product' }).click();
+
+  // Product appears in the list
+  await expect(page.getByText(productName)).toBeVisible({ timeout: 10_000 });
+});
+
+// ---------------------------------------------------------------------------
+// API-level: products endpoint returns image_url field
+// ---------------------------------------------------------------------------
+
+test('GET /api/v1/products returns image_url field in items', async () => {
+  const ctx = await pwRequest.newContext();
+  const loginResp = await ctx.post(`${API}/auth/login`, {
+    data: { email: E2E_EMAIL, password: E2E_PASSWORD },
+  });
+  const { access_token } = await loginResp.json();
+
+  const resp = await ctx.get(`${API}/products`, {
+    headers: { Authorization: `Bearer ${access_token}` },
+  });
+  expect(resp.status()).toBe(200);
+
+  const body = await resp.json();
+  expect(body).toHaveProperty('items');
+  // Each item should have image_url key (may be null, but the key must exist)
+  if (body.items.length > 0) {
+    expect(body.items[0]).toHaveProperty('image_url');
+  }
+
+  await ctx.dispose();
+});

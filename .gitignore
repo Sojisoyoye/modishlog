@@ -47,4 +47,3 @@ dev-debug.log
 # Test results
 test-results/
 frontend/test-results/
-frontend/e2e/
