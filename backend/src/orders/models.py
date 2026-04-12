@@ -53,6 +53,9 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     fx_rate_at_creation: Mapped[Decimal | None] = mapped_column(
         Numeric(18, 6), default=None
     )
+    fx_rate_at_delivery: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6), default=None
+    )
     expected_delivery_date: Mapped[date | None] = mapped_column(Date, default=None)
     actual_delivery_date: Mapped[date | None] = mapped_column(Date, default=None)
     shipping_cost: Mapped[Decimal] = mapped_column(

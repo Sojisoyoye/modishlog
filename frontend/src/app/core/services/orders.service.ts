@@ -12,6 +12,7 @@ export interface Order {
   order_date: string;
   estimated_arrival_date: string | null;
   locked_fx_rate: number | null;
+  fx_rate_at_delivery: number | null;
   locked_amount_usd: number;
   floating_amount_usd: number;
   items: OrderItem[];
@@ -64,8 +65,12 @@ export class OrdersService {
     return this.api.post<Order>('/orders', data);
   }
 
-  updateStatus(id: string, newStatus: string): Observable<Order> {
-    return this.api.put<Order>(`/orders/${id}/status`, { status: newStatus });
+  updateStatus(id: string, newStatus: string, fxRateAtDelivery?: number): Observable<Order> {
+    const body: Record<string, unknown> = { new_status: newStatus };
+    if (fxRateAtDelivery != null) {
+      body['fx_rate_at_delivery'] = fxRateAtDelivery;
+    }
+    return this.api.put<Order>(`/orders/${id}/status`, body);
   }
 
   getPipeline(): Observable<Record<string, number>> {

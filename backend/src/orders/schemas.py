@@ -40,6 +40,7 @@ class OrderCreate(BaseModel):
     supplier_contact: str | None = None
     currency: str = "USD"
     fx_rate_at_creation: Decimal | None = None
+    order_date: date | None = None
     expected_delivery_date: date | None = None
     production_days: int | None = None
     shipping_days: int | None = None
@@ -77,6 +78,7 @@ class OrderRead(BaseModel):
     total_amount: Decimal
     currency: str
     fx_rate_at_creation: Decimal | None = None
+    fx_rate_at_delivery: Decimal | None = None
     shipping_cost: Decimal = Decimal("0")
     clearing_cost: Decimal = Decimal("0")
     expected_delivery_date: date | None = None
@@ -107,6 +109,7 @@ class OrderListResponse(BaseModel):
 class StatusTransition(BaseModel):
     new_status: str
     actual_delivery_date: date | None = None
+    fx_rate_at_delivery: Decimal | None = None
     notes: str | None = None
 
 

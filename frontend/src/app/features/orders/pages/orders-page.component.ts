@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { CurrencyPipe, DatePipe } from '@angular/common';
+import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
@@ -12,11 +12,12 @@ import {
   CreateOrderPayload,
 } from '../../../core/services/orders.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
+import { FxService } from '../../../core/services/fx.service';
 
 @Component({
   selector: 'app-orders-page',
   standalone: true,
-  imports: [FormsModule, CurrencyPipe, DatePipe, Toast, Dialog, StatusBadgeComponent],
+  imports: [FormsModule, CurrencyPipe, DatePipe, DecimalPipe, Toast, Dialog, StatusBadgeComponent],
   template: `
     <p-toast />
     <div>
@@ -203,19 +204,72 @@ import { ProductsService, Product } from '../../../core/services/products.servic
                 </p>
               </div>
             </div>
+            @if (selectedOrder()!.locked_fx_rate && selectedOrder()!.fx_rate_at_delivery) {
+              <div class="mt-4 rounded-lg bg-gray-50 p-3">
+                <p class="mb-2 text-xs font-bold uppercase tracking-wider text-muted">
+                  Predicted vs Actual FX Rate
+                </p>
+                <div class="grid grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <p class="text-xs text-muted">At Creation</p>
+                    <p class="mt-0.5 font-semibold text-text">
+                      {{ selectedOrder()!.locked_fx_rate | number: '1.2-2' }}
+                    </p>
+                  </div>
+                  <div>
+                    <p class="text-xs text-muted">At Delivery</p>
+                    <p class="mt-0.5 font-semibold text-text">
+                      {{ selectedOrder()!.fx_rate_at_delivery | number: '1.2-2' }}
+                    </p>
+                  </div>
+                  <div>
+                    <p class="text-xs text-muted">Difference</p>
+                    <p
+                      class="mt-0.5 font-semibold"
+                      [class.text-success]="selectedOrder()!.fx_rate_at_delivery! <= selectedOrder()!.locked_fx_rate!"
+                      [class.text-danger]="selectedOrder()!.fx_rate_at_delivery! > selectedOrder()!.locked_fx_rate!"
+                    >
+                      {{ (selectedOrder()!.fx_rate_at_delivery! - selectedOrder()!.locked_fx_rate!) | number: '1.2-2' }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            }
           </div>
 
           <!-- Status Transitions -->
           @if (nextStatuses(selectedOrder()!.status).length > 0) {
-            <div class="flex gap-2">
-              @for (ns of nextStatuses(selectedOrder()!.status); track ns) {
-                <button
-                  (click)="transitionStatus(selectedOrder()!.id, ns)"
-                  class="flex items-center gap-1.5 rounded-lg border border-secondary px-4 py-2 text-sm font-semibold text-secondary transition-all hover:bg-secondary hover:text-white"
-                >
-                  <i class="pi pi-arrow-right text-xs"></i> Move to {{ ns }}
-                </button>
+            <div class="space-y-3">
+              @if (nextStatuses(selectedOrder()!.status).includes('Delivered')) {
+                <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                  <label class="mb-1.5 block text-xs font-medium text-muted">
+                    FX Rate at Delivery (USDNGN)
+                  </label>
+                  <input
+                    type="number"
+                    [(ngModel)]="deliveryFxRate"
+                    step="0.01"
+                    min="0"
+                    placeholder="Enter current FX rate"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  />
+                  @if (deliveryFxRate) {
+                    <p class="mt-1 text-xs text-muted">
+                      This rate will be recorded for cost comparison
+                    </p>
+                  }
+                </div>
               }
+              <div class="flex gap-2">
+                @for (ns of nextStatuses(selectedOrder()!.status); track ns) {
+                  <button
+                    (click)="transitionStatus(selectedOrder()!.id, ns)"
+                    class="flex items-center gap-1.5 rounded-lg border border-secondary px-4 py-2 text-sm font-semibold text-secondary transition-all hover:bg-secondary hover:text-white"
+                  >
+                    <i class="pi pi-arrow-right text-xs"></i> Move to {{ ns }}
+                  </button>
+                }
+              </div>
             </div>
           }
         </div>
@@ -327,6 +381,7 @@ import { ProductsService, Product } from '../../../core/services/products.servic
 export class OrdersPageComponent implements OnInit {
   private readonly ordersService = inject(OrdersService);
   private readonly productsService = inject(ProductsService);
+  private readonly fxService = inject(FxService);
   private readonly messageService = inject(MessageService);
 
   orders = signal<Order[]>([]);
@@ -335,19 +390,20 @@ export class OrdersPageComponent implements OnInit {
   detailVisible = false;
   showCreate = false;
   creating = signal(false);
+  deliveryFxRate: number | null = null;
 
   newOrder = { supplier: '', production_days: 30, shipping_days: 21, clearing_days: 14 };
   newOrderItems = signal<{ product_id: string; quantity: number; unit_cost_usd: number }[]>([
     { product_id: '', quantity: 1, unit_cost_usd: 0 },
   ]);
 
-  readonly pipelineStatuses = ['PENDING', 'IN_PRODUCTION', 'SHIPPED', 'CLEARING', 'DELIVERED'];
+  readonly pipelineStatuses = ['Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];
 
   private readonly statusTransitions: Record<string, string[]> = {
-    PENDING: ['IN_PRODUCTION'],
-    IN_PRODUCTION: ['SHIPPED'],
-    SHIPPED: ['CLEARING'],
-    CLEARING: ['DELIVERED'],
+    Pending: ['In Production'],
+    'In Production': ['Shipping'],
+    Shipping: ['Cleared'],
+    Cleared: ['Delivered'],
   };
 
   ngOnInit(): void {
@@ -364,15 +420,27 @@ export class OrdersPageComponent implements OnInit {
   }
 
   orderStatus(status: string): 'info' | 'warning' | 'success' | 'neutral' {
-    if (status === 'DELIVERED') return 'success';
-    if (status === 'SHIPPED' || status === 'CLEARING') return 'warning';
-    if (status === 'IN_PRODUCTION') return 'info';
+    if (status === 'Delivered') return 'success';
+    if (status === 'Shipping' || status === 'Cleared') return 'warning';
+    if (status === 'In Production') return 'info';
     return 'neutral';
   }
 
   viewOrder(order: Order): void {
     this.selectedOrder.set(order);
     this.detailVisible = true;
+    this.deliveryFxRate = null;
+
+    // Pre-fill FX rate when order can transition to DELIVERED
+    if (this.nextStatuses(order.status).includes('DELIVERED')) {
+      this.fxService.getLatest().subscribe({
+        next: (fx) => {
+          if (fx && fx.rate > 0) {
+            this.deliveryFxRate = fx.rate;
+          }
+        },
+      });
+    }
   }
 
   nextStatuses(status: string): string[] {
@@ -380,9 +448,13 @@ export class OrdersPageComponent implements OnInit {
   }
 
   transitionStatus(id: string, newStatus: string): void {
-    this.ordersService.updateStatus(id, newStatus).subscribe({
+    const fxRate = newStatus === 'Delivered' && this.deliveryFxRate
+      ? this.deliveryFxRate
+      : undefined;
+    this.ordersService.updateStatus(id, newStatus, fxRate).subscribe({
       next: (updated) => {
         this.selectedOrder.set(updated);
+        this.deliveryFxRate = null;
         this.messageService.add({
           severity: 'success',
           summary: 'Updated',

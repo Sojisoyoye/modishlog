@@ -96,6 +96,7 @@ def _make_order(**overrides):
         total_amount=Decimal("5000.000000"),
         currency="USD",
         fx_rate_at_creation=Decimal("1500.000000"),
+        fx_rate_at_delivery=None,
         expected_delivery_date=date(2026, 6, 15),
         actual_delivery_date=None,
         notes=None,
@@ -447,6 +448,128 @@ class TestTransitionStatus:
         assert result.actual_delivery_date == date(2026, 3, 30)
         # Inventory should be restocked: 50 + 10 = 60
         assert inventory.quantity_on_hand == 60
+
+    @pytest.mark.asyncio
+    async def test_delivery_with_fx_rate_stores_value(self):
+        """When transitioning to DELIVERED with fx_rate_at_delivery, it is stored on the order."""
+        product_id = uuid.uuid4()
+        line_item = _make_line_item(product_id=product_id, quantity=5)
+        inventory = _make_inventory(product_id=product_id, quantity_on_hand=20)
+        order = _make_order(
+            status=OrderStatus.CLEARED,
+            line_items=[line_item],
+            fx_rate_at_creation=Decimal("1500.000000"),
+        )
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = inventory
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        transition = StatusTransition(
+            new_status="Delivered",
+            actual_delivery_date=date(2026, 4, 10),
+            fx_rate_at_delivery=Decimal("1620.500000"),
+        )
+        result = await transition_status(db, order.id, transition, uuid.uuid4())
+        assert result.status == OrderStatus.DELIVERED
+        assert result.fx_rate_at_delivery == Decimal("1620.500000")
+
+    @pytest.mark.asyncio
+    async def test_delivery_without_fx_rate_still_works(self):
+        """Transitioning to DELIVERED without fx_rate_at_delivery still works (field stays None)."""
+        product_id = uuid.uuid4()
+        line_item = _make_line_item(product_id=product_id, quantity=3)
+        inventory = _make_inventory(product_id=product_id, quantity_on_hand=10)
+        order = _make_order(
+            status=OrderStatus.CLEARED,
+            line_items=[line_item],
+        )
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = inventory
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        transition = StatusTransition(
+            new_status="Delivered",
+            actual_delivery_date=date(2026, 4, 10),
+        )
+        result = await transition_status(db, order.id, transition, uuid.uuid4())
+        assert result.status == OrderStatus.DELIVERED
+        assert result.fx_rate_at_delivery is None
+
+    @pytest.mark.asyncio
+    async def test_delivery_fx_rate_used_for_fifo_batches(self):
+        """When fx_rate_at_delivery is provided, FIFO batches use it instead of fx_rate_at_creation."""
+        product_id = uuid.uuid4()
+        line_item = _make_line_item(product_id=product_id, quantity=10)
+        inventory = _make_inventory(product_id=product_id, quantity_on_hand=50)
+        order = _make_order(
+            status=OrderStatus.CLEARED,
+            line_items=[line_item],
+            fx_rate_at_creation=Decimal("1500.000000"),
+        )
+
+        db = _mock_db()
+        call_count = 0
+        batch_args = {}
+
+        original_add = db.add
+
+        def tracking_add(obj):
+            # Capture batch creation arguments
+            if hasattr(obj, "fx_rate_at_arrival"):
+                batch_args["fx_rate_at_arrival"] = obj.fx_rate_at_arrival
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = inventory
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        transition = StatusTransition(
+            new_status="Delivered",
+            actual_delivery_date=date(2026, 4, 10),
+            fx_rate_at_delivery=Decimal("1650.000000"),
+        )
+        result = await transition_status(db, order.id, transition, uuid.uuid4())
+        assert result.fx_rate_at_delivery == Decimal("1650.000000")
 
 
 # ---------------------------------------------------------------------------
