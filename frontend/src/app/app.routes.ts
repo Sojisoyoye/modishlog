@@ -64,6 +64,13 @@ export const routes: Routes = [
             (m) => m.RecommendationsPageComponent,
           ),
       },
+      {
+        path: 'products',
+        loadComponent: () =>
+          import('./features/products/pages/products-page.component').then(
+            (m) => m.ProductsPageComponent,
+          ),
+      },
     ],
   },
   {

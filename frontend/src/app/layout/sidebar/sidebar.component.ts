@@ -58,6 +58,7 @@ export class SidebarComponent {
   readonly navItems = signal<NavItem[]>([
     { label: 'Dashboard', route: '/dashboard', icon: 'pi-home' },
     { label: 'Sales', route: '/sales', icon: 'pi-shopping-cart' },
+    { label: 'Products', route: '/products', icon: 'pi-barcode' },
     { label: 'Inventory', route: '/inventory', icon: 'pi-box' },
     { label: 'Orders', route: '/orders', icon: 'pi-truck' },
     { label: 'Pricing', route: '/pricing', icon: 'pi-tag' },
