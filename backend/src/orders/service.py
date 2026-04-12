@@ -360,8 +360,13 @@ async def transition_status(
     if new_status == OrderStatus.DELIVERED:
         order.actual_delivery_date = transition.actual_delivery_date or date.today()
 
+        # Store FX rate at delivery if provided
+        if transition.fx_rate_at_delivery is not None:
+            order.fx_rate_at_delivery = transition.fx_rate_at_delivery
+
         # Restock inventory and create FIFO batches for each line item
-        fx_rate = order.fx_rate_at_creation or Decimal("1500")
+        # Prefer delivery FX rate over creation rate for FIFO cost calculations
+        fx_rate = transition.fx_rate_at_delivery or order.fx_rate_at_creation or Decimal("1500")
         total_logistics = (order.shipping_cost or Decimal("0")) + (order.clearing_cost or Decimal("0"))
         total_units = sum(li.quantity for li in order.line_items) or 1
         logistics_per_unit = (total_logistics / Decimal(str(total_units))).quantize(
