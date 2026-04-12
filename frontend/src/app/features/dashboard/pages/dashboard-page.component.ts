@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { DecimalPipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
@@ -70,13 +70,15 @@ import { OrdersService, LogisticsEfficiency } from '../../../core/services/order
               <div>
                 <p class="text-xs text-muted">Cash Runway</p>
                 <p class="text-xl font-bold text-text">
-                  {{ data().liquidity.cash_runway_days }} days
+                  {{ runwayMonths() }} months
+                  <i class="text-sm" [class]="trendArrowClass()"></i>
                 </p>
               </div>
               <div>
                 <p class="text-xs text-muted">DSCR</p>
                 <p class="text-xl font-bold" [class]="dscrColor()">
                   {{ data().liquidity.dscr | number: '1.2-2' }}
+                  <i class="text-sm" [class]="trendArrowClass()"></i>
                 </p>
               </div>
             </div>
@@ -357,6 +359,18 @@ export class DashboardPageComponent implements OnInit {
     inventoryAlerts: [],
     recommendations: [],
   });
+
+  runwayMonths = computed(() => {
+    const days = this.data().liquidity.cash_runway_days;
+    return (days / 30).toFixed(1);
+  });
+
+  trendArrowClass(): string {
+    const r = this.data().liquidity.risk_rating;
+    if (r === 'LOW') return 'pi pi-arrow-up text-success';
+    if (r === 'HIGH') return 'pi pi-arrow-down text-danger';
+    return 'pi pi-minus text-warning';
+  }
 
   ngOnInit(): void {
     this.dashboardService.loadDashboard().subscribe({

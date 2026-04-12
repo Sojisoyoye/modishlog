@@ -118,11 +118,21 @@ import {
 
       <!-- Historical Chart -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div class="mb-5 flex items-center gap-2">
-          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-            <i class="pi pi-chart-line text-sm text-secondary"></i>
+        <div class="mb-5 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+              <i class="pi pi-chart-line text-sm text-secondary"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Historical Rates (90 days)</h3>
           </div>
-          <h3 class="text-base font-semibold text-text">Historical Rates (90 days)</h3>
+          @if (historyRates().length > 0) {
+            <button
+              (click)="exportHistoryCsv()"
+              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+            >
+              <i class="pi pi-download text-xs"></i> Export CSV
+            </button>
+          }
         </div>
         @if (historyChartData()) {
           <p-chart
@@ -344,6 +354,7 @@ export class FxPageComponent implements OnInit {
 
   latestRate = signal<FxRate | null>(null);
   latestEurUsd = signal<FxRate | null>(null);
+  historyRates = signal<FxRate[]>([]);
   historyChartData = signal<unknown>(null);
   forecastChartData = signal<unknown>(null);
   forecasts = signal<FxForecast[]>([]);
@@ -372,6 +383,7 @@ export class FxPageComponent implements OnInit {
     this.fxService.getAlerts().subscribe({ next: (a) => this.alerts.set(a) });
     this.fxService.getHistory(90).subscribe({
       next: (rates) => {
+        this.historyRates.set(rates);
         this.historyChartData.set({
           labels: rates.map((r) => r.rate_date),
           datasets: [
@@ -505,6 +517,23 @@ export class FxPageComponent implements OnInit {
           });
         },
       });
+  }
+
+  exportHistoryCsv(): void {
+    const rates = this.historyRates();
+    if (rates.length === 0) return;
+    const header = 'Date,Rate,Source';
+    const lines = rates.map(
+      (r) => `${r.rate_date},${r.rate},${r.source}`,
+    );
+    const csv = [header, ...lines].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'fx_rates_history.csv';
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   deleteAlert(id: string): void {

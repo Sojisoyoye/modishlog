@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe, CurrencyPipe } from '@angular/common';
 import { UIChart } from 'primeng/chart';
@@ -31,7 +31,7 @@ import {
               </div>
               <p class="text-sm font-medium text-muted">Cash Runway</p>
             </div>
-            <p class="text-3xl font-bold text-text">{{ liquidity().cash_runway_days }} days</p>
+            <p class="text-3xl font-bold text-text">{{ runwayMonths() }} months</p>
           </div>
           <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <div class="mb-2 flex items-center gap-2">
@@ -207,10 +207,22 @@ import {
               FX +20%
             </button>
             <button
+              (click)="fxShock = 0; demandDrop = 10; runScenario()"
+              class="rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
+            >
+              Demand -10%
+            </button>
+            <button
               (click)="fxShock = 0; demandDrop = 20; runScenario()"
               class="rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
             >
               Demand -20%
+            </button>
+            <button
+              (click)="fxShock = 20; demandDrop = 20; runScenario()"
+              class="rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
+            >
+              Combined Stress
             </button>
           </div>
           <button
@@ -223,7 +235,7 @@ import {
         @if (scenarioResult()) {
           <div class="mt-5 rounded-xl border border-gray-200 bg-gray-50 p-5">
             <p class="text-sm font-bold text-text">{{ scenarioResult()!.label }}</p>
-            <div class="mt-3 grid grid-cols-2 gap-6 text-sm">
+            <div class="mt-3 grid grid-cols-3 gap-6 text-sm">
               <div>
                 <p class="text-xs font-medium text-muted">Worst DSCR</p>
                 <p
@@ -236,9 +248,22 @@ import {
               <div>
                 <p class="text-xs font-medium text-muted">Cash Runway</p>
                 <p class="mt-1 text-2xl font-bold text-text">
-                  {{ scenarioResult()!.cash_runway_days }} days
+                  {{ scenarioRunwayMonths() }} months
                 </p>
               </div>
+              @if (scenarioResult()!.risk_rating) {
+                <div>
+                  <p class="text-xs font-medium text-muted">Portfolio Margin</p>
+                  <p class="mt-1 text-lg font-semibold"
+                    [class]="scenarioResult()!.risk_rating === 'HIGH' ? 'text-danger' : scenarioResult()!.risk_rating === 'MEDIUM' ? 'text-warning' : 'text-success'"
+                  >
+                    Likely impacted
+                    <span class="ml-1 rounded-full px-2 py-0.5 text-xs font-medium"
+                      [class]="scenarioResult()!.risk_rating === 'HIGH' ? 'bg-red-100 text-red-700' : scenarioResult()!.risk_rating === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'"
+                    >{{ scenarioResult()!.risk_rating }}</span>
+                  </p>
+                </div>
+              }
             </div>
           </div>
         }
@@ -261,6 +286,17 @@ export class CashflowPageComponent implements OnInit {
   scenarioResult = signal<ScenarioResult | null>(null);
   fxShock = 0;
   demandDrop = 0;
+
+  runwayMonths = computed(() => {
+    const days = this.liquidity().cash_runway_days;
+    return (days / 30).toFixed(1);
+  });
+
+  scenarioRunwayMonths = computed(() => {
+    const result = this.scenarioResult();
+    if (!result) return '0.0';
+    return (result.cash_runway_days / 30).toFixed(1);
+  });
 
   readonly projectionOptions = {
     responsive: true,
