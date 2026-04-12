@@ -263,11 +263,21 @@ interface EntryRow {
       <!-- All Sales Tab -->
       @if (activeTab() === 'all') {
         <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div class="mb-5 flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
-              <i class="pi pi-list text-sm text-success"></i>
+          <div class="mb-5 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
+                <i class="pi pi-list text-sm text-success"></i>
+              </div>
+              <h3 class="text-base font-semibold text-text">All Sales</h3>
             </div>
-            <h3 class="text-base font-semibold text-text">All Sales</h3>
+            @if (history().length > 0) {
+              <button
+                (click)="exportSalesCsv()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              >
+                <i class="pi pi-download text-xs"></i> Export CSV
+              </button>
+            }
           </div>
 
           <div class="overflow-x-auto">
@@ -928,6 +938,24 @@ export class SalesPageComponent implements OnInit {
         });
       },
     });
+  }
+
+  exportSalesCsv(): void {
+    const rows = this.history();
+    if (rows.length === 0) return;
+    const header = 'Date,Product,Qty,Total,Status';
+    const lines = rows.map(
+      (s) =>
+        `${s.sale_date},${this.getProductName(s.product_id).replace(/,/g, ' ')},${s.quantity},${s.total_amount},${s.status}`,
+    );
+    const csv = [header, ...lines].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'sales_export.csv';
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   formatFileSize(bytes: number): string {

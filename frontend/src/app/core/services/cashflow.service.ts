@@ -34,6 +34,7 @@ export interface ScenarioResult {
   months: CashflowMonth[];
   worst_dscr: number;
   cash_runway_days: number;
+  risk_rating: string;
 }
 
 export interface GlobalExposure {
@@ -167,6 +168,7 @@ export class CashflowService {
           months: [],
           worst_dscr: Number(res.stressed.avg_dscr),
           cash_runway_days: Math.round(Number(res.stressed.cash_runway) * 30),
+          risk_rating: res.stressed.risk_rating,
         }))
       );
   }
@@ -214,6 +216,7 @@ export class CashflowService {
   }
 
   private toScenarioType(data: ScenarioInput): string {
+    if (data.fx_shock_pct >= 20 && data.demand_drop_pct >= 20) return 'COMBINED_STRESS';
     if (data.fx_shock_pct >= 20) return 'FX_SHOCK_20';
     if (data.fx_shock_pct >= 10) return 'FX_SHOCK_10';
     if (data.demand_drop_pct >= 20) return 'DEMAND_DROP_20';
