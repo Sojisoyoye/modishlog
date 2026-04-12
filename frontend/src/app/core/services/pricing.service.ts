@@ -73,6 +73,23 @@ export interface ScenarioCreate {
   results?: Record<string, unknown>;
 }
 
+export interface ElasticityRead {
+  id: string;
+  product_id: string;
+  elasticity_coefficient: number;
+  r_squared: number;
+  data_points_used: number;
+  calculation_date: string;
+  price_range_min: number;
+  price_range_max: number;
+  demand_curve_data: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface ElasticityConfigUpdate {
+  elasticity_coefficient: number;
+}
+
 export interface ScenarioRead {
   id: string;
   name: string;
@@ -118,5 +135,19 @@ export class PricingService {
 
   getScenarios(): Observable<ScenarioRead[]> {
     return this.api.get<ScenarioRead[]>('/pricing/scenarios');
+  }
+
+  getElasticity(productId: string): Observable<ElasticityRead> {
+    return this.api.get<ElasticityRead>(`/pricing/elasticity/${productId}`);
+  }
+
+  updateElasticity(
+    productId: string,
+    body: ElasticityConfigUpdate,
+  ): Observable<ElasticityRead> {
+    return this.api.post<ElasticityRead>(
+      `/pricing/configure-elasticity/${productId}`,
+      body,
+    );
   }
 }

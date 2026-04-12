@@ -4,7 +4,12 @@ import { DecimalPipe, DatePipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { UIChart } from 'primeng/chart';
-import { FxService, FxRate, FxForecast } from '../../../core/services/fx.service';
+import {
+  FxService,
+  FxRate,
+  FxForecast,
+  FXAlertRead,
+} from '../../../core/services/fx.service';
 
 @Component({
   selector: 'app-fx-page',
@@ -194,6 +199,141 @@ import { FxService, FxRate, FxForecast } from '../../../core/services/fx.service
           </div>
         }
       </div>
+
+      <!-- Rate Alerts -->
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50">
+            <i class="pi pi-bell text-sm text-danger"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Rate Alerts</h3>
+        </div>
+
+        <!-- Create Alert Form -->
+        <div class="mb-5 flex flex-wrap items-end gap-3">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Pair</label>
+            <select
+              [(ngModel)]="alertPair"
+              class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              <option value="USDNGN">USD/NGN</option>
+              <option value="EURUSD">EUR/USD</option>
+            </select>
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Direction</label>
+            <select
+              [(ngModel)]="alertDirection"
+              class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              <option value="above">Above</option>
+              <option value="below">Below</option>
+            </select>
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Threshold Rate</label>
+            <input
+              type="number"
+              [(ngModel)]="alertThreshold"
+              placeholder="e.g. 1600"
+              step="0.01"
+              class="w-40 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <button
+            (click)="createAlert()"
+            class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+          >
+            <i class="pi pi-plus text-sm"></i> Create Alert
+          </button>
+        </div>
+
+        <!-- Alerts List -->
+        @if (alerts().length > 0) {
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <thead>
+                <tr class="bg-gray-50/80">
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                    Pair
+                  </th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                    Direction
+                  </th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                    Threshold
+                  </th>
+                  <th class="px-3 py-2.5 text-center text-xs font-semibold uppercase text-muted">
+                    Status
+                  </th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                @for (alert of alerts(); track alert.id) {
+                  <tr class="transition-colors hover:bg-gray-50/50">
+                    <td class="px-3 py-2.5 font-medium text-text">{{ alert.pair }}</td>
+                    <td class="px-3 py-2.5">
+                      <span
+                        class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                        [class]="
+                          alert.direction === 'above'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-red-100 text-red-700'
+                        "
+                      >
+                        <i
+                          class="pi mr-1 text-[10px]"
+                          [class]="
+                            alert.direction === 'above' ? 'pi-arrow-up' : 'pi-arrow-down'
+                          "
+                        ></i>
+                        {{ alert.direction }}
+                      </span>
+                    </td>
+                    <td class="px-3 py-2.5 text-right font-semibold">
+                      {{ alert.threshold_rate | number: '1.2-2' }}
+                    </td>
+                    <td class="px-3 py-2.5 text-center">
+                      <button
+                        (click)="toggleAlert(alert)"
+                        class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors"
+                        [class]="
+                          alert.is_enabled
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        "
+                      >
+                        <i
+                          class="pi text-[10px]"
+                          [class]="alert.is_enabled ? 'pi-check-circle' : 'pi-times-circle'"
+                        ></i>
+                        {{ alert.is_enabled ? 'Enabled' : 'Disabled' }}
+                      </button>
+                    </td>
+                    <td class="px-3 py-2.5 text-right">
+                      <button
+                        (click)="deleteAlert(alert.id)"
+                        class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-danger"
+                        title="Delete alert"
+                      >
+                        <i class="pi pi-trash text-sm"></i>
+                      </button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <p class="py-4 text-center text-sm text-muted">
+            <i class="pi pi-bell-slash mr-1"></i> No alerts configured
+          </p>
+        }
+      </div>
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -208,10 +348,16 @@ export class FxPageComponent implements OnInit {
   forecastChartData = signal<unknown>(null);
   forecasts = signal<FxForecast[]>([]);
 
+  alerts = signal<FXAlertRead[]>([]);
+
   manualRate = 0;
   manualDate = new Date().toISOString().split('T')[0];
   manualSource = 'PARALLEL_MARKET';
   manualPair = 'USDNGN';
+
+  alertPair = 'USDNGN';
+  alertDirection: 'above' | 'below' = 'above';
+  alertThreshold = 0;
 
   readonly chartOptions = {
     responsive: true,
@@ -223,6 +369,7 @@ export class FxPageComponent implements OnInit {
   ngOnInit(): void {
     this.fxService.getLatest().subscribe({ next: (r) => this.latestRate.set(r) });
     this.fxService.getLatestEurUsd().subscribe({ next: (r) => this.latestEurUsd.set(r) });
+    this.fxService.getAlerts().subscribe({ next: (a) => this.alerts.set(a) });
     this.fxService.getHistory(90).subscribe({
       next: (rates) => {
         this.historyChartData.set({
@@ -311,5 +458,72 @@ export class FxPageComponent implements OnInit {
           });
         },
       });
+  }
+
+  createAlert(): void {
+    if (!this.alertThreshold || this.alertThreshold <= 0) return;
+    this.fxService
+      .createAlert({
+        pair: this.alertPair,
+        direction: this.alertDirection,
+        threshold_rate: this.alertThreshold,
+      })
+      .subscribe({
+        next: (alert) => {
+          this.alerts.update((list) => [...list, alert]);
+          this.alertThreshold = 0;
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Alert Created',
+            detail: `Alert for ${alert.pair} ${alert.direction} ${alert.threshold_rate}`,
+          });
+        },
+        error: () => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'Failed to create alert',
+          });
+        },
+      });
+  }
+
+  toggleAlert(alert: FXAlertRead): void {
+    this.fxService
+      .updateAlert(alert.id, { is_enabled: !alert.is_enabled })
+      .subscribe({
+        next: (updated) => {
+          this.alerts.update((list) =>
+            list.map((a) => (a.id === updated.id ? updated : a)),
+          );
+        },
+        error: () => {
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'Failed to update alert',
+          });
+        },
+      });
+  }
+
+  deleteAlert(id: string): void {
+    this.fxService.deleteAlert(id).subscribe({
+      next: () => {
+        this.alerts.update((list) => list.filter((a) => a.id !== id));
+        this.messageService.add({
+          severity: 'info',
+          summary: 'Deleted',
+          detail: 'Alert removed',
+        });
+      },
+      error: () => {
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Failed to delete alert',
+        });
+      },
+    });
   }
 }
