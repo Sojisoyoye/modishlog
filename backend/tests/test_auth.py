@@ -382,7 +382,7 @@ class TestAuthEndpoints:
             )
         assert resp.status_code == 401
 
-    def test_login_locked_account_403(self):
+    def test_login_locked_account_429(self):
         locked_until = datetime.now(timezone.utc) + timedelta(minutes=10)
         user = _make_user(locked_until=locked_until)
         db = _mock_db(user=user)
@@ -392,8 +392,27 @@ class TestAuthEndpoints:
                 "/api/v1/auth/login",
                 json={"email": user.email, "password": VALID_PASSWORD},
             )
-        assert resp.status_code == 403
+        assert resp.status_code == 429
         assert "locked" in resp.json()["detail"].lower()
+
+    def test_login_locked_returns_locked_until(self):
+        """429 response body should include locked_until ISO timestamp."""
+        locked_until = datetime.now(timezone.utc) + timedelta(minutes=10)
+        user = _make_user(locked_until=locked_until)
+        db = _mock_db(user=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"email": user.email, "password": VALID_PASSWORD},
+            )
+        assert resp.status_code == 429
+        data = resp.json()
+        assert "locked_until" in data
+        # Verify it's a valid ISO timestamp matching what we set
+        parsed = datetime.fromisoformat(data["locked_until"])
+        # Allow 1-second tolerance for rounding
+        assert abs((parsed - locked_until).total_seconds()) < 1
 
     # -- /me -------------------------------------------------------------
 

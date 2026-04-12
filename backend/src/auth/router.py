@@ -1,6 +1,7 @@
 """Auth API routes -- thin layer, all logic in service.py."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user
@@ -56,9 +57,12 @@ async def login(body: UserLogin, db: AsyncSession = Depends(get_db)):
             detail="Invalid email or password",
         )
     except AccountLockedError as e:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Account locked until {e.locked_until.isoformat()}",
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={
+                "detail": "Account locked",
+                "locked_until": e.locked_until.isoformat(),
+            },
         )
     token = build_token(user)
     return TokenResponse(access_token=token)
