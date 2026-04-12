@@ -1,7 +1,7 @@
 """Sales API routes."""
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -100,11 +100,15 @@ async def list_sales_endpoint(
 
 @router.get("/summary", response_model=SalesSummary)
 async def sales_summary_endpoint(
-    date_from: date,
-    date_to: date,
+    date_from: date = None,
+    date_to: date = None,
     db: AsyncSession = Depends(get_db),
 ):
     """Get sales summary for a date range."""
+    if date_from is None:
+        date_from = date.today() - timedelta(days=30)
+    if date_to is None:
+        date_to = date.today()
     return await get_sales_summary(db, date_from, date_to)
 
 

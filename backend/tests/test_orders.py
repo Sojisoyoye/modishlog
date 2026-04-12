@@ -178,6 +178,14 @@ class TestCreateOrder:
 
         db = _mock_db()
         call_count = 0
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
 
         async def mock_execute(stmt):
             nonlocal call_count
@@ -193,7 +201,13 @@ class TestCreateOrder:
                 # Order number uniqueness check
                 result.scalar_one_or_none.return_value = None
             else:
-                result.scalar_one_or_none.return_value = None
+                # Reload query after flush - return the created order
+                order_obj = next(
+                    (o for o in added_objects if hasattr(o, "order_number")),
+                    None,
+                )
+                result.scalar_one.return_value = order_obj
+                result.scalar_one_or_none.return_value = order_obj
                 result.scalar.return_value = None
             return result
 
@@ -240,6 +254,14 @@ class TestCreateOrder:
 
         db = _mock_db()
         call_count = 0
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
 
         async def mock_execute(stmt):
             nonlocal call_count
@@ -252,7 +274,12 @@ class TestCreateOrder:
             elif call_count == 3:
                 result.scalar_one_or_none.return_value = None
             else:
-                result.scalar_one_or_none.return_value = None
+                order_obj = next(
+                    (o for o in added_objects if hasattr(o, "order_number")),
+                    None,
+                )
+                result.scalar_one.return_value = order_obj
+                result.scalar_one_or_none.return_value = order_obj
                 result.scalar.return_value = None
             return result
 

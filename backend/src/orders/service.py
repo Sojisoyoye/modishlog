@@ -156,7 +156,15 @@ async def create_order(
         order_number=order_number,
         total=str(total_amount),
     )
-    return order
+
+    # Reload with eager-loaded relationships to avoid MissingGreenlet
+    # when FastAPI serializes OrderRead with line_items
+    result = await db.execute(
+        select(PurchaseOrder)
+        .options(selectinload(PurchaseOrder.line_items))
+        .where(PurchaseOrder.id == order.id)
+    )
+    return result.scalar_one()
 
 
 async def get_order(
