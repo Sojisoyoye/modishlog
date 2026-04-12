@@ -150,11 +150,26 @@ import {
 
       <!-- Forecast -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div class="mb-5 flex items-center gap-2">
-          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
-            <i class="pi pi-sparkles text-sm text-warning"></i>
+        <div class="mb-5 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+              <i class="pi pi-sparkles text-sm text-warning"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">{{ forecastDays() }}-Day Forecast</h3>
           </div>
-          <h3 class="text-base font-semibold text-text">30-Day Forecast</h3>
+          <div class="flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+            @for (range of forecastRangeOptions; track range) {
+              <button
+                (click)="setForecastRange(range)"
+                class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+                [class]="forecastDays() === range
+                  ? 'bg-white text-primary shadow-sm'
+                  : 'text-muted hover:text-text'"
+              >
+                {{ range }}d
+              </button>
+            }
+          </div>
         </div>
         @if (forecastChartData()) {
           <p-chart
@@ -360,6 +375,8 @@ export class FxPageComponent implements OnInit {
   forecasts = signal<FxForecast[]>([]);
 
   alerts = signal<FXAlertRead[]>([]);
+  forecastDays = signal(180);
+  readonly forecastRangeOptions = [30, 90, 180];
 
   manualRate = 0;
   manualDate = new Date().toISOString().split('T')[0];
@@ -401,7 +418,50 @@ export class FxPageComponent implements OnInit {
         });
       },
     });
-    this.fxService.getForecast(30).subscribe({
+    this.fxService.getForecast(180).subscribe({
+      next: (fc) => {
+        this.forecasts.set(fc);
+        this.forecastChartData.set({
+          labels: fc.map((f) => f.date),
+          datasets: [
+            {
+              label: 'Base',
+              data: fc.map((f) => f.base),
+              borderColor: '#1F4E79',
+              backgroundColor: 'rgba(31, 78, 121, 0.05)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 2,
+            },
+            {
+              label: 'Best Case',
+              data: fc.map((f) => f.best_case),
+              borderColor: '#1A7A4A',
+              fill: false,
+              borderDash: [5, 5],
+              tension: 0.3,
+              pointRadius: 0,
+            },
+            {
+              label: 'Worst Case',
+              data: fc.map((f) => f.worst_case),
+              borderColor: '#C0392B',
+              fill: false,
+              borderDash: [5, 5],
+              tension: 0.3,
+              pointRadius: 0,
+            },
+          ],
+        });
+      },
+    });
+  }
+
+  setForecastRange(days: number): void {
+    this.forecastDays.set(days);
+    this.forecastChartData.set(null);
+    this.forecasts.set([]);
+    this.fxService.getForecast(days).subscribe({
       next: (fc) => {
         this.forecasts.set(fc);
         this.forecastChartData.set({

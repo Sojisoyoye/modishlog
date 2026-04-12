@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -237,6 +237,50 @@ import { FxService } from '../../../core/services/fx.service';
             }
           </div>
 
+          <!-- FX Scenarios (best / base / worst) -->
+          @if (selectedOrder()!.locked_fx_rate) {
+            <div class="rounded-lg border border-gray-200 p-4">
+              <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">
+                FX Scenarios
+              </p>
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead>
+                    <tr class="bg-gray-50/80">
+                      <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Scenario</th>
+                      <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">FX Rate</th>
+                      <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Total Cost (NGN)</th>
+                      <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Profit (NGN)</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-100">
+                    @for (scenario of fxScenarios(); track scenario.label) {
+                      <tr class="transition-colors hover:bg-gray-50/50">
+                        <td class="px-3 py-2 font-medium" [class]="scenario.colorClass">
+                          <i class="pi mr-1 text-[10px]" [class]="scenario.icon"></i>
+                          {{ scenario.label }}
+                        </td>
+                        <td class="px-3 py-2 text-right font-semibold">
+                          {{ scenario.fxRate | number: '1.2-2' }}
+                        </td>
+                        <td class="px-3 py-2 text-right font-semibold">
+                          {{ scenario.totalCostNgn | number: '1.0-0' }}
+                        </td>
+                        <td class="px-3 py-2 text-right font-semibold" [class]="scenario.profit >= 0 ? 'text-success' : 'text-danger'">
+                          {{ scenario.profit | number: '1.0-0' }}
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <p class="mt-2 text-xs text-muted">
+                Based on order FX rate {{ selectedOrder()!.locked_fx_rate | number: '1.2-2' }}.
+                Revenue estimated as cost &times; 1.3 markup.
+              </p>
+            </div>
+          }
+
           <!-- Status Transitions -->
           @if (nextStatuses(selectedOrder()!.status).length > 0) {
             <div class="space-y-3">
@@ -391,6 +435,41 @@ export class OrdersPageComponent implements OnInit {
   showCreate = false;
   creating = signal(false);
   deliveryFxRate: number | null = null;
+
+  fxScenarios = computed(() => {
+    const order = this.selectedOrder();
+    if (!order || !order.locked_fx_rate) return [];
+    const baseRate = order.locked_fx_rate;
+    const totalUsd = order.total_usd;
+    // Estimate revenue as cost x 1.3 markup (frontend heuristic)
+    const revenueMultiplier = 1.3;
+    return [
+      {
+        label: 'Best Case',
+        fxRate: baseRate * 0.9,
+        totalCostNgn: totalUsd * baseRate * 0.9,
+        profit: totalUsd * baseRate * 0.9 * revenueMultiplier - totalUsd * baseRate * 0.9,
+        colorClass: 'text-success',
+        icon: 'pi-arrow-down',
+      },
+      {
+        label: 'Base',
+        fxRate: baseRate,
+        totalCostNgn: totalUsd * baseRate,
+        profit: totalUsd * baseRate * revenueMultiplier - totalUsd * baseRate,
+        colorClass: 'text-text',
+        icon: 'pi-minus',
+      },
+      {
+        label: 'Worst Case',
+        fxRate: baseRate * 1.1,
+        totalCostNgn: totalUsd * baseRate * 1.1,
+        profit: totalUsd * baseRate * 1.1 * revenueMultiplier - totalUsd * baseRate * 1.1,
+        colorClass: 'text-danger',
+        icon: 'pi-arrow-up',
+      },
+    ];
+  });
 
   newOrder = { supplier: '', production_days: 30, shipping_days: 21, clearing_days: 14 };
   newOrderItems = signal<{ product_id: string; quantity: number; unit_cost_usd: number }[]>([

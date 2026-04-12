@@ -19,6 +19,7 @@ from src.inventory.schemas import (
     LiquidationCandidate,
     StockAdjustmentRequest,
     StockMovementRead,
+    ThresholdUpdateRequest,
 )
 from src.inventory.service import (
     adjust_stock,
@@ -28,6 +29,7 @@ from src.inventory.service import (
     get_liquidation_candidates,
     get_stock_movements,
     list_inventory_levels,
+    update_threshold,
 )
 
 router = APIRouter()
@@ -77,6 +79,20 @@ async def get_inventory_endpoint(
     """Get inventory level for a specific product."""
     try:
         return await get_inventory_level(db, product_id)
+    except ProductStockNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.put("/{product_id}/threshold", response_model=InventoryLevelRead)
+async def update_threshold_endpoint(
+    product_id: uuid.UUID,
+    body: ThresholdUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Update the low-stock threshold for a product."""
+    try:
+        return await update_threshold(db, product_id, body.low_stock_threshold)
     except ProductStockNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 

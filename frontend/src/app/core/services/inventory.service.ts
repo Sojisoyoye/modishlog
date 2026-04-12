@@ -49,6 +49,10 @@ export class InventoryService {
     return this.api.get<InventoryBatch[]>('/inventory/batches', { product_id: productId });
   }
 
+  updateThreshold(productId: string, threshold: number): Observable<unknown> {
+    return this.api.put(`/inventory/${productId}/threshold`, { low_stock_threshold: threshold });
+  }
+
   getLiquidationCandidates(targetNgn = 500000): Observable<LiquidationCandidate[]> {
     return this.api.get<LiquidationCandidate[]>('/inventory/batches/liquidation-candidates', {
       target_ngn: String(targetNgn),
