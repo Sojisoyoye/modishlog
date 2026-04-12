@@ -16,7 +16,7 @@ from src.core.config import settings
 from src.core.database import Base
 
 # Import all models so Alembic can detect them
-from src.auth.models import User  # noqa: F401
+from src.auth.models import User, PasswordResetToken  # noqa: F401
 from src.products.models import Product, ProductCategory, PriceHistory  # noqa: F401
 from src.inventory.models import InventoryLevel, StockMovement, LowStockAlert  # noqa: F401
 from src.sales.models import Sale, SaleBulkUploadJob, SaleAuditEntry  # noqa: F401

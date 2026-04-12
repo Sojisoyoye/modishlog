@@ -19,3 +19,7 @@ class UserAlreadyExistsError(Exception):
 
 class WeakPasswordError(Exception):
     """Raised when password does not meet complexity requirements."""
+
+
+class InvalidResetTokenError(Exception):
+    """Raised when a password-reset token is invalid, expired, or already used."""

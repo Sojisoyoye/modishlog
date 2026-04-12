@@ -437,3 +437,315 @@ class TestAuthEndpoints:
                 headers={"Authorization": f"Bearer {token}"},
             )
         assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Forgot / Reset password
+# ---------------------------------------------------------------------------
+
+
+def _mock_db_multi(results_sequence: list) -> AsyncMock:
+    """Return an AsyncMock db session that returns different results per execute call.
+
+    Each entry in *results_sequence* is the value that
+    ``result.scalar_one_or_none()`` will return for the Nth call to
+    ``db.execute()``.
+    """
+    db = AsyncMock()
+
+    result_mocks = []
+    for val in results_sequence:
+        rm = MagicMock()
+        rm.scalar_one_or_none.return_value = val
+        result_mocks.append(rm)
+
+    db.execute = AsyncMock(side_effect=result_mocks)
+    db.flush = AsyncMock()
+    db.add = MagicMock()
+    return db
+
+
+class TestForgotPasswordEndpoint:
+    """POST /auth/forgot-password endpoint tests."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_forgot_password_generates_token(self):
+        """POST /auth/forgot-password with valid email returns 200 + creates a PasswordResetToken."""
+        user = _make_user(email="exists@example.com")
+        db = _mock_db(user=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/forgot-password",
+                json={"email": "exists@example.com"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "message" in data
+        # A token row should have been added to the session
+        db.add.assert_called_once()
+
+    def test_forgot_password_unknown_email(self):
+        """Unknown email still returns 200 -- don't reveal if email exists."""
+        db = _mock_db(user=None)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/forgot-password",
+                json={"email": "ghost@example.com"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "message" in data
+        # No token should be created
+        db.add.assert_not_called()
+
+
+class TestResetPasswordEndpoint:
+    """POST /auth/reset-password endpoint tests."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_reset_password_valid_token(self):
+        """POST /auth/reset-password with valid token + new password returns 200."""
+        from src.auth.models import PasswordResetToken
+
+        user = _make_user(email="reset@example.com")
+        token_obj = PasswordResetToken(
+            user_id=user.id,
+            token="valid-reset-token-hex",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            used=False,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+        token_obj.user = user  # eager-loaded relationship
+
+        # First execute returns the token, second returns the user
+        db = _mock_db_multi([token_obj])
+        # mock db.get to return user when fetching by id
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/reset-password",
+                json={
+                    "token": "valid-reset-token-hex",
+                    "new_password": VALID_PASSWORD,
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "message" in data
+        # Token should be marked used
+        assert token_obj.used is True
+
+    def test_reset_password_invalid_token(self):
+        """Invalid token returns 400."""
+        db = _mock_db(user=None)  # scalar_one_or_none returns None
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/reset-password",
+                json={
+                    "token": "nonexistent-token",
+                    "new_password": VALID_PASSWORD,
+                },
+            )
+        assert resp.status_code == 400
+
+    def test_reset_password_expired_token(self):
+        """Expired token returns 400."""
+        from src.auth.models import PasswordResetToken
+
+        user = _make_user()
+        token_obj = PasswordResetToken(
+            user_id=user.id,
+            token="expired-token-hex",
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),  # expired
+            used=False,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+
+        db = _mock_db_multi([token_obj])
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/reset-password",
+                json={
+                    "token": "expired-token-hex",
+                    "new_password": VALID_PASSWORD,
+                },
+            )
+        assert resp.status_code == 400
+
+    def test_reset_password_weak_password(self):
+        """Weak new password returns 400."""
+        from src.auth.models import PasswordResetToken
+
+        user = _make_user()
+        token_obj = PasswordResetToken(
+            user_id=user.id,
+            token="weak-pw-token",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            used=False,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+        token_obj.user = user
+
+        db = _mock_db_multi([token_obj])
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/reset-password",
+                json={
+                    "token": "weak-pw-token",
+                    "new_password": "weak",
+                },
+            )
+        assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Forgot / Reset password service tests
+# ---------------------------------------------------------------------------
+
+
+class TestGeneratePasswordResetToken:
+    @pytest.mark.asyncio
+    async def test_generates_token_for_existing_user(self):
+        from src.auth.service import generate_password_reset_token
+
+        user = _make_user(email="tokenuser@example.com")
+        db = _mock_db(user=user)
+        token_str = await generate_password_reset_token(db, "tokenuser@example.com")
+        assert token_str is not None
+        assert len(token_str) == 32  # uuid4 hex
+        db.add.assert_called_once()
+        db.flush.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_unknown_email(self):
+        from src.auth.service import generate_password_reset_token
+
+        db = _mock_db(user=None)
+        token_str = await generate_password_reset_token(db, "noone@example.com")
+        assert token_str is None
+        db.add.assert_not_called()
+
+
+class TestResetPasswordService:
+    @pytest.mark.asyncio
+    async def test_resets_password_with_valid_token(self):
+        from src.auth.models import PasswordResetToken
+        from src.auth.service import reset_password
+
+        user = _make_user(email="resetme@example.com")
+        old_hash = user.hashed_password
+
+        token_obj = PasswordResetToken(
+            user_id=user.id,
+            token="service-valid-token",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            used=False,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+
+        db = _mock_db_multi([token_obj])
+        db.get = AsyncMock(return_value=user)
+
+        await reset_password(db, "service-valid-token", VALID_PASSWORD)
+
+        assert token_obj.used is True
+        assert user.hashed_password != old_hash
+
+    @pytest.mark.asyncio
+    async def test_raises_on_invalid_token(self):
+        from src.auth.exceptions import InvalidResetTokenError
+        from src.auth.service import reset_password
+
+        db = _mock_db(user=None)
+        with pytest.raises(InvalidResetTokenError):
+            await reset_password(db, "bad-token", VALID_PASSWORD)
+
+    @pytest.mark.asyncio
+    async def test_raises_on_expired_token(self):
+        from src.auth.models import PasswordResetToken
+        from src.auth.exceptions import InvalidResetTokenError
+        from src.auth.service import reset_password
+
+        user = _make_user()
+        token_obj = PasswordResetToken(
+            user_id=user.id,
+            token="expired-svc-token",
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            used=False,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+
+        db = _mock_db_multi([token_obj])
+        with pytest.raises(InvalidResetTokenError):
+            await reset_password(db, "expired-svc-token", VALID_PASSWORD)
+
+    @pytest.mark.asyncio
+    async def test_raises_on_weak_password(self):
+        from src.auth.models import PasswordResetToken
+        from src.auth.service import reset_password
+
+        user = _make_user()
+        token_obj = PasswordResetToken(
+            user_id=user.id,
+            token="weak-pw-svc-token",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            used=False,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+        token_obj.user = user
+
+        db = _mock_db_multi([token_obj])
+        db.get = AsyncMock(return_value=user)
+        with pytest.raises(WeakPasswordError):
+            await reset_password(db, "weak-pw-svc-token", "weak")
