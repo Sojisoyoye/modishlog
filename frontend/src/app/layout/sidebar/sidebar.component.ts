@@ -28,7 +28,7 @@ interface NavItem {
       </div>
 
       <!-- Navigation -->
-      <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+      <nav aria-label="Main navigation" class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         @for (item of navItems(); track item.route) {
           <a
             [routerLink]="item.route"

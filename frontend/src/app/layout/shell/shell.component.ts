@@ -8,11 +8,12 @@ import { TopbarComponent } from '../topbar/topbar.component';
   standalone: true,
   imports: [RouterOutlet, SidebarComponent, TopbarComponent],
   template: `
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded focus:bg-primary focus:px-4 focus:py-2 focus:text-white">Skip to content</a>
     <div class="flex h-screen bg-background">
       <app-sidebar [mobileOpen]="mobileOpen()" (closeMobile)="mobileOpen.set(false)" />
       <div class="flex flex-1 flex-col overflow-hidden">
         <app-topbar (toggleMenu)="mobileOpen.update((v) => !v)" />
-        <main class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+        <main id="main-content" class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
           <router-outlet />
         </main>
       </div>

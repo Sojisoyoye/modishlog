@@ -47,7 +47,11 @@ import { FxService } from '../../../core/services/fx.service';
             <div class="space-y-2">
               @for (order of ordersByStatus(status); track order.id) {
                 <div
+                  role="button"
+                  tabindex="0"
                   (click)="viewOrder(order)"
+                  (keydown.enter)="viewOrder(order)"
+                  (keydown.space)="viewOrder(order)"
                   class="cursor-pointer rounded-lg border border-gray-100 p-3 transition-all hover:border-secondary hover:shadow-sm"
                 >
                   <p class="text-sm font-semibold text-text">{{ order.order_number }}</p>
@@ -75,6 +79,7 @@ import { FxService } from '../../../core/services/fx.service';
         </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <caption class="sr-only">All purchase orders</caption>
             <thead>
               <tr class="bg-gray-50/80">
                 <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
@@ -286,10 +291,11 @@ import { FxService } from '../../../core/services/fx.service';
             <div class="space-y-3">
               @if (nextStatuses(selectedOrder()!.status).includes('Delivered')) {
                 <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
-                  <label class="mb-1.5 block text-xs font-medium text-muted">
+                  <label for="order-delivery-fx-rate" class="mb-1.5 block text-xs font-medium text-muted">
                     FX Rate at Delivery (USDNGN)
                   </label>
                   <input
+                    id="order-delivery-fx-rate"
                     type="number"
                     [(ngModel)]="deliveryFxRate"
                     step="0.01"
@@ -329,8 +335,9 @@ import { FxService } from '../../../core/services/fx.service';
     >
       <div class="space-y-4">
         <div>
-          <label class="mb-1.5 block text-xs font-medium text-muted">Supplier</label>
+          <label for="order-supplier" class="mb-1.5 block text-xs font-medium text-muted">Supplier</label>
           <input
+            id="order-supplier"
             [(ngModel)]="newOrder.supplier"
             class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             placeholder="Supplier name"
@@ -378,8 +385,9 @@ import { FxService } from '../../../core/services/fx.service';
 
         <div class="grid grid-cols-3 gap-3">
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Production (days)</label>
+            <label for="order-production-days" class="mb-1.5 block text-xs font-medium text-muted">Production (days)</label>
             <input
+              id="order-production-days"
               type="number"
               [(ngModel)]="newOrder.production_days"
               min="0"
@@ -387,8 +395,9 @@ import { FxService } from '../../../core/services/fx.service';
             />
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Shipping (days)</label>
+            <label for="order-shipping-days" class="mb-1.5 block text-xs font-medium text-muted">Shipping (days)</label>
             <input
+              id="order-shipping-days"
               type="number"
               [(ngModel)]="newOrder.shipping_days"
               min="0"
@@ -396,8 +405,9 @@ import { FxService } from '../../../core/services/fx.service';
             />
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Clearing (days)</label>
+            <label for="order-clearing-days" class="mb-1.5 block text-xs font-medium text-muted">Clearing (days)</label>
             <input
+              id="order-clearing-days"
               type="number"
               [(ngModel)]="newOrder.clearing_days"
               min="0"

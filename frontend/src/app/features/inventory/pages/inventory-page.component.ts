@@ -33,6 +33,7 @@ import {
         </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <caption class="sr-only">Current stock levels</caption>
             <thead>
               <tr class="bg-gray-50/80">
                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
@@ -128,6 +129,7 @@ import {
         </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <caption class="sr-only">Recent stock movements</caption>
             <thead>
               <tr class="bg-gray-50/80">
                 <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
@@ -194,8 +196,9 @@ import {
             <p class="text-xs text-muted">Current stock: {{ adjustItem()!.current_stock }}</p>
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Type</label>
+            <label for="inv-adjust-type" class="mb-1.5 block text-xs font-medium text-muted">Type</label>
             <select
+              id="inv-adjust-type"
               [(ngModel)]="adjustType"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             >
@@ -205,8 +208,9 @@ import {
             </select>
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Quantity</label>
+            <label for="inv-adjust-qty" class="mb-1.5 block text-xs font-medium text-muted">Quantity</label>
             <input
+              id="inv-adjust-qty"
               type="number"
               [(ngModel)]="adjustQty"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
@@ -214,8 +218,9 @@ import {
             />
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Notes</label>
+            <label for="inv-adjust-notes" class="mb-1.5 block text-xs font-medium text-muted">Notes</label>
             <textarea
+              id="inv-adjust-notes"
               [(ngModel)]="adjustNotes"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               rows="2"
