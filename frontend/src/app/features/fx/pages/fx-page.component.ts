@@ -68,8 +68,9 @@ import {
           </div>
           <div class="flex flex-wrap items-end gap-3">
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Pair</label>
+              <label for="fx-manual-pair" class="mb-1.5 block text-xs font-medium text-muted">Pair</label>
               <select
+                id="fx-manual-pair"
                 [(ngModel)]="manualPair"
                 class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               >
@@ -78,8 +79,9 @@ import {
               </select>
             </div>
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Rate</label>
+              <label for="fx-manual-rate" class="mb-1.5 block text-xs font-medium text-muted">Rate</label>
               <input
+                id="fx-manual-rate"
                 type="number"
                 [(ngModel)]="manualRate"
                 [placeholder]="manualPair === 'EURUSD' ? 'e.g. 1.08' : 'e.g. 1500'"
@@ -88,16 +90,18 @@ import {
               />
             </div>
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Date</label>
+              <label for="fx-manual-date" class="mb-1.5 block text-xs font-medium text-muted">Date</label>
               <input
+                id="fx-manual-date"
                 type="date"
                 [(ngModel)]="manualDate"
                 class="w-40 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               />
             </div>
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Source</label>
+              <label for="fx-manual-source" class="mb-1.5 block text-xs font-medium text-muted">Source</label>
               <select
+                id="fx-manual-source"
                 [(ngModel)]="manualSource"
                 class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               >
@@ -188,6 +192,7 @@ import {
         @if (forecasts().length > 0) {
           <div class="mt-5 overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <caption class="sr-only">FX rate forecast data</caption>
               <thead>
                 <tr class="bg-gray-50/80">
                   <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
@@ -237,8 +242,9 @@ import {
         <!-- Create Alert Form -->
         <div class="mb-5 flex flex-wrap items-end gap-3">
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Pair</label>
+            <label for="fx-alert-pair" class="mb-1.5 block text-xs font-medium text-muted">Pair</label>
             <select
+              id="fx-alert-pair"
               [(ngModel)]="alertPair"
               class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             >
@@ -247,8 +253,9 @@ import {
             </select>
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Direction</label>
+            <label for="fx-alert-direction" class="mb-1.5 block text-xs font-medium text-muted">Direction</label>
             <select
+              id="fx-alert-direction"
               [(ngModel)]="alertDirection"
               class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             >
@@ -257,8 +264,9 @@ import {
             </select>
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Threshold Rate</label>
+            <label for="fx-alert-threshold" class="mb-1.5 block text-xs font-medium text-muted">Threshold Rate</label>
             <input
+              id="fx-alert-threshold"
               type="number"
               [(ngModel)]="alertThreshold"
               placeholder="e.g. 1600"
@@ -278,6 +286,7 @@ import {
         @if (alerts().length > 0) {
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <caption class="sr-only">FX rate alerts</caption>
               <thead>
                 <tr class="bg-gray-50/80">
                   <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">

@@ -28,6 +28,8 @@ import { AuthService } from '../../../core/services/auth.service';
 
           @if (lockoutDisplay()) {
             <div
+              role="alert"
+              aria-live="polite"
               class="mb-4 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700"
             >
               <i class="pi pi-clock"></i>
@@ -35,6 +37,8 @@ import { AuthService } from '../../../core/services/auth.service';
             </div>
           } @else if (errorMessage()) {
             <div
+              role="alert"
+              aria-live="polite"
               class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-danger"
             >
               <i class="pi pi-exclamation-circle"></i>
@@ -44,15 +48,17 @@ import { AuthService } from '../../../core/services/auth.service';
 
           <form (ngSubmit)="onLogin()">
             <div class="mb-4">
-              <label class="mb-1.5 block text-sm font-medium text-text">Email</label>
+              <label for="login-email" class="mb-1.5 block text-sm font-medium text-text">Email</label>
               <div class="relative">
                 <i
                   class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted"
                 ></i>
                 <input
+                  id="login-email"
                   type="email"
                   [(ngModel)]="email"
                   name="email"
+                  autocomplete="email"
                   class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                   placeholder="you@example.com"
                   required
@@ -60,15 +66,17 @@ import { AuthService } from '../../../core/services/auth.service';
               </div>
             </div>
             <div class="mb-6">
-              <label class="mb-1.5 block text-sm font-medium text-text">Password</label>
+              <label for="login-password" class="mb-1.5 block text-sm font-medium text-text">Password</label>
               <div class="relative">
                 <i
                   class="pi pi-lock absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted"
                 ></i>
                 <input
+                  id="login-password"
                   type="password"
                   [(ngModel)]="password"
                   name="password"
+                  autocomplete="current-password"
                   class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                   required
                   minlength="8"
@@ -118,14 +126,17 @@ import { AuthService } from '../../../core/services/auth.service';
 
               <form (ngSubmit)="onForgotPassword()">
                 <div class="mb-3">
+                  <label for="forgot-email" class="sr-only">Email for password reset</label>
                   <div class="relative">
                     <i
                       class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted"
                     ></i>
                     <input
+                      id="forgot-email"
                       type="email"
                       [(ngModel)]="forgotEmail"
                       name="forgotEmail"
+                      autocomplete="email"
                       class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                       placeholder="you@example.com"
                       required

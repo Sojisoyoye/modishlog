@@ -18,7 +18,7 @@ import { OrdersService, LogisticsEfficiency } from '../../../core/services/order
       </div>
 
       @if (triageStatus()) {
-        <div class="mb-4 rounded-xl border-l-4 border-l-danger bg-red-50 p-4 shadow-sm">
+        <div role="alert" class="mb-4 rounded-xl border-l-4 border-l-danger bg-red-50 p-4 shadow-sm">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
               <div class="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">

@@ -61,6 +61,7 @@ import {
             <div class="space-y-2">
               @for (alert of liquidity().alerts; track alert.message) {
                 <div
+                  role="alert"
                   class="rounded-lg border-l-4 bg-white p-3 text-sm shadow-sm"
                   [class]="alert.severity === 'HIGH' ? 'border-l-danger' : 'border-l-warning'"
                 >
@@ -108,6 +109,7 @@ import {
         </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <caption class="sr-only">Monthly cashflow projection</caption>
             <thead>
               <tr class="bg-gray-50/80">
                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
@@ -176,8 +178,9 @@ import {
         </div>
         <div class="flex flex-wrap items-end gap-4">
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">FX Shock (%)</label>
+            <label for="cf-fx-shock" class="mb-1.5 block text-xs font-medium text-muted">FX Shock (%)</label>
             <input
+              id="cf-fx-shock"
               type="number"
               [(ngModel)]="fxShock"
               class="w-28 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
@@ -185,8 +188,9 @@ import {
             />
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Demand Drop (%)</label>
+            <label for="cf-demand-drop" class="mb-1.5 block text-xs font-medium text-muted">Demand Drop (%)</label>
             <input
+              id="cf-demand-drop"
               type="number"
               [(ngModel)]="demandDrop"
               class="w-28 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"

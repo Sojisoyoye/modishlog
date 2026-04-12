@@ -103,6 +103,7 @@ interface ElasticityEntry {
         </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <caption class="sr-only">Per-product margin analysis</caption>
             <thead>
               <tr class="bg-gray-50/80">
                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
@@ -286,8 +287,9 @@ interface ElasticityEntry {
         <!-- Elasticity Config Form -->
         <div class="mb-5 flex flex-wrap items-end gap-3">
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Product</label>
+            <label for="pricing-elasticity-product" class="mb-1.5 block text-xs font-medium text-muted">Product</label>
             <select
+              id="pricing-elasticity-product"
               [(ngModel)]="elasticityProductId"
               class="w-52 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             >
@@ -298,10 +300,11 @@ interface ElasticityEntry {
             </select>
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted"
+            <label for="pricing-elasticity-coeff" class="mb-1.5 block text-xs font-medium text-muted"
               >Elasticity Coefficient</label
             >
             <input
+              id="pricing-elasticity-coeff"
               type="number"
               [(ngModel)]="elasticityCoeff"
               placeholder="e.g. -1.5"
@@ -330,6 +333,7 @@ interface ElasticityEntry {
         @if (elasticityEntries().length > 0) {
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <caption class="sr-only">Demand elasticity coefficients</caption>
               <thead>
                 <tr class="bg-gray-50/80">
                   <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">

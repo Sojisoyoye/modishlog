@@ -199,6 +199,7 @@ interface EntryRow {
 
             <div class="overflow-x-auto">
               <table class="min-w-full divide-y divide-gray-200 text-sm">
+                <caption class="sr-only">Recent sales records</caption>
                 <thead>
                   <tr class="bg-gray-50/80">
                     <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
@@ -282,6 +283,7 @@ interface EntryRow {
 
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <caption class="sr-only">All sales records</caption>
               <thead>
                 <tr class="bg-gray-50/80">
                   <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
@@ -371,8 +373,9 @@ interface EntryRow {
 
             <!-- File Picker -->
             <div class="mb-5">
-              <label class="mb-1.5 block text-xs font-medium text-muted">CSV File</label>
+              <label for="sales-csv-file" class="mb-1.5 block text-xs font-medium text-muted">CSV File</label>
               <input
+                id="sales-csv-file"
                 type="file"
                 accept=".csv"
                 data-testid="csv-file-input"
@@ -448,8 +451,9 @@ interface EntryRow {
       @if (editingSale()) {
         <div class="space-y-4">
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Quantity</label>
+            <label for="edit-sale-quantity" class="mb-1.5 block text-xs font-medium text-muted">Quantity</label>
             <input
+              id="edit-sale-quantity"
               type="number"
               [(ngModel)]="editForm.quantity"
               min="1"
@@ -458,8 +462,9 @@ interface EntryRow {
             />
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Unit Price</label>
+            <label for="edit-sale-unit-price" class="mb-1.5 block text-xs font-medium text-muted">Unit Price</label>
             <input
+              id="edit-sale-unit-price"
               type="number"
               [(ngModel)]="editForm.unit_price"
               min="0"
@@ -469,8 +474,9 @@ interface EntryRow {
             />
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Channel</label>
+            <label for="edit-sale-channel" class="mb-1.5 block text-xs font-medium text-muted">Channel</label>
             <select
+              id="edit-sale-channel"
               [(ngModel)]="editForm.channel"
               data-testid="edit-channel-select"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
@@ -481,8 +487,9 @@ interface EntryRow {
             </select>
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Notes</label>
+            <label for="edit-sale-notes" class="mb-1.5 block text-xs font-medium text-muted">Notes</label>
             <textarea
+              id="edit-sale-notes"
               [(ngModel)]="editForm.notes"
               rows="3"
               data-testid="edit-notes-input"
