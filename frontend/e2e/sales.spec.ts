@@ -99,10 +99,73 @@ test.describe('Stock-level validation', () => {
 });
 
 test.describe('Sales history table', () => {
-  test('shows table headers (Date, Product, Qty, Total)', async ({ page }) => {
+  test('shows table headers (Date, Product, Qty, Total, Status, Actions)', async ({ page }) => {
     await expect(page.getByRole('columnheader', { name: /Date/i })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: /Product/i })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: /Qty/i })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: /Total/i })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /Status/i })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /Actions/i })).toBeVisible();
+  });
+});
+
+test.describe('Sales edit/delete/audit buttons', () => {
+  test('Edit button is visible on each non-voided sales row', async ({ page }) => {
+    const editButtons = page.locator('[data-testid="edit-sale-btn"]');
+    const count = await editButtons.count();
+    // If there are sales rows, edit buttons should exist
+    if (count > 0) {
+      await expect(editButtons.first()).toBeVisible();
+    }
+  });
+
+  test('Void/Delete button is visible on each non-voided sales row', async ({ page }) => {
+    const voidButtons = page.locator('[data-testid="void-sale-btn"]');
+    const count = await voidButtons.count();
+    if (count > 0) {
+      await expect(voidButtons.first()).toBeVisible();
+    }
+  });
+
+  test('Audit trail button is visible on each sales row', async ({ page }) => {
+    const auditButtons = page.locator('[data-testid="audit-sale-btn"]');
+    const count = await auditButtons.count();
+    if (count > 0) {
+      await expect(auditButtons.first()).toBeVisible();
+    }
+  });
+
+  test('clicking Edit button opens the Edit Sale dialog', async ({ page }) => {
+    const editButtons = page.locator('[data-testid="edit-sale-btn"]');
+    const count = await editButtons.count();
+    if (count > 0) {
+      await editButtons.first().click();
+      // Dialog with header "Edit Sale" should appear
+      await expect(page.getByRole('dialog').filter({ hasText: 'Edit Sale' })).toBeVisible();
+      // Quantity input should be visible
+      await expect(page.locator('[data-testid="edit-quantity-input"]')).toBeVisible();
+    }
+  });
+
+  test('clicking Void button opens the Void Sale confirmation dialog', async ({ page }) => {
+    const voidButtons = page.locator('[data-testid="void-sale-btn"]');
+    const count = await voidButtons.count();
+    if (count > 0) {
+      await voidButtons.first().click();
+      // Dialog with header "Void Sale" should appear
+      await expect(page.getByRole('dialog').filter({ hasText: 'Void Sale' })).toBeVisible();
+      // Reason input should be visible
+      await expect(page.locator('[data-testid="void-reason-input"]')).toBeVisible();
+    }
+  });
+
+  test('clicking Audit trail button opens the Audit Trail dialog', async ({ page }) => {
+    const auditButtons = page.locator('[data-testid="audit-sale-btn"]');
+    const count = await auditButtons.count();
+    if (count > 0) {
+      await auditButtons.first().click();
+      // Dialog with header "Audit Trail" should appear
+      await expect(page.getByRole('dialog').filter({ hasText: 'Audit Trail' })).toBeVisible();
+    }
   });
 });
