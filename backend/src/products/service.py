@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.inventory.service import initialize_inventory
 from src.products.exceptions import (
     CategoryInUseError,
     CategoryNotFoundError,
@@ -134,6 +135,9 @@ async def create_product(
     )
     db.add(price_history)
     await db.flush()
+
+    # Initialize inventory level so sales/stock adjustments can work
+    await initialize_inventory(db, product.id, user_id)
 
     await logger.ainfo("product_created", product_id=str(product.id), sku=sku)
     return product

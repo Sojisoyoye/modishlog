@@ -10,6 +10,7 @@ import {
   InventoryItem,
   StockMovement,
 } from '../../../core/services/inventory.service';
+import { ProductsService } from '../../../core/services/products.service';
 
 @Component({
   selector: 'app-inventory-page',
@@ -241,6 +242,7 @@ import {
 })
 export class InventoryPageComponent implements OnInit {
   private readonly inventoryService = inject(InventoryService);
+  private readonly productsService = inject(ProductsService);
   private readonly messageService = inject(MessageService);
 
   inventory = signal<InventoryItem[]>([]);
@@ -257,7 +259,17 @@ export class InventoryPageComponent implements OnInit {
   }
 
   private loadData(): void {
-    this.inventoryService.getCurrent().subscribe({ next: (d) => this.inventory.set(d) });
+    this.productsService.getAll().subscribe({
+      next: (products) => {
+        const nameMap = new Map(products.map((p) => [p.id, p.name]));
+        this.inventoryService.getCurrent().subscribe({
+          next: (items) => {
+            items.forEach((item) => (item.product_name = nameMap.get(item.product_id) ?? 'Unknown'));
+            this.inventory.set(items);
+          },
+        });
+      },
+    });
     this.inventoryService.getMovements().subscribe({ next: (d) => this.movements.set(d) });
   }
 

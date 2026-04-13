@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, input, output } from '@angular/core';
 import { AuthService } from '../../core/services/auth.service';
 
 @Component({
@@ -12,9 +12,9 @@ import { AuthService } from '../../core/services/auth.service';
       <div class="flex items-center gap-3">
         <button
           (click)="toggleMenu.emit()"
-          class="rounded-lg p-2 text-muted transition-colors hover:bg-gray-100 hover:text-text lg:hidden"
+          class="rounded-lg p-2 text-muted transition-colors hover:bg-gray-100 hover:text-text"
         >
-          <i class="pi pi-bars text-lg"></i>
+          <i [class]="'pi text-lg ' + (sidebarCollapsed() ? 'pi-bars' : 'pi-bars')"></i>
         </button>
         <div class="hidden items-center gap-2 lg:flex">
           <i class="pi pi-building text-muted"></i>
@@ -41,6 +41,7 @@ import { AuthService } from '../../core/services/auth.service';
 })
 export class TopbarComponent {
   private readonly authService = inject(AuthService);
+  sidebarCollapsed = input(false);
   toggleMenu = output<void>();
 
   onLogout(): void {

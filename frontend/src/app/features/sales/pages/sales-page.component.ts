@@ -85,7 +85,7 @@ interface EntryRow {
 
       <!-- Record Sales Tab -->
       @if (activeTab() === 'record') {
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div class="grid grid-cols-1 gap-6">
           <!-- Entry Form -->
           <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
             <div class="mb-5 flex items-center gap-2">
@@ -98,7 +98,7 @@ interface EntryRow {
             @for (row of entryRows(); track $index) {
               <div class="mb-3">
                 <div class="flex items-end gap-3">
-                  <div class="flex-1">
+                  <div class="min-w-[200px] flex-1 lg:min-w-[320px]">
                     @if ($index === 0) {
                       <label class="mb-1.5 block text-xs font-medium text-muted">Product</label>
                     }
@@ -106,7 +106,7 @@ interface EntryRow {
                       <select
                         [(ngModel)]="row.product_id"
                         [name]="'product_' + $index"
-                        class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-3 text-base transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                       >
                         <option value="">Select product</option>
                         @for (p of products(); track p.id) {

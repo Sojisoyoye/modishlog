@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureProduct } from './helpers/data';
 
 // ---------------------------------------------------------------------------
 // Orders Page E2E Tests
@@ -26,10 +27,10 @@ test.describe('Orders page layout', () => {
   });
 
   test('renders pipeline status columns', async ({ page }) => {
-    // The pipeline view should show these status columns
-    const statuses = ['PENDING', 'IN_PRODUCTION', 'SHIPPED', 'CLEARING', 'DELIVERED'];
+    // The pipeline view renders these status labels (CSS uppercases them visually)
+    const statuses = ['Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];
     for (const status of statuses) {
-      await expect(page.getByText(status, { exact: true }).first()).toBeVisible();
+      await expect(page.getByText(status).first()).toBeVisible();
     }
   });
 
@@ -98,5 +99,51 @@ test.describe('Inline product creation in New Order dialog', () => {
     if (isVisible) {
       await expect(plusButton).toBeVisible();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Create Order — full E2E flow
+// ---------------------------------------------------------------------------
+
+test.describe('Create Order flow', () => {
+  test('fills form and creates an order successfully', async ({ page }) => {
+    // Create product via API, then reload page so it appears in the dropdown
+    const product = await ensureProduct('Order Flow Product');
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
+
+    // Open dialog
+    await page.getByRole('button', { name: 'New Order' }).click();
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: 'New Order' });
+    await expect(dialog).toBeVisible({ timeout: 10_000 });
+
+    // Fill supplier
+    await dialog.getByPlaceholder('Supplier name').fill('E2E Test Supplier');
+
+    // Wait for product to appear in the select, then choose it
+    const productOption = dialog.locator(`select option[value="${product.id}"]`);
+    await expect(productOption).toBeAttached({ timeout: 10_000 });
+    const productSelect = dialog.locator('select').first();
+    await productSelect.selectOption(product.id);
+
+    // Fill quantity and unit cost
+    const qtyInput = dialog.locator('input[placeholder="Qty"]').first();
+    await qtyInput.fill('50');
+
+    const costInput = dialog.locator('input[placeholder="$/unit"]').first();
+    await costInput.fill('25');
+
+    // Click "Create Order"
+    await dialog.getByRole('button', { name: 'Create Order' }).click();
+
+    // Dialog should close after successful creation
+    await expect(dialog).not.toBeVisible({ timeout: 10_000 });
+
+    // Success toast should appear
+    await expect(page.getByText('Order created successfully')).toBeVisible({ timeout: 5_000 });
+
+    // The order should now appear in the "All Orders" table
+    await expect(page.getByText('E2E Test Supplier')).toBeVisible({ timeout: 5_000 });
   });
 });

@@ -25,6 +25,7 @@ from src.sales.schemas import (
     AuditEntryRead,
     BulkUploadResponse,
     BulkUploadStatus,
+    DailyEntryRequest,
     QuickQuoteRequest,
     QuickQuoteResponse,
     SaleCreate,
@@ -71,6 +72,45 @@ async def create_sale_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except (ProductStockNotFoundError, InvalidStockAdjustmentError) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/daily-entry", response_model=list[SaleRead], status_code=status.HTTP_201_CREATED)
+async def daily_entry_endpoint(
+    body: DailyEntryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Record multiple sales from daily entry form.
+
+    Looks up each product's selling_price for unit_price and defaults channel to retail.
+    """
+    from src.products.models import Product
+    from sqlalchemy import select
+
+    results = []
+    for entry in body.entries:
+        result = await db.execute(select(Product).where(Product.id == entry.product_id))
+        product = result.scalar_one_or_none()
+        if not product:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Product not found: {entry.product_id}",
+            )
+        sale_data = SaleCreate(
+            product_id=entry.product_id,
+            quantity=entry.quantity,
+            unit_price=product.selling_price,
+            sale_date=entry.sale_date,
+            channel="retail",
+        )
+        try:
+            sale = await create_sale(db, sale_data, current_user.id)
+            results.append(sale)
+        except (ProductNotFoundError, SaleValidationError) as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except (ProductStockNotFoundError, InvalidStockAdjustmentError) as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return results
 
 
 @router.get("", response_model=SaleListResponse)
