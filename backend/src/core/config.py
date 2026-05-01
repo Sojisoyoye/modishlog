@@ -7,11 +7,11 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# libpq-style query params that asyncpg does not accept.
-# sslmode is handled separately: require/verify-* → ssl=True.
+# libpq-style query params that asyncpg 0.29+ does not accept.
+# sslmode IS supported by asyncpg 0.29+ natively — keep it as-is.
 _LIBPQ_DROP = frozenset(
     {
-        "sslmode", "sslrootcert", "sslcert", "sslkey", "sslpassword",
+        "sslrootcert", "sslcert", "sslkey", "sslpassword",
         "channel_binding", "gssencmode", "krbsrvname", "gsslib",
         "target_session_attrs", "connect_timeout", "keepalives",
         "keepalives_idle", "keepalives_interval", "keepalives_count",
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
         - Rewrites postgres:// and postgresql:// to postgresql+asyncpg://
         - Strips libpq-only query params that asyncpg does not accept
-        - Converts sslmode=require|verify-ca|verify-full to ssl=True
+          (sslmode IS supported by asyncpg 0.29+ and is kept as-is)
         """
         if not isinstance(value, str):
             return value
@@ -51,10 +51,7 @@ class Settings(BaseSettings):
         parsed = urlparse(value)
         if parsed.query:
             params = parse_qs(parsed.query, keep_blank_values=True)
-            sslmode = params.pop("sslmode", [None])[0]
-            if sslmode in ("require", "verify-ca", "verify-full"):
-                params["ssl"] = ["True"]
-            for key in _LIBPQ_DROP - {"sslmode"}:
+            for key in _LIBPQ_DROP:
                 params.pop(key, None)
             value = urlunparse(
                 parsed._replace(query=urlencode({k: v[0] for k, v in params.items()}))

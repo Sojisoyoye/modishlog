@@ -27,27 +27,18 @@ class TestEnsureAsyncpgDriver:
         assert result.startswith("postgresql+asyncpg://")
         assert result.count("postgresql+asyncpg://") == 1
 
-    def test_sslmode_require_converted_to_ssl_true(self):
+    def test_sslmode_require_kept(self):
+        # asyncpg 0.29+ supports sslmode natively — keep it as-is
         result = self._make("postgresql://user:pass@host/db?sslmode=require")
-        assert "sslmode" not in result
-        assert "ssl=True" in result
-
-    def test_sslmode_verify_ca_converted_to_ssl_true(self):
-        result = self._make("postgresql://user:pass@host/db?sslmode=verify-ca")
-        assert "sslmode" not in result
-        assert "ssl=True" in result
-
-    def test_sslmode_disable_stripped_no_ssl(self):
-        result = self._make("postgresql://user:pass@host/db?sslmode=disable")
-        assert "sslmode" not in result
-        assert "ssl=" not in result
+        assert "sslmode=require" in result
+        assert result.startswith("postgresql+asyncpg://")
 
     def test_channel_binding_stripped(self):
         result = self._make(
             "postgresql://user:pass@host/db?sslmode=require&channel_binding=require"
         )
         assert "channel_binding" not in result
-        assert "ssl=True" in result
+        assert "sslmode=require" in result
 
     def test_all_libpq_params_stripped(self):
         result = self._make(
@@ -55,12 +46,15 @@ class TestEnsureAsyncpgDriver:
             "?sslmode=require&channel_binding=require&connect_timeout=10"
             "&application_name=myapp&sslrootcert=/path/to/cert"
         )
-        assert "sslmode" not in result
         assert "channel_binding" not in result
         assert "connect_timeout" not in result
         assert "application_name" not in result
         assert "sslrootcert" not in result
-        assert "ssl=True" in result
+        assert "sslmode=require" in result
+
+    def test_no_query_params_unchanged(self):
+        url = "postgresql+asyncpg://user:pass@host/db"
+        assert self._make(url) == url
 
 
 class TestParseCorsOrigins:
