@@ -21,7 +21,10 @@ set -euo pipefail
 SUBSCRIPTION_ID="8b21f152-e36b-4d53-9b88-70fc38d906bc"
 RESOURCE_GROUP="rg-modishlog-staging"
 LOCATION="germanywestcentral"
-CAE_NAME="cae-modishlog"
+# Reuse heimpath's existing Container App Environment — Azure student/free tier
+# allows only 1 CAE per region per subscription.
+CAE_NAME="cae-heimpath"
+CAE_RESOURCE_GROUP="rg-heimpath-shared"
 APP_NAME="modishlog-backend-staging"
 GHCR_REGISTRY="ghcr.io"
 GHCR_USERNAME="sojisoyoye"
@@ -43,20 +46,14 @@ az group create \
   --subscription "$SUBSCRIPTION_ID" \
   --output table
 
-echo "▶ Creating Container Apps environment: $CAE_NAME ..."
-az containerapp env create \
-  --name "$CAE_NAME" \
-  --resource-group "$RESOURCE_GROUP" \
-  --location "$LOCATION" \
-  --subscription "$SUBSCRIPTION_ID" \
-  --output table
-
 echo "▶ Creating backend Container App: $APP_NAME ..."
+# --environment references cae-heimpath which lives in rg-heimpath-shared.
+# The Container App itself is created in rg-modishlog-staging for isolation.
 az containerapp create \
   --name "$APP_NAME" \
   --resource-group "$RESOURCE_GROUP" \
   --subscription "$SUBSCRIPTION_ID" \
-  --environment "$CAE_NAME" \
+  --environment "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$CAE_RESOURCE_GROUP/providers/Microsoft.App/managedEnvironments/$CAE_NAME" \
   --image "$IMAGE" \
   --registry-server "$GHCR_REGISTRY" \
   --registry-username "$GHCR_USERNAME" \
@@ -87,7 +84,7 @@ az containerapp job create \
   --name "modishlog-migrate-staging" \
   --resource-group "$RESOURCE_GROUP" \
   --subscription "$SUBSCRIPTION_ID" \
-  --environment "$CAE_NAME" \
+  --environment "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$CAE_RESOURCE_GROUP/providers/Microsoft.App/managedEnvironments/$CAE_NAME" \
   --trigger-type Manual \
   --replica-timeout 300 \
   --image "$IMAGE" \
