@@ -647,7 +647,6 @@ async def _sum_open_order_usd_obligations(db: AsyncSession) -> Decimal:
 
     Single aggregate query: total_amount - sum(completed payments) per order.
     """
-    from sqlalchemy import case, literal_column, outerjoin
 
     paid_subq = (
         select(
