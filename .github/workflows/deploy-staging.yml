@@ -45,6 +45,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://modishlog:test_password@localhost/modishlog_test
           SECRET_KEY: test-secret-key-for-ci
           ENVIRONMENT: test
+          UPLOAD_DIR: /tmp/uploads
 
   # ─── 2. Build and push backend image to GHCR ──────────────────────────────
   build-backend:

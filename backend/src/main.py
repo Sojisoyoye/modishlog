@@ -12,14 +12,10 @@ from src.core.config import settings
 from src.core.logging import setup_logging
 
 
-UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/uploads")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown events."""
     setup_logging()
-    os.makedirs(os.path.join(UPLOAD_DIR, "products"), exist_ok=True)
     yield
 
 
@@ -39,8 +35,8 @@ app.add_middleware(
 )
 
 # Serve uploaded files as static assets
-os.makedirs(os.path.join(UPLOAD_DIR, "products"), exist_ok=True)
-app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
+os.makedirs(os.path.join(settings.UPLOAD_DIR, "products"), exist_ok=True)
+app.mount("/static", StaticFiles(directory=settings.UPLOAD_DIR), name="static")
 
 # Include domain routers
 from src.auth.router import router as auth_router  # noqa: E402

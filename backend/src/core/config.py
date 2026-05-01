@@ -39,6 +39,9 @@ class Settings(BaseSettings):
             return [v.strip() for v in value.split(",") if v.strip()]
         return value
 
+    # File uploads — /app/uploads is writable by appuser in Docker
+    UPLOAD_DIR: str = "/app/uploads"
+
     # Environment
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "info"

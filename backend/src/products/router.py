@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user
 from src.auth.models import User
+from src.core.config import settings
 from src.core.database import get_db
 from src.products.exceptions import (
     CategoryInUseError,
@@ -342,7 +343,7 @@ async def upload_product_image(
             detail=f"File too large ({len(contents)} bytes). Maximum: {MAX_FILE_SIZE} bytes (5MB).",
         )
 
-    upload_dir = os.path.join(os.environ.get("UPLOAD_DIR", "/uploads"), "products")
+    upload_dir = os.path.join(settings.UPLOAD_DIR, "products")
     os.makedirs(upload_dir, exist_ok=True)
     upload_path = f"{upload_dir}/{product_id}{ext}"
 
