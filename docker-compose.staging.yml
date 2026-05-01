@@ -1,0 +1,29 @@
+# Staging deployment — Azure Container Apps
+# Database: Neon PostgreSQL (external, configured via DATABASE_URL secret)
+# Frontend: Vercel (separate deployment)
+#
+# Initial setup:  bash infra/azure/setup-staging.sh
+# CI/CD updates:  .github/workflows/deploy-staging.yml
+
+services:
+  backend:
+    image: ghcr.io/sojisoyoye/modishlog/backend:${IMAGE_TAG:-staging}
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: ${STAGING_DATABASE_URL}
+      SECRET_KEY: ${STAGING_SECRET_KEY}
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "1440"
+      CORS_ORIGINS: ${STAGING_CORS_ORIGINS}
+      ENVIRONMENT: staging
+      LOG_LEVEL: info
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      FX_API_KEY: ${FX_API_KEY:-}
+      FX_API_URL: ${FX_API_URL:-https://api.example.com/fx}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
