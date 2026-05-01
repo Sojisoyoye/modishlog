@@ -180,6 +180,25 @@ jobs:
           echo "⚠️ Migration job timed out"
           exit 1
 
+      - name: Wait for revision to be provisioned
+        run: |
+          # az containerapp update returns as soon as the new revision is created,
+          # but the container may still be pulling the image and starting.
+          # Poll the revision provisioning state before hitting the health endpoint.
+          for i in $(seq 1 30); do
+            STATE=$(az containerapp revision list \
+              --name ${{ env.CONTAINER_APP }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --subscription ${{ env.SUBSCRIPTION_ID }} \
+              --query "[0].properties.provisioningState" -o tsv)
+            echo "Revision provisioning state: $STATE"
+            if [ "$STATE" = "Provisioned" ]; then
+              echo "✅ Revision provisioned"
+              break
+            fi
+            sleep 10
+          done
+
       - name: Verify backend health
         run: |
           FQDN=$(az containerapp show \
@@ -188,8 +207,10 @@ jobs:
             --subscription ${{ env.SUBSCRIPTION_ID }} \
             --query "properties.configuration.ingress.fqdn" -o tsv)
           echo "Backend URL: https://$FQDN"
-          # Wait up to 60s for the new revision to be healthy
-          for i in $(seq 1 12); do
+          # Wait up to 5 min for the container to accept traffic.
+          # With --min-replicas 0 the container cold-starts on the first request;
+          # image pull + container scheduling can take 2-3 min on Azure.
+          for i in $(seq 1 60); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$FQDN/health" || echo "000")
             if [ "$STATUS" = "200" ]; then
               echo "✅ Backend healthy"

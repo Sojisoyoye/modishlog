@@ -38,8 +38,8 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 | Frontend | Angular 21 (standalone components, Signals), TailwindCSS v4, PrimeNG v21 |
 | AI/ML | Prophet, NumPy/SciPy (Monte Carlo), scikit-learn |
 | Auth | JWT (python-jose), bcrypt (passlib) |
-| Testing | pytest (398 tests), Playwright (87 E2E tests) |
-| Infra | Docker, Docker Compose |
+| Testing | pytest (416 tests), Playwright (87 E2E tests) |
+| Infra | Docker, Docker Compose, Azure Container Apps, Neon PostgreSQL, Vercel, GitHub Actions |
 
 ---
 
@@ -141,6 +141,41 @@ npx ng serve --port 4200
 
 ---
 
+## Staging Deployment
+
+Staging runs on Azure Container Apps (backend) + Vercel (frontend) + Neon PostgreSQL.
+
+| Component | Service |
+|-----------|---------|
+| Backend | Azure Container Apps (`modishlog-backend-staging`) |
+| Database | Neon PostgreSQL (external, SSL required) |
+| Migrations | Azure Container Apps Job (`modishlog-migrate-staging`) |
+| Frontend | Vercel |
+| Registry | GitHub Container Registry (GHCR) |
+| CI/CD | GitHub Actions (`.github/workflows/deploy-staging.yml`) |
+
+Every push to `main` triggers the pipeline:
+1. Run `pytest` — must pass before deploy
+2. Build Docker image → push to GHCR
+3. Deploy frontend to Vercel
+4. Update Container App image on Azure
+5. Run Alembic migration job (`alembic upgrade head`)
+6. Health-check `GET /health` until 200
+
+**First-time setup:**
+```bash
+export STAGING_DATABASE_URL="postgresql://..."   # Neon connection string
+export STAGING_SECRET_KEY="$(openssl rand -hex 32)"
+export STAGING_CORS_ORIGINS="https://your-app.vercel.app"
+export GHCR_TOKEN="ghp_..."
+bash infra/azure/setup-staging.sh
+```
+
+Then add these GitHub Actions secrets to the repo:
+`AZURE_CREDENTIALS`, `GHCR_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`
+
+---
+
 ## API Documentation
 
 Interactive API docs are available at:
@@ -167,13 +202,18 @@ Interactive API docs are available at:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://modishlog:modishlog_dev@localhost:5434/modishlog` | PostgreSQL connection string |
+| `DATABASE_URL` | `postgresql+asyncpg://modishlog:modishlog_dev@localhost:5434/modishlog` | PostgreSQL connection string. Accepts `postgres://` / `postgresql://` — the app normalises to `postgresql+asyncpg://` and strips libpq params automatically. |
+| `DATABASE_SSL` | *(auto-derived)* | Set to `true` to force SSL on the DB connection. Auto-set when the raw `DATABASE_URL` contains `sslmode=require` or `verify-*`. Required for Neon PostgreSQL in staging/production. |
 | `SECRET_KEY` | `dev-secret-change-in-production` | JWT signing key |
-| `UPLOAD_DIR` | `/uploads` | Directory for uploaded files (images) |
-| `ENVIRONMENT` | `development` | Runtime environment |
+| `ALGORITHM` | `HS256` | JWT signing algorithm |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `1440` | JWT token lifetime in minutes |
+| `UPLOAD_DIR` | `/uploads` | Directory for uploaded product images |
+| `ENVIRONMENT` | `development` | Runtime environment (`development` / `staging` / `production`) |
+| `LOG_LEVEL` | `info` | Logging level |
 | `FX_API_KEY` | *(empty)* | External FX rate API key |
 | `FX_API_URL` | `https://api.example.com/fx` | External FX rate API URL |
-| `CORS_ORIGINS` | `["http://localhost:4200"]` | Allowed CORS origins |
+| `CORS_ORIGINS` | `["http://localhost:4200"]` | Allowed CORS origins (JSON array or comma-separated string) |
+| `ANTHROPIC_API_KEY` | *(empty)* | Anthropic API key for AI features |
 
 ---
 
@@ -184,7 +224,7 @@ Interactive API docs are available at:
 cd backend
 UPLOAD_DIR=/tmp/modishlog_uploads .venv/bin/pytest tests/ -v
 ```
-398 tests covering all services, endpoints, and business logic.
+416 tests covering all services, endpoints, and business logic.
 
 ### Frontend E2E (Playwright)
 ```bash
@@ -211,6 +251,8 @@ npx ng build   # 0 errors, 0 warnings
 - **Eager loading** -- all relationships are loaded with `selectinload()` before returning ORM objects for Pydantic serialization.
 - **Structured logging** -- uses `structlog` throughout; never `print()`.
 - **TDD enforced** -- tests written before implementation. Every function has at least 2 tests (happy path + error case).
+- **Lazy ML imports** -- heavy libraries (Prophet/Stan) are imported inside the functions that use them, not at module level. This keeps app startup time under 2 s and avoids OOM on containers with limited memory (e.g. 0.5 Gi).
+- **SSL via connect_args** -- asyncpg does not accept `sslmode` as a URL query param. SSL is enabled by passing `connect_args={"ssl": True}` to `create_async_engine` and `async_engine_from_config` (alembic). The raw `DATABASE_URL` is normalised at startup: libpq params are stripped, and `DATABASE_SSL` is auto-derived from the original `sslmode` value.
 
 ---
 
