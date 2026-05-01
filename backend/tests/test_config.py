@@ -1,6 +1,5 @@
 """Tests for Settings validators in src/core/config.py."""
 
-import pytest
 from src.core.config import Settings
 
 
@@ -23,15 +22,33 @@ class TestEnsureAsyncpgDriver:
         url = "postgresql+asyncpg://user:pass@host/db"
         assert self._make(url) == url
 
-    def test_query_params_preserved(self):
-        result = self._make("postgresql://user:pass@host/db?sslmode=require")
-        assert result == "postgresql+asyncpg://user:pass@host/db?sslmode=require"
-
     def test_postgres_scheme_only_replaces_prefix(self):
-        # Ensure 'postgres://' inside the rest of the URL isn't touched
         result = self._make("postgresql://user:pass@host/postgres://db")
         assert result.startswith("postgresql+asyncpg://")
         assert result.count("postgresql+asyncpg://") == 1
+
+    def test_sslmode_require_converted_to_ssl_true(self):
+        result = self._make("postgresql://user:pass@host/db?sslmode=require")
+        assert "sslmode" not in result
+        assert "ssl=True" in result
+
+    def test_sslmode_verify_ca_converted_to_ssl_true(self):
+        result = self._make("postgresql://user:pass@host/db?sslmode=verify-ca")
+        assert "sslmode" not in result
+        assert "ssl=True" in result
+
+    def test_sslmode_disable_stripped_no_ssl(self):
+        result = self._make("postgresql://user:pass@host/db?sslmode=disable")
+        assert "sslmode" not in result
+        assert "ssl=" not in result
+
+    def test_sslmode_and_other_params_preserved(self):
+        result = self._make(
+            "postgresql://user:pass@host/db?sslmode=require&connect_timeout=10"
+        )
+        assert "sslmode" not in result
+        assert "ssl=True" in result
+        assert "connect_timeout=10" in result
 
 
 class TestParseCorsOrigins:
