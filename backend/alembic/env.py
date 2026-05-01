@@ -67,7 +67,11 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode."""
+    """Run migrations in 'offline' mode.
+
+    Offline mode generates SQL scripts without opening a live connection,
+    so connect_args (ssl=True) are intentionally omitted here.
+    """
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
