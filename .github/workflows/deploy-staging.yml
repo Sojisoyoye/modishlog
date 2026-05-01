@@ -139,7 +139,9 @@ jobs:
             --name ${{ env.MIGRATE_JOB }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --subscription ${{ env.SUBSCRIPTION_ID }} \
-            --image ${{ env.BACKEND_IMAGE }}:${{ needs.build-backend.outputs.image_tag }}
+            --image ${{ env.BACKEND_IMAGE }}:${{ needs.build-backend.outputs.image_tag }} \
+            --command "alembic" \
+            --args "upgrade" "head"
 
       - name: Run database migrations
         run: |

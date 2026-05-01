@@ -108,6 +108,8 @@ az containerapp job create \
   --trigger-type Manual \
   --replica-timeout 300 \
   --image "$PLACEHOLDER_IMAGE" \
+  --command "alembic" \
+  --args "upgrade" "head" \
   --cpu 0.25 \
   --memory 0.5Gi \
   --env-vars \
