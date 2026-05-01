@@ -133,6 +133,14 @@ jobs:
             --subscription ${{ env.SUBSCRIPTION_ID }} \
             --image ${{ env.BACKEND_IMAGE }}:${{ needs.build-backend.outputs.image_tag }}
 
+      - name: Update migration job image
+        run: |
+          az containerapp job update \
+            --name ${{ env.MIGRATE_JOB }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --subscription ${{ env.SUBSCRIPTION_ID }} \
+            --image ${{ env.BACKEND_IMAGE }}:${{ needs.build-backend.outputs.image_tag }}
+
       - name: Run database migrations
         run: |
           az containerapp job start \
