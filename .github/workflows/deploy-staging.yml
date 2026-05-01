@@ -132,7 +132,7 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --subscription ${{ env.SUBSCRIPTION_ID }} \
             --server ghcr.io \
-            --username ${{ secrets.GHCR_USERNAME }} \
+            --username ${{ github.repository_owner }} \
             --password ${{ secrets.GHCR_TOKEN }}
 
       - name: Update Container App image
@@ -150,7 +150,7 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --subscription ${{ env.SUBSCRIPTION_ID }} \
             --server ghcr.io \
-            --username ${{ secrets.GHCR_USERNAME }} \
+            --username ${{ github.repository_owner }} \
             --password ${{ secrets.GHCR_TOKEN }}
 
       - name: Update migration job image
