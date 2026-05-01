@@ -42,13 +42,25 @@ class TestEnsureAsyncpgDriver:
         assert "sslmode" not in result
         assert "ssl=" not in result
 
-    def test_sslmode_and_other_params_preserved(self):
+    def test_channel_binding_stripped(self):
         result = self._make(
-            "postgresql://user:pass@host/db?sslmode=require&connect_timeout=10"
+            "postgresql://user:pass@host/db?sslmode=require&channel_binding=require"
+        )
+        assert "channel_binding" not in result
+        assert "ssl=True" in result
+
+    def test_all_libpq_params_stripped(self):
+        result = self._make(
+            "postgresql://user:pass@host/db"
+            "?sslmode=require&channel_binding=require&connect_timeout=10"
+            "&application_name=myapp&sslrootcert=/path/to/cert"
         )
         assert "sslmode" not in result
+        assert "channel_binding" not in result
+        assert "connect_timeout" not in result
+        assert "application_name" not in result
+        assert "sslrootcert" not in result
         assert "ssl=True" in result
-        assert "connect_timeout=10" in result
 
 
 class TestParseCorsOrigins:
