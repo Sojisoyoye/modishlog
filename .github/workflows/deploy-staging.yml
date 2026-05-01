@@ -132,7 +132,7 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --subscription ${{ env.SUBSCRIPTION_ID }} \
             --server ghcr.io \
-            --username ${{ github.actor }} \
+            --username ${{ secrets.GHCR_USERNAME }} \
             --password ${{ secrets.GHCR_TOKEN }}
 
       - name: Update Container App image
@@ -150,7 +150,7 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --subscription ${{ env.SUBSCRIPTION_ID }} \
             --server ghcr.io \
-            --username ${{ github.actor }} \
+            --username ${{ secrets.GHCR_USERNAME }} \
             --password ${{ secrets.GHCR_TOKEN }}
 
       - name: Update migration job image
@@ -202,6 +202,10 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --subscription ${{ env.SUBSCRIPTION_ID }} \
             --query "properties.latestRevisionName" -o tsv)
+          if [ -z "$REVISION" ]; then
+            echo "❌ Could not determine latest revision name"
+            exit 1
+          fi
           echo "Waiting for revision: $REVISION"
           for i in $(seq 1 30); do
             STATE=$(az containerapp revision show \
