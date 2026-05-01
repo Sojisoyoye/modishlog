@@ -125,6 +125,16 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Refresh GHCR credentials on container app
+        run: |
+          az containerapp registry set \
+            --name ${{ env.CONTAINER_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --subscription ${{ env.SUBSCRIPTION_ID }} \
+            --server ghcr.io \
+            --username ${{ secrets.GHCR_USERNAME }} \
+            --password ${{ secrets.GHCR_TOKEN }}
+
       - name: Update Container App image
         run: |
           az containerapp update \
@@ -140,7 +150,7 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --subscription ${{ env.SUBSCRIPTION_ID }} \
             --server ghcr.io \
-            --username ${{ github.actor }} \
+            --username ${{ secrets.GHCR_USERNAME }} \
             --password ${{ secrets.GHCR_TOKEN }}
 
       - name: Update migration job image
@@ -185,16 +195,36 @@ jobs:
           # az containerapp update returns as soon as the new revision is created,
           # but the container may still be pulling the image and starting.
           # Poll the revision provisioning state before hitting the health endpoint.
+          # Capture the latest revision name from the container app rather than
+          # relying on list index [0], which has no guaranteed sort order.
+          REVISION=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --subscription ${{ env.SUBSCRIPTION_ID }} \
+            --query "properties.latestRevisionName" -o tsv)
+          if [ -z "$REVISION" ]; then
+            echo "❌ Could not determine latest revision name"
+            exit 1
+          fi
+          echo "Waiting for revision: $REVISION"
           for i in $(seq 1 30); do
-            STATE=$(az containerapp revision list \
+            STATE=$(az containerapp revision show \
               --name ${{ env.CONTAINER_APP }} \
               --resource-group ${{ env.RESOURCE_GROUP }} \
               --subscription ${{ env.SUBSCRIPTION_ID }} \
-              --query "[0].properties.provisioningState" -o tsv)
+              --revision "$REVISION" \
+              --query "properties.provisioningState" -o tsv)
             echo "Revision provisioning state: $STATE"
             if [ "$STATE" = "Provisioned" ]; then
               echo "✅ Revision provisioned"
               break
+            elif [ "$STATE" = "Failed" ]; then
+              echo "❌ Revision provisioning failed (image pull or config error)"
+              exit 1
+            fi
+            if [ "$i" = "30" ]; then
+              echo "⚠️ Revision provisioning timed out after 5 min"
+              exit 1
             fi
             sleep 10
           done
