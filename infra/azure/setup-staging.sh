@@ -118,6 +118,15 @@ az containerapp job create \
     "database-url=$STAGING_DATABASE_URL" \
   --output table
 
+echo "▶ Registering GHCR credentials on the migration job ..."
+az containerapp job registry set \
+  --name "modishlog-migrate-staging" \
+  --resource-group "$RESOURCE_GROUP" \
+  --subscription "$SUBSCRIPTION_ID" \
+  --server "$GHCR_REGISTRY" \
+  --username "$GHCR_USERNAME" \
+  --password "$GHCR_TOKEN"
+
 echo ""
 BACKEND_URL=$(az containerapp show \
   --name "$APP_NAME" \

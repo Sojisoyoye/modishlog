@@ -133,6 +133,16 @@ jobs:
             --subscription ${{ env.SUBSCRIPTION_ID }} \
             --image ${{ env.BACKEND_IMAGE }}:${{ needs.build-backend.outputs.image_tag }}
 
+      - name: Refresh GHCR credentials on migration job
+        run: |
+          az containerapp job registry set \
+            --name ${{ env.MIGRATE_JOB }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --subscription ${{ env.SUBSCRIPTION_ID }} \
+            --server ghcr.io \
+            --username ${{ github.actor }} \
+            --password ${{ secrets.GHCR_TOKEN }}
+
       - name: Update migration job image
         run: |
           az containerapp job update \
