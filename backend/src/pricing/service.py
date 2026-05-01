@@ -7,7 +7,6 @@ from decimal import Decimal
 
 import pandas as pd
 import structlog
-from prophet import Prophet
 from scipy.optimize import minimize
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,8 +73,10 @@ async def _fetch_sales_history(
     return df
 
 
-def _train_demand_model(df: pd.DataFrame) -> Prophet:
+def _train_demand_model(df: pd.DataFrame):  # -> Prophet (lazy-imported)
     """Train Prophet demand model (CPU-intensive)."""
+    from prophet import Prophet  # lazy: keeps Prophet off the startup hot path
+
     model = Prophet(
         yearly_seasonality=True,
         weekly_seasonality=True,
@@ -88,7 +89,7 @@ def _train_demand_model(df: pd.DataFrame) -> Prophet:
 
 
 def _generate_demand_forecast(
-    model: Prophet, horizon_days: int
+    model, horizon_days: int  # model is a Prophet instance (lazy-imported type)
 ) -> pd.DataFrame:
     """Generate Prophet demand forecast (CPU-intensive)."""
     future = model.make_future_dataframe(periods=horizon_days)
