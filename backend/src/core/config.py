@@ -16,8 +16,19 @@ class Settings(BaseSettings):
         case_sensitive=True,
     )
 
-    # Database
+    # Database — normalised to postgresql+asyncpg:// by validator below
     DATABASE_URL: str = "postgresql+asyncpg://modishlog:modishlog_dev@localhost:5433/modishlog"
+
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def ensure_asyncpg_driver(cls, value: Any) -> str:
+        """Normalise Neon/Heroku-style postgres:// URLs to postgresql+asyncpg://."""
+        if isinstance(value, str):
+            if value.startswith("postgres://"):
+                return value.replace("postgres://", "postgresql+asyncpg://", 1)
+            if value.startswith("postgresql://"):
+                return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return value
 
     # Security
     SECRET_KEY: str = "dev-secret-change-in-production"
