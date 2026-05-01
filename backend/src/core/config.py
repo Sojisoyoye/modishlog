@@ -7,6 +7,19 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# libpq-style query params that asyncpg does not accept.
+# sslmode is handled separately: require/verify-* → ssl=True.
+_LIBPQ_DROP = frozenset(
+    {
+        "sslmode", "sslrootcert", "sslcert", "sslkey", "sslpassword",
+        "channel_binding", "gssencmode", "krbsrvname", "gsslib",
+        "target_session_attrs", "connect_timeout", "keepalives",
+        "keepalives_idle", "keepalives_interval", "keepalives_count",
+        "application_name", "fallback_application_name",
+        "load_balance_hosts", "options",
+    }
+)
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -26,8 +39,8 @@ class Settings(BaseSettings):
         """Normalise Neon/Heroku-style URLs for asyncpg.
 
         - Rewrites postgres:// and postgresql:// to postgresql+asyncpg://
-        - Converts sslmode=require|verify-ca|verify-full to ssl=True (asyncpg
-          does not accept the psycopg2-style sslmode parameter)
+        - Strips libpq-only query params that asyncpg does not accept
+        - Converts sslmode=require|verify-ca|verify-full to ssl=True
         """
         if not isinstance(value, str):
             return value
@@ -35,13 +48,17 @@ class Settings(BaseSettings):
             if value.startswith(old):
                 value = "postgresql+asyncpg://" + value[len(old):]
                 break
-        if "sslmode=" in value:
-            parsed = urlparse(value)
+        parsed = urlparse(value)
+        if parsed.query:
             params = parse_qs(parsed.query, keep_blank_values=True)
             sslmode = params.pop("sslmode", [None])[0]
             if sslmode in ("require", "verify-ca", "verify-full"):
                 params["ssl"] = ["True"]
-            value = urlunparse(parsed._replace(query=urlencode({k: v[0] for k, v in params.items()})))
+            for key in _LIBPQ_DROP - {"sslmode"}:
+                params.pop(key, None)
+            value = urlunparse(
+                parsed._replace(query=urlencode({k: v[0] for k, v in params.items()}))
+            )
         return value
 
     # Security
