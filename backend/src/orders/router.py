@@ -37,7 +37,6 @@ from src.orders.schemas import (
 )
 from src.orders.service import (
     cancel_order,
-    check_logistics_alerts,
     create_order,
     get_logistics_efficiency,
     get_order,
