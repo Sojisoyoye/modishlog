@@ -4,14 +4,14 @@ import json
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# libpq-style query params that asyncpg 0.29+ does not accept.
-# sslmode IS supported by asyncpg 0.29+ natively — keep it as-is.
+# libpq-style query params that asyncpg does not accept as URL query params.
+# SSL is handled via connect_args={"ssl": True} on the engine instead.
 _LIBPQ_DROP = frozenset(
     {
-        "sslrootcert", "sslcert", "sslkey", "sslpassword",
+        "sslmode", "sslrootcert", "sslcert", "sslkey", "sslpassword",
         "channel_binding", "gssencmode", "krbsrvname", "gsslib",
         "target_session_attrs", "connect_timeout", "keepalives",
         "keepalives_idle", "keepalives_interval", "keepalives_count",
@@ -19,6 +19,8 @@ _LIBPQ_DROP = frozenset(
         "load_balance_hosts", "options",
     }
 )
+
+_SSL_REQUIRED_MODES = frozenset({"require", "verify-ca", "verify-full"})
 
 
 class Settings(BaseSettings):
@@ -30,8 +32,24 @@ class Settings(BaseSettings):
         case_sensitive=True,
     )
 
-    # Database — normalised to postgresql+asyncpg:// by validator below
+    # Database — normalised to postgresql+asyncpg:// with libpq params stripped
     DATABASE_URL: str = "postgresql+asyncpg://modishlog:modishlog_dev@localhost:5433/modishlog"
+    # True when the original DATABASE_URL contained sslmode=require|verify-*
+    DATABASE_SSL: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def detect_ssl(cls, data: Any) -> Any:
+        """Detect SSL requirement from the raw DATABASE_URL before field validation."""
+        if isinstance(data, dict):
+            url = data.get("DATABASE_URL", "")
+            if isinstance(url, str) and "sslmode=" in url:
+                parsed = urlparse(url)
+                params = parse_qs(parsed.query, keep_blank_values=True)
+                sslmode = (params.get("sslmode") or [None])[0]
+                if sslmode in _SSL_REQUIRED_MODES:
+                    data["DATABASE_SSL"] = True
+        return data
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
@@ -39,8 +57,8 @@ class Settings(BaseSettings):
         """Normalise Neon/Heroku-style URLs for asyncpg.
 
         - Rewrites postgres:// and postgresql:// to postgresql+asyncpg://
-        - Strips libpq-only query params that asyncpg does not accept
-          (sslmode IS supported by asyncpg 0.29+ and is kept as-is)
+        - Strips all libpq query params (sslmode, channel_binding, etc.)
+          SSL is configured via DATABASE_SSL + connect_args on the engine.
         """
         if not isinstance(value, str):
             return value
