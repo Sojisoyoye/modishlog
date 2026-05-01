@@ -2,6 +2,7 @@
 
 import json
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,12 +23,25 @@ class Settings(BaseSettings):
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def ensure_asyncpg_driver(cls, value: Any) -> str:
-        """Normalise Neon/Heroku-style postgres:// URLs to postgresql+asyncpg://."""
-        if isinstance(value, str):
-            if value.startswith("postgres://"):
-                return value.replace("postgres://", "postgresql+asyncpg://", 1)
-            if value.startswith("postgresql://"):
-                return value.replace("postgresql://", "postgresql+asyncpg://", 1)
+        """Normalise Neon/Heroku-style URLs for asyncpg.
+
+        - Rewrites postgres:// and postgresql:// to postgresql+asyncpg://
+        - Converts sslmode=require|verify-ca|verify-full to ssl=True (asyncpg
+          does not accept the psycopg2-style sslmode parameter)
+        """
+        if not isinstance(value, str):
+            return value
+        for old in ("postgres://", "postgresql://"):
+            if value.startswith(old):
+                value = "postgresql+asyncpg://" + value[len(old):]
+                break
+        if "sslmode=" in value:
+            parsed = urlparse(value)
+            params = parse_qs(parsed.query, keep_blank_values=True)
+            sslmode = params.pop("sslmode", [None])[0]
+            if sslmode in ("require", "verify-ca", "verify-full"):
+                params["ssl"] = ["True"]
+            value = urlunparse(parsed._replace(query=urlencode({k: v[0] for k, v in params.items()})))
         return value
 
     # Security
