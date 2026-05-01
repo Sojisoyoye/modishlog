@@ -73,6 +73,19 @@ class ProductListResponse(BaseModel):
     page_size: int
 
 
+class BulkUploadRowError(BaseModel):
+    row: int
+    error: str
+
+
+class BulkProductUploadResponse(BaseModel):
+    total_rows: int
+    successful: int
+    failed: int
+    errors: list[BulkUploadRowError]
+    created_ids: list[uuid.UUID]
+
+
 # ---------------------------------------------------------------------------
 # Price history schemas
 # ---------------------------------------------------------------------------

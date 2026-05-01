@@ -1,13 +1,25 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { ApiService } from './api.service';
+
+/** Shape returned by the backend GET /inventory endpoint. */
+interface InventoryLevelDTO {
+  id: string;
+  product_id: string;
+  quantity_on_hand: number;
+  quantity_reserved: number;
+  low_stock_threshold: number;
+  last_replenished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface InventoryItem {
   product_id: string;
-  product_name: string;
+  product_name?: string;
   current_stock: number;
   low_stock_threshold: number;
-  depletion_date: string | null;
+  depletion_date?: string | null;
   last_updated: string;
 }
 
@@ -34,7 +46,16 @@ export class InventoryService {
   private readonly api = inject(ApiService);
 
   getCurrent(): Observable<InventoryItem[]> {
-    return this.api.get<InventoryItem[]>('/inventory/current');
+    return this.api.get<InventoryLevelDTO[]>('/inventory').pipe(
+      map((levels) =>
+        levels.map((l) => ({
+          product_id: l.product_id,
+          current_stock: l.quantity_on_hand,
+          low_stock_threshold: l.low_stock_threshold,
+          last_updated: l.updated_at,
+        })),
+      ),
+    );
   }
 
   getMovements(params?: Record<string, string>): Observable<StockMovement[]> {

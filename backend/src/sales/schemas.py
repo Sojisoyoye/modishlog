@@ -29,6 +29,16 @@ class SaleUpdate(BaseModel):
     notes: str | None = None
 
 
+class DailyEntryItem(BaseModel):
+    product_id: uuid.UUID
+    quantity: int = Field(..., gt=0)
+    sale_date: date
+
+
+class DailyEntryRequest(BaseModel):
+    entries: list[DailyEntryItem] = Field(..., min_length=1)
+
+
 class SaleRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,5 +1,9 @@
 """Application configuration using pydantic-settings."""
 
+import json
+from typing import Any
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,8 +24,20 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
-    # CORS
+    # CORS — accepts a JSON array string or comma-separated string from env vars
     CORS_ORIGINS: list[str] = ["http://localhost:4200"]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: Any) -> list[str]:
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            value = value.strip()
+            if value.startswith("["):
+                return json.loads(value)
+            return [v.strip() for v in value.split(",") if v.strip()]
+        return value
 
     # Environment
     ENVIRONMENT: str = "development"

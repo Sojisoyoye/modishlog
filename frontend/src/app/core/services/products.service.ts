@@ -48,6 +48,14 @@ export interface ProductUpdate {
   is_active?: boolean;
 }
 
+export interface BulkUploadResult {
+  total_rows: number;
+  successful: number;
+  failed: number;
+  errors: { row: number; error: string }[];
+  created_ids: string[];
+}
+
 interface ProductListResponse {
   items: Product[];
   total: number;
@@ -63,7 +71,7 @@ export class ProductsService {
 
   getAll(): Observable<Product[]> {
     return this.api
-      .get<ProductListResponse>('/products')
+      .get<ProductListResponse>('/products', { page_size: '100' })
       .pipe(map((resp) => resp.items ?? []));
   }
 
@@ -93,6 +101,12 @@ export class ProductsService {
 
   delete(id: string): Observable<void> {
     return this.api.delete<void>(`/products/${id}`);
+  }
+
+  bulkUpload(file: File): Observable<BulkUploadResult> {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    return this.http.post<BulkUploadResult>(`${this.baseUrl}/products/bulk-upload`, formData);
   }
 
   uploadImage(id: string, file: File): Observable<Product> {

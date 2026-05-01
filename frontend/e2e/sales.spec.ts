@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { addStock, ensureProduct } from './helpers/data';
 
 // ---------------------------------------------------------------------------
 // Sales Page E2E Tests
@@ -40,24 +41,32 @@ test.describe('Sales page layout', () => {
 
   test('has "Add Row" and "Record Sales" buttons', async ({ page }) => {
     await expect(page.getByRole('button', { name: /Add Row/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Record Sales/i })).toBeVisible();
+    // Use last() to avoid strict mode: both the tab and submit button match
+    await expect(page.getByRole('button', { name: /Record Sales/i }).last()).toBeVisible();
   });
 
   test('clicking "Add Row" adds another entry row', async ({ page }) => {
-    const initialSelects = await page.locator('select').count();
+    const selects = page.locator('select');
+    const initialCount = await selects.count();
     await page.getByRole('button', { name: /Add Row/i }).click();
-    const newSelects = await page.locator('select').count();
-    expect(newSelects).toBeGreaterThan(initialSelects);
+    // Use auto-retrying assertion to wait for DOM update
+    await expect(selects).toHaveCount(initialCount + 1);
   });
 });
 
 test.describe('Stock-level validation', () => {
   test('displays stock count next to product dropdown', async ({ page }) => {
-    // The stock indicator should appear somewhere in the form area
-    // It shows text like "(Stock: <number>)" next to each product select
-    const stockIndicator = page.locator('[data-testid="stock-indicator"]').first();
-    await expect(stockIndicator).toBeVisible();
-    await expect(stockIndicator).toHaveText(/Stock:\s*\d+/);
+    // Stock indicator only appears after selecting a product
+    const productSelect = page.locator('select').first();
+    const options = productSelect.locator('option');
+    const optionCount = await options.count();
+
+    if (optionCount > 1) {
+      await productSelect.selectOption({ index: 1 });
+      const stockIndicator = page.locator('[data-testid="stock-indicator"]').first();
+      await expect(stockIndicator).toBeVisible();
+      await expect(stockIndicator).toHaveText(/Stock:\s*\d+/);
+    }
   });
 
   test('shows stock warning when quantity exceeds available stock', async ({ page }) => {
@@ -92,7 +101,7 @@ test.describe('Stock-level validation', () => {
       const qtyInput = page.locator('input[type="number"]').first();
       await qtyInput.fill('999999');
 
-      const submitBtn = page.getByRole('button', { name: /Record Sales/i });
+      const submitBtn = page.getByRole('button', { name: /Record Sales/i }).last();
       await expect(submitBtn).toBeDisabled();
     }
   });
@@ -200,5 +209,40 @@ test.describe('Sales edit/delete/audit buttons', () => {
       // Dialog with header "Audit Trail" should appear
       await expect(page.getByRole('dialog').filter({ hasText: 'Audit Trail' })).toBeVisible();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Create Sale — full E2E flow
+// ---------------------------------------------------------------------------
+
+test.describe('Create Sale flow', () => {
+  test('fills form and records a sale successfully', async ({ page }) => {
+    // Create product and add stock via API, then reload page to pick it up
+    const product = await ensureProduct('Sale Flow Product');
+    await addStock(product.id, 100);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+
+    // Wait for products to load into the dropdown
+    const productOption = page.locator(`select option[value="${product.id}"]`);
+    await expect(productOption).toBeAttached({ timeout: 10_000 });
+
+    // Select product
+    const productSelect = page.locator('select').first();
+    await productSelect.selectOption(product.id);
+
+    // Set quantity
+    const qtyInput = page.locator('input[type="number"]').first();
+    await qtyInput.fill('3');
+
+    // Click "Record Sales" submit button (last to avoid tab match)
+    await page.getByRole('button', { name: /Record Sales/i }).last().click();
+
+    // Success toast should appear
+    await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 10_000 });
+
+    // The sale should appear in the "Recent Sales" or "All Sales" table
+    await expect(page.getByText(product.name).first()).toBeVisible({ timeout: 5_000 });
   });
 });

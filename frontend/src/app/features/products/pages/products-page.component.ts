@@ -11,10 +11,11 @@ import {
   CategoryCreate,
   ProductCreate,
   ProductUpdate,
+  BulkUploadResult,
 } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
 
-type ProductsTab = 'products' | 'stock-report' | 'add' | 'categories';
+type ProductsTab = 'products' | 'stock-report' | 'add' | 'upload' | 'categories';
 type SortDir = 'asc' | 'desc';
 
 interface ColVisibility {
@@ -81,6 +82,12 @@ interface ColEntry {
           [class]="activeTab() === 'add' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
         >
           <i class="pi pi-plus-circle mr-1.5 text-xs"></i> Add Product
+        </button>
+        <button
+          (click)="activeTab.set('upload')"
+          [class]="activeTab() === 'upload' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
+        >
+          <i class="pi pi-upload mr-1.5 text-xs"></i> Bulk Upload
         </button>
         <button
           (click)="activeTab.set('categories')"
@@ -666,7 +673,7 @@ interface ColEntry {
           <div class="flex gap-3 pt-2">
             <button
               type="button"
-              (click)="activeTab.set('products')"
+              (click)="cancelAdd()"
               class="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted hover:bg-gray-50"
             >
               Cancel
@@ -683,6 +690,95 @@ interface ColEntry {
               }
             </button>
           </div>
+        </div>
+      </div>
+    }
+
+    <!-- ── BULK UPLOAD TAB ────────────────────────────────────────────────── -->
+    @if (activeTab() === 'upload') {
+      <div class="mx-auto max-w-2xl">
+        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div class="mb-5 flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+              <i class="pi pi-upload text-sm text-secondary"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Bulk Upload Products</h3>
+          </div>
+
+          <div class="mb-6 rounded-lg border border-blue-100 bg-blue-50/50 p-4">
+            <p class="mb-2 text-sm font-medium text-text">Required columns</p>
+            <div class="flex flex-wrap gap-2">
+              <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">name</span>
+              <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">unit_cost</span>
+              <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">selling_price</span>
+            </div>
+            <p class="mt-2 text-sm font-medium text-text">Optional columns</p>
+            <div class="flex flex-wrap gap-2">
+              <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-muted">sku</span>
+              <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-muted">description</span>
+              <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-muted">category</span>
+              <span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-muted">currency</span>
+            </div>
+          </div>
+
+          <button
+            (click)="downloadBulkTemplate()"
+            class="mb-5 flex items-center gap-2 text-sm font-medium text-secondary transition-colors hover:text-primary hover:underline"
+          >
+            <i class="pi pi-download text-xs"></i> Download CSV template
+          </button>
+
+          <div
+            class="mb-5 flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 p-8 transition-colors"
+            [class.border-primary]="bulkFile"
+            [class.bg-primary/5]="bulkFile"
+          >
+            @if (!bulkFile) {
+              <i class="pi pi-cloud-upload mb-2 text-3xl text-gray-300"></i>
+              <p class="mb-1 text-sm text-muted">Choose a CSV or Excel file</p>
+              <p class="mb-3 text-xs text-gray-400">.csv, .xlsx, or .xls</p>
+            } @else {
+              <i class="pi pi-file mb-2 text-3xl text-primary"></i>
+              <p class="text-sm font-medium text-text">{{ bulkFile.name }}</p>
+              <p class="text-xs text-muted">{{ (bulkFile.size / 1024).toFixed(1) }} KB</p>
+            }
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              (change)="onBulkFileChange($event)"
+              class="mt-3 text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary"
+            />
+          </div>
+
+          <button
+            (click)="submitBulkUpload()"
+            [disabled]="!bulkFile || uploadingBulk()"
+            class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+          >
+            @if (uploadingBulk()) {
+              <i class="pi pi-spinner pi-spin text-sm"></i> Uploading...
+            } @else {
+              <i class="pi pi-upload text-sm"></i> Upload Products
+            }
+          </button>
+
+          @if (bulkResult()) {
+            <div class="mt-5 rounded-lg border p-4" [class]="bulkResult()!.failed ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'">
+              <p class="text-sm font-semibold" [class]="bulkResult()!.failed ? 'text-amber-700' : 'text-green-700'">
+                {{ bulkResult()!.successful }} of {{ bulkResult()!.total_rows }} products created
+                @if (bulkResult()!.failed) {
+                  &mdash; {{ bulkResult()!.failed }} failed
+                }
+              </p>
+              @if (bulkResult()!.errors.length) {
+                <ul class="mt-2 space-y-1">
+                  @for (err of bulkResult()!.errors; track err.row) {
+                    <li class="text-xs text-red-600">Row {{ err.row }}: {{ err.error }}</li>
+                  }
+                </ul>
+              }
+            </div>
+          }
         </div>
       </div>
     }
@@ -909,6 +1005,11 @@ export class ProductsPageComponent implements OnInit {
   inlineCategoryName = '';
   savingInlineCategory = signal(false);
 
+  // ── Bulk upload tab ───────────────────────────────────────────────────────
+  bulkFile: File | null = null;
+  uploadingBulk = signal(false);
+  bulkResult = signal<BulkUploadResult | null>(null);
+
   // ── Categories tab ────────────────────────────────────────────────────────
   newCategoryName = '';
   newCategoryDescription = '';
@@ -1119,6 +1220,14 @@ export class ProductsPageComponent implements OnInit {
     this.addFile = (event.target as HTMLInputElement).files?.[0] ?? null;
   }
 
+  cancelAdd(): void {
+    this.addForm = { name: '', category_id: '', unit_cost: 0, selling_price: 0, description: '' };
+    this.addFile = null;
+    this.showInlineCategoryForm = false;
+    this.inlineCategoryName = '';
+    this.activeTab.set('products');
+  }
+
   submitAdd(): void {
     if (!this.addForm.name || !this.addForm.unit_cost || !this.addForm.selling_price) return;
     this.savingAdd.set(true);
@@ -1216,6 +1325,53 @@ export class ProductsPageComponent implements OnInit {
         this.messageService.add({ severity: 'success', summary: 'Deleted', detail: `"${product.name}" deleted` });
       },
       error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to delete product' }),
+    });
+  }
+
+  // ── Bulk upload ──────────────────────────────────────────────────────────
+  onBulkFileChange(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.bulkFile = input.files?.[0] ?? null;
+    this.bulkResult.set(null);
+  }
+
+  downloadBulkTemplate(): void {
+    const header = 'name,unit_cost,selling_price,sku,description,category,currency';
+    const example = 'Sample Product,5000,8000,,A great product,Electronics,NGN';
+    const csv = [header, example].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'product_upload_template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  submitBulkUpload(): void {
+    if (!this.bulkFile) return;
+    this.uploadingBulk.set(true);
+    this.bulkResult.set(null);
+    this.productsService.bulkUpload(this.bulkFile).subscribe({
+      next: (result) => {
+        this.uploadingBulk.set(false);
+        this.bulkResult.set(result);
+        this.bulkFile = null;
+        if (result.successful > 0) {
+          this.loadProducts();
+          this.loadStock();
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Upload complete',
+            detail: `${result.successful} product(s) created`,
+          });
+        }
+      },
+      error: (err) => {
+        this.uploadingBulk.set(false);
+        const detail = err?.error?.detail ?? 'Upload failed';
+        this.messageService.add({ severity: 'error', summary: 'Error', detail });
+      },
     });
   }
 
