@@ -14,6 +14,7 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.ENVIRONMENT == "development",
     pool_pre_ping=True,
+    connect_args={"ssl": True} if settings.DATABASE_SSL else {},
 )
 
 async_session_factory = async_sessionmaker(
