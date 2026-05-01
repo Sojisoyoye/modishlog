@@ -1,10 +1,10 @@
 {
-  "buildCommand": "npm run build:staging",
+  "buildCommand": "sed -i \"s|__STAGING_API_URL__|$STAGING_API_URL|g\" src/environments/environment.staging.ts && npm run build:staging",
   "outputDirectory": "dist/frontend/browser",
   "installCommand": "npm ci",
   "framework": null,
   "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
     {

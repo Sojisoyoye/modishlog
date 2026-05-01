@@ -11,6 +11,7 @@ env:
   RESOURCE_GROUP: rg-modishlog-staging
   CONTAINER_APP: modishlog-backend-staging
   MIGRATE_JOB: modishlog-migrate-staging
+  SUBSCRIPTION_ID: 8b21f152-e36b-4d53-9b88-70fc38d906bc
 
 jobs:
   # ─── 1. Run tests before deploying ────────────────────────────────────────
@@ -53,6 +54,7 @@ jobs:
       contents: read
       packages: write
     outputs:
+      # e.g. "staging-abc1234" — the short-SHA tag used by deploy-backend
       image_tag: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
@@ -84,33 +86,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ─── 3. Build and push frontend, deploy to Vercel ─────────────────────────
+  # ─── 3. Deploy frontend to Vercel ─────────────────────────────────────────
+  # Vercel re-builds from source using vercel.json buildCommand, which runs
+  # the sed substitution itself using the STAGING_API_URL env var set in the
+  # Vercel project settings (dashboard → Settings → Environment Variables).
   deploy-frontend:
     name: Deploy frontend to Vercel
     needs: test-backend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-        working-directory: frontend
-
-      - name: Substitute staging API URL
-        run: |
-          sed -i "s|__STAGING_API_URL__|${{ secrets.STAGING_API_URL }}|g" \
-            src/environments/environment.staging.ts
-        working-directory: frontend
-
-      - name: Build Angular (staging)
-        run: npm run build:staging
-        working-directory: frontend
 
       - name: Deploy to Vercel
         uses: amondnet/vercel-action@v25
@@ -124,6 +109,7 @@ jobs:
   # ─── 4. Deploy backend to Azure Container Apps ────────────────────────────
   deploy-backend:
     name: Deploy backend to Azure
+    # Needs build-backend so we can reference its image_tag output
     needs: build-backend
     runs-on: ubuntu-latest
     environment: staging
@@ -140,19 +126,22 @@ jobs:
           az containerapp update \
             --name ${{ env.CONTAINER_APP }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.BACKEND_IMAGE }}:staging-${{ github.sha }}
+            --subscription ${{ env.SUBSCRIPTION_ID }} \
+            --image ${{ env.BACKEND_IMAGE }}:${{ needs.build-backend.outputs.image_tag }}
 
       - name: Run database migrations
         run: |
           az containerapp job start \
             --name ${{ env.MIGRATE_JOB }} \
-            --resource-group ${{ env.RESOURCE_GROUP }}
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --subscription ${{ env.SUBSCRIPTION_ID }}
 
           # Wait for migration job to complete (max 3 minutes)
           for i in $(seq 1 18); do
             STATUS=$(az containerapp job execution list \
               --name ${{ env.MIGRATE_JOB }} \
               --resource-group ${{ env.RESOURCE_GROUP }} \
+              --subscription ${{ env.SUBSCRIPTION_ID }} \
               --query "[0].properties.status" -o tsv)
             echo "Migration status: $STATUS"
             if [ "$STATUS" = "Succeeded" ]; then
@@ -172,6 +161,7 @@ jobs:
           FQDN=$(az containerapp show \
             --name ${{ env.CONTAINER_APP }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
+            --subscription ${{ env.SUBSCRIPTION_ID }} \
             --query "properties.configuration.ingress.fqdn" -o tsv)
           echo "Backend URL: https://$FQDN"
           # Wait up to 60s for the new revision to be healthy

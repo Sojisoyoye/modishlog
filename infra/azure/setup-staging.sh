@@ -40,6 +40,7 @@ echo "▶ Creating resource group: $RESOURCE_GROUP ..."
 az group create \
   --name "$RESOURCE_GROUP" \
   --location "$LOCATION" \
+  --subscription "$SUBSCRIPTION_ID" \
   --output table
 
 echo "▶ Creating Container Apps environment: $CAE_NAME ..."
@@ -47,12 +48,14 @@ az containerapp env create \
   --name "$CAE_NAME" \
   --resource-group "$RESOURCE_GROUP" \
   --location "$LOCATION" \
+  --subscription "$SUBSCRIPTION_ID" \
   --output table
 
 echo "▶ Creating backend Container App: $APP_NAME ..."
 az containerapp create \
   --name "$APP_NAME" \
   --resource-group "$RESOURCE_GROUP" \
+  --subscription "$SUBSCRIPTION_ID" \
   --environment "$CAE_NAME" \
   --image "$IMAGE" \
   --registry-server "$GHCR_REGISTRY" \
@@ -78,10 +81,12 @@ az containerapp create \
   --output table
 
 echo ""
-echo "▶ Running database migrations..."
+echo "▶ Creating database migration job..."
+# --command sets the entrypoint; --args passes arguments space-separated
 az containerapp job create \
   --name "modishlog-migrate-staging" \
   --resource-group "$RESOURCE_GROUP" \
+  --subscription "$SUBSCRIPTION_ID" \
   --environment "$CAE_NAME" \
   --trigger-type Manual \
   --replica-timeout 300 \
@@ -92,21 +97,43 @@ az containerapp job create \
   --cpu 0.25 \
   --memory 0.5Gi \
   --command "alembic" \
-  --args "upgrade,head" \
+  --args "upgrade" "head" \
   --env-vars \
     "DATABASE_URL=secretref:database-url" \
   --secrets \
     "database-url=$STAGING_DATABASE_URL" \
   --output table
 
+echo "▶ Running database migrations..."
 az containerapp job start \
   --name "modishlog-migrate-staging" \
-  --resource-group "$RESOURCE_GROUP"
+  --resource-group "$RESOURCE_GROUP" \
+  --subscription "$SUBSCRIPTION_ID"
+
+# Wait for migration job to complete (max 3 minutes)
+for i in $(seq 1 18); do
+  STATUS=$(az containerapp job execution list \
+    --name "modishlog-migrate-staging" \
+    --resource-group "$RESOURCE_GROUP" \
+    --subscription "$SUBSCRIPTION_ID" \
+    --query "[0].properties.status" -o tsv)
+  echo "  Migration status: $STATUS"
+  if [ "$STATUS" = "Succeeded" ]; then
+    echo "  ✅ Migrations complete"
+    break
+  elif [ "$STATUS" = "Failed" ]; then
+    echo "  ❌ Migration job failed — check logs:"
+    echo "  az containerapp job execution list --name modishlog-migrate-staging --resource-group $RESOURCE_GROUP"
+    exit 1
+  fi
+  sleep 10
+done
 
 echo ""
 BACKEND_URL=$(az containerapp show \
   --name "$APP_NAME" \
   --resource-group "$RESOURCE_GROUP" \
+  --subscription "$SUBSCRIPTION_ID" \
   --query "properties.configuration.ingress.fqdn" \
   --output tsv)
 
@@ -118,7 +145,11 @@ echo "   API docs    : https://$BACKEND_URL/docs"
 echo ""
 echo "Next steps:"
 echo "  1. Set STAGING_API_URL=https://$BACKEND_URL in GitHub Actions secrets"
-echo "  2. Set STAGING_CORS_ORIGINS to include your Vercel URL, then re-run:"
-echo "       az containerapp update --name $APP_NAME --resource-group $RESOURCE_GROUP \\"
+echo "  2. Set STAGING_API_URL=https://$BACKEND_URL in Vercel project env vars"
+echo "     (Vercel dashboard → Project → Settings → Environment Variables)"
+echo "  3. Update STAGING_CORS_ORIGINS to include your Vercel URL:"
+echo "       az containerapp update --name $APP_NAME \\"
+echo "         --resource-group $RESOURCE_GROUP \\"
+echo "         --subscription $SUBSCRIPTION_ID \\"
 echo "         --set-env-vars CORS_ORIGINS=https://your-vercel-url.vercel.app"
-echo "  3. Push to main to trigger the full CI/CD pipeline"
+echo "  4. Push to main to trigger the full CI/CD pipeline"
