@@ -9,10 +9,10 @@ import { Dialog } from 'primeng/dialog';
     <p-dialog
       [header]="header()"
       [visible]="visible()"
-      (visibleChange)="onVisibleChange($event)"
       [modal]="true"
       [style]="{ width: '420px' }"
-      [closable]="true"
+      [closable]="false"
+      [closeOnEscape]="false"
     >
       <p class="py-2 text-sm text-text">{{ message() }}</p>
 
@@ -44,10 +44,4 @@ export class ConfirmDialogComponent {
 
   confirmed = output<void>();
   cancelled = output<void>();
-
-  onVisibleChange(isVisible: boolean): void {
-    if (!isVisible) {
-      this.cancelled.emit();
-    }
-  }
 }

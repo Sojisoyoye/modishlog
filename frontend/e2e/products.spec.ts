@@ -281,16 +281,14 @@ test('shows confirm dialog when deleting a category (cancel keeps category)', as
 
   // Create a category first via the Categories tab
   await page.getByRole('button', { name: /Categories/ }).click();
-  await page.waitForTimeout(500);
+  await expect(page.getByPlaceholder('Category name').first()).toBeVisible();
 
-  const catNameInput = page.getByPlaceholder('Category name').first();
-  await catNameInput.fill(catName);
-  await page.locator('button[type="submit"]').first().click();
+  await page.getByPlaceholder('Category name').first().fill(catName);
+  await page.getByRole('button', { name: 'Add Category' }).click();
   await expect(page.getByText(catName)).toBeVisible({ timeout: 8_000 });
 
-  // Click the trash icon for the new category
-  const catRow = page.locator('li, tr, div').filter({ hasText: catName });
-  await catRow.locator('button[title="Delete category"]').click();
+  // Click the trash icon for the new category row
+  await page.locator('tr').filter({ hasText: catName }).locator('button[title="Delete category"]').click();
 
   // The custom p-dialog confirm dialog should appear (not the browser native dialog)
   const confirmDialog = page.locator('[role="dialog"]').filter({ hasText: 'Delete Category' });
@@ -307,16 +305,14 @@ test('deletes category after confirming in dialog', async ({ page }) => {
 
   // Create a category via the Categories tab
   await page.getByRole('button', { name: /Categories/ }).click();
-  await page.waitForTimeout(500);
+  await expect(page.getByPlaceholder('Category name').first()).toBeVisible();
 
-  const catNameInput = page.getByPlaceholder('Category name').first();
-  await catNameInput.fill(catName);
-  await page.locator('button[type="submit"]').first().click();
+  await page.getByPlaceholder('Category name').first().fill(catName);
+  await page.getByRole('button', { name: 'Add Category' }).click();
   await expect(page.getByText(catName)).toBeVisible({ timeout: 8_000 });
 
-  // Click the trash icon for the new category
-  const catRow = page.locator('li, tr, div').filter({ hasText: catName });
-  await catRow.locator('button[title="Delete category"]').click();
+  // Click the trash icon for the new category row
+  await page.locator('tr').filter({ hasText: catName }).locator('button[title="Delete category"]').click();
 
   // Confirm dialog appears
   const confirmDialog = page.locator('[role="dialog"]').filter({ hasText: 'Delete Category' });
