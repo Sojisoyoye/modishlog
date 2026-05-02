@@ -203,9 +203,10 @@ import { ProductsService } from '../../../core/services/products.service';
               [(ngModel)]="adjustType"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             >
-              <option value="PURCHASE">Purchase</option>
-              <option value="MANUAL_CORRECTION">Manual Correction</option>
-              <option value="DAMAGE">Damage</option>
+              <option value="order_received">Purchase / Restock</option>
+              <option value="manual_add">Manual Add</option>
+              <option value="manual_remove">Manual Remove</option>
+              <option value="damaged">Damage / Loss</option>
             </select>
           </div>
           <div>
@@ -219,18 +220,19 @@ import { ProductsService } from '../../../core/services/products.service';
             />
           </div>
           <div>
-            <label for="inv-adjust-notes" class="mb-1.5 block text-xs font-medium text-muted">Notes</label>
+            <label for="inv-adjust-reason" class="mb-1.5 block text-xs font-medium text-muted">Reason <span class="text-danger">*</span></label>
             <textarea
-              id="inv-adjust-notes"
-              [(ngModel)]="adjustNotes"
+              id="inv-adjust-reason"
+              [(ngModel)]="adjustReason"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
               rows="2"
-              placeholder="Optional notes..."
+              placeholder="Required reason for adjustment..."
             ></textarea>
           </div>
           <button
             (click)="submitAdjust()"
-            class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+            [disabled]="!adjustReason.trim() || adjustQty < 1"
+            class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
           >
             <i class="pi pi-check text-sm"></i> Save Adjustment
           </button>
@@ -250,9 +252,9 @@ export class InventoryPageComponent implements OnInit {
   editingThresholdId = signal<string | null>(null);
   adjustVisible = false;
   adjustItem = signal<InventoryItem | null>(null);
-  adjustType = 'PURCHASE';
+  adjustType: 'order_received' | 'manual_add' | 'manual_remove' | 'damaged' = 'order_received';
   adjustQty = 1;
-  adjustNotes = '';
+  adjustReason = '';
 
   ngOnInit(): void {
     this.loadData();
@@ -303,9 +305,11 @@ export class InventoryPageComponent implements OnInit {
   }
 
   movementStatus(type: string): 'info' | 'success' | 'danger' | 'warning' {
-    if (type === 'PURCHASE') return 'info';
-    if (type === 'SALE') return 'success';
-    if (type === 'DAMAGE') return 'danger';
+    if (type === 'order_received') return 'info';
+    if (type === 'manual_add') return 'success';
+    if (type === 'manual_remove') return 'warning';
+    if (type === 'damaged') return 'danger';
+    if (type === 'sale') return 'success';
     return 'warning';
   }
 
@@ -339,21 +343,22 @@ export class InventoryPageComponent implements OnInit {
 
   openAdjust(item: InventoryItem): void {
     this.adjustItem.set(item);
-    this.adjustType = 'PURCHASE';
+    this.adjustType = 'order_received';
     this.adjustQty = 1;
-    this.adjustNotes = '';
+    this.adjustReason = '';
     this.adjustVisible = true;
   }
 
   submitAdjust(): void {
     const item = this.adjustItem();
-    if (!item) return;
+    if (!item || !this.adjustReason.trim() || this.adjustQty < 1) return;
+    const isNegative = this.adjustType === 'manual_remove' || this.adjustType === 'damaged';
+    const quantity_change = isNegative ? -Math.abs(this.adjustQty) : Math.abs(this.adjustQty);
     this.inventoryService
-      .adjust({
-        product_id: item.product_id,
-        adjustment_type: this.adjustType,
-        quantity: this.adjustQty,
-        notes: this.adjustNotes,
+      .adjust(item.product_id, {
+        quantity_change,
+        movement_type: this.adjustType,
+        reason: this.adjustReason.trim(),
       })
       .subscribe({
         next: () => {
