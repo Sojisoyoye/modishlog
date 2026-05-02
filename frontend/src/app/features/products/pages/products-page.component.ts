@@ -14,6 +14,7 @@ import {
   BulkUploadResult,
 } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
+import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 
 type ProductsTab = 'products' | 'stock-report' | 'add' | 'upload' | 'categories';
 type SortDir = 'asc' | 'desc';
@@ -35,7 +36,7 @@ interface ColEntry {
 @Component({
   selector: 'app-products-page',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, Toast, Dialog],
+  imports: [FormsModule, DecimalPipe, Toast, Dialog, ConfirmDialogComponent],
   template: `
     <p-toast />
 
@@ -938,6 +939,24 @@ interface ColEntry {
         </button>
       </div>
     </p-dialog>
+
+    <!-- ── CONFIRM DELETE CATEGORY DIALOG ──────────────────────────────────── -->
+    <app-confirm-dialog
+      [visible]="!!categoryPendingDelete()"
+      header="Delete Category"
+      [message]="'Delete category &quot;' + (categoryPendingDelete()?.name ?? '') + '&quot;? Products will become uncategorised.'"
+      (confirmed)="executeDeleteCategory()"
+      (cancelled)="categoryPendingDelete.set(null)"
+    />
+
+    <!-- ── CONFIRM DELETE PRODUCT DIALOG ────────────────────────────────────── -->
+    <app-confirm-dialog
+      [visible]="!!productPendingDelete()"
+      header="Delete Product"
+      [message]="'Delete &quot;' + (productPendingDelete()?.name ?? '') + '&quot;? This action cannot be undone.'"
+      (confirmed)="executeDeleteProduct()"
+      (cancelled)="productPendingDelete.set(null)"
+    />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -989,6 +1008,10 @@ export class ProductsPageComponent implements OnInit {
   // ── Edit dialog ───────────────────────────────────────────────────────────
   showEdit = false;
   editTarget = signal<Product | null>(null);
+
+  // ── Confirm delete dialogs ────────────────────────────────────────────────
+  categoryPendingDelete = signal<Category | null>(null);
+  productPendingDelete = signal<Product | null>(null);
   editForm: ProductUpdate & { category_id: string; is_active: boolean } = {
     name: '', category_id: '', unit_cost: 0, selling_price: 0, description: '', is_active: true,
   };
@@ -1317,8 +1340,14 @@ export class ProductsPageComponent implements OnInit {
   }
 
   confirmDelete(product: Product): void {
-    if (!confirm(`Delete "${product.name}"? This action cannot be undone.`)) return;
     this.openActionId.set(null);
+    this.productPendingDelete.set(product);
+  }
+
+  executeDeleteProduct(): void {
+    const product = this.productPendingDelete();
+    if (!product) return;
+    this.productPendingDelete.set(null);
     this.productsService.delete(product.id).subscribe({
       next: () => {
         this.products.update((list) => list.filter((p) => p.id !== product.id));
@@ -1418,7 +1447,13 @@ export class ProductsPageComponent implements OnInit {
   }
 
   confirmDeleteCategory(cat: Category): void {
-    if (!confirm(`Delete category "${cat.name}"? Products will become uncategorised.`)) return;
+    this.categoryPendingDelete.set(cat);
+  }
+
+  executeDeleteCategory(): void {
+    const cat = this.categoryPendingDelete();
+    if (!cat) return;
+    this.categoryPendingDelete.set(null);
     this.productsService.deleteCategory(cat.id).subscribe({
       next: () => {
         this.categories.update((list) => list.filter((c) => c.id !== cat.id));
