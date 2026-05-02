@@ -13,15 +13,15 @@ jobs:
     steps:
       - name: Wake up container (cold-start warmup)
         run: |
-          echo "Waiting for container to be ready (may take up to 3 min on cold start)..."
-          for i in $(seq 1 36); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${{ env.BACKEND_URL }}/health" || echo "000")
-            echo "[$i/36] /health → $STATUS"
+          echo "Waiting for container to be ready (may take up to 5 min on cold start)..."
+          for i in $(seq 1 60); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 5 --max-time 5 "${{ env.BACKEND_URL }}/health" || echo "000")
+            echo "[$i/60] /health → $STATUS"
             if [ "$STATUS" = "200" ]; then
               echo "✅ Container is up"
               break
             fi
-            if [ "$i" = "36" ]; then
+            if [ "$i" = "60" ]; then
               echo "❌ Container did not become healthy in time"
               exit 1
             fi
