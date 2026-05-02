@@ -1,0 +1,39 @@
+name: Seed Admin User
+
+on:
+  workflow_dispatch:
+
+env:
+  BACKEND_URL: https://modishlog-backend-staging.braverock-8f81d107.germanywestcentral.azurecontainerapps.io
+
+jobs:
+  seed:
+    name: Create admin user
+    runs-on: ubuntu-latest
+    steps:
+      - name: Register admin user
+        run: |
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
+            -X POST "${{ env.BACKEND_URL }}/api/v1/auth/register" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "email": "admin@modishlog.com",
+              "password": "Admin@1234",
+              "full_name": "Admin User"
+            }')
+          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
+          STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d: -f2)
+          echo "HTTP Status: $STATUS"
+          echo "Response: $BODY"
+          if [ "$STATUS" = "201" ]; then
+            echo "✅ Admin user created successfully"
+            echo "   Email   : admin@modishlog.com"
+            echo "   Password: Admin@1234"
+          elif [ "$STATUS" = "409" ]; then
+            echo "ℹ️ User already exists — credentials are valid"
+            echo "   Email   : admin@modishlog.com"
+            echo "   Password: Admin@1234"
+          else
+            echo "❌ Unexpected status: $STATUS"
+            exit 1
+          fi
