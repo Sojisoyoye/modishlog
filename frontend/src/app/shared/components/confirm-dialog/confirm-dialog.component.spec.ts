@@ -2,6 +2,14 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { ConfirmDialogComponent } from './confirm-dialog.component';
 
+/** p-dialog renders footer template content into its own internal view tree,
+ *  so we query document.body to reach buttons regardless of encapsulation. */
+function findButton(label: string): HTMLButtonElement | undefined {
+  return Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find(
+    (b) => b.textContent?.trim() === label,
+  );
+}
+
 describe('ConfirmDialogComponent', () => {
   let fixture: ComponentFixture<ConfirmDialogComponent>;
   let component: ConfirmDialogComponent;
@@ -17,6 +25,8 @@ describe('ConfirmDialogComponent', () => {
     fixture.componentRef.setInput('visible', true);
     fixture.detectChanges();
   });
+
+  afterEach(() => fixture.destroy());
 
   it('should create', () => {
     expect(component).toBeTruthy();
@@ -36,8 +46,10 @@ describe('ConfirmDialogComponent', () => {
     let emitted = false;
     component.confirmed.subscribe(() => (emitted = true));
 
-    // Trigger the confirmed output directly (template buttons require p-dialog to render)
-    component.confirmed.emit();
+    const btn = findButton('Delete');
+    expect(btn).toBeTruthy();
+    btn!.click();
+
     expect(emitted).toBe(true);
   });
 
@@ -45,7 +57,10 @@ describe('ConfirmDialogComponent', () => {
     let emitted = false;
     component.cancelled.subscribe(() => (emitted = true));
 
-    component.cancelled.emit();
+    const btn = findButton('Cancel');
+    expect(btn).toBeTruthy();
+    btn!.click();
+
     expect(emitted).toBe(true);
   });
 });
