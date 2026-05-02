@@ -35,10 +35,9 @@ export interface StockMovement {
 }
 
 export interface StockAdjustment {
-  product_id: string;
-  adjustment_type: string;
-  quantity: number;
-  notes: string;
+  quantity_change: number;
+  movement_type: 'manual_add' | 'manual_remove' | 'damaged' | 'order_received';
+  reason: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -62,8 +61,8 @@ export class InventoryService {
     return this.api.get<StockMovement[]>('/inventory/movements', params);
   }
 
-  adjust(data: StockAdjustment): Observable<unknown> {
-    return this.api.post('/inventory/adjust', data);
+  adjust(productId: string, data: StockAdjustment): Observable<unknown> {
+    return this.api.post(`/inventory/${productId}/adjust`, data);
   }
 
   getBatches(productId: string): Observable<InventoryBatch[]> {
