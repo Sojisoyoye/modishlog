@@ -290,14 +290,15 @@ test('shows inline confirm banner when deleting a category (cancel keeps categor
   // Click the trash icon — an inline alert banner with Cancel/Delete appears (no modal)
   await page.locator('tr').filter({ hasText: catName }).locator('button[title="Delete category"]').click();
 
-  // Inline banner appears inside the categories tab (not a dialog overlay)
-  await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible({ timeout: 3_000 });
-  await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible({ timeout: 3_000 });
+  // Inline banner appears inside the categories tab (scoped to app-alert-banner element)
+  const confirmBanner = page.locator('app-alert-banner');
+  await expect(confirmBanner.getByRole('button', { name: 'Cancel' })).toBeVisible({ timeout: 3_000 });
+  await expect(confirmBanner.getByRole('button', { name: 'Delete' })).toBeVisible({ timeout: 3_000 });
   await expect(page.getByText(catName)).toBeVisible();
 
   // Click Cancel — banner dismisses, category still in table
-  await page.getByRole('button', { name: 'Cancel' }).click();
-  await expect(page.getByRole('button', { name: 'Cancel' })).not.toBeVisible({ timeout: 3_000 });
+  await confirmBanner.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirmBanner).not.toBeVisible({ timeout: 3_000 });
   await expect(page.getByText(catName)).toBeVisible();
 });
 
@@ -314,10 +315,11 @@ test('deletes category after confirming in inline banner', async ({ page }) => {
 
   // Click the trash icon — inline alert banner appears
   await page.locator('tr').filter({ hasText: catName }).locator('button[title="Delete category"]').click();
-  await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible({ timeout: 3_000 });
+  const confirmBanner = page.locator('app-alert-banner');
+  await expect(confirmBanner.getByRole('button', { name: 'Delete' })).toBeVisible({ timeout: 3_000 });
 
   // Click Delete — category is removed from the table
-  await page.getByRole('button', { name: 'Delete' }).click();
+  await confirmBanner.getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByText(catName)).not.toBeVisible({ timeout: 8_000 });
 });
 
