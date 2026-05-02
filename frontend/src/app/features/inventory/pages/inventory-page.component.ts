@@ -231,7 +231,7 @@ import { ProductsService } from '../../../core/services/products.service';
           </div>
           <button
             (click)="submitAdjust()"
-            [disabled]="!adjustReason.trim()"
+            [disabled]="!adjustReason.trim() || adjustQty < 1"
             class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
           >
             <i class="pi pi-check text-sm"></i> Save Adjustment
@@ -351,7 +351,7 @@ export class InventoryPageComponent implements OnInit {
 
   submitAdjust(): void {
     const item = this.adjustItem();
-    if (!item || !this.adjustReason.trim()) return;
+    if (!item || !this.adjustReason.trim() || this.adjustQty < 1) return;
     const isNegative = this.adjustType === 'manual_remove' || this.adjustType === 'damaged';
     const quantity_change = isNegative ? -Math.abs(this.adjustQty) : Math.abs(this.adjustQty);
     this.inventoryService
