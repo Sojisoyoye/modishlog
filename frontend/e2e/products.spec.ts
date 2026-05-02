@@ -54,7 +54,7 @@ test('product action menu is visible and not clipped by the table container', as
   await row.locator('button[aria-haspopup="true"]').click();
 
   // The menu must be visible — rendered via fixed positioning outside the overflow container
-  const menu = page.locator('[role="menu"]');
+  const menu = page.locator('[role="menu"]').filter({ hasText: 'Edit' });
   await expect(menu).toBeVisible({ timeout: 3_000 });
   await expect(menu.getByRole('button', { name: 'Edit' })).toBeVisible();
   await expect(menu.getByRole('button', { name: 'Delete' })).toBeVisible();

@@ -372,16 +372,14 @@ interface ColEntry {
                     </td>
                   }
                   <td class="px-4 py-3 text-right">
-                    <div class="relative inline-block">
-                      <button
-                        (click)="toggleActionMenu(product.id, $event)"
-                        [attr.aria-expanded]="openActionId() === product.id"
-                        aria-haspopup="true"
-                        class="rounded-lg p-1.5 text-muted hover:bg-gray-100"
-                      >
-                        <i class="pi pi-ellipsis-v text-sm"></i>
-                      </button>
-                    </div>
+                    <button
+                      (click)="toggleActionMenu(product.id, $event)"
+                      [attr.aria-expanded]="openActionId() === product.id"
+                      aria-haspopup="true"
+                      class="rounded-lg p-1.5 text-muted hover:bg-gray-100"
+                    >
+                      <i class="pi pi-ellipsis-v text-sm"></i>
+                    </button>
                   </td>
                 </tr>
               } @empty {
@@ -1247,7 +1245,7 @@ export class ProductsPageComponent implements OnInit {
   }
 
   closeActionMenu(): void {
-    this.closeActionMenu();
+    this.openActionId.set(null);
     this.actionMenuPos.set(null);
   }
 
