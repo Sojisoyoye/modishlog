@@ -15,6 +15,7 @@ import {
 } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
+import { AlertBannerComponent } from '../../../shared/components/alert-banner/alert-banner.component';
 
 type ProductsTab = 'products' | 'stock-report' | 'add' | 'upload' | 'categories';
 type SortDir = 'asc' | 'desc';
@@ -36,7 +37,7 @@ interface ColEntry {
 @Component({
   selector: 'app-products-page',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, Toast, Dialog, ConfirmDialogComponent],
+  imports: [FormsModule, DecimalPipe, Toast, Dialog, ConfirmDialogComponent, AlertBannerComponent],
   template: `
     <p-toast />
 
@@ -817,6 +818,16 @@ interface ColEntry {
           </div>
         </div>
 
+        @if (categoryPendingDelete()) {
+          <app-alert-banner
+            severity="danger"
+            [message]="'Delete category &quot;' + categoryPendingDelete()!.name + '&quot;? Products will become uncategorised.'"
+            confirmLabel="Delete"
+            (confirmed)="executeDeleteCategory()"
+            (dismissed)="categoryPendingDelete.set(null)"
+          />
+        }
+
         <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
           <table class="min-w-full text-sm">
             <thead>
@@ -939,15 +950,6 @@ interface ColEntry {
         </button>
       </div>
     </p-dialog>
-
-    <!-- ── CONFIRM DELETE CATEGORY DIALOG ──────────────────────────────────── -->
-    <app-confirm-dialog
-      [visible]="!!categoryPendingDelete()"
-      header="Delete Category"
-      [message]="'Delete category &quot;' + (categoryPendingDelete()?.name ?? '') + '&quot;? Products will become uncategorised.'"
-      (confirmed)="executeDeleteCategory()"
-      (cancelled)="categoryPendingDelete.set(null)"
-    />
 
     <!-- ── CONFIRM DELETE PRODUCT DIALOG ────────────────────────────────────── -->
     <app-confirm-dialog

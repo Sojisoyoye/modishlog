@@ -11,12 +11,29 @@ import { Component, ChangeDetectionStrategy, input, output, computed } from '@an
     >
       <i [class]="iconClass()"></i>
       <p class="flex-1 text-sm text-text">{{ message() }}</p>
-      <button
-        (click)="dismissed.emit()"
-        class="rounded p-1 text-muted transition-colors hover:bg-black/5 hover:text-text"
-      >
-        <i class="pi pi-times text-xs"></i>
-      </button>
+      @if (confirmLabel()) {
+        <div class="flex gap-2">
+          <button
+            (click)="dismissed.emit()"
+            class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-text transition-colors hover:bg-gray-50"
+          >
+            {{ cancelLabel() }}
+          </button>
+          <button
+            (click)="confirmed.emit()"
+            class="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-600"
+          >
+            {{ confirmLabel() }}
+          </button>
+        </div>
+      } @else {
+        <button
+          (click)="dismissed.emit()"
+          class="rounded p-1 text-muted transition-colors hover:bg-black/5 hover:text-text"
+        >
+          <i class="pi pi-times text-xs"></i>
+        </button>
+      }
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -24,7 +41,11 @@ import { Component, ChangeDetectionStrategy, input, output, computed } from '@an
 export class AlertBannerComponent {
   message = input.required<string>();
   severity = input<'info' | 'success' | 'warning' | 'danger'>('info');
+  /** When set, replaces the dismiss × with Cancel + Confirm action buttons. */
+  confirmLabel = input<string | null>(null);
+  cancelLabel = input<string>('Cancel');
   dismissed = output<void>();
+  confirmed = output<void>();
 
   bannerClass = computed(() => {
     const classes: Record<string, string> = {
