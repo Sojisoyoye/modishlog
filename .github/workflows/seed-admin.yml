@@ -11,22 +11,35 @@ jobs:
     name: Create admin user
     runs-on: ubuntu-latest
     steps:
+      - name: Wake up container (cold-start warmup)
+        run: |
+          echo "Waiting for container to be ready (may take up to 3 min on cold start)..."
+          for i in $(seq 1 36); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${{ env.BACKEND_URL }}/health" || echo "000")
+            echo "[$i/36] /health → $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Container is up"
+              break
+            fi
+            if [ "$i" = "36" ]; then
+              echo "❌ Container did not become healthy in time"
+              exit 1
+            fi
+            sleep 5
+          done
+
       - name: Register admin user
         run: |
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" --max-time 30 \
             -X POST "${{ env.BACKEND_URL }}/api/v1/auth/register" \
             -H "Content-Type: application/json" \
-            -d '{
-              "email": "admin@modishlog.com",
-              "password": "Admin@1234",
-              "full_name": "Admin User"
-            }')
+            -d '{"email":"admin@modishlog.com","password":"Admin@1234","full_name":"Admin User"}')
           BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
           STATUS=$(echo "$RESPONSE" | grep HTTP_STATUS | cut -d: -f2)
           echo "HTTP Status: $STATUS"
           echo "Response: $BODY"
           if [ "$STATUS" = "201" ]; then
-            echo "✅ Admin user created successfully"
+            echo "✅ Admin user created"
             echo "   Email   : admin@modishlog.com"
             echo "   Password: Admin@1234"
           elif [ "$STATUS" = "409" ]; then
