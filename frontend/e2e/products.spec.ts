@@ -273,10 +273,10 @@ test('can create a product with the inline-created category', async ({ page }) =
 });
 
 // ---------------------------------------------------------------------------
-// Confirm dialog — delete category
+// Inline alert banner — delete category confirmation
 // ---------------------------------------------------------------------------
 
-test('shows confirm dialog when deleting a category (cancel keeps category)', async ({ page }) => {
+test('shows inline confirm banner when deleting a category (cancel keeps category)', async ({ page }) => {
   const catName = `E2E ConfirmCat ${Date.now()}`;
 
   // Create a category first via the Categories tab
@@ -287,20 +287,22 @@ test('shows confirm dialog when deleting a category (cancel keeps category)', as
   await page.getByRole('button', { name: 'Add Category' }).click();
   await expect(page.getByText(catName)).toBeVisible({ timeout: 8_000 });
 
-  // Click the trash icon for the new category row
+  // Click the trash icon — an inline alert banner with Cancel/Delete appears (no modal)
   await page.locator('tr').filter({ hasText: catName }).locator('button[title="Delete category"]').click();
 
-  // The custom p-dialog confirm dialog should appear (not the browser native dialog)
-  const confirmDialog = page.locator('[role="dialog"]').filter({ hasText: 'Delete Category' });
-  await expect(confirmDialog).toBeVisible({ timeout: 5_000 });
+  // Inline banner appears inside the categories tab (scoped to app-alert-banner element)
+  const confirmBanner = page.locator('app-alert-banner');
+  await expect(confirmBanner.getByRole('button', { name: 'Cancel' })).toBeVisible({ timeout: 3_000 });
+  await expect(confirmBanner.getByRole('button', { name: 'Delete' })).toBeVisible({ timeout: 3_000 });
+  await expect(page.getByText(catName)).toBeVisible();
 
-  // Click Cancel — dialog closes, category is still present
-  await confirmDialog.getByRole('button', { name: 'Cancel' }).click();
-  await expect(confirmDialog).not.toBeVisible({ timeout: 3_000 });
+  // Click Cancel — banner dismisses, category still in table
+  await confirmBanner.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirmBanner).not.toBeVisible({ timeout: 3_000 });
   await expect(page.getByText(catName)).toBeVisible();
 });
 
-test('deletes category after confirming in dialog', async ({ page }) => {
+test('deletes category after confirming in inline banner', async ({ page }) => {
   const catName = `E2E DeleteCat ${Date.now()}`;
 
   // Create a category via the Categories tab
@@ -311,15 +313,13 @@ test('deletes category after confirming in dialog', async ({ page }) => {
   await page.getByRole('button', { name: 'Add Category' }).click();
   await expect(page.getByText(catName)).toBeVisible({ timeout: 8_000 });
 
-  // Click the trash icon for the new category row
+  // Click the trash icon — inline alert banner appears
   await page.locator('tr').filter({ hasText: catName }).locator('button[title="Delete category"]').click();
+  const confirmBanner = page.locator('app-alert-banner');
+  await expect(confirmBanner.getByRole('button', { name: 'Delete' })).toBeVisible({ timeout: 3_000 });
 
-  // Confirm dialog appears
-  const confirmDialog = page.locator('[role="dialog"]').filter({ hasText: 'Delete Category' });
-  await expect(confirmDialog).toBeVisible({ timeout: 5_000 });
-
-  // Click Delete — category is removed
-  await confirmDialog.getByRole('button', { name: 'Delete' }).click();
+  // Click Delete — category is removed from the table
+  await confirmBanner.getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByText(catName)).not.toBeVisible({ timeout: 8_000 });
 });
 
