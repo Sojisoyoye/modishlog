@@ -1308,8 +1308,9 @@ export class ProductsPageComponent implements OnInit {
     this.editForm = {
       name: product.name,
       category_id: product.category_id ?? '',
-      unit_cost: product.unit_cost,
-      selling_price: product.selling_price,
+      // parseFloat strips trailing zeros from Decimal strings (e.g. "10500.000000" → 10500)
+      unit_cost: parseFloat(String(product.unit_cost)),
+      selling_price: parseFloat(String(product.selling_price)),
       description: product.description ?? '',
       is_active: product.is_active,
     };

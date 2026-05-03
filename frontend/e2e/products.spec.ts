@@ -34,6 +34,41 @@ test('displays product tabs (All Products, Stock Report, Add Product, Categories
 });
 
 // ---------------------------------------------------------------------------
+// Price decimal display in Edit Product dialog (task #59)
+// ---------------------------------------------------------------------------
+
+test.describe('Edit Product price decimal display', () => {
+  test('unit cost and selling price inputs show at most 2 decimal places', async ({ page }) => {
+    // Create a product via the UI so it appears in the table
+    const name = `E2E Decimal ${Date.now()}`;
+    await page.getByRole('button', { name: 'New Product' }).click();
+    const addForm = page.locator('#add-product-form');
+    await addForm.getByPlaceholder('Product name').fill(name);
+    const nums = addForm.locator('input[type="number"]');
+    await nums.nth(0).fill('10500');  // unit_cost
+    await nums.nth(1).fill('15500');  // selling_price
+    await addForm.getByRole('button', { name: 'Add Product' }).click();
+    await expect(page.getByText('Product created')).toBeVisible({ timeout: 5_000 });
+
+    // Open the action menu and click Edit
+    const row = page.getByRole('row').filter({ hasText: name }).first();
+    await row.getByRole('button', { name: /actions/i }).click();
+    await page.getByRole('menuitem', { name: 'Edit' }).click();
+
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Product' });
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    // Read raw input values — must not contain more than 2 decimal digits
+    const costVal = await dialog.locator('input[placeholder="0.00"]').nth(0).inputValue();
+    const priceVal = await dialog.locator('input[placeholder="0.00"]').nth(1).inputValue();
+
+    // Neither value should end with long decimal tails like "10500.000000"
+    expect(costVal).not.toMatch(/\.\d{3,}/);
+    expect(priceVal).not.toMatch(/\.\d{3,}/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Action menu visibility (must not be clipped by overflow:auto container)
 // ---------------------------------------------------------------------------
 

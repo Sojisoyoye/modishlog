@@ -776,7 +776,8 @@ export class SalesPageComponent implements OnInit {
     this.editingsale.set(sale);
     this.editForm = {
       quantity: sale.quantity,
-      unit_price: sale.unit_price,
+      // parseFloat strips trailing zeros from Decimal strings (e.g. "5000.000000" → 5000)
+      unit_price: parseFloat(String(sale.unit_price)),
       channel: sale.channel,
       notes: sale.notes || '',
     };

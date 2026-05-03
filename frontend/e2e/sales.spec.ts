@@ -16,6 +16,39 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
 });
 
+// ---------------------------------------------------------------------------
+// Price decimal display in Edit Sale dialog (task #59)
+// ---------------------------------------------------------------------------
+
+test.describe('Edit Sale price decimal display', () => {
+  test('unit price input in edit dialog shows at most 2 decimal places', async ({ page }) => {
+    const product = await ensureProduct('E2E Sale Decimal Product');
+    await addStock(product.id, 50);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+
+    // Record a sale via the form
+    const productSelect = page.locator('select').filter({ hasText: 'Select product' }).first();
+    await productSelect.selectOption(product.id);
+    const qtyInput = page.locator('input[placeholder="Qty"]').first();
+    await qtyInput.fill('2');
+    await page.getByRole('button', { name: 'Record Sale' }).click();
+    await expect(page.getByText(/recorded/i)).toBeVisible({ timeout: 8_000 });
+
+    // Click the Edit button on the newly created sale row
+    const saleRow = page.getByRole('row').filter({ hasText: product.name }).first();
+    await saleRow.getByRole('button', { name: /edit/i }).click();
+
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: /edit sale/i });
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    const priceVal = await dialog.locator('[data-testid="edit-price-input"]').inputValue();
+
+    // Must not show 6 trailing decimal zeros like "5000.000000"
+    expect(priceVal).not.toMatch(/\.\d{3,}/);
+  });
+});
+
 test.describe('Sales page layout', () => {
   test('displays the Record Sales section', async ({ page }) => {
     await expect(page.getByRole('heading', { name: 'Record Sales' })).toBeVisible();
