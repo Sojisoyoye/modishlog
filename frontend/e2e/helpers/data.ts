@@ -44,6 +44,9 @@ export async function ensureCategory(
       headers: { Authorization: `Bearer ${token}` },
       data: { name, description: 'Created by E2E test' },
     });
+    if (!resp.ok()) {
+      throw new Error(`Failed to create category: ${resp.status()} ${await resp.text()}`);
+    }
     const category = await resp.json();
     return { id: category.id, name: category.name };
   } finally {
@@ -73,6 +76,9 @@ export async function ensureProductInCategory(
         category_id: categoryId,
       },
     });
+    if (!resp.ok()) {
+      throw new Error(`Failed to create product in category: ${resp.status()} ${await resp.text()}`);
+    }
     const product = await resp.json();
     return { id: product.id, name: product.name };
   } finally {

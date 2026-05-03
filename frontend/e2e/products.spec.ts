@@ -536,6 +536,7 @@ test.describe('Category delete with linked products', () => {
     const category = await ensureCategory(`E2E Cat Delete ${Date.now()}`);
     await ensureProductInCategory(category.id, `E2E Cat Product ${Date.now()}`);
 
+    // Reload so the freshly-seeded category appears (beforeEach navigated before API seed)
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
 
@@ -554,11 +555,10 @@ test.describe('Category delete with linked products', () => {
     await expect(alertBanner).toBeVisible({ timeout: 5_000 });
     await alertBanner.getByRole('button', { name: 'Delete' }).click();
 
-    // A WARNING toast (not an error) must appear with a friendly message
+    // A WARN toast (amber) must appear — severity='warn' → PrimeNG class p-toast-message-warn
     const toast = page.locator('.p-toast-message');
     await expect(toast).toBeVisible({ timeout: 8_000 });
-    // Must be a warn toast (amber/yellow), not a red error toast
-    await expect(toast).not.toHaveClass(/p-toast-message-error/);
+    await expect(toast).toHaveClass(/p-toast-message-warn/);
     // Message must mention products and guide the user
     await expect(page.getByText(/still has|Move or delete|before removing/i)).toBeVisible({ timeout: 5_000 });
 
