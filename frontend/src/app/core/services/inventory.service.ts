@@ -29,6 +29,7 @@ export interface StockMovement {
   product_name?: string;
   movement_type: string;
   quantity_change: number;
+  quantity_after?: number;
   reference_id: string | null;
   reason: string | null;
   created_at: string;
@@ -59,6 +60,10 @@ export class InventoryService {
 
   getMovements(limit = 50): Observable<StockMovement[]> {
     return this.api.get<StockMovement[]>('/inventory/movements', { limit: String(limit) });
+  }
+
+  getProductMovements(productId: string): Observable<StockMovement[]> {
+    return this.api.get<StockMovement[]>(`/inventory/${productId}/movements`);
   }
 
   adjust(productId: string, data: StockAdjustment): Observable<unknown> {
