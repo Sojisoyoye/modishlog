@@ -45,9 +45,8 @@ test.describe('Edit Product price decimal display', () => {
     await page.getByRole('button', { name: 'New Product' }).click();
     const addForm = page.locator('#add-product-form');
     await addForm.getByPlaceholder('Product name').fill(name);
-    const nums = addForm.locator('input[type="number"]');
-    await nums.nth(0).fill('10500');  // unit_cost
-    await nums.nth(1).fill('15500');  // selling_price
+    await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10500');
+    await addForm.locator('[data-testid="add-selling-price-input"]').fill('15500');
     // Submit button inside the add form is labelled "Create Product"
     await addForm.getByRole('button', { name: 'Create Product' }).click();
     await expect(page.getByText('Product created')).toBeVisible({ timeout: 5_000 });
@@ -63,16 +62,16 @@ test.describe('Edit Product price decimal display', () => {
     const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Product' });
     await expect(dialog).toBeVisible({ timeout: 5_000 });
 
-    // Read raw input values via stable data-testid selectors
+    // Read input values via stable data-testid selectors
     const costVal = await dialog.locator('[data-testid="edit-unit-cost-input"]').inputValue();
     const priceVal = await dialog.locator('[data-testid="edit-selling-price-input"]').inputValue();
 
-    // Must not have 3+ decimal places (e.g. "10500.000000" from Pydantic Decimal)
-    expect(costVal).not.toMatch(/\.\d{3,}/);
-    expect(priceVal).not.toMatch(/\.\d{3,}/);
-    // Must equal the values entered (no precision loss, no zeroing)
-    expect(parseFloat(costVal)).toBe(10500);
-    expect(parseFloat(priceVal)).toBe(15500);
+    // Must show formatted value with exactly 2 decimal places
+    expect(costVal).toMatch(/^[\d,]+\.\d{2}$/);
+    expect(priceVal).toMatch(/^[\d,]+\.\d{2}$/);
+    // Must equal the values entered (strip commas for numeric check)
+    expect(parseFloat(costVal.replace(/,/g, ''))).toBe(10500);
+    expect(parseFloat(priceVal.replace(/,/g, ''))).toBe(15500);
   });
 });
 
@@ -86,9 +85,8 @@ test('product action menu is visible and not clipped by the table container', as
   await page.getByRole('button', { name: 'New Product' }).click();
   const addForm = page.locator('#add-product-form');
   await addForm.getByPlaceholder('Product name').fill(name);
-  const nums = addForm.locator('input[type="number"]');
-  await nums.nth(0).fill('100');
-  await nums.nth(1).fill('180');
+  await addForm.locator('[data-testid="add-unit-cost-input"]').fill('100');
+  await addForm.locator('[data-testid="add-selling-price-input"]').fill('180');
   await addForm.getByRole('button', { name: 'Create Product' }).click();
   await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
 
@@ -123,9 +121,8 @@ test('product table displays prices formatted to 2 decimal places', async ({ pag
   await page.getByRole('button', { name: 'New Product' }).click();
   const addForm = page.locator('#add-product-form');
   await addForm.getByPlaceholder('Product name').fill(name);
-  const nums = addForm.locator('input[type="number"]');
-  await nums.nth(0).fill('10200');    // unit_cost — should display as 10,200.00
-  await nums.nth(1).fill('14500.50'); // selling_price — should display as 14,500.50
+  await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10200');    // unit_cost — should display as 10,200.00
+  await addForm.locator('[data-testid="add-selling-price-input"]').fill('14500.50'); // selling_price — should display as 14,500.50
   await addForm.getByRole('button', { name: 'Create Product' }).click();
   await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
 
@@ -140,11 +137,10 @@ test('product table displays prices formatted to 2 decimal places', async ({ pag
 test('add product form inputs have 0.00 placeholder and accept decimals', async ({ page }) => {
   await page.getByRole('button', { name: 'New Product' }).click();
   const addForm = page.locator('#add-product-form');
-  const nums = addForm.locator('input[type="number"]');
-  await expect(nums.nth(0)).toHaveAttribute('placeholder', '0.00');
-  await expect(nums.nth(1)).toHaveAttribute('placeholder', '0.00');
-  await expect(nums.nth(0)).toHaveAttribute('step', '0.01');
-  await expect(nums.nth(1)).toHaveAttribute('step', '0.01');
+  const costInput = addForm.locator('[data-testid="add-unit-cost-input"]');
+  const priceInput = addForm.locator('[data-testid="add-selling-price-input"]');
+  await expect(costInput).toHaveAttribute('placeholder', '0.00');
+  await expect(priceInput).toHaveAttribute('placeholder', '0.00');
 });
 
 // ---------------------------------------------------------------------------
@@ -154,11 +150,10 @@ test('add product form inputs have 0.00 placeholder and accept decimals', async 
 test('Add Product form shows profit margin % when cost and price are filled', async ({ page }) => {
   await page.getByRole('button', { name: 'New Product' }).click();
   const addForm = page.locator('#add-product-form');
-  const nums = addForm.locator('input[type="number"]');
 
   // Fill cost=100, price=150 → margin = (150-100)/150*100 = 33.3%
-  await nums.nth(0).fill('100');
-  await nums.nth(1).fill('150');
+  await addForm.locator('[data-testid="add-unit-cost-input"]').fill('100');
+  await addForm.locator('[data-testid="add-selling-price-input"]').fill('150');
 
   const marginBadge = addForm.locator('[data-testid="add-margin"]');
   await expect(marginBadge).toBeVisible();
@@ -170,17 +165,16 @@ test('Add Product form margin indicator is green for positive margin, red for ne
 }) => {
   await page.getByRole('button', { name: 'New Product' }).click();
   const addForm = page.locator('#add-product-form');
-  const nums = addForm.locator('input[type="number"]');
   const marginBadge = addForm.locator('[data-testid="add-margin"]');
 
   // Positive margin → green
-  await nums.nth(0).fill('100');
-  await nums.nth(1).fill('150');
+  await addForm.locator('[data-testid="add-unit-cost-input"]').fill('100');
+  await addForm.locator('[data-testid="add-selling-price-input"]').fill('150');
   await expect(marginBadge).toBeVisible();
   await expect(marginBadge).toHaveClass(/text-green/);
 
   // Negative margin (price < cost) → red
-  await nums.nth(1).fill('80');
+  await addForm.locator('[data-testid="add-selling-price-input"]').fill('80');
   await expect(marginBadge).toHaveClass(/text-red/);
 });
 
@@ -190,9 +184,8 @@ test('Edit Product dialog shows profit margin % for existing product', async ({ 
   await page.getByRole('button', { name: 'New Product' }).click();
   const addForm = page.locator('#add-product-form');
   await addForm.getByPlaceholder('Product name').fill(name);
-  const nums = addForm.locator('input[type="number"]');
-  await nums.nth(0).fill('200');
-  await nums.nth(1).fill('400');
+  await addForm.locator('[data-testid="add-unit-cost-input"]').fill('200');
+  await addForm.locator('[data-testid="add-selling-price-input"]').fill('400');
   await addForm.getByRole('button', { name: 'Create Product' }).click();
   await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
 
@@ -283,9 +276,8 @@ test('can create a product without a category', async ({ page }) => {
 
   // Fill form
   await addForm.getByPlaceholder('Product name').fill(name);
-  const numberInputs = addForm.locator('input[type="number"]');
-  await numberInputs.nth(0).fill('200'); // unit_cost
-  await numberInputs.nth(1).fill('350'); // selling_price
+  await addForm.locator('[data-testid="add-unit-cost-input"]').fill('200'); // unit_cost
+  await addForm.locator('[data-testid="add-selling-price-input"]').fill('350'); // selling_price
 
   // Submit
   await addForm.getByRole('button', { name: 'Create Product' }).click();
@@ -306,9 +298,8 @@ test('can edit a product name and price', async ({ page }) => {
   await page.getByRole('button', { name: 'New Product' }).click();
   const addForm = page.locator('#add-product-form');
   await addForm.getByPlaceholder('Product name').fill(name);
-  const createNumbers = addForm.locator('input[type="number"]');
-  await createNumbers.nth(0).fill('100');
-  await createNumbers.nth(1).fill('180');
+  await addForm.locator('[data-testid="add-unit-cost-input"]').fill('100');
+  await addForm.locator('[data-testid="add-selling-price-input"]').fill('180');
   await addForm.getByRole('button', { name: 'Create Product' }).click();
   await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
 
@@ -343,9 +334,8 @@ test('can delete a product', async ({ page }) => {
   await page.getByRole('button', { name: 'New Product' }).click();
   const addForm = page.locator('#add-product-form');
   await addForm.getByPlaceholder('Product name').fill(name);
-  const nums = addForm.locator('input[type="number"]');
-  await nums.nth(0).fill('50');
-  await nums.nth(1).fill('90');
+  await addForm.locator('[data-testid="add-unit-cost-input"]').fill('50');
+  await addForm.locator('[data-testid="add-selling-price-input"]').fill('90');
   await addForm.getByRole('button', { name: 'Create Product' }).click();
   await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
 
@@ -439,9 +429,8 @@ test('can create a product with the inline-created category', async ({ page }) =
 
   // Fill product details
   await addForm.getByPlaceholder('Product name').fill(productName);
-  const prodNums = addForm.locator('input[type="number"]');
-  await prodNums.nth(0).fill('75');
-  await prodNums.nth(1).fill('120');
+  await addForm.locator('[data-testid="add-unit-cost-input"]').fill('75');
+  await addForm.locator('[data-testid="add-selling-price-input"]').fill('120');
 
   await addForm.getByRole('button', { name: 'Create Product' }).click();
 
@@ -621,5 +610,67 @@ test.describe('Category editing', () => {
     await expect(page.locator('tr').filter({ hasText: newName })).toBeVisible({ timeout: 5_000 });
     // Old name is gone
     await expect(page.locator('tr').filter({ hasText: catName })).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Currency-formatted price inputs — blur formatter (task #56)
+// ---------------------------------------------------------------------------
+
+test.describe('Currency-formatted price inputs', () => {
+  test('add form formats cost to "X,XXX.XX" on blur', async ({ page }) => {
+    await page.getByRole('button', { name: 'New Product' }).click();
+    const costInput = page.locator('[data-testid="add-unit-cost-input"]');
+    await costInput.fill('10200');
+    await costInput.blur();
+    const val = await costInput.inputValue();
+    expect(val).toBe('10,200.00');
+  });
+
+  test('add form formats selling price to "X,XXX.XX" on blur', async ({ page }) => {
+    await page.getByRole('button', { name: 'New Product' }).click();
+    const priceInput = page.locator('[data-testid="add-selling-price-input"]');
+    await priceInput.fill('14500.50');
+    await priceInput.blur();
+    const val = await priceInput.inputValue();
+    expect(val).toBe('14,500.50');
+  });
+
+  test('edit product form opens with comma-formatted values', async ({ page }) => {
+    const name = `E2E FmtOpen ${Date.now()}`;
+    await page.getByRole('button', { name: 'New Product' }).click();
+    const addForm = page.locator('#add-product-form');
+    await addForm.getByPlaceholder('Product name').fill(name);
+    await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10200');
+    await addForm.locator('[data-testid="add-selling-price-input"]').fill('14500');
+    await addForm.getByRole('button', { name: 'Create Product' }).click();
+    await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+
+    const row = page.locator('tr').filter({ hasText: name });
+    await row.locator('button[aria-haspopup="true"]').click();
+    await page.locator('[role="menu"]').filter({ hasText: 'Edit' }).getByRole('button', { name: 'Edit' }).click();
+
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Product' });
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    const costVal = await dialog.locator('[data-testid="edit-unit-cost-input"]').inputValue();
+    const priceVal = await dialog.locator('[data-testid="edit-selling-price-input"]').inputValue();
+    expect(costVal).toBe('10,200.00');
+    expect(priceVal).toBe('14,500.00');
+  });
+
+  test('submits correct numeric value when price input has comma formatting', async ({ page }) => {
+    const name = `E2E FmtSave ${Date.now()}`;
+    await page.getByRole('button', { name: 'New Product' }).click();
+    const addForm = page.locator('#add-product-form');
+    await addForm.getByPlaceholder('Product name').fill(name);
+    await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10200');
+    await addForm.locator('[data-testid="add-selling-price-input"]').fill('14500');
+    await addForm.getByRole('button', { name: 'Create Product' }).click();
+    await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+
+    const row = page.locator('tr').filter({ hasText: name });
+    await expect(row).toContainText('10,200.00');
+    await expect(row).toContainText('14,500.00');
   });
 });
