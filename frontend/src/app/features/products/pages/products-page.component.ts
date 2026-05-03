@@ -43,10 +43,47 @@ interface ColEntry {
 
     <!-- Backdrops for floating menus -->
     @if (openActionId()) {
-      <div class="fixed inset-0 z-[5]" (click)="openActionId.set(null)"></div>
+      <div class="fixed inset-0 z-[5]" (click)="closeActionMenu()"></div>
     }
     @if (showColMenu()) {
       <div class="fixed inset-0 z-[5]" (click)="showColMenu.set(false)"></div>
+    }
+
+    <!-- Fixed-position action menu (escapes overflow:auto clipping) -->
+    @if (openActionId() && actionMenuPos()) {
+      <div
+        role="menu"
+        class="fixed z-[20] w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+        [style.top.px]="actionMenuPos()!.top"
+        [style.right.px]="actionMenuPos()!.right"
+      >
+        <button
+          role="menuitem"
+          title="Edit product"
+          (click)="openEditFromMenu()"
+          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-gray-50"
+        >
+          <i class="pi pi-pencil text-xs text-secondary"></i> Edit
+        </button>
+        <button
+          role="menuitem"
+          title="Toggle active"
+          (click)="toggleActivateFromMenu()"
+          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-gray-50"
+        >
+          <i class="pi pi-power-off text-xs text-muted"></i>
+          {{ menuProduct()?.is_active ? 'Deactivate' : 'Activate' }}
+        </button>
+        <div class="my-1 border-t border-gray-100"></div>
+        <button
+          role="menuitem"
+          title="Delete product"
+          (click)="confirmDeleteFromMenu()"
+          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50"
+        >
+          <i class="pi pi-trash text-xs"></i> Delete
+        </button>
+      </div>
     }
 
     <!-- Page Header -->
@@ -335,46 +372,14 @@ interface ColEntry {
                     </td>
                   }
                   <td class="px-4 py-3 text-right">
-                    <div class="relative inline-block">
-                      <button
-                        (click)="openActionId.set(openActionId() === product.id ? null : product.id)"
-                        [attr.aria-expanded]="openActionId() === product.id"
-                        aria-haspopup="true"
-                        class="rounded-lg p-1.5 text-muted hover:bg-gray-100"
-                      >
-                        <i class="pi pi-ellipsis-v text-sm"></i>
-                      </button>
-                      @if (openActionId() === product.id) {
-                        <div role="menu" class="absolute right-0 top-full z-[10] mt-1 w-44 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                          <button
-                            role="menuitem"
-                            title="Edit product"
-                            (click)="openEdit(product)"
-                            class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-gray-50"
-                          >
-                            <i class="pi pi-pencil text-xs text-secondary"></i> Edit
-                          </button>
-                          <button
-                            role="menuitem"
-                            title="Toggle active"
-                            (click)="toggleActivate(product)"
-                            class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-gray-50"
-                          >
-                            <i class="pi pi-power-off text-xs text-muted"></i>
-                            {{ product.is_active ? 'Deactivate' : 'Activate' }}
-                          </button>
-                          <div class="my-1 border-t border-gray-100"></div>
-                          <button
-                            role="menuitem"
-                            title="Delete product"
-                            (click)="confirmDelete(product)"
-                            class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50"
-                          >
-                            <i class="pi pi-trash text-xs"></i> Delete
-                          </button>
-                        </div>
-                      }
-                    </div>
+                    <button
+                      (click)="toggleActionMenu(product.id, $event)"
+                      [attr.aria-expanded]="openActionId() === product.id"
+                      aria-haspopup="true"
+                      class="rounded-lg p-1.5 text-muted hover:bg-gray-100"
+                    >
+                      <i class="pi pi-ellipsis-v text-sm"></i>
+                    </button>
                   </td>
                 </tr>
               } @empty {
@@ -1006,6 +1011,8 @@ export class ProductsPageComponent implements OnInit {
 
   // ── Actions dropdown ──────────────────────────────────────────────────────
   openActionId = signal<string | null>(null);
+  actionMenuPos = signal<{ top: number; right: number } | null>(null);
+  menuProduct = computed(() => this.products().find((p) => p.id === this.openActionId()) ?? null);
 
   // ── Edit dialog ───────────────────────────────────────────────────────────
   showEdit = false;
@@ -1221,6 +1228,45 @@ export class ProductsPageComponent implements OnInit {
     this.visibleCols.update((c) => ({ ...c, [key]: !c[key] }));
   }
 
+  // ── Action menu helpers ───────────────────────────────────────────────────
+  toggleActionMenu(productId: string, event: MouseEvent): void {
+    if (this.openActionId() === productId) {
+      this.closeActionMenu();
+      return;
+    }
+    const btn = event.currentTarget as HTMLElement;
+    const rect = btn.getBoundingClientRect();
+    // Position below button, aligned to its right edge
+    this.actionMenuPos.set({
+      top: rect.bottom + 4,
+      right: window.innerWidth - rect.right,
+    });
+    this.openActionId.set(productId);
+  }
+
+  closeActionMenu(): void {
+    this.openActionId.set(null);
+    this.actionMenuPos.set(null);
+  }
+
+  openEditFromMenu(): void {
+    const product = this.menuProduct();
+    if (product) this.openEdit(product);
+    else this.closeActionMenu();
+  }
+
+  toggleActivateFromMenu(): void {
+    const product = this.menuProduct();
+    if (product) this.toggleActivate(product);
+    else this.closeActionMenu();
+  }
+
+  confirmDeleteFromMenu(): void {
+    const product = this.menuProduct();
+    if (product) this.confirmDelete(product);
+    else this.closeActionMenu();
+  }
+
   // ── Product CRUD ──────────────────────────────────────────────────────────
   openEdit(product: Product): void {
     this.editTarget.set(product);
@@ -1234,7 +1280,7 @@ export class ProductsPageComponent implements OnInit {
     };
     this.editFile = null;
     this.showEdit = true;
-    this.openActionId.set(null);
+    this.closeActionMenu();
   }
 
   onEditFileChange(event: Event): void {
@@ -1330,7 +1376,7 @@ export class ProductsPageComponent implements OnInit {
     this.productsService.update(product.id, { is_active: !product.is_active }).subscribe({
       next: (updated) => {
         this.products.update((list) => list.map((p) => (p.id === product.id ? updated : p)));
-        this.openActionId.set(null);
+        this.closeActionMenu();
         this.messageService.add({
           severity: 'success',
           summary: updated.is_active ? 'Activated' : 'Deactivated',
@@ -1342,7 +1388,7 @@ export class ProductsPageComponent implements OnInit {
   }
 
   confirmDelete(product: Product): void {
-    this.openActionId.set(null);
+    this.closeActionMenu();
     this.productPendingDelete.set(product);
   }
 

@@ -34,6 +34,42 @@ test('displays product tabs (All Products, Stock Report, Add Product, Categories
 });
 
 // ---------------------------------------------------------------------------
+// Action menu visibility (must not be clipped by overflow:auto container)
+// ---------------------------------------------------------------------------
+
+test('product action menu is visible and not clipped by the table container', async ({ page }) => {
+  // Create a product so there is at least one row
+  const name = `E2E MenuVis ${Date.now()}`;
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+  await addForm.getByPlaceholder('Product name').fill(name);
+  const nums = addForm.locator('input[type="number"]');
+  await nums.nth(0).fill('100');
+  await nums.nth(1).fill('180');
+  await addForm.getByRole('button', { name: 'Create Product' }).click();
+  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+
+  // Click the ellipsis button on the product row
+  const row = page.locator('tr').filter({ hasText: name });
+  await row.locator('button[aria-haspopup="true"]').click();
+
+  // The menu must be visible — rendered via fixed positioning outside the overflow container
+  const menu = page.locator('[role="menu"]').filter({ hasText: 'Edit' });
+  await expect(menu).toBeVisible({ timeout: 3_000 });
+  await expect(menu.getByRole('button', { name: 'Edit' })).toBeVisible();
+  await expect(menu.getByRole('button', { name: 'Delete' })).toBeVisible();
+
+  // Verify the menu is not clipped: its bounding box must be fully within the viewport
+  const box = await menu.boundingBox();
+  const viewport = page.viewportSize()!;
+  expect(box).not.toBeNull();
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+});
+
+// ---------------------------------------------------------------------------
 // Grid / List view toggle
 // ---------------------------------------------------------------------------
 
