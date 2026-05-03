@@ -62,6 +62,9 @@ class Sale(UUIDMixin, TimestampMixin, Base):
     status: Mapped[SaleStatus] = mapped_column(
         Enum(SaleStatus), default=SaleStatus.COMPLETED
     )
+    transaction_id: Mapped[uuid.UUID | None] = mapped_column(
+        nullable=True, index=True, default=None
+    )
     discount_amount: Mapped[Decimal | None] = mapped_column(
         Numeric(18, 6), nullable=True, default=None
     )

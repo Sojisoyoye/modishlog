@@ -7,6 +7,8 @@ import { Dialog } from 'primeng/dialog';
 import {
   SalesService,
   SaleRecord,
+  SaleTransaction,
+  SaleTransactionItem,
   AuditEntry,
   SaleUpdatePayload,
   BulkUploadResponse,
@@ -305,80 +307,68 @@ interface EntryRow {
         </div>
       }
 
-      <!-- All Sales Tab -->
+      <!-- All Sales Tab — grouped transactions -->
       @if (activeTab() === 'all') {
         <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div class="mb-5 flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
-                <i class="pi pi-list text-sm text-success"></i>
-              </div>
-              <h3 class="text-base font-semibold text-text">All Sales</h3>
+          <div class="mb-5 flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
+              <i class="pi pi-list text-sm text-success"></i>
             </div>
-            @if (history().length > 0) {
-              <button
-                (click)="exportSalesCsv()"
-                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
-              >
-                <i class="pi pi-download text-xs"></i> Export CSV
-              </button>
-            }
+            <h3 class="text-base font-semibold text-text">All Sales</h3>
           </div>
 
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 text-sm">
-              <caption class="sr-only">All sales records</caption>
+              <caption class="sr-only">All sales transactions</caption>
               <thead>
                 <tr class="bg-gray-50/80">
                   <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Product</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Qty</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted"># Items</th>
                   <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total</th>
                   <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Status</th>
                   <th class="px-3 py-2.5 text-center text-xs font-semibold uppercase text-muted">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
-                @for (sale of history(); track sale.id) {
-                  <tr class="transition-colors hover:bg-gray-50/50">
-                    <td class="px-3 py-2.5 text-muted">{{ sale.sale_date | date: 'mediumDate' }}</td>
-                    <td class="px-3 py-2.5 font-medium">{{ getProductName(sale.product_id) }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ sale.quantity }}</td>
+                @for (txn of transactions(); track txn.transaction_id) {
+                  <tr
+                    data-testid="transaction-row"
+                    class="cursor-pointer transition-colors hover:bg-gray-50/50"
+                    (click)="openTransactionDetail(txn)"
+                  >
+                    <td class="px-3 py-2.5 text-muted">{{ txn.sale_date | date: 'mediumDate' }}</td>
+                    <td class="px-3 py-2.5 text-right">{{ txn.item_count }}</td>
                     <td class="px-3 py-2.5 text-right font-semibold">
-                      {{ sale.total_amount | currency: (sale.currency || 'NGN') : 'symbol' : '1.0-0' }}
+                      {{ txn.total_amount | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
                     </td>
                     <td class="px-3 py-2.5">
                       <span
                         class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
-                        [class.bg-green-100]="sale.status === 'completed'"
-                        [class.text-green-700]="sale.status === 'completed'"
-                        [class.bg-red-100]="sale.status === 'voided'"
-                        [class.text-red-700]="sale.status === 'voided'"
-                        [class.bg-yellow-100]="sale.status === 'pending'"
-                        [class.text-yellow-700]="sale.status === 'pending'"
-                      >{{ sale.status }}</span>
+                        [class.bg-green-100]="txn.status === 'completed'"
+                        [class.text-green-700]="txn.status === 'completed'"
+                        [class.bg-red-100]="txn.status === 'voided'"
+                        [class.text-red-700]="txn.status === 'voided'"
+                        [class.bg-yellow-100]="txn.status === 'partial'"
+                        [class.text-yellow-700]="txn.status === 'partial'"
+                      >{{ txn.status }}</span>
                     </td>
                     <td class="px-3 py-2.5 text-center">
-                      <div class="flex items-center justify-center gap-1">
-                        @if (sale.status !== 'voided') {
-                          <button data-testid="edit-sale-btn" (click)="openEditDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary" title="Edit sale" type="button">
-                            <i class="pi pi-pencil text-xs"></i>
-                          </button>
-                          <button data-testid="void-sale-btn" (click)="openVoidDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger" title="Void sale" type="button">
-                            <i class="pi pi-trash text-xs"></i>
-                          </button>
-                        }
-                        <button data-testid="audit-sale-btn" (click)="openAuditDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text" title="View audit trail" type="button">
-                          <i class="pi pi-clock text-xs"></i>
-                        </button>
-                      </div>
+                      <button
+                        data-testid="view-transaction-btn"
+                        (click)="$event.stopPropagation(); openTransactionDetail(txn)"
+                        class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary"
+                        title="View transaction detail"
+                        type="button"
+                      >
+                        <i class="pi pi-eye text-xs"></i>
+                      </button>
                     </td>
                   </tr>
                 } @empty {
                   <tr>
-                    <td colspan="6" class="px-3 py-10 text-center text-sm text-muted">
+                    <td colspan="5" class="px-3 py-10 text-center text-sm text-muted">
                       <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
-                      No sales recorded yet
+                      No transactions recorded yet
                     </td>
                   </tr>
                 }
@@ -620,6 +610,105 @@ interface EntryRow {
       }
     </p-dialog>
 
+    <!-- Transaction Detail Dialog -->
+    <p-dialog
+      header="Transaction Detail"
+      [(visible)]="transactionDetailVisible"
+      [modal]="true"
+      [style]="{ width: '600px' }"
+    >
+      @if (viewingTransaction()) {
+        <div class="space-y-4">
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <caption class="sr-only">Transaction items</caption>
+              <thead>
+                <tr class="bg-gray-50/80">
+                  <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Product</th>
+                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Qty</th>
+                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Unit Price</th>
+                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Discount</th>
+                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Line Total</th>
+                  <th class="px-3 py-2 text-center text-xs font-semibold uppercase text-muted">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                @for (item of viewingTransaction()!.items; track item.id) {
+                  <tr data-testid="transaction-item-row">
+                    <td class="px-3 py-2 font-medium">{{ getProductName(item.product_id) }}</td>
+                    <td class="px-3 py-2 text-right">{{ item.quantity }}</td>
+                    <td class="px-3 py-2 text-right">
+                      {{ item.unit_price | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                    </td>
+                    <td class="px-3 py-2 text-right text-muted">
+                      @if (item.discount_amount) {
+                        {{ item.discount_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                      } @else {
+                        —
+                      }
+                    </td>
+                    <td class="px-3 py-2 text-right font-semibold">
+                      {{ item.total_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                    </td>
+                    <td class="px-3 py-2 text-center">
+                      <div class="flex items-center justify-center gap-1">
+                        @if (item.status !== 'voided') {
+                          <button
+                            data-testid="txn-item-edit-btn"
+                            (click)="$event.stopPropagation(); openEditDialog(itemToSaleRecord(item, viewingTransaction()!))"
+                            class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary"
+                            title="Edit sale"
+                            type="button"
+                          >
+                            <i class="pi pi-pencil text-xs"></i>
+                          </button>
+                          <button
+                            data-testid="txn-item-void-btn"
+                            (click)="$event.stopPropagation(); openVoidDialog(itemToSaleRecord(item, viewingTransaction()!))"
+                            class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                            title="Void sale"
+                            type="button"
+                          >
+                            <i class="pi pi-trash text-xs"></i>
+                          </button>
+                        }
+                        <button
+                          data-testid="txn-item-audit-btn"
+                          (click)="$event.stopPropagation(); openAuditDialog(itemToSaleRecord(item, viewingTransaction()!))"
+                          class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text"
+                          title="View audit trail"
+                          type="button"
+                        >
+                          <i class="pi pi-clock text-xs"></i>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+              <tfoot>
+                <tr class="border-t-2 border-gray-300 bg-gray-50/80">
+                  <td colspan="5" class="px-3 py-2.5 text-right text-sm font-semibold text-text">Grand Total</td>
+                  <td class="px-3 py-2.5 text-right text-base font-bold text-primary">
+                    {{ viewingTransaction()!.total_amount | currency: (viewingTransaction()!.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div class="flex justify-end pt-2">
+            <button
+              (click)="transactionDetailVisible = false"
+              class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50"
+              type="button"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      }
+    </p-dialog>
+
     <!-- Audit Trail Dialog -->
     <p-dialog
       header="Audit Trail"
@@ -704,6 +793,11 @@ export class SalesPageComponent implements OnInit {
   uploadResult = signal<BulkUploadResponse | null>(null);
   uploadError = signal<string | null>(null);
 
+  // Transaction state
+  transactions = signal<SaleTransaction[]>([]);
+  transactionDetailVisible = false;
+  viewingTransaction = signal<SaleTransaction | null>(null);
+
   // Edit dialog state
   editDialogVisible = false;
   editingsale = signal<SaleRecord | null>(null);
@@ -743,6 +837,7 @@ export class SalesPageComponent implements OnInit {
     });
     this.loadHistory();
     this.loadInventory();
+    this.loadTransactions();
   }
 
   private loadInventory(): void {
@@ -753,6 +848,36 @@ export class SalesPageComponent implements OnInit {
         this.stockMap.set(map);
       },
     });
+  }
+
+  private loadTransactions(): void {
+    this.salesService.getTransactions({ page_size: '20' }).subscribe({
+      next: (r) => this.transactions.set(r.items ?? []),
+    });
+  }
+
+  openTransactionDetail(txn: SaleTransaction): void {
+    this.viewingTransaction.set(txn);
+    this.transactionDetailVisible = true;
+  }
+
+  itemToSaleRecord(item: SaleTransactionItem, txn: SaleTransaction): SaleRecord {
+    return {
+      id: item.id,
+      product_id: item.product_id,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      total_amount: item.total_amount,
+      discount_amount: item.discount_amount ?? null,
+      currency: item.currency,
+      sale_date: txn.sale_date,
+      channel: 'retail',
+      status: item.status,
+      notes: item.notes,
+      recorded_by: '',
+      created_at: txn.created_at,
+      updated_at: txn.created_at,
+    };
   }
 
   getStock(productId: string): number | undefined {
@@ -830,6 +955,7 @@ export class SalesPageComponent implements OnInit {
         });
         this.loadHistory();
         this.loadInventory();
+        this.loadTransactions();
       },
       error: () => {
         this.submitting.set(false);
@@ -866,6 +992,7 @@ export class SalesPageComponent implements OnInit {
         this.saving.set(false);
         this.editDialogVisible = false;
         this.editingsale.set(null);
+        this.transactionDetailVisible = false;
         this.messageService.add({
           severity: 'success',
           summary: 'Updated',
@@ -873,6 +1000,7 @@ export class SalesPageComponent implements OnInit {
         });
         this.loadHistory();
         this.loadInventory();
+        this.loadTransactions();
       },
       error: () => {
         this.saving.set(false);
@@ -904,6 +1032,7 @@ export class SalesPageComponent implements OnInit {
         this.saving.set(false);
         this.voidDialogVisible = false;
         this.voidingSaleRecord.set(null);
+        this.transactionDetailVisible = false;
         this.messageService.add({
           severity: 'success',
           summary: 'Voided',
@@ -911,6 +1040,7 @@ export class SalesPageComponent implements OnInit {
         });
         this.loadHistory();
         this.loadInventory();
+        this.loadTransactions();
       },
       error: () => {
         this.saving.set(false);

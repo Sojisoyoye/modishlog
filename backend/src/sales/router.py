@@ -33,6 +33,8 @@ from src.sales.schemas import (
     SaleRead,
     SalesHistoryEntry,
     SalesSummary,
+    SaleTransactionListResponse,
+    SaleTransactionRead,
     SaleUpdate,
 )
 from src.sales.service import (
@@ -41,8 +43,10 @@ from src.sales.service import (
     get_sale_audit_trail,
     get_sales_history,
     get_sales_summary,
+    get_transaction,
     get_upload_status,
     list_sales,
+    list_transactions,
     process_bulk_upload,
     quick_quote,
     update_sale,
@@ -89,6 +93,7 @@ async def daily_entry_endpoint(
     from src.products.models import Product
     from sqlalchemy import select
 
+    transaction_id = uuid.uuid4()
     results = []
     for entry in body.entries:
         result = await db.execute(select(Product).where(Product.id == entry.product_id))
@@ -105,6 +110,7 @@ async def daily_entry_endpoint(
             sale_date=entry.sale_date,
             channel="retail",
             discount_amount=entry.discount_amount,
+            transaction_id=transaction_id,
         )
         try:
             sale = await create_sale(db, sale_data, current_user.id)
@@ -208,6 +214,31 @@ async def upload_status_endpoint(
     try:
         return await get_upload_status(db, job_id)
     except BulkUploadJobNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/transactions", response_model=SaleTransactionListResponse)
+async def list_transactions_endpoint(
+    page: int = 1,
+    page_size: int = 20,
+    db: AsyncSession = Depends(get_db),
+):
+    """List sales grouped by transaction (most recent first)."""
+    items, total = await list_transactions(db, page=page, page_size=page_size)
+    return SaleTransactionListResponse(
+        items=items, total=total, page=page, page_size=page_size
+    )
+
+
+@router.get("/transactions/{transaction_id}", response_model=SaleTransactionRead)
+async def get_transaction_endpoint(
+    transaction_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all sale items for a given transaction."""
+    try:
+        return await get_transaction(db, transaction_id)
+    except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 

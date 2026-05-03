@@ -20,6 +20,7 @@ class SaleCreate(BaseModel):
     channel: str = Field(..., pattern="^(online|retail|wholesale)$")
     notes: str | None = None
     discount_amount: Decimal | None = Field(None, ge=0)
+    transaction_id: uuid.UUID | None = None
 
 
 class SaleUpdate(BaseModel):
@@ -50,6 +51,7 @@ class SaleRead(BaseModel):
     unit_price: Decimal
     total_amount: Decimal
     discount_amount: Decimal | None = None
+    transaction_id: uuid.UUID | None = None
     currency: str
     sale_date: date
     channel: str
@@ -146,3 +148,44 @@ class QuickQuoteResponse(BaseModel):
     floor_margin_pct: Decimal
     min_sell_price_per_unit: Decimal
     total_min_price: Decimal
+
+
+# ---------------------------------------------------------------------------
+# Transaction grouping schemas
+# ---------------------------------------------------------------------------
+
+
+class SaleTransactionItemRead(BaseModel):
+    """One line item within a grouped transaction."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_id: uuid.UUID
+    quantity: int
+    unit_price: Decimal
+    discount_amount: Decimal | None = None
+    total_amount: Decimal
+    currency: str
+    status: str
+    notes: str | None = None
+
+
+class SaleTransactionRead(BaseModel):
+    """A grouped set of sale records sharing the same transaction_id."""
+
+    transaction_id: uuid.UUID
+    sale_date: date
+    item_count: int
+    total_amount: Decimal
+    currency: str
+    status: str  # 'completed' | 'voided' | 'partial'
+    items: list[SaleTransactionItemRead]
+    created_at: datetime
+
+
+class SaleTransactionListResponse(BaseModel):
+    items: list[SaleTransactionRead]
+    total: int
+    page: int
+    page_size: int
