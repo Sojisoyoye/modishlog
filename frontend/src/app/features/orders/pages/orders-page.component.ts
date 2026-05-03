@@ -127,10 +127,10 @@ import { FxService } from '../../../core/services/fx.service';
                     }}
                   </td>
                   <td class="px-3 py-2.5 text-right font-medium text-success">
-                    {{ order.locked_amount_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
+                    {{ order.total_amount * 0.3 | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </td>
                   <td class="px-3 py-2.5 text-right font-medium text-warning">
-                    {{ order.floating_amount_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
+                    {{ order.total_amount * 0.7 | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </td>
                 </tr>
               } @empty {
@@ -199,13 +199,13 @@ import { FxService } from '../../../core/services/fx.service';
               <div>
                 <p class="text-xs text-muted">Locked (30%)</p>
                 <p class="mt-0.5 text-lg font-bold text-success">
-                  {{ selectedOrder()!.locked_amount_usd | currency: 'USD' }}
+                  {{ selectedOrder()!.total_amount * 0.3 | currency: 'USD' }}
                 </p>
               </div>
               <div>
                 <p class="text-xs text-muted">Floating (70%)</p>
                 <p class="mt-0.5 text-lg font-bold text-warning">
-                  {{ selectedOrder()!.floating_amount_usd | currency: 'USD' }}
+                  {{ selectedOrder()!.total_amount * 0.7 | currency: 'USD' }}
                 </p>
               </div>
             </div>
@@ -520,8 +520,8 @@ export class OrdersPageComponent implements OnInit {
     this.detailVisible = true;
     this.deliveryFxRate = null;
 
-    // Pre-fill FX rate when order can transition to DELIVERED
-    if (this.nextStatuses(order.status).includes('DELIVERED')) {
+    // Pre-fill FX rate when order can transition to Delivered
+    if (this.nextStatuses(order.status).includes('Delivered')) {
       this.fxService.getLatest().subscribe({
         next: (fx) => {
           if (fx && fx.rate > 0) {

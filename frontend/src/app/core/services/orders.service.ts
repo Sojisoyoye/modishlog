@@ -15,9 +15,6 @@ export interface Order {
   shipping_cost: number;
   clearing_cost: number;
   line_items: OrderItem[];
-  // Derived/optional fields not returned by backend
-  locked_amount_usd?: number;
-  floating_amount_usd?: number;
 }
 
 export interface OrderItem {
