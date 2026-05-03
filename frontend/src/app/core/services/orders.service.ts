@@ -71,10 +71,6 @@ export class OrdersService {
     return this.api.put<Order>(`/orders/${id}/status`, body);
   }
 
-  getPipeline(): Observable<Record<string, number>> {
-    return this.api.get<Record<string, number>>('/orders/pipeline');
-  }
-
   getProfitProjection(id: string): Observable<ProfitProjection> {
     return this.api.get<ProfitProjection>(`/orders/${id}/profit-projection`);
   }

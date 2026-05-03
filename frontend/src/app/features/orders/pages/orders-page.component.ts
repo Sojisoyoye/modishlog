@@ -98,10 +98,10 @@ import { FxService } from '../../../core/services/fx.service';
                   ETA
                 </th>
                 <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
-                  FX Locked
+                  Est. Locked (30%)
                 </th>
                 <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
-                  FX Float
+                  Est. Float (70%)
                 </th>
               </tr>
             </thead>
@@ -569,7 +569,7 @@ export class OrdersPageComponent implements OnInit {
   }
 
   createOrder(): void {
-    const validItems = this.newOrderItems().filter((i) => i.product_id && i.quantity > 0);
+    const validItems = this.newOrderItems().filter((i) => i.product_id && i.quantity > 0 && i.unit_cost > 0);
     if (!this.newOrder.supplier_name || validItems.length === 0) return;
 
     this.creating.set(true);
