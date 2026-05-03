@@ -51,6 +51,7 @@ class StockMovementRead(BaseModel):
     reference_type: str | None = None
     reason: str | None = None
     performed_by: uuid.UUID
+    created_at: datetime
 
 
 # ---------------------------------------------------------------------------

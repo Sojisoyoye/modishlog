@@ -2,10 +2,20 @@
 
 import enum
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -63,6 +73,11 @@ class StockMovement(UUIDMixin, Base):
     reference_type: Mapped[str | None] = mapped_column(String(50), default=None)
     reason: Mapped[str | None] = mapped_column(Text, default=None)
     performed_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+    )
 
     def __repr__(self) -> str:
         return f"<StockMovement(id={self.id}, type={self.movement_type})>"
@@ -100,9 +115,7 @@ class InventoryBatch(UUIDMixin, Base):
 
     __tablename__ = "inventory_batches"
 
-    product_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("products.id"), index=True
-    )
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), index=True)
     order_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("purchase_orders.id"), index=True
     )

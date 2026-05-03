@@ -13,7 +13,12 @@ from src.inventory.exceptions import (
 )
 from decimal import ROUND_HALF_UP, Decimal
 
-from src.inventory.models import InventoryBatch, InventoryLevel, MovementType, StockMovement
+from src.inventory.models import (
+    InventoryBatch,
+    InventoryLevel,
+    MovementType,
+    StockMovement,
+)
 from src.inventory.schemas import DepletionForecastRead
 
 logger = structlog.get_logger()
@@ -185,7 +190,18 @@ async def get_stock_movements(
     result = await db.execute(
         select(StockMovement)
         .where(StockMovement.product_id == product_id)
-        .order_by(StockMovement.id.desc())
+        .order_by(StockMovement.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def list_all_movements(
+    db: AsyncSession,
+    limit: int = 50,
+) -> list[StockMovement]:
+    """Return the most recent stock movements across all products."""
+    result = await db.execute(
+        select(StockMovement).order_by(StockMovement.created_at.desc()).limit(limit)
     )
     return list(result.scalars().all())
 
@@ -360,7 +376,9 @@ async def get_liquidation_candidates(
 
     candidates = []
     for batch in batches:
-        batch_value = Decimal(str(batch.quantity_remaining)) * batch.landed_cost_per_unit
+        batch_value = (
+            Decimal(str(batch.quantity_remaining)) * batch.landed_cost_per_unit
+        )
         if batch_value > 0 and target_ngn > 0:
             discount_pct = max(
                 Decimal("0"),
@@ -369,14 +387,16 @@ async def get_liquidation_candidates(
         else:
             discount_pct = Decimal("0")
 
-        candidates.append({
-            "batch_id": batch.id,
-            "product_id": batch.product_id,
-            "quantity_remaining": batch.quantity_remaining,
-            "landed_cost_per_unit": batch.landed_cost_per_unit,
-            "total_batch_value": batch_value,
-            "discount_pct_needed": discount_pct.quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            ),
-        })
+        candidates.append(
+            {
+                "batch_id": batch.id,
+                "product_id": batch.product_id,
+                "quantity_remaining": batch.quantity_remaining,
+                "landed_cost_per_unit": batch.landed_cost_per_unit,
+                "total_batch_value": batch_value,
+                "discount_pct_needed": discount_pct.quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                ),
+            }
+        )
     return candidates

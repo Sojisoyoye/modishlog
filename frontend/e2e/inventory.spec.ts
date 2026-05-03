@@ -1,5 +1,6 @@
 import { test, expect, request as pwRequest } from '@playwright/test';
 import { ensureTestUser, loginViaUI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
+import { ensureProduct, addStock } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
 
@@ -66,31 +67,17 @@ test('Adjust dialog has correct movement type options', async ({ page }) => {
 });
 
 test('can submit a stock adjustment and see success toast', async ({ page }) => {
-  // Ensure there is at least one product with inventory via API first
-  const ctx = await pwRequest.newContext();
-  const loginResp = await ctx.post(`${API}/auth/login`, {
-    data: { email: E2E_EMAIL, password: E2E_PASSWORD },
-  });
-  const { access_token } = await loginResp.json();
-
-  // Check inventory exists
-  const invResp = await ctx.get(`${API}/inventory`, {
-    headers: { Authorization: `Bearer ${access_token}` },
-  });
-  const inventory = await invResp.json();
-  await ctx.dispose();
-
-  if (!Array.isArray(inventory) || inventory.length === 0) {
-    test.skip();
-    return;
-  }
+  // Seed a product with stock via API so the test never skips
+  const product = await ensureProduct(`E2E Adj Product ${Date.now()}`);
+  await addStock(product.id, 20);
 
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible();
 
-  const adjustButtons = page.locator('button', { hasText: 'Adjust' });
-  await expect(adjustButtons.first()).toBeVisible({ timeout: 10_000 });
-  await adjustButtons.first().click();
+  // Locate the Adjust button for our seeded product
+  const row = page.getByRole('row').filter({ hasText: product.name }).first();
+  await expect(row).toBeVisible({ timeout: 10_000 });
+  await row.getByRole('button', { name: 'Adjust' }).click();
 
   const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Adjust Stock' });
   await expect(dialog).toBeVisible();
@@ -102,7 +89,7 @@ test('can submit a stock adjustment and see success toast', async ({ page }) => 
 
   await dialog.getByRole('button', { name: 'Save Adjustment' }).click();
 
-  // Success toast should appear
+  // Success toast must appear — NOT the 'Failed to adjust stock' error
   await expect(page.getByText('Stock updated successfully')).toBeVisible({ timeout: 10_000 });
 });
 

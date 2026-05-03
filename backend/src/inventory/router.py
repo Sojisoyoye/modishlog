@@ -28,6 +28,7 @@ from src.inventory.service import (
     get_inventory_level,
     get_liquidation_candidates,
     get_stock_movements,
+    list_all_movements,
     list_inventory_levels,
     update_threshold,
 )
@@ -59,7 +60,9 @@ async def list_batches_endpoint(
     return await get_batches_for_product(db, product_id)
 
 
-@router.get("/batches/liquidation-candidates", response_model=list[LiquidationCandidate])
+@router.get(
+    "/batches/liquidation-candidates", response_model=list[LiquidationCandidate]
+)
 async def liquidation_candidates_endpoint(
     target_ngn: float = 500000,
     db: AsyncSession = Depends(get_db),
@@ -69,6 +72,15 @@ async def liquidation_candidates_endpoint(
 
     data = await get_liquidation_candidates(db, Decimal(str(target_ngn)))
     return [LiquidationCandidate(**d) for d in data]
+
+
+@router.get("/movements", response_model=list[StockMovementRead])
+async def list_all_movements_endpoint(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """List the most recent stock movements across all products."""
+    return await list_all_movements(db, limit=limit)
 
 
 @router.get("/{product_id}", response_model=InventoryLevelRead)
