@@ -638,10 +638,11 @@ interface ColEntry {
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted">Unit Cost *</label>
               <input
-                type="number"
-                [(ngModel)]="addForm.unit_cost"
-                min="0"
-                step="0.01"
+                type="text"
+                data-testid="add-unit-cost-input"
+                [(ngModel)]="addCostStr"
+                (ngModelChange)="addForm.unit_cost = parseMoney($event)"
+                (blur)="onAddCostBlur()"
                 placeholder="0.00"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
@@ -649,10 +650,11 @@ interface ColEntry {
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted">Selling Price *</label>
               <input
-                type="number"
-                [(ngModel)]="addForm.selling_price"
-                min="0"
-                step="0.01"
+                type="text"
+                data-testid="add-selling-price-input"
+                [(ngModel)]="addPriceStr"
+                (ngModelChange)="addForm.selling_price = parseMoney($event)"
+                (blur)="onAddPriceBlur()"
                 placeholder="0.00"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
@@ -952,24 +954,24 @@ interface ColEntry {
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">Unit Cost</label>
             <input
-              type="number"
-              [(ngModel)]="editForm.unit_cost"
-              min="0"
-              step="0.01"
-              placeholder="0.00"
+              type="text"
               data-testid="edit-unit-cost-input"
+              [(ngModel)]="editCostStr"
+              (ngModelChange)="editForm.unit_cost = parseMoney($event)"
+              (blur)="onEditCostBlur()"
+              placeholder="0.00"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">Selling Price</label>
             <input
-              type="number"
-              [(ngModel)]="editForm.selling_price"
-              min="0"
-              step="0.01"
-              placeholder="0.00"
+              type="text"
               data-testid="edit-selling-price-input"
+              [(ngModel)]="editPriceStr"
+              (ngModelChange)="editForm.selling_price = parseMoney($event)"
+              (blur)="onEditPriceBlur()"
+              placeholder="0.00"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -1098,11 +1100,19 @@ export class ProductsPageComponent implements OnInit {
   };
   editFile: File | null = null;
 
+  // Display strings for currency-formatted price inputs (edit dialog)
+  editCostStr = '';
+  editPriceStr = '';
+
   // ── Add Product tab form ──────────────────────────────────────────────────
   addForm: ProductCreate & { category_id: string } = {
     name: '', category_id: '', unit_cost: 0, selling_price: 0, description: '',
   };
   addFile: File | null = null;
+
+  // Display strings for currency-formatted price inputs (add form)
+  addCostStr = '';
+  addPriceStr = '';
 
   // ── Inline category (in Add tab) ──────────────────────────────────────────
   showInlineCategoryForm = false;
@@ -1353,20 +1363,59 @@ export class ProductsPageComponent implements OnInit {
   }
 
   // ── Product CRUD ──────────────────────────────────────────────────────────
+  formatMoney(value: number): string {
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(isFinite(value) ? value : 0);
+  }
+
+  parseMoney(s: string): number {
+    const n = parseFloat(String(s).replace(/,/g, ''));
+    return isNaN(n) ? 0 : n;
+  }
+
   openEdit(product: Product): void {
     this.editTarget.set(product);
+    const cost = parseFloat(String(product.unit_cost ?? 0));
+    const price = parseFloat(String(product.selling_price ?? 0));
     this.editForm = {
       name: product.name,
       category_id: product.category_id ?? '',
-      // parseFloat strips trailing zeros from Decimal strings (e.g. "10500.000000" → 10500)
-      unit_cost: parseFloat(String(product.unit_cost ?? 0)),
-      selling_price: parseFloat(String(product.selling_price ?? 0)),
+      unit_cost: cost,
+      selling_price: price,
       description: product.description ?? '',
       is_active: product.is_active,
     };
+    this.editCostStr = this.formatMoney(cost);
+    this.editPriceStr = this.formatMoney(price);
     this.editFile = null;
     this.showEdit = true;
     this.closeActionMenu();
+  }
+
+  onEditCostBlur(): void {
+    const n = this.parseMoney(this.editCostStr);
+    this.editForm.unit_cost = n;
+    this.editCostStr = this.formatMoney(n);
+  }
+
+  onEditPriceBlur(): void {
+    const n = this.parseMoney(this.editPriceStr);
+    this.editForm.selling_price = n;
+    this.editPriceStr = this.formatMoney(n);
+  }
+
+  onAddCostBlur(): void {
+    const n = this.parseMoney(this.addCostStr);
+    this.addForm.unit_cost = n;
+    this.addCostStr = n ? this.formatMoney(n) : '';
+  }
+
+  onAddPriceBlur(): void {
+    const n = this.parseMoney(this.addPriceStr);
+    this.addForm.selling_price = n;
+    this.addPriceStr = n ? this.formatMoney(n) : '';
   }
 
   onEditFileChange(event: Event): void {
@@ -1379,6 +1428,8 @@ export class ProductsPageComponent implements OnInit {
 
   cancelAdd(): void {
     this.addForm = { name: '', category_id: '', unit_cost: 0, selling_price: 0, description: '' };
+    this.addCostStr = '';
+    this.addPriceStr = '';
     this.addFile = null;
     this.showInlineCategoryForm = false;
     this.inlineCategoryName = '';
@@ -1400,6 +1451,8 @@ export class ProductsPageComponent implements OnInit {
         const finish = (prod: Product) => {
           this.savingAdd.set(false);
           this.addForm = { name: '', category_id: '', unit_cost: 0, selling_price: 0, description: '' };
+          this.addCostStr = '';
+          this.addPriceStr = '';
           this.addFile = null;
           this.showInlineCategoryForm = false;
           this.products.update((list) => [...list, prod]);
