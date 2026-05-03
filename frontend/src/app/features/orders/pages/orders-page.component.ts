@@ -9,7 +9,6 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
 import {
   OrdersService,
   Order,
-  ProfitProjection,
   CreateOrderPayload,
 } from '../../../core/services/orders.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
@@ -194,7 +193,7 @@ import { FxService } from '../../../core/services/fx.service';
           </div>
 
           <!-- Line Items -->
-          @if (selectedOrder()!.line_items?.length) {
+          @if (selectedOrder()!.line_items.length) {
             <div class="rounded-lg border border-gray-200 p-4">
               <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Line Items</p>
               <table class="min-w-full divide-y divide-gray-200 text-sm" data-testid="line-items-table">
