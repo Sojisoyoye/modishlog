@@ -53,9 +53,7 @@ async def create_sale(
 ) -> Sale:
     """Record a sale and deplete inventory atomically."""
     # Validate product exists and is active
-    result = await db.execute(
-        select(Product).where(Product.id == data.product_id)
-    )
+    result = await db.execute(select(Product).where(Product.id == data.product_id))
     product = result.scalar_one_or_none()
     if not product:
         from src.products.exceptions import ProductNotFoundError
@@ -64,15 +62,20 @@ async def create_sale(
     if not product.is_active:
         from src.sales.exceptions import SaleValidationError
 
-        raise SaleValidationError("product_id", str(data.product_id), "Product is inactive")
+        raise SaleValidationError(
+            "product_id", str(data.product_id), "Product is inactive"
+        )
 
-    total_amount = data.unit_price * data.quantity
+    gross = data.unit_price * data.quantity
+    discount = data.discount_amount or Decimal("0")
+    total_amount = gross - discount
 
     sale = Sale(
         product_id=data.product_id,
         quantity=data.quantity,
         unit_price=data.unit_price,
         total_amount=total_amount,
+        discount_amount=data.discount_amount,
         currency=product.currency,
         sale_date=data.sale_date,
         channel=SaleChannel(data.channel),
@@ -124,9 +127,7 @@ async def create_sale(
 
 async def get_sale(db: AsyncSession, sale_id: uuid.UUID) -> Sale:
     """Get a single sale by ID."""
-    result = await db.execute(
-        select(Sale).where(Sale.id == sale_id)
-    )
+    result = await db.execute(select(Sale).where(Sale.id == sale_id))
     sale = result.scalar_one_or_none()
     if not sale:
         raise SaleNotFoundError(sale_id)
@@ -231,7 +232,9 @@ async def update_sale(
 
     # Adjust inventory if quantity changed
     if quantity_changed:
-        quantity_diff = old_quantity - sale.quantity  # positive = restoring, negative = depleting more
+        quantity_diff = (
+            old_quantity - sale.quantity
+        )  # positive = restoring, negative = depleting more
         await adjust_stock(
             db,
             product_id=sale.product_id,

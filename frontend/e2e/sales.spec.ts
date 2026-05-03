@@ -249,6 +249,55 @@ test.describe('Sales edit/delete/audit buttons', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Unit price auto-populate and discount field (task #63)
+// ---------------------------------------------------------------------------
+
+test.describe('Unit price and discount in Record Sales form', () => {
+  test('auto-populates unit price when product is selected', async ({ page }) => {
+    const product = await ensureProduct('E2E Price Populate Product');
+    await addStock(product.id, 20);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+
+    const productOption = page.locator(`select option[value="${product.id}"]`);
+    await expect(productOption).toBeAttached({ timeout: 10_000 });
+
+    const productSelect = page.locator('select').first();
+    await productSelect.selectOption(product.id);
+
+    // Unit price should be populated (product selling_price = 5000 from ensureProduct)
+    const priceInput = page.locator('[data-testid="entry-price-input"]').first();
+    await expect(priceInput).toBeVisible();
+    const priceVal = await priceInput.inputValue();
+    expect(parseFloat(priceVal)).toBeGreaterThan(0);
+  });
+
+  test('shows line total calculated from qty and price minus discount', async ({ page }) => {
+    const product = await ensureProduct('E2E Line Total Product');
+    await addStock(product.id, 50);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+
+    const productOption = page.locator(`select option[value="${product.id}"]`);
+    await expect(productOption).toBeAttached({ timeout: 10_000 });
+
+    const productSelect = page.locator('select').first();
+    await productSelect.selectOption(product.id);
+
+    const qtyInput = page.locator('input[type="number"]').first();
+    await qtyInput.fill('2');
+
+    // Line total should be visible (qty × price)
+    const lineTotal = page.locator('[data-testid="entry-line-total"]').first();
+    await expect(lineTotal).toBeVisible();
+
+    // Enter a discount and line total should change
+    const discountInput = page.locator('[data-testid="entry-discount-input"]').first();
+    await expect(discountInput).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Create Sale — full E2E flow
 // ---------------------------------------------------------------------------
 

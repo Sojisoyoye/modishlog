@@ -18,6 +18,8 @@ interface EntryRow {
   product_id: string;
   quantity: number;
   sale_date: string;
+  unit_price: number | null;
+  discount_amount: number | null;
 }
 
 @Component({
@@ -97,8 +99,8 @@ interface EntryRow {
 
             @for (row of entryRows(); track $index) {
               <div class="mb-3">
-                <div class="flex items-end gap-3">
-                  <div class="min-w-[200px] flex-1 lg:min-w-[320px]">
+                <div class="flex flex-wrap items-end gap-3">
+                  <div class="min-w-[200px] flex-1 lg:min-w-[260px]">
                     @if ($index === 0) {
                       <label class="mb-1.5 block text-xs font-medium text-muted">Product</label>
                     }
@@ -106,6 +108,7 @@ interface EntryRow {
                       <select
                         [(ngModel)]="row.product_id"
                         [name]="'product_' + $index"
+                        (change)="onProductChange(row)"
                         class="w-full rounded-lg border border-gray-300 px-3 py-3 text-base transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                       >
                         <option value="">Select product</option>
@@ -121,7 +124,7 @@ interface EntryRow {
                       }
                     </div>
                   </div>
-                  <div class="w-24">
+                  <div class="w-20">
                     @if ($index === 0) {
                       <label class="mb-1.5 block text-xs font-medium text-muted">Qty</label>
                     }
@@ -134,7 +137,48 @@ interface EntryRow {
                       [class.border-red-500]="exceedsStock(row)"
                     />
                   </div>
-                  <div class="w-36">
+                  <div class="w-32">
+                    @if ($index === 0) {
+                      <label class="mb-1.5 block text-xs font-medium text-muted">Unit Price</label>
+                    }
+                    <input
+                      type="number"
+                      [(ngModel)]="row.unit_price"
+                      [name]="'price_' + $index"
+                      min="0"
+                      step="0.01"
+                      data-testid="entry-price-input"
+                      [placeholder]="row.product_id ? '' : '—'"
+                      class="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <div class="w-32">
+                    @if ($index === 0) {
+                      <label class="mb-1.5 block text-xs font-medium text-muted">Discount</label>
+                    }
+                    <input
+                      type="number"
+                      [(ngModel)]="row.discount_amount"
+                      [name]="'discount_' + $index"
+                      min="0"
+                      step="0.01"
+                      data-testid="entry-discount-input"
+                      placeholder="0.00"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <div class="w-32">
+                    @if ($index === 0) {
+                      <label class="mb-1.5 block text-xs font-medium text-muted">Line Total</label>
+                    }
+                    <div
+                      data-testid="entry-line-total"
+                      class="flex h-[42px] items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-text"
+                    >
+                      {{ lineTotal(row) | currency: 'NGN' : 'symbol' : '1.2-2' }}
+                    </div>
+                  </div>
+                  <div class="w-28">
                     @if ($index === 0) {
                       <label class="mb-1.5 block text-xs font-medium text-muted">Date</label>
                     }
@@ -726,12 +770,33 @@ export class SalesPageComponent implements OnInit {
     return available !== undefined && row.quantity > available;
   }
 
+  onProductChange(row: EntryRow): void {
+    if (!row.product_id) {
+      row.unit_price = null;
+      return;
+    }
+    const product = this.products().find((p) => p.id === row.product_id);
+    row.unit_price = product ? product.selling_price : null;
+  }
+
+  lineTotal(row: EntryRow): number {
+    const price = row.unit_price ?? 0;
+    const discount = row.discount_amount ?? 0;
+    return price * row.quantity - discount;
+  }
+
   objectKeys(obj: Record<string, unknown>): string[] {
     return Object.keys(obj);
   }
 
   private newRow(): EntryRow {
-    return { product_id: '', quantity: 1, sale_date: new Date().toISOString().split('T')[0] };
+    return {
+      product_id: '',
+      quantity: 1,
+      sale_date: new Date().toISOString().split('T')[0],
+      unit_price: null,
+      discount_amount: null,
+    };
   }
 
   addRow(): void {
@@ -743,7 +808,14 @@ export class SalesPageComponent implements OnInit {
   }
 
   submitEntries(): void {
-    const valid = this.entryRows().filter((r) => r.product_id && r.quantity > 0);
+    const valid = this.entryRows()
+      .filter((r) => r.product_id && r.quantity > 0)
+      .map((r) => ({
+        product_id: r.product_id,
+        quantity: r.quantity,
+        sale_date: r.sale_date,
+        discount_amount: r.discount_amount ?? null,
+      }));
     if (valid.length === 0) return;
 
     this.submitting.set(true);
