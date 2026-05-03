@@ -8,6 +8,7 @@ export interface DailyEntry {
   product_id: string;
   quantity: number;
   sale_date: string;
+  discount_amount?: number | null;
 }
 
 export interface SaleRecord {
@@ -17,6 +18,7 @@ export interface SaleRecord {
   quantity: number;
   unit_price: number;
   total_amount: number;
+  discount_amount?: number | null;
   currency: string;
   sale_date: string;
   channel: string;

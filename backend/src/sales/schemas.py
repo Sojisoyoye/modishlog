@@ -19,6 +19,7 @@ class SaleCreate(BaseModel):
     sale_date: date
     channel: str = Field(..., pattern="^(online|retail|wholesale)$")
     notes: str | None = None
+    discount_amount: Decimal | None = Field(None, ge=0)
 
 
 class SaleUpdate(BaseModel):
@@ -33,6 +34,7 @@ class DailyEntryItem(BaseModel):
     product_id: uuid.UUID
     quantity: int = Field(..., gt=0)
     sale_date: date
+    discount_amount: Decimal | None = Field(None, ge=0)
 
 
 class DailyEntryRequest(BaseModel):
@@ -47,6 +49,7 @@ class SaleRead(BaseModel):
     quantity: int
     unit_price: Decimal
     total_amount: Decimal
+    discount_amount: Decimal | None = None
     currency: str
     sale_date: date
     channel: str

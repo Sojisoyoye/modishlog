@@ -74,7 +74,9 @@ async def create_sale_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/daily-entry", response_model=list[SaleRead], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/daily-entry", response_model=list[SaleRead], status_code=status.HTTP_201_CREATED
+)
 async def daily_entry_endpoint(
     body: DailyEntryRequest,
     db: AsyncSession = Depends(get_db),
@@ -102,6 +104,7 @@ async def daily_entry_endpoint(
             unit_price=product.selling_price,
             sale_date=entry.sale_date,
             channel="retail",
+            discount_amount=entry.discount_amount,
         )
         try:
             sale = await create_sale(db, sale_data, current_user.id)

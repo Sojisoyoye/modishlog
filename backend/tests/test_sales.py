@@ -715,6 +715,109 @@ class TestQuickQuote:
 
 
 # ---------------------------------------------------------------------------
+# Service tests - discount_amount support
+# ---------------------------------------------------------------------------
+
+
+class TestCreateSaleWithDiscount:
+    @pytest.mark.asyncio
+    async def test_create_sale_with_discount_adjusts_total(self):
+        """discount_amount reduces total_amount and is stored on the sale."""
+        product = _make_product(id=uuid.uuid4())
+        inventory = _make_inventory(product_id=product.id, quantity_on_hand=100)
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = inventory
+            elif call_count == 3:
+                scalars_mock = MagicMock()
+                scalars_mock.all.return_value = []
+                result.scalars.return_value = scalars_mock
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = SaleCreate(
+            product_id=product.id,
+            quantity=5,
+            unit_price=Decimal("150"),
+            sale_date=date(2026, 3, 15),
+            channel="retail",
+            discount_amount=Decimal("50"),
+        )
+        sale = await create_sale(db, data, uuid.uuid4())
+        # total = unit_price * qty - discount = 150 * 5 - 50 = 700
+        assert sale.total_amount == Decimal("700")
+        assert sale.discount_amount == Decimal("50")
+
+    @pytest.mark.asyncio
+    async def test_create_sale_discount_exceeds_gross_raises(self):
+        """Discount larger than gross amount raises SaleValidationError."""
+        product = _make_product(id=uuid.uuid4())
+        db = _mock_db_with_execute(scalar_result=product)
+
+        data = SaleCreate(
+            product_id=product.id,
+            quantity=2,
+            unit_price=Decimal("100"),
+            sale_date=date(2026, 3, 15),
+            channel="retail",
+            discount_amount=Decimal("300"),  # 300 > 100*2 = 200
+        )
+        with pytest.raises(SaleValidationError):
+            await create_sale(db, data, uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_create_sale_without_discount_uses_full_price(self):
+        """Without discount_amount, total_amount = unit_price * quantity."""
+        product = _make_product(id=uuid.uuid4())
+        inventory = _make_inventory(product_id=product.id, quantity_on_hand=100)
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = inventory
+            elif call_count == 3:
+                scalars_mock = MagicMock()
+                scalars_mock.all.return_value = []
+                result.scalars.return_value = scalars_mock
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = SaleCreate(
+            product_id=product.id,
+            quantity=5,
+            unit_price=Decimal("150"),
+            sale_date=date(2026, 3, 15),
+            channel="retail",
+        )
+        sale = await create_sale(db, data, uuid.uuid4())
+        # total = 150 * 5 = 750
+        assert sale.total_amount == Decimal("750")
+        assert sale.discount_amount is None
+
+
+# ---------------------------------------------------------------------------
 # Role-based access tests
 # ---------------------------------------------------------------------------
 
