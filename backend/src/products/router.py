@@ -22,6 +22,7 @@ from src.products.schemas import (
     BulkUploadRowError,
     CategoryCreate,
     CategoryRead,
+    CategoryUpdate,
     PriceHistoryRead,
     ProductCreate,
     ProductListResponse,
@@ -37,6 +38,7 @@ from src.products.service import (
     get_product,
     list_categories,
     list_products,
+    update_category,
     update_product,
 )
 
@@ -48,7 +50,9 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 
-@router.post("/categories", response_model=CategoryRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/categories", response_model=CategoryRead, status_code=status.HTTP_201_CREATED
+)
 async def create_category_endpoint(
     body: CategoryCreate,
     db: AsyncSession = Depends(get_db),
@@ -62,6 +66,20 @@ async def create_category_endpoint(
 async def list_categories_endpoint(db: AsyncSession = Depends(get_db)):
     """List all product categories."""
     return await list_categories(db)
+
+
+@router.patch("/categories/{category_id}", response_model=CategoryRead)
+async def update_category_endpoint(
+    category_id: uuid.UUID,
+    body: CategoryUpdate,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_active_user),
+):
+    """Update a category's name and/or description."""
+    try:
+        return await update_category(db, category_id, body)
+    except CategoryNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -137,7 +155,9 @@ async def bulk_upload_products_endpoint(
             text = contents.decode("latin-1")
         reader = csv.DictReader(io.StringIO(text))
         if not reader.fieldnames:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty CSV file")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Empty CSV file"
+            )
         rows = list(reader)
     else:
         try:
@@ -147,24 +167,43 @@ async def bulk_upload_products_endpoint(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Excel support requires openpyxl. Please upload a CSV file instead.",
             )
-        wb = openpyxl.load_workbook(io.BytesIO(contents), read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(
+            io.BytesIO(contents), read_only=True, data_only=True
+        )
         ws = wb.active
         if ws is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty workbook")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Empty workbook"
+            )
         all_rows = list(ws.iter_rows(values_only=True))
         if len(all_rows) < 2:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File has no data rows")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="File has no data rows"
+            )
         headers = [str(h or "").strip().lower() for h in all_rows[0]]
         for data_row in all_rows[1:]:
-            rows.append({headers[i]: str(v or "").strip() for i, v in enumerate(data_row) if i < len(headers)})
+            rows.append(
+                {
+                    headers[i]: str(v or "").strip()
+                    for i, v in enumerate(data_row)
+                    if i < len(headers)
+                }
+            )
 
     # Normalise header names (allow common variations)
     HEADER_MAP = {
-        "product name": "name", "product_name": "name",
-        "cost": "unit_cost", "cost_price": "unit_cost", "cost price": "unit_cost",
-        "price": "selling_price", "sell_price": "selling_price", "sell price": "selling_price",
-        "selling price": "selling_price", "selling_price": "selling_price",
-        "unit cost": "unit_cost", "unit_cost": "unit_cost",
+        "product name": "name",
+        "product_name": "name",
+        "cost": "unit_cost",
+        "cost_price": "unit_cost",
+        "cost price": "unit_cost",
+        "price": "selling_price",
+        "sell_price": "selling_price",
+        "sell price": "selling_price",
+        "selling price": "selling_price",
+        "selling_price": "selling_price",
+        "unit cost": "unit_cost",
+        "unit_cost": "unit_cost",
     }
     normalised: list[dict[str, str]] = []
     for row in rows:
@@ -182,7 +221,7 @@ async def bulk_upload_products_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Missing required columns: {', '.join(sorted(missing))}. "
-                       f"Found columns: {', '.join(sorted(sample.keys()))}",
+                f"Found columns: {', '.join(sorted(sample.keys()))}",
             )
 
     # Build category lookup
