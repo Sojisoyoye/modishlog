@@ -98,7 +98,7 @@ async def update_category(
     category = await get_category(db, category_id)
     if data.name is not None:
         category.name = data.name
-    if data.description is not None:
+    if "description" in data.model_fields_set:
         category.description = data.description
     await db.flush()
     await logger.ainfo("category_updated", category_id=str(category_id))

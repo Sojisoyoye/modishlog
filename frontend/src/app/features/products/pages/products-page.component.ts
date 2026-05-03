@@ -1590,7 +1590,7 @@ export class ProductsPageComponent implements OnInit {
     if (!cat || !this.categoryEditForm.name.trim()) return;
     const payload: CategoryUpdate = {
       name: this.categoryEditForm.name.trim(),
-      description: this.categoryEditForm.description.trim() || undefined,
+      description: this.categoryEditForm.description.trim() || null,
     };
     this.productsService.updateCategory(cat.id, payload).subscribe({
       next: (updated) => {

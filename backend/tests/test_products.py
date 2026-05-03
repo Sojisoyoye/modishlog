@@ -182,6 +182,15 @@ class TestCategoryCRUD:
         assert updated.name == "New Name"
         assert updated.description == "Keep me"
 
+    @pytest.mark.asyncio
+    async def test_update_category_clear_description(self):
+        """Explicitly sending description=None clears the description via model_fields_set."""
+        cat = _make_category(name="Foo", description="Has a desc")
+        db = _mock_db_with_get(entity=cat)
+        data = CategoryUpdate(description=None)  # explicit null — included in model_fields_set
+        updated = await update_category(db, cat.id, data)
+        assert updated.description is None
+
 
 # ---------------------------------------------------------------------------
 # Product tests
@@ -566,7 +575,7 @@ class TestProductEndpoints:
         """PATCH /products/categories/{id} updates name and description."""
         cat = _make_category(name="Old Name", description="Old desc")
         user = _make_user()
-        db = _mock_db_with_get(entity=cat)
+        db = _mock_db_with_execute()
         db.get = AsyncMock(side_effect=[user, cat])  # auth user then category
         self._override_db(db)
         headers, _ = self._auth_headers()
@@ -584,7 +593,7 @@ class TestProductEndpoints:
     def test_update_category_not_found(self):
         """PATCH /products/categories/{id} returns 404 when category missing."""
         user = _make_user()
-        db = _mock_db_with_get(entity=None)
+        db = _mock_db_with_execute()
         db.get = AsyncMock(side_effect=[user, None])  # auth user then missing category
         self._override_db(db)
         headers, _ = self._auth_headers()

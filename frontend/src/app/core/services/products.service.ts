@@ -31,7 +31,7 @@ export interface CategoryCreate {
 
 export interface CategoryUpdate {
   name?: string;
-  description?: string;
+  description?: string | null;
 }
 
 export interface ProductCreate {
