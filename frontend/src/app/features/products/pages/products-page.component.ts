@@ -376,6 +376,7 @@ interface ColEntry {
                       (click)="toggleActionMenu(product.id, $event)"
                       [attr.aria-expanded]="openActionId() === product.id"
                       aria-haspopup="true"
+                      aria-label="Product actions"
                       class="rounded-lg p-1.5 text-muted hover:bg-gray-100"
                     >
                       <i class="pi pi-ellipsis-v text-sm"></i>

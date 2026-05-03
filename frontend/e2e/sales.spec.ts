@@ -30,9 +30,9 @@ test.describe('Edit Sale price decimal display', () => {
     // Record a sale via the form
     const productSelect = page.locator('select').filter({ hasText: 'Select product' }).first();
     await productSelect.selectOption(product.id);
-    const qtyInput = page.locator('input[placeholder="Qty"]').first();
+    const qtyInput = page.locator('input[type="number"]').first();
     await qtyInput.fill('2');
-    await page.getByRole('button', { name: 'Record Sale' }).click();
+    await page.getByRole('button', { name: /Record Sales/i }).last().click();
     await expect(page.getByText(/recorded/i)).toBeVisible({ timeout: 8_000 });
 
     // Wait for the sale row to appear then open Edit
