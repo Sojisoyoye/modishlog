@@ -29,6 +29,11 @@ export interface CategoryCreate {
   description?: string;
 }
 
+export interface CategoryUpdate {
+  name?: string;
+  description?: string | null;
+}
+
 export interface ProductCreate {
   name: string;
   sku?: string;
@@ -89,6 +94,10 @@ export class ProductsService {
 
   deleteCategory(id: string): Observable<void> {
     return this.api.delete<void>(`/products/categories/${id}`);
+  }
+
+  updateCategory(id: string, body: CategoryUpdate): Observable<Category> {
+    return this.api.patch<Category>(`/products/categories/${id}`, body);
   }
 
   create(body: ProductCreate): Observable<Product> {

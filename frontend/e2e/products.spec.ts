@@ -566,3 +566,60 @@ test.describe('Category delete with linked products', () => {
     await expect(categoryRow).toBeVisible();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Category editing (task #61)
+// ---------------------------------------------------------------------------
+
+test.describe('Category editing', () => {
+  test('pencil button opens edit dialog pre-filled with current values', async ({ page }) => {
+    const catName = `E2E Edit Cat ${Date.now()}`;
+
+    // Create category via the UI form
+    await page.getByRole('button', { name: /Categories/ }).click();
+    await page.getByPlaceholder('Category name').fill(catName);
+    await page.getByPlaceholder('Description (optional)').fill('Original desc');
+    await page.getByRole('button', { name: 'Add Category' }).click();
+    await expect(page.getByText(catName)).toBeVisible({ timeout: 5_000 });
+
+    // Click the pencil (edit) button on the new category row
+    const catRow = page.locator('tr').filter({ hasText: catName });
+    await catRow.locator('button[title="Edit category"]').click();
+
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Category' });
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    // Fields must be pre-filled with current values
+    await expect(dialog.locator('#cat-edit-name')).toHaveValue(catName);
+    await expect(dialog.locator('#cat-edit-description')).toHaveValue('Original desc');
+  });
+
+  test('can rename a category and see updated name in the list', async ({ page }) => {
+    const catName = `E2E Rename Cat ${Date.now()}`;
+    const newName = `Renamed Cat ${Date.now()}`;
+
+    // Create category via the UI form
+    await page.getByRole('button', { name: /Categories/ }).click();
+    await page.getByPlaceholder('Category name').fill(catName);
+    await page.getByRole('button', { name: 'Add Category' }).click();
+    await expect(page.getByText(catName)).toBeVisible({ timeout: 5_000 });
+
+    // Open edit dialog
+    const catRow = page.locator('tr').filter({ hasText: catName });
+    await catRow.locator('button[title="Edit category"]').click();
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Category' });
+    await expect(dialog).toBeVisible();
+
+    // Change name and save
+    await dialog.locator('#cat-edit-name').fill(newName);
+    await dialog.getByRole('button', { name: 'Save' }).click();
+
+    // Success toast
+    await expect(page.getByText('Category updated')).toBeVisible({ timeout: 5_000 });
+
+    // Updated name appears in the table
+    await expect(page.locator('tr').filter({ hasText: newName })).toBeVisible({ timeout: 5_000 });
+    // Old name is gone
+    await expect(page.locator('tr').filter({ hasText: catName })).not.toBeVisible();
+  });
+});

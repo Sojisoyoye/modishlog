@@ -9,6 +9,7 @@ import {
   Product,
   Category,
   CategoryCreate,
+  CategoryUpdate,
   ProductCreate,
   ProductUpdate,
   BulkUploadResult,
@@ -861,6 +862,9 @@ interface ColEntry {
                   <td class="px-4 py-3 text-muted">{{ cat.description || '—' }}</td>
                   <td class="px-4 py-3 text-muted">{{ productCountForCategory(cat.id) }}</td>
                   <td class="px-4 py-3 text-right">
+                    <button (click)="openEditCategory(cat)" class="rounded-lg p-1.5 text-muted hover:bg-gray-100 mr-1" title="Edit category">
+                      <i class="pi pi-pencil text-xs"></i>
+                    </button>
                     <button (click)="confirmDeleteCategory(cat)" class="rounded-lg p-1.5 text-red-400 hover:bg-red-50" title="Delete category">
                       <i class="pi pi-trash text-xs"></i>
                     </button>
@@ -876,6 +880,45 @@ interface ColEntry {
         </div>
       </div>
     }
+
+    <!-- ── EDIT CATEGORY DIALOG ────────────────────────────────────────────── -->
+    <p-dialog
+      header="Edit Category"
+      [visible]="!!editingCategory()"
+      (visibleChange)="!$event && editingCategory.set(null)"
+      [modal]="true"
+      [style]="{ width: '400px' }"
+    >
+      @if (editingCategory()) {
+        <div class="space-y-4 pt-2">
+          <div>
+            <label for="cat-edit-name" class="mb-1.5 block text-xs font-medium text-muted">Name <span class="text-danger">*</span></label>
+            <input
+              id="cat-edit-name"
+              [(ngModel)]="categoryEditForm.name"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              placeholder="Category name"
+            />
+          </div>
+          <div>
+            <label for="cat-edit-description" class="mb-1.5 block text-xs font-medium text-muted">Description</label>
+            <input
+              id="cat-edit-description"
+              [(ngModel)]="categoryEditForm.description"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              placeholder="Description (optional)"
+            />
+          </div>
+          <button
+            (click)="saveEditCategory()"
+            [disabled]="!categoryEditForm.name.trim()"
+            class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <i class="pi pi-check text-sm"></i> Save
+          </button>
+        </div>
+      }
+    </p-dialog>
 
     <!-- ── EDIT PRODUCT DIALOG ─────────────────────────────────────────────── -->
     <p-dialog
@@ -1046,6 +1089,10 @@ export class ProductsPageComponent implements OnInit {
   // ── Confirm delete dialogs ────────────────────────────────────────────────
   categoryPendingDelete = signal<Category | null>(null);
   productPendingDelete = signal<Product | null>(null);
+
+  // ── Edit category dialog ──────────────────────────────────────────────────
+  editingCategory = signal<Category | null>(null);
+  categoryEditForm: { name: string; description: string } = { name: '', description: '' };
   editForm: ProductUpdate & { category_id: string; is_active: boolean } = {
     name: '', category_id: '', unit_cost: 0, selling_price: 0, description: '', is_active: true,
   };
@@ -1529,6 +1576,30 @@ export class ProductsPageComponent implements OnInit {
       error: () => {
         this.savingCategory.set(false);
         this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to create category' });
+      },
+    });
+  }
+
+  openEditCategory(cat: Category): void {
+    this.categoryEditForm = { name: cat.name, description: cat.description ?? '' };
+    this.editingCategory.set(cat);
+  }
+
+  saveEditCategory(): void {
+    const cat = this.editingCategory();
+    if (!cat || !this.categoryEditForm.name.trim()) return;
+    const payload: CategoryUpdate = {
+      name: this.categoryEditForm.name.trim(),
+      description: this.categoryEditForm.description.trim() || null,
+    };
+    this.productsService.updateCategory(cat.id, payload).subscribe({
+      next: (updated) => {
+        this.categories.update((list) => list.map((c) => (c.id === updated.id ? updated : c)));
+        this.editingCategory.set(null);
+        this.messageService.add({ severity: 'success', summary: 'Updated', detail: 'Category updated' });
+      },
+      error: () => {
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to update category' });
       },
     });
   }

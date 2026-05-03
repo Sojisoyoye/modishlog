@@ -26,12 +26,13 @@ from src.products.exceptions import (
     ProductNotFoundError,
 )
 from src.products.models import Product, ProductCategory
-from src.products.schemas import CategoryCreate, ProductCreate, ProductUpdate
+from src.products.schemas import CategoryCreate, CategoryUpdate, ProductCreate, ProductUpdate
 from src.products.service import (
     create_category,
     create_product,
     deactivate_product,
     get_product,
+    update_category,
     update_product,
 )
 
@@ -152,6 +153,43 @@ class TestCategoryCRUD:
         with pytest.raises(CategoryNotFoundError):
             from src.products.service import get_category
             await get_category(db, uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_update_category_success(self):
+        """update_category renames the category and returns it."""
+        cat = _make_category(name="Old Name", description="Old desc")
+        db = _mock_db_with_get(entity=cat)
+        data = CategoryUpdate(name="New Name", description="New desc")
+        updated = await update_category(db, cat.id, data)
+        assert updated.name == "New Name"
+        assert updated.description == "New desc"
+        db.flush.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_category_not_found(self):
+        """update_category raises CategoryNotFoundError when category missing."""
+        db = _mock_db_with_get(entity=None)
+        with pytest.raises(CategoryNotFoundError):
+            await update_category(db, uuid.uuid4(), CategoryUpdate(name="X"))
+
+    @pytest.mark.asyncio
+    async def test_update_category_partial(self):
+        """update_category with only name updates name, keeps existing description."""
+        cat = _make_category(name="Old Name", description="Keep me")
+        db = _mock_db_with_get(entity=cat)
+        data = CategoryUpdate(name="New Name")
+        updated = await update_category(db, cat.id, data)
+        assert updated.name == "New Name"
+        assert updated.description == "Keep me"
+
+    @pytest.mark.asyncio
+    async def test_update_category_clear_description(self):
+        """Explicitly sending description=None clears the description via model_fields_set."""
+        cat = _make_category(name="Foo", description="Has a desc")
+        db = _mock_db_with_get(entity=cat)
+        data = CategoryUpdate(description=None)  # explicit null — included in model_fields_set
+        updated = await update_category(db, cat.id, data)
+        assert updated.description is None
 
 
 # ---------------------------------------------------------------------------
@@ -530,5 +568,50 @@ class TestProductEndpoints:
                     "movement_type": "manual_add",
                     "reason": "test",
                 },
+            )
+        assert resp.status_code == 401
+
+    def test_update_category_success(self):
+        """PATCH /products/categories/{id} updates name and description."""
+        cat = _make_category(name="Old Name", description="Old desc")
+        user = _make_user()
+        db = _mock_db_with_execute()
+        db.get = AsyncMock(side_effect=[user, cat])  # auth user then category
+        self._override_db(db)
+        headers, _ = self._auth_headers()
+        with TestClient(self.app) as client:
+            resp = client.patch(
+                f"/api/v1/products/categories/{cat.id}",
+                json={"name": "New Name", "description": "New desc"},
+                headers=headers,
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "New Name"
+        assert data["description"] == "New desc"
+
+    def test_update_category_not_found(self):
+        """PATCH /products/categories/{id} returns 404 when category missing."""
+        user = _make_user()
+        db = _mock_db_with_execute()
+        db.get = AsyncMock(side_effect=[user, None])  # auth user then missing category
+        self._override_db(db)
+        headers, _ = self._auth_headers()
+        with TestClient(self.app) as client:
+            resp = client.patch(
+                f"/api/v1/products/categories/{uuid.uuid4()}",
+                json={"name": "X"},
+                headers=headers,
+            )
+        assert resp.status_code == 404
+
+    def test_update_category_requires_auth(self):
+        """PATCH /products/categories/{id} without auth → 401."""
+        db = _mock_db_with_execute()
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.patch(
+                f"/api/v1/products/categories/{uuid.uuid4()}",
+                json={"name": "X"},
             )
         assert resp.status_code == 401

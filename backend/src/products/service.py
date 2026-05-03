@@ -16,7 +16,12 @@ from src.products.exceptions import (
     ProductNotFoundError,
 )
 from src.products.models import PriceHistory, Product, ProductCategory
-from src.products.schemas import CategoryCreate, ProductCreate, ProductUpdate
+from src.products.schemas import (
+    CategoryCreate,
+    CategoryUpdate,
+    ProductCreate,
+    ProductUpdate,
+)
 
 logger = structlog.get_logger()
 
@@ -28,9 +33,7 @@ logger = structlog.get_logger()
 
 async def _generate_sku(db: AsyncSession) -> str:
     """Auto-generate a unique SKU like PRD-00001."""
-    result = await db.execute(
-        select(func.count()).select_from(Product)
-    )
+    result = await db.execute(select(func.count()).select_from(Product))
     count = result.scalar() or 0
     while True:
         count += 1
@@ -59,9 +62,7 @@ async def create_category(
 
 async def list_categories(db: AsyncSession) -> list[ProductCategory]:
     """List all product categories ordered by name."""
-    result = await db.execute(
-        select(ProductCategory).order_by(ProductCategory.name)
-    )
+    result = await db.execute(select(ProductCategory).order_by(ProductCategory.name))
     return list(result.scalars().all())
 
 
@@ -77,13 +78,31 @@ async def delete_category(db: AsyncSession, category_id: uuid.UUID) -> None:
     """Delete a category (only if no products are linked)."""
     category = await get_category(db, category_id)
     result = await db.execute(
-        select(func.count()).select_from(Product).where(Product.category_id == category_id)
+        select(func.count())
+        .select_from(Product)
+        .where(Product.category_id == category_id)
     )
     count = result.scalar() or 0
     if count > 0:
         raise CategoryInUseError(category_id, count)
     await db.delete(category)
     await db.flush()
+
+
+async def update_category(
+    db: AsyncSession,
+    category_id: uuid.UUID,
+    data: CategoryUpdate,
+) -> ProductCategory:
+    """Update a category's name and/or description."""
+    category = await get_category(db, category_id)
+    if data.name is not None:
+        category.name = data.name
+    if "description" in data.model_fields_set:
+        category.description = data.description
+    await db.flush()
+    await logger.ainfo("category_updated", category_id=str(category_id))
+    return category
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +228,10 @@ async def update_product(
 
     if "unit_cost" in update_fields and update_fields["unit_cost"] != old_unit_cost:
         price_changed = True
-    if "selling_price" in update_fields and update_fields["selling_price"] != old_selling_price:
+    if (
+        "selling_price" in update_fields
+        and update_fields["selling_price"] != old_selling_price
+    ):
         price_changed = True
 
     # Validate category if changing
