@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, DestroyRef, inject, signal, computed, OnInit } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -191,6 +192,39 @@ import { FxService } from '../../../core/services/fx.service';
               </p>
             </div>
           </div>
+
+          <!-- Line Items -->
+          @if (selectedOrder()!.line_items?.length) {
+            <div class="rounded-lg border border-gray-200 p-4">
+              <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Line Items</p>
+              <table class="min-w-full divide-y divide-gray-200 text-sm" data-testid="line-items-table">
+                <thead>
+                  <tr class="bg-gray-50/80">
+                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Product</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Qty</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Unit Cost</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Line Total</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  @for (item of selectedOrder()!.line_items; track item.id) {
+                    <tr>
+                      <td class="px-3 py-2 text-text">
+                        {{ productName(item.product_id) }}
+                      </td>
+                      <td class="px-3 py-2 text-right text-text">{{ item.quantity }}</td>
+                      <td class="px-3 py-2 text-right text-text">
+                        {{ item.unit_cost | currency: 'USD' }}
+                      </td>
+                      <td class="px-3 py-2 text-right font-semibold text-text">
+                        {{ item.line_total | currency: 'USD' }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
 
           <!-- FX Exposure -->
           <div class="rounded-lg border border-gray-200 p-4">
@@ -437,6 +471,7 @@ export class OrdersPageComponent implements OnInit {
   private readonly productsService = inject(ProductsService);
   private readonly fxService = inject(FxService);
   private readonly messageService = inject(MessageService);
+  private readonly destroyRef = inject(DestroyRef);
 
   orders = signal<Order[]>([]);
   products = signal<Product[]>([]);
@@ -451,14 +486,15 @@ export class OrdersPageComponent implements OnInit {
     if (!order || !order.fx_rate_at_creation) return [];
     const baseRate = order.fx_rate_at_creation;
     const totalUsd = order.total_amount;
-    // Estimate revenue as cost x 1.3 markup (frontend heuristic)
-    const revenueMultiplier = 1.3;
+    // Revenue is fixed in NGN at the time of pricing (cost × 1.3 at creation rate).
+    // Profit = fixedRevenueNgn − costAtScenarioRate, so profit falls as FX rate rises.
+    const revenueNgn = totalUsd * baseRate * 1.3;
     return [
       {
         label: 'Best Case',
         fxRate: baseRate * 0.9,
         totalCostNgn: totalUsd * baseRate * 0.9,
-        profit: totalUsd * baseRate * 0.9 * revenueMultiplier - totalUsd * baseRate * 0.9,
+        profit: revenueNgn - totalUsd * baseRate * 0.9,
         colorClass: 'text-success',
         icon: 'pi-arrow-down',
       },
@@ -466,7 +502,7 @@ export class OrdersPageComponent implements OnInit {
         label: 'Base',
         fxRate: baseRate,
         totalCostNgn: totalUsd * baseRate,
-        profit: totalUsd * baseRate * revenueMultiplier - totalUsd * baseRate,
+        profit: revenueNgn - totalUsd * baseRate,
         colorClass: 'text-text',
         icon: 'pi-minus',
       },
@@ -474,7 +510,7 @@ export class OrdersPageComponent implements OnInit {
         label: 'Worst Case',
         fxRate: baseRate * 1.1,
         totalCostNgn: totalUsd * baseRate * 1.1,
-        profit: totalUsd * baseRate * 1.1 * revenueMultiplier - totalUsd * baseRate * 1.1,
+        profit: revenueNgn - totalUsd * baseRate * 1.1,
         colorClass: 'text-danger',
         icon: 'pi-arrow-up',
       },
@@ -515,6 +551,10 @@ export class OrdersPageComponent implements OnInit {
     return 'neutral';
   }
 
+  productName(productId: string): string {
+    return this.products().find((p) => p.id === productId)?.name ?? productId;
+  }
+
   viewOrder(order: Order): void {
     this.selectedOrder.set(order);
     this.detailVisible = true;
@@ -522,7 +562,7 @@ export class OrdersPageComponent implements OnInit {
 
     // Pre-fill FX rate when order can transition to Delivered
     if (this.nextStatuses(order.status).includes('Delivered')) {
-      this.fxService.getLatest().subscribe({
+      this.fxService.getLatest().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (fx) => {
           if (fx && fx.rate > 0) {
             this.deliveryFxRate = fx.rate;
