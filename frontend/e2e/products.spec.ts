@@ -70,6 +70,41 @@ test('product action menu is visible and not clipped by the table container', as
 });
 
 // ---------------------------------------------------------------------------
+// Currency formatting — prices always show 2 decimal places with thousands sep
+// ---------------------------------------------------------------------------
+
+test('product table displays prices formatted to 2 decimal places', async ({ page }) => {
+  const name = `E2E Fmt ${Date.now()}`;
+
+  // Create a product with a cost that would show differently at 0dp vs 2dp
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+  await addForm.getByPlaceholder('Product name').fill(name);
+  const nums = addForm.locator('input[type="number"]');
+  await nums.nth(0).fill('10200');    // unit_cost — should display as 10,200.00
+  await nums.nth(1).fill('14500.50'); // selling_price — should display as 14,500.50
+  await addForm.getByRole('button', { name: 'Create Product' }).click();
+  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+
+  // Locate the product row and check the formatted price cells
+  const row = page.locator('tr').filter({ hasText: name });
+  // Unit cost: 10,200.00 — must contain the decimal separator
+  await expect(row).toContainText('10,200.00');
+  // Selling price: 14,500.50
+  await expect(row).toContainText('14,500.50');
+});
+
+test('add product form inputs have 0.00 placeholder and accept decimals', async ({ page }) => {
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+  const nums = addForm.locator('input[type="number"]');
+  await expect(nums.nth(0)).toHaveAttribute('placeholder', '0.00');
+  await expect(nums.nth(1)).toHaveAttribute('placeholder', '0.00');
+  await expect(nums.nth(0)).toHaveAttribute('step', '0.01');
+  await expect(nums.nth(1)).toHaveAttribute('step', '0.01');
+});
+
+// ---------------------------------------------------------------------------
 // Grid / List view toggle
 // ---------------------------------------------------------------------------
 

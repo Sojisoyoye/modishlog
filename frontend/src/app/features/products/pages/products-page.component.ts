@@ -359,10 +359,10 @@ interface ColEntry {
                     <td class="px-4 py-3 text-muted">{{ categoryName(product.category_id) || '—' }}</td>
                   }
                   @if (visibleCols().unit_cost) {
-                    <td class="px-4 py-3 text-right text-text">{{ product.unit_cost | number: '1.0-2' }}</td>
+                    <td class="px-4 py-3 text-right text-text">{{ product.unit_cost | number: '1.2-2' }}</td>
                   }
                   @if (visibleCols().selling_price) {
-                    <td class="px-4 py-3 text-right font-semibold text-secondary">{{ product.selling_price | number: '1.0-2' }}</td>
+                    <td class="px-4 py-3 text-right font-semibold text-secondary">{{ product.selling_price | number: '1.2-2' }}</td>
                   }
                   @if (visibleCols().stock) {
                     <td class="px-4 py-3 text-right">
@@ -466,11 +466,11 @@ interface ColEntry {
                 <div class="mt-2 grid grid-cols-2 gap-1 text-xs">
                   <div>
                     <p class="text-muted">Cost</p>
-                    <p class="font-semibold text-text">{{ product.unit_cost | number: '1.0-2' }}</p>
+                    <p class="font-semibold text-text">{{ product.unit_cost | number: '1.2-2' }}</p>
                   </div>
                   <div>
                     <p class="text-muted">Price</p>
-                    <p class="font-semibold text-secondary">{{ product.selling_price | number: '1.0-2' }}</p>
+                    <p class="font-semibold text-secondary">{{ product.selling_price | number: '1.2-2' }}</p>
                   </div>
                 </div>
                 <p class="text-xs text-muted">Stock: <span [class]="stockStatus(product.id) === 'out' ? 'font-semibold text-red-600' : stockStatus(product.id) === 'low' ? 'font-semibold text-amber-600' : 'font-semibold text-text'">{{ stockMap().get(product.id) ?? 0 }}</span></p>
@@ -527,8 +527,8 @@ interface ColEntry {
               <tr class="transition-colors hover:bg-gray-50">
                 <td class="px-4 py-3 font-medium text-text">{{ product.name }}</td>
                 <td class="px-4 py-3 font-mono text-xs text-muted">{{ product.sku }}</td>
-                <td class="px-4 py-3 text-right text-text">{{ product.unit_cost | number: '1.0-2' }}</td>
-                <td class="px-4 py-3 text-right font-semibold text-secondary">{{ product.selling_price | number: '1.0-2' }}</td>
+                <td class="px-4 py-3 text-right text-text">{{ product.unit_cost | number: '1.2-2' }}</td>
+                <td class="px-4 py-3 text-right font-semibold text-secondary">{{ product.selling_price | number: '1.2-2' }}</td>
                 <td class="px-4 py-3 text-right text-text">{{ stockMap().get(product.id) ?? 0 }}</td>
                 <td class="px-4 py-3 text-right">
                   <span [class]="margin(product) >= 30 ? 'font-semibold text-green-600' : margin(product) >= 15 ? 'font-semibold text-amber-600' : 'font-semibold text-red-500'">
@@ -902,6 +902,7 @@ interface ColEntry {
               [(ngModel)]="editForm.unit_cost"
               min="0"
               step="0.01"
+              placeholder="0.00"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -912,6 +913,7 @@ interface ColEntry {
               [(ngModel)]="editForm.selling_price"
               min="0"
               step="0.01"
+              placeholder="0.00"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
