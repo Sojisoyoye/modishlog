@@ -87,6 +87,7 @@ def _make_sale(product_id=None, **overrides):
         status=SaleStatus.COMPLETED,
         notes=None,
         recorded_by=uuid.uuid4(),
+        transaction_id=None,
     )
     defaults.update(overrides)
     sale = Sale(**defaults)
@@ -844,3 +845,126 @@ class TestRequireAdmin:
         user = _make_user(role=UserRole.ADMIN)
         result = await require_admin(current_user=user)
         assert result.role == UserRole.ADMIN
+
+
+# ---------------------------------------------------------------------------
+# Service tests - transaction grouping (task #64)
+# ---------------------------------------------------------------------------
+
+
+class TestSaleTransactions:
+    @pytest.mark.asyncio
+    async def test_list_transactions_groups_sales_by_transaction_id(self):
+        """Sales sharing a transaction_id are returned as one grouped transaction."""
+        from src.sales.service import list_transactions
+
+        txn_id = uuid.uuid4()
+        sale1 = _make_sale(transaction_id=txn_id, total_amount=Decimal("300"))
+        sale2 = _make_sale(transaction_id=txn_id, total_amount=Decimal("200"))
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                # COUNT distinct transaction_ids
+                result.scalar.return_value = 1
+            elif call_count == 2:
+                # Distinct transaction_id rows
+                result.all.return_value = [(txn_id,)]
+            elif call_count == 3:
+                # Sales for the transaction
+                scalars_mock = MagicMock()
+                scalars_mock.all.return_value = [sale1, sale2]
+                result.scalars.return_value = scalars_mock
+            return result
+
+        db.execute = mock_execute
+
+        transactions, total = await list_transactions(db)
+        assert total == 1
+        assert len(transactions) == 1
+        txn = transactions[0]
+        assert txn.transaction_id == txn_id
+        assert txn.item_count == 2
+        assert txn.total_amount == Decimal("500")
+        assert txn.status == "completed"
+
+    @pytest.mark.asyncio
+    async def test_get_transaction_returns_items(self):
+        """get_transaction returns a SaleTransactionRead with all items."""
+        from src.sales.service import get_transaction
+
+        txn_id = uuid.uuid4()
+        sale1 = _make_sale(transaction_id=txn_id, total_amount=Decimal("150"))
+        sale2 = _make_sale(transaction_id=txn_id, total_amount=Decimal("300"))
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [sale1, sale2]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        txn = await get_transaction(db, txn_id)
+        assert txn.transaction_id == txn_id
+        assert txn.item_count == 2
+        assert txn.total_amount == Decimal("450")
+        assert len(txn.items) == 2
+
+    @pytest.mark.asyncio
+    async def test_get_transaction_not_found_raises(self):
+        """get_transaction raises SaleNotFoundError when no sales match."""
+        from src.sales.service import get_transaction
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        with pytest.raises(SaleNotFoundError):
+            await get_transaction(db, uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_create_sale_stores_transaction_id(self):
+        """create_sale stores transaction_id on the Sale when provided."""
+        product = _make_product(id=uuid.uuid4())
+        inventory = _make_inventory(product_id=product.id, quantity_on_hand=100)
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = inventory
+            elif call_count == 3:
+                scalars_mock = MagicMock()
+                scalars_mock.all.return_value = []
+                result.scalars.return_value = scalars_mock
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        txn_id = uuid.uuid4()
+        data = SaleCreate(
+            product_id=product.id,
+            quantity=2,
+            unit_price=Decimal("100"),
+            sale_date=date(2026, 3, 15),
+            channel="retail",
+            transaction_id=txn_id,
+        )
+        sale = await create_sale(db, data, uuid.uuid4())
+        assert sale.transaction_id == txn_id

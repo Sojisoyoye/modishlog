@@ -80,6 +80,36 @@ export interface BulkUploadResponse {
   message: string;
 }
 
+export interface SaleTransactionItem {
+  id: string;
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  discount_amount?: number | null;
+  total_amount: number;
+  currency: string;
+  status: string;
+  notes: string | null;
+}
+
+export interface SaleTransaction {
+  transaction_id: string;
+  sale_date: string;
+  item_count: number;
+  total_amount: number;
+  currency: string;
+  status: string;
+  items: SaleTransactionItem[];
+  created_at: string;
+}
+
+export interface SaleTransactionListResponse {
+  items: SaleTransaction[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SalesService {
   private readonly api = inject(ApiService);
@@ -122,6 +152,14 @@ export class SalesService {
       product_id: productId,
       quantity,
     });
+  }
+
+  getTransactions(params?: Record<string, string>): Observable<SaleTransactionListResponse> {
+    return this.api.get<SaleTransactionListResponse>('/sales/transactions', params);
+  }
+
+  getTransaction(transactionId: string): Observable<SaleTransaction> {
+    return this.api.get<SaleTransaction>(`/sales/transactions/${transactionId}`);
   }
 
   uploadCsv(file: File): Observable<BulkUploadResponse> {

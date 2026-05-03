@@ -32,6 +32,8 @@ from src.sales.schemas import (
     SaleCreate,
     SalesHistoryEntry,
     SalesSummary,
+    SaleTransactionItemRead,
+    SaleTransactionRead,
     SaleUpdate,
 )
 from src.inventory.models import InventoryBatch
@@ -84,6 +86,7 @@ async def create_sale(
         unit_price=data.unit_price,
         total_amount=total_amount,
         discount_amount=data.discount_amount,
+        transaction_id=data.transaction_id,
         currency=product.currency,
         sale_date=data.sale_date,
         channel=SaleChannel(data.channel),
@@ -576,3 +579,103 @@ async def quick_quote(
         min_sell_price_per_unit=min_sell,
         total_min_price=total_min,
     )
+
+
+# ---------------------------------------------------------------------------
+# Transaction grouping
+# ---------------------------------------------------------------------------
+
+
+def _build_transaction_read(
+    transaction_id: uuid.UUID,
+    items: list[Sale],
+) -> "SaleTransactionRead":
+    """Build a SaleTransactionRead from a list of Sale records."""
+
+    total_amount = sum(s.total_amount for s in items)
+    sale_date = items[0].sale_date if items else date.today()
+    created_at = (
+        min(s.created_at for s in items) if items else datetime.now(timezone.utc)
+    )
+    currency = items[0].currency if items else "NGN"
+
+    statuses = {s.status for s in items}
+    if statuses == {SaleStatus.VOIDED}:
+        status = "voided"
+    elif SaleStatus.VOIDED in statuses:
+        status = "partial"
+    else:
+        status = "completed"
+
+    item_reads = [
+        SaleTransactionItemRead(
+            id=s.id,
+            product_id=s.product_id,
+            quantity=s.quantity,
+            unit_price=s.unit_price,
+            discount_amount=s.discount_amount,
+            total_amount=s.total_amount,
+            currency=s.currency,
+            status=s.status.value if hasattr(s.status, "value") else str(s.status),
+            notes=s.notes,
+        )
+        for s in items
+    ]
+
+    return SaleTransactionRead(
+        transaction_id=transaction_id,
+        sale_date=sale_date,
+        item_count=len(items),
+        total_amount=total_amount,
+        currency=currency,
+        status=status,
+        items=item_reads,
+        created_at=created_at,
+    )
+
+
+async def list_transactions(
+    db: AsyncSession,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list, int]:
+    """List sales grouped by transaction_id (most recent first)."""
+
+    count_result = await db.execute(
+        select(func.count(func.distinct(Sale.transaction_id))).where(
+            Sale.transaction_id.isnot(None)
+        )
+    )
+    total = count_result.scalar() or 0
+
+    offset = (page - 1) * page_size
+    txn_id_rows = await db.execute(
+        select(Sale.transaction_id)
+        .where(Sale.transaction_id.isnot(None))
+        .group_by(Sale.transaction_id)
+        .order_by(func.min(Sale.created_at).desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    txn_ids = [row[0] for row in txn_id_rows.all()]
+
+    transactions = []
+    for txn_id in txn_ids:
+        result = await db.execute(select(Sale).where(Sale.transaction_id == txn_id))
+        items = list(result.scalars().all())
+        transactions.append(_build_transaction_read(txn_id, items))
+
+    return transactions, total
+
+
+async def get_transaction(
+    db: AsyncSession,
+    transaction_id: uuid.UUID,
+) -> "SaleTransactionRead":
+    """Get all Sale records for a given transaction_id."""
+    result = await db.execute(select(Sale).where(Sale.transaction_id == transaction_id))
+    items = list(result.scalars().all())
+    if not items:
+        raise SaleNotFoundError(transaction_id)
+    return _build_transaction_read(transaction_id, items)

@@ -333,3 +333,79 @@ test.describe('Create Sale flow', () => {
     await expect(page.getByText(product.name).first()).toBeVisible({ timeout: 5_000 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Transaction grouping (task #64)
+// ---------------------------------------------------------------------------
+
+test.describe('Transaction grouping in All Sales tab', () => {
+  test('records 2-product daily entry and shows one grouped row in All Sales', async ({
+    page,
+  }) => {
+    const productA = await ensureProduct('E2E Txn Product A');
+    const productB = await ensureProduct('E2E Txn Product B');
+    await addStock(productA.id, 30);
+    await addStock(productB.id, 30);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+
+    // Wait for products to load in the select
+    await expect(
+      page.locator(`select option[value="${productA.id}"]`),
+    ).toBeAttached({ timeout: 10_000 });
+
+    // Fill first row
+    await page.locator('select').first().selectOption(productA.id);
+    await page.locator('input[type="number"]').first().fill('1');
+
+    // Add a second row
+    await page.getByRole('button', { name: /Add Row/i }).click();
+
+    // Fill second row (second select, second qty input)
+    await page.locator('select').nth(1).selectOption(productB.id);
+    await page.locator('input[type="number"]').nth(1).fill('2');
+
+    // Submit
+    await page.getByRole('button', { name: /Record Sales/i }).last().click();
+    await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 10_000 });
+
+    // Switch to All Sales tab
+    await page.getByTestId('tab-all-sales').click();
+
+    // Should see exactly one transaction row grouping both products
+    const rows = page.locator('[data-testid="transaction-row"]');
+    await expect(rows.first()).toBeVisible({ timeout: 10_000 });
+    // The first row in the list (most recent) should show item_count = 2
+    await expect(rows.first()).toContainText('2');
+  });
+
+  test('click transaction row opens detail dialog with product items', async ({ page }) => {
+    const productA = await ensureProduct('E2E Detail Txn A');
+    await addStock(productA.id, 20);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+
+    await expect(
+      page.locator(`select option[value="${productA.id}"]`),
+    ).toBeAttached({ timeout: 10_000 });
+
+    await page.locator('select').first().selectOption(productA.id);
+    await page.locator('input[type="number"]').first().fill('1');
+    await page.getByRole('button', { name: /Record Sales/i }).last().click();
+    await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 10_000 });
+
+    // Switch to All Sales tab
+    await page.getByTestId('tab-all-sales').click();
+    await expect(page.locator('[data-testid="transaction-row"]').first()).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Click first transaction row
+    await page.locator('[data-testid="transaction-row"]').first().click();
+
+    // Transaction detail dialog should appear with items
+    await expect(page.locator('[data-testid="transaction-item-row"]').first()).toBeVisible({
+      timeout: 5_000,
+    });
+  });
+});
