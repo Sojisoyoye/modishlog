@@ -35,8 +35,9 @@ test.describe('Edit Sale price decimal display', () => {
     await page.getByRole('button', { name: 'Record Sale' }).click();
     await expect(page.getByText(/recorded/i)).toBeVisible({ timeout: 8_000 });
 
-    // Click the Edit button on the newly created sale row
+    // Wait for the sale row to appear then open Edit
     const saleRow = page.getByRole('row').filter({ hasText: product.name }).first();
+    await expect(saleRow).toBeVisible({ timeout: 8_000 });
     await saleRow.getByRole('button', { name: /edit/i }).click();
 
     const dialog = page.locator('[role="dialog"]').filter({ hasText: /edit sale/i });
@@ -46,6 +47,8 @@ test.describe('Edit Sale price decimal display', () => {
 
     // Must not show 6 trailing decimal zeros like "5000.000000"
     expect(priceVal).not.toMatch(/\.\d{3,}/);
+    // Must equal the product's selling_price (5000.00 from ensureProduct helper)
+    expect(parseFloat(priceVal)).toBe(5000);
   });
 });
 

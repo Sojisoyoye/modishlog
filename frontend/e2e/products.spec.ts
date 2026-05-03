@@ -47,24 +47,31 @@ test.describe('Edit Product price decimal display', () => {
     const nums = addForm.locator('input[type="number"]');
     await nums.nth(0).fill('10500');  // unit_cost
     await nums.nth(1).fill('15500');  // selling_price
-    await addForm.getByRole('button', { name: 'Add Product' }).click();
+    // Submit button inside the add form is labelled "Create Product"
+    await addForm.getByRole('button', { name: 'Create Product' }).click();
     await expect(page.getByText('Product created')).toBeVisible({ timeout: 5_000 });
 
-    // Open the action menu and click Edit
+    // Wait for the product row to be visible before interacting
     const row = page.getByRole('row').filter({ hasText: name }).first();
+    await expect(row).toBeVisible({ timeout: 5_000 });
+
+    // Open the action menu and click Edit
     await row.getByRole('button', { name: /actions/i }).click();
     await page.getByRole('menuitem', { name: 'Edit' }).click();
 
     const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Product' });
     await expect(dialog).toBeVisible({ timeout: 5_000 });
 
-    // Read raw input values — must not contain more than 2 decimal digits
-    const costVal = await dialog.locator('input[placeholder="0.00"]').nth(0).inputValue();
-    const priceVal = await dialog.locator('input[placeholder="0.00"]').nth(1).inputValue();
+    // Read raw input values via stable data-testid selectors
+    const costVal = await dialog.locator('[data-testid="edit-unit-cost-input"]').inputValue();
+    const priceVal = await dialog.locator('[data-testid="edit-selling-price-input"]').inputValue();
 
-    // Neither value should end with long decimal tails like "10500.000000"
+    // Must not have 3+ decimal places (e.g. "10500.000000" from Pydantic Decimal)
     expect(costVal).not.toMatch(/\.\d{3,}/);
     expect(priceVal).not.toMatch(/\.\d{3,}/);
+    // Must equal the values entered (no precision loss, no zeroing)
+    expect(parseFloat(costVal)).toBe(10500);
+    expect(parseFloat(priceVal)).toBe(15500);
   });
 });
 

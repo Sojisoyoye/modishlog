@@ -913,6 +913,7 @@ interface ColEntry {
               min="0"
               step="0.01"
               placeholder="0.00"
+              data-testid="edit-unit-cost-input"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -924,6 +925,7 @@ interface ColEntry {
               min="0"
               step="0.01"
               placeholder="0.00"
+              data-testid="edit-selling-price-input"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -1309,8 +1311,8 @@ export class ProductsPageComponent implements OnInit {
       name: product.name,
       category_id: product.category_id ?? '',
       // parseFloat strips trailing zeros from Decimal strings (e.g. "10500.000000" → 10500)
-      unit_cost: parseFloat(String(product.unit_cost)),
-      selling_price: parseFloat(String(product.selling_price)),
+      unit_cost: parseFloat(String(product.unit_cost ?? 0)),
+      selling_price: parseFloat(String(product.selling_price ?? 0)),
       description: product.description ?? '',
       is_active: product.is_active,
     };
