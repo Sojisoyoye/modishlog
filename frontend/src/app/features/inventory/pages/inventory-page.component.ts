@@ -99,12 +99,20 @@ import { ProductsService } from '../../../core/services/products.service';
                     }
                   </td>
                   <td class="px-4 py-3 text-center">
-                    <button
-                      (click)="openAdjust(item)"
-                      class="rounded-lg px-3 py-1.5 text-xs font-medium text-secondary transition-colors hover:bg-blue-50"
-                    >
-                      <i class="pi pi-pencil mr-1 text-[10px]"></i> Adjust
-                    </button>
+                    <div class="flex items-center justify-center gap-2">
+                      <button
+                        (click)="openAdjust(item)"
+                        class="rounded-lg px-3 py-1.5 text-xs font-medium text-secondary transition-colors hover:bg-blue-50"
+                      >
+                        <i class="pi pi-pencil mr-1 text-[10px]"></i> Adjust
+                      </button>
+                      <button
+                        (click)="viewProductHistory(item)"
+                        class="rounded-lg px-3 py-1.5 text-xs font-medium text-text transition-colors hover:bg-gray-100"
+                      >
+                        <i class="pi pi-history mr-1 text-[10px]"></i> History
+                      </button>
+                    </div>
                   </td>
                 </tr>
               } @empty {
@@ -239,6 +247,63 @@ import { ProductsService } from '../../../core/services/products.service';
         </div>
       }
     </p-dialog>
+
+    <!-- Stock History Dialog -->
+    <p-dialog
+      [header]="'Stock History — ' + (selectedInventoryItem()?.product_name ?? '')"
+      [(visible)]="historyVisible"
+      [modal]="true"
+      [style]="{ width: '680px' }"
+    >
+      @if (productMovementsLoading()) {
+        <div class="py-8 text-center text-muted">
+          <i class="pi pi-spin pi-spinner mr-2"></i>Loading…
+        </div>
+      } @else {
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <caption class="sr-only">Stock movement history</caption>
+            <thead>
+              <tr class="bg-gray-50/80">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Type</th>
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Qty Change</th>
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">After</th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Notes</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              @for (mov of productMovements(); track mov.id) {
+                <tr class="transition-colors hover:bg-gray-50/50">
+                  <td class="px-3 py-2.5 text-muted">{{ mov.created_at | date: 'short' }}</td>
+                  <td class="px-3 py-2.5">
+                    <app-status-badge
+                      [label]="movementTypeLabel(mov.movement_type)"
+                      [status]="movementStatus(mov.movement_type)"
+                    />
+                  </td>
+                  <td
+                    class="px-3 py-2.5 text-right font-semibold"
+                    [class]="mov.quantity_change >= 0 ? 'text-success' : 'text-danger'"
+                  >
+                    {{ mov.quantity_change >= 0 ? '+' : '' }}{{ mov.quantity_change }}
+                  </td>
+                  <td class="px-3 py-2.5 text-right text-muted">{{ mov.quantity_after ?? '--' }}</td>
+                  <td class="px-3 py-2.5 text-muted">{{ mov.reason ?? '--' }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="5" class="px-3 py-8 text-center text-muted">
+                    <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
+                    No movements recorded
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </p-dialog>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -255,6 +320,12 @@ export class InventoryPageComponent implements OnInit {
   adjustType: 'order_received' | 'manual_add' | 'manual_remove' | 'damaged' = 'order_received';
   adjustQty = 1;
   adjustReason = '';
+
+  // Stock history dialog
+  historyVisible = false;
+  selectedInventoryItem = signal<InventoryItem | null>(null);
+  productMovements = signal<StockMovement[]>([]);
+  productMovementsLoading = signal(false);
 
   ngOnInit(): void {
     this.loadData();
@@ -318,8 +389,42 @@ export class InventoryPageComponent implements OnInit {
     if (type === 'manual_add') return 'success';
     if (type === 'manual_remove') return 'warning';
     if (type === 'damaged') return 'danger';
-    if (type === 'sale') return 'success';
+    if (type === 'sale') return 'danger';
+    if (type === 'return') return 'info';
     return 'warning';
+  }
+
+  movementTypeLabel(type: string): string {
+    const labels: Record<string, string> = {
+      sale: 'Sale',
+      order_received: 'Restocked',
+      manual_add: 'Manual Add',
+      manual_remove: 'Manual Remove',
+      damaged: 'Damaged',
+      return: 'Return',
+    };
+    return labels[type] ?? type;
+  }
+
+  viewProductHistory(item: InventoryItem): void {
+    this.selectedInventoryItem.set(item);
+    this.productMovements.set([]);
+    this.productMovementsLoading.set(true);
+    this.historyVisible = true;
+    this.inventoryService.getProductMovements(item.product_id).subscribe({
+      next: (movements) => {
+        this.productMovements.set(movements);
+        this.productMovementsLoading.set(false);
+      },
+      error: () => {
+        this.productMovementsLoading.set(false);
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Failed to load stock history',
+        });
+      },
+    });
   }
 
   startEditThreshold(productId: string): void {

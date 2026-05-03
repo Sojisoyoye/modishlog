@@ -108,3 +108,42 @@ test('reason field is required — empty reason prevents submit', async ({ page 
   const saveBtn = dialog.getByRole('button', { name: 'Save Adjustment' });
   await expect(saveBtn).toBeDisabled();
 });
+
+// ---------------------------------------------------------------------------
+// Stock history dialog (task #62)
+// ---------------------------------------------------------------------------
+
+test('clicking History button opens the Stock History dialog', async ({ page }) => {
+  const product = await ensureProduct(`E2E History ${Date.now()}`);
+  await addStock(product.id, 15);
+
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible();
+
+  const row = page.getByRole('row').filter({ hasText: product.name }).first();
+  await expect(row).toBeVisible({ timeout: 10_000 });
+  await row.getByRole('button', { name: 'History' }).click();
+
+  const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Stock History' });
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  await expect(dialog).toContainText(product.name);
+});
+
+test('Stock History dialog shows movement type after stock adjustment', async ({ page }) => {
+  const product = await ensureProduct(`E2E HistMov ${Date.now()}`);
+  await addStock(product.id, 10);
+
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible();
+
+  const row = page.getByRole('row').filter({ hasText: product.name }).first();
+  await expect(row).toBeVisible({ timeout: 10_000 });
+  await row.getByRole('button', { name: 'History' }).click();
+
+  const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Stock History' });
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+  // The movement from addStock (manual_add) should appear with label and qty
+  await expect(dialog).toContainText('Manual Add', { timeout: 5_000 });
+  await expect(dialog).toContainText('+10');
+});
