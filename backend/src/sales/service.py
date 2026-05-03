@@ -68,6 +68,14 @@ async def create_sale(
 
     gross = data.unit_price * data.quantity
     discount = data.discount_amount or Decimal("0")
+    if discount > gross:
+        from src.sales.exceptions import SaleValidationError
+
+        raise SaleValidationError(
+            "discount_amount",
+            str(discount),
+            "Discount cannot exceed gross amount",
+        )
     total_amount = gross - discount
 
     sale = Sale(
@@ -209,9 +217,11 @@ async def update_sale(
         else:
             setattr(sale, field, value)
 
-    # Recalculate total if quantity or price changed
+    # Recalculate total if quantity or price changed (preserve discount)
     if "quantity" in update_fields or "unit_price" in update_fields:
-        sale.total_amount = sale.unit_price * sale.quantity
+        sale.total_amount = sale.unit_price * sale.quantity - (
+            sale.discount_amount or Decimal("0")
+        )
 
     if "quantity" in update_fields and update_fields["quantity"] != old_quantity:
         quantity_changed = True

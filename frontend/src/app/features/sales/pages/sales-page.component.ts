@@ -141,16 +141,16 @@ interface EntryRow {
                     @if ($index === 0) {
                       <label class="mb-1.5 block text-xs font-medium text-muted">Unit Price</label>
                     }
-                    <input
-                      type="number"
-                      [(ngModel)]="row.unit_price"
-                      [name]="'price_' + $index"
-                      min="0"
-                      step="0.01"
+                    <div
                       data-testid="entry-price-input"
-                      [placeholder]="row.product_id ? '' : '—'"
-                      class="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                    />
+                      class="flex h-[42px] items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-text"
+                    >
+                      @if (row.unit_price !== null) {
+                        {{ row.unit_price | currency: 'NGN' : 'symbol' : '1.2-2' }}
+                      } @else {
+                        <span class="text-muted">—</span>
+                      }
+                    </div>
                   </div>
                   <div class="w-32">
                     @if ($index === 0) {

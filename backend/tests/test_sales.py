@@ -761,6 +761,23 @@ class TestCreateSaleWithDiscount:
         assert sale.discount_amount == Decimal("50")
 
     @pytest.mark.asyncio
+    async def test_create_sale_discount_exceeds_gross_raises(self):
+        """Discount larger than gross amount raises SaleValidationError."""
+        product = _make_product(id=uuid.uuid4())
+        db = _mock_db_with_execute(scalar_result=product)
+
+        data = SaleCreate(
+            product_id=product.id,
+            quantity=2,
+            unit_price=Decimal("100"),
+            sale_date=date(2026, 3, 15),
+            channel="retail",
+            discount_amount=Decimal("300"),  # 300 > 100*2 = 200
+        )
+        with pytest.raises(SaleValidationError):
+            await create_sale(db, data, uuid.uuid4())
+
+    @pytest.mark.asyncio
     async def test_create_sale_without_discount_uses_full_price(self):
         """Without discount_amount, total_amount = unit_price * quantity."""
         product = _make_product(id=uuid.uuid4())
