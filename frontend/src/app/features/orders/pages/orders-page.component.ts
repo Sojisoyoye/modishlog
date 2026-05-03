@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, DestroyRef, inject, signal, computed, OnInit } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -8,7 +9,6 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
 import {
   OrdersService,
   Order,
-  ProfitProjection,
   CreateOrderPayload,
 } from '../../../core/services/orders.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
@@ -55,9 +55,9 @@ import { FxService } from '../../../core/services/fx.service';
                   class="cursor-pointer rounded-lg border border-gray-100 p-3 transition-all hover:border-secondary hover:shadow-sm"
                 >
                   <p class="text-sm font-semibold text-text">{{ order.order_number }}</p>
-                  <p class="mt-0.5 text-xs text-muted">{{ order.supplier }}</p>
+                  <p class="mt-0.5 text-xs text-muted">{{ order.supplier_name }}</p>
                   <p class="mt-1.5 text-sm font-bold text-text">
-                    {{ order.total_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
+                    {{ order.total_amount | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </p>
                 </div>
               }
@@ -98,10 +98,10 @@ import { FxService } from '../../../core/services/fx.service';
                   ETA
                 </th>
                 <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
-                  FX Locked
+                  Est. Locked (30%)
                 </th>
                 <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
-                  FX Float
+                  Est. Float (70%)
                 </th>
               </tr>
             </thead>
@@ -112,25 +112,25 @@ import { FxService } from '../../../core/services/fx.service';
                   (click)="viewOrder(order)"
                 >
                   <td class="px-3 py-2.5 font-semibold text-secondary">{{ order.order_number }}</td>
-                  <td class="px-3 py-2.5">{{ order.supplier }}</td>
+                  <td class="px-3 py-2.5">{{ order.supplier_name }}</td>
                   <td class="px-3 py-2.5 text-right font-semibold">
-                    {{ order.total_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
+                    {{ order.total_amount | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </td>
                   <td class="px-3 py-2.5">
                     <app-status-badge [label]="order.status" [status]="orderStatus(order.status)" />
                   </td>
                   <td class="px-3 py-2.5 text-muted">
                     {{
-                      order.estimated_arrival_date
-                        ? (order.estimated_arrival_date | date: 'mediumDate')
+                      order.expected_delivery_date
+                        ? (order.expected_delivery_date | date: 'mediumDate')
                         : '--'
                     }}
                   </td>
                   <td class="px-3 py-2.5 text-right font-medium text-success">
-                    {{ order.locked_amount_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
+                    {{ order.total_amount * 0.3 | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </td>
                   <td class="px-3 py-2.5 text-right font-medium text-warning">
-                    {{ order.floating_amount_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
+                    {{ order.total_amount * 0.7 | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </td>
                 </tr>
               } @empty {
@@ -166,31 +166,64 @@ import { FxService } from '../../../core/services/fx.service';
           <div class="grid grid-cols-2 gap-4 rounded-lg bg-gray-50 p-4 text-sm">
             <div>
               <p class="text-xs font-medium text-muted">Supplier</p>
-              <p class="mt-0.5 font-semibold text-text">{{ selectedOrder()!.supplier }}</p>
+              <p class="mt-0.5 font-semibold text-text">{{ selectedOrder()!.supplier_name }}</p>
             </div>
             <div>
               <p class="text-xs font-medium text-muted">Order Date</p>
               <p class="mt-0.5 font-semibold text-text">
-                {{ selectedOrder()!.order_date | date: 'mediumDate' }}
+                {{ selectedOrder()!.created_at | date: 'mediumDate' }}
               </p>
             </div>
             <div>
               <p class="text-xs font-medium text-muted">Total (USD)</p>
               <p class="mt-0.5 font-semibold text-text">
-                {{ selectedOrder()!.total_usd | currency: 'USD' }}
+                {{ selectedOrder()!.total_amount | currency: 'USD' }}
               </p>
             </div>
             <div>
               <p class="text-xs font-medium text-muted">ETA</p>
               <p class="mt-0.5 font-semibold text-text">
                 {{
-                  selectedOrder()!.estimated_arrival_date
-                    ? (selectedOrder()!.estimated_arrival_date | date: 'mediumDate')
+                  selectedOrder()!.expected_delivery_date
+                    ? (selectedOrder()!.expected_delivery_date | date: 'mediumDate')
                     : 'TBD'
                 }}
               </p>
             </div>
           </div>
+
+          <!-- Line Items -->
+          @if (selectedOrder()!.line_items.length) {
+            <div class="rounded-lg border border-gray-200 p-4">
+              <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Line Items</p>
+              <table class="min-w-full divide-y divide-gray-200 text-sm" data-testid="line-items-table">
+                <thead>
+                  <tr class="bg-gray-50/80">
+                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Product</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Qty</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Unit Cost</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Line Total</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  @for (item of selectedOrder()!.line_items; track item.id) {
+                    <tr>
+                      <td class="px-3 py-2 text-text">
+                        {{ productName(item.product_id) }}
+                      </td>
+                      <td class="px-3 py-2 text-right text-text">{{ item.quantity }}</td>
+                      <td class="px-3 py-2 text-right text-text">
+                        {{ item.unit_cost | currency: 'USD' }}
+                      </td>
+                      <td class="px-3 py-2 text-right font-semibold text-text">
+                        {{ item.line_total | currency: 'USD' }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
 
           <!-- FX Exposure -->
           <div class="rounded-lg border border-gray-200 p-4">
@@ -199,17 +232,17 @@ import { FxService } from '../../../core/services/fx.service';
               <div>
                 <p class="text-xs text-muted">Locked (30%)</p>
                 <p class="mt-0.5 text-lg font-bold text-success">
-                  {{ selectedOrder()!.locked_amount_usd | currency: 'USD' }}
+                  {{ selectedOrder()!.total_amount * 0.3 | currency: 'USD' }}
                 </p>
               </div>
               <div>
                 <p class="text-xs text-muted">Floating (70%)</p>
                 <p class="mt-0.5 text-lg font-bold text-warning">
-                  {{ selectedOrder()!.floating_amount_usd | currency: 'USD' }}
+                  {{ selectedOrder()!.total_amount * 0.7 | currency: 'USD' }}
                 </p>
               </div>
             </div>
-            @if (selectedOrder()!.locked_fx_rate && selectedOrder()!.fx_rate_at_delivery) {
+            @if (selectedOrder()!.fx_rate_at_creation && selectedOrder()!.fx_rate_at_delivery) {
               <div class="mt-4 rounded-lg bg-gray-50 p-3">
                 <p class="mb-2 text-xs font-bold uppercase tracking-wider text-muted">
                   Predicted vs Actual FX Rate
@@ -218,7 +251,7 @@ import { FxService } from '../../../core/services/fx.service';
                   <div>
                     <p class="text-xs text-muted">At Creation</p>
                     <p class="mt-0.5 font-semibold text-text">
-                      {{ selectedOrder()!.locked_fx_rate | number: '1.2-2' }}
+                      {{ selectedOrder()!.fx_rate_at_creation | number: '1.2-2' }}
                     </p>
                   </div>
                   <div>
@@ -231,10 +264,10 @@ import { FxService } from '../../../core/services/fx.service';
                     <p class="text-xs text-muted">Difference</p>
                     <p
                       class="mt-0.5 font-semibold"
-                      [class.text-success]="selectedOrder()!.fx_rate_at_delivery! <= selectedOrder()!.locked_fx_rate!"
-                      [class.text-danger]="selectedOrder()!.fx_rate_at_delivery! > selectedOrder()!.locked_fx_rate!"
+                      [class.text-success]="selectedOrder()!.fx_rate_at_delivery! <= selectedOrder()!.fx_rate_at_creation!"
+                      [class.text-danger]="selectedOrder()!.fx_rate_at_delivery! > selectedOrder()!.fx_rate_at_creation!"
                     >
-                      {{ (selectedOrder()!.fx_rate_at_delivery! - selectedOrder()!.locked_fx_rate!) | number: '1.2-2' }}
+                      {{ (selectedOrder()!.fx_rate_at_delivery! - selectedOrder()!.fx_rate_at_creation!) | number: '1.2-2' }}
                     </p>
                   </div>
                 </div>
@@ -243,7 +276,7 @@ import { FxService } from '../../../core/services/fx.service';
           </div>
 
           <!-- FX Scenarios (best / base / worst) -->
-          @if (selectedOrder()!.locked_fx_rate) {
+          @if (selectedOrder()!.fx_rate_at_creation) {
             <div class="rounded-lg border border-gray-200 p-4">
               <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">
                 FX Scenarios
@@ -280,7 +313,7 @@ import { FxService } from '../../../core/services/fx.service';
                 </table>
               </div>
               <p class="mt-2 text-xs text-muted">
-                Based on order FX rate {{ selectedOrder()!.locked_fx_rate | number: '1.2-2' }}.
+                Based on order FX rate {{ selectedOrder()!.fx_rate_at_creation | number: '1.2-2' }}.
                 Revenue estimated as cost &times; 1.3 markup.
               </p>
             </div>
@@ -338,7 +371,7 @@ import { FxService } from '../../../core/services/fx.service';
           <label for="order-supplier" class="mb-1.5 block text-xs font-medium text-muted">Supplier</label>
           <input
             id="order-supplier"
-            [(ngModel)]="newOrder.supplier"
+            [(ngModel)]="newOrder.supplier_name"
             class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             placeholder="Supplier name"
           />
@@ -366,7 +399,7 @@ import { FxService } from '../../../core/services/fx.service';
               />
               <input
                 type="number"
-                [(ngModel)]="item.unit_cost_usd"
+                [(ngModel)]="item.unit_cost"
                 placeholder="$/unit"
                 min="0"
                 step="0.01"
@@ -437,6 +470,7 @@ export class OrdersPageComponent implements OnInit {
   private readonly productsService = inject(ProductsService);
   private readonly fxService = inject(FxService);
   private readonly messageService = inject(MessageService);
+  private readonly destroyRef = inject(DestroyRef);
 
   orders = signal<Order[]>([]);
   products = signal<Product[]>([]);
@@ -448,17 +482,18 @@ export class OrdersPageComponent implements OnInit {
 
   fxScenarios = computed(() => {
     const order = this.selectedOrder();
-    if (!order || !order.locked_fx_rate) return [];
-    const baseRate = order.locked_fx_rate;
-    const totalUsd = order.total_usd;
-    // Estimate revenue as cost x 1.3 markup (frontend heuristic)
-    const revenueMultiplier = 1.3;
+    if (!order || !order.fx_rate_at_creation) return [];
+    const baseRate = order.fx_rate_at_creation;
+    const totalUsd = order.total_amount;
+    // Revenue is fixed in NGN at the time of pricing (cost × 1.3 at creation rate).
+    // Profit = fixedRevenueNgn − costAtScenarioRate, so profit falls as FX rate rises.
+    const revenueNgn = totalUsd * baseRate * 1.3;
     return [
       {
         label: 'Best Case',
         fxRate: baseRate * 0.9,
         totalCostNgn: totalUsd * baseRate * 0.9,
-        profit: totalUsd * baseRate * 0.9 * revenueMultiplier - totalUsd * baseRate * 0.9,
+        profit: revenueNgn - totalUsd * baseRate * 0.9,
         colorClass: 'text-success',
         icon: 'pi-arrow-down',
       },
@@ -466,7 +501,7 @@ export class OrdersPageComponent implements OnInit {
         label: 'Base',
         fxRate: baseRate,
         totalCostNgn: totalUsd * baseRate,
-        profit: totalUsd * baseRate * revenueMultiplier - totalUsd * baseRate,
+        profit: revenueNgn - totalUsd * baseRate,
         colorClass: 'text-text',
         icon: 'pi-minus',
       },
@@ -474,16 +509,16 @@ export class OrdersPageComponent implements OnInit {
         label: 'Worst Case',
         fxRate: baseRate * 1.1,
         totalCostNgn: totalUsd * baseRate * 1.1,
-        profit: totalUsd * baseRate * 1.1 * revenueMultiplier - totalUsd * baseRate * 1.1,
+        profit: revenueNgn - totalUsd * baseRate * 1.1,
         colorClass: 'text-danger',
         icon: 'pi-arrow-up',
       },
     ];
   });
 
-  newOrder = { supplier: '', production_days: 30, shipping_days: 21, clearing_days: 14 };
-  newOrderItems = signal<{ product_id: string; quantity: number; unit_cost_usd: number }[]>([
-    { product_id: '', quantity: 1, unit_cost_usd: 0 },
+  newOrder = { supplier_name: '', production_days: 30, shipping_days: 21, clearing_days: 14 };
+  newOrderItems = signal<{ product_id: string; quantity: number; unit_cost: number }[]>([
+    { product_id: '', quantity: 1, unit_cost: 0 },
   ]);
 
   readonly pipelineStatuses = ['Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];
@@ -515,14 +550,18 @@ export class OrdersPageComponent implements OnInit {
     return 'neutral';
   }
 
+  productName(productId: string): string {
+    return this.products().find((p) => p.id === productId)?.name ?? productId;
+  }
+
   viewOrder(order: Order): void {
     this.selectedOrder.set(order);
     this.detailVisible = true;
     this.deliveryFxRate = null;
 
-    // Pre-fill FX rate when order can transition to DELIVERED
-    if (this.nextStatuses(order.status).includes('DELIVERED')) {
-      this.fxService.getLatest().subscribe({
+    // Pre-fill FX rate when order can transition to Delivered
+    if (this.nextStatuses(order.status).includes('Delivered')) {
+      this.fxService.getLatest().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (fx) => {
           if (fx && fx.rate > 0) {
             this.deliveryFxRate = fx.rate;
@@ -564,22 +603,28 @@ export class OrdersPageComponent implements OnInit {
   addOrderItem(): void {
     this.newOrderItems.update((items) => [
       ...items,
-      { product_id: '', quantity: 1, unit_cost_usd: 0 },
+      { product_id: '', quantity: 1, unit_cost: 0 },
     ]);
   }
 
   createOrder(): void {
-    const validItems = this.newOrderItems().filter((i) => i.product_id && i.quantity > 0);
-    if (!this.newOrder.supplier || validItems.length === 0) return;
+    const validItems = this.newOrderItems().filter((i) => i.product_id && i.quantity > 0 && i.unit_cost > 0);
+    if (!this.newOrder.supplier_name || validItems.length === 0) return;
 
     this.creating.set(true);
-    const payload: CreateOrderPayload = { ...this.newOrder, items: validItems };
+    const payload: CreateOrderPayload = {
+      supplier_name: this.newOrder.supplier_name,
+      line_items: validItems,
+      production_days: this.newOrder.production_days,
+      shipping_days: this.newOrder.shipping_days,
+      clearing_days: this.newOrder.clearing_days,
+    };
     this.ordersService.create(payload).subscribe({
       next: () => {
         this.creating.set(false);
         this.showCreate = false;
-        this.newOrder = { supplier: '', production_days: 30, shipping_days: 21, clearing_days: 14 };
-        this.newOrderItems.set([{ product_id: '', quantity: 1, unit_cost_usd: 0 }]);
+        this.newOrder = { supplier_name: '', production_days: 30, shipping_days: 21, clearing_days: 14 };
+        this.newOrderItems.set([{ product_id: '', quantity: 1, unit_cost: 0 }]);
         this.messageService.add({
           severity: 'success',
           summary: 'Created',

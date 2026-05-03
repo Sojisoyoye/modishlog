@@ -46,7 +46,8 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     supplier_name: Mapped[str] = mapped_column(String(255))
     supplier_contact: Mapped[str | None] = mapped_column(String(255), default=None)
     status: Mapped[OrderStatus] = mapped_column(
-        Enum(OrderStatus), default=OrderStatus.PENDING
+        Enum(OrderStatus, values_callable=lambda x: [e.value for e in x]),
+        default=OrderStatus.PENDING,
     )
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     currency: Mapped[str] = mapped_column(String(3), default="USD")
@@ -124,10 +125,13 @@ class OrderPayment(UUIDMixin, Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     currency: Mapped[str] = mapped_column(String(3))
     payment_date: Mapped[date] = mapped_column(Date)
-    payment_method: Mapped[PaymentMethod] = mapped_column(Enum(PaymentMethod))
+    payment_method: Mapped[PaymentMethod] = mapped_column(
+        Enum(PaymentMethod, values_callable=lambda x: [e.value for e in x])
+    )
     reference: Mapped[str | None] = mapped_column(String(255), default=None)
     status: Mapped[PaymentStatus] = mapped_column(
-        Enum(PaymentStatus), default=PaymentStatus.COMPLETED
+        Enum(PaymentStatus, values_callable=lambda x: [e.value for e in x]),
+        default=PaymentStatus.COMPLETED,
     )
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))

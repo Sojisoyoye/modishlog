@@ -103,6 +103,50 @@ test.describe('Inline product creation in New Order dialog', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Order detail dialog — line items
+// ---------------------------------------------------------------------------
+
+test.describe('Order detail dialog', () => {
+  test('clicking an order row opens detail dialog with line items section', async ({ page }) => {
+    const product = await ensureProduct('Detail Dialog Product');
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
+
+    // Create an order via the form
+    await page.getByRole('button', { name: 'New Order' }).click();
+    const createDialog = page.locator('[role="dialog"]').filter({ hasText: 'New Order' });
+    await expect(createDialog).toBeVisible({ timeout: 10_000 });
+
+    await createDialog.getByPlaceholder('Supplier name').fill('Detail Test Supplier');
+    const productSelect = createDialog.locator('select').first();
+    await expect(createDialog.locator(`select option[value="${product.id}"]`)).toBeAttached({ timeout: 10_000 });
+    await productSelect.selectOption(product.id);
+    await createDialog.locator('input[placeholder="Qty"]').first().fill('10');
+    await createDialog.locator('input[placeholder="$/unit"]').first().fill('15');
+    await createDialog.getByRole('button', { name: 'Create Order' }).click();
+    await expect(createDialog).not.toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Order created successfully')).toBeVisible({ timeout: 5_000 });
+
+    // Click the newly created order row in the table
+    const orderRow = page.getByRole('row').filter({ hasText: 'Detail Test Supplier' }).first();
+    await orderRow.click();
+
+    // Order detail dialog should open
+    const detailDialog = page.locator('[role="dialog"]').filter({ hasText: 'Order Details' });
+    await expect(detailDialog).toBeVisible({ timeout: 10_000 });
+
+    // Line items section must be present
+    await expect(detailDialog.getByText('Line Items')).toBeVisible();
+
+    // The product name should appear in the line items table
+    await expect(detailDialog.getByText('Detail Dialog Product')).toBeVisible();
+
+    // Qty and unit cost should be displayed
+    await expect(detailDialog.getByText('10')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Create Order — full E2E flow
 // ---------------------------------------------------------------------------
 
