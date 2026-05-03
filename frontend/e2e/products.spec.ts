@@ -105,6 +105,69 @@ test('add product form inputs have 0.00 placeholder and accept decimals', async 
 });
 
 // ---------------------------------------------------------------------------
+// Profit margin indicator on add/edit form
+// ---------------------------------------------------------------------------
+
+test('Add Product form shows profit margin % when cost and price are filled', async ({ page }) => {
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+  const nums = addForm.locator('input[type="number"]');
+
+  // Fill cost=100, price=150 → margin = (150-100)/150*100 = 33.3%
+  await nums.nth(0).fill('100');
+  await nums.nth(1).fill('150');
+
+  const marginBadge = addForm.locator('[data-testid="add-margin"]');
+  await expect(marginBadge).toBeVisible();
+  await expect(marginBadge).toContainText('33.3%');
+});
+
+test('Add Product form margin indicator is green for positive margin, red for negative', async ({
+  page,
+}) => {
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+  const nums = addForm.locator('input[type="number"]');
+  const marginBadge = addForm.locator('[data-testid="add-margin"]');
+
+  // Positive margin → green
+  await nums.nth(0).fill('100');
+  await nums.nth(1).fill('150');
+  await expect(marginBadge).toBeVisible();
+  await expect(marginBadge).toHaveClass(/text-green/);
+
+  // Negative margin (price < cost) → red
+  await nums.nth(1).fill('80');
+  await expect(marginBadge).toHaveClass(/text-red/);
+});
+
+test('Edit Product dialog shows profit margin % for existing product', async ({ page }) => {
+  const name = `E2E Margin ${Date.now()}`;
+
+  await page.getByRole('button', { name: 'New Product' }).click();
+  const addForm = page.locator('#add-product-form');
+  await addForm.getByPlaceholder('Product name').fill(name);
+  const nums = addForm.locator('input[type="number"]');
+  await nums.nth(0).fill('200');
+  await nums.nth(1).fill('400');
+  await addForm.getByRole('button', { name: 'Create Product' }).click();
+  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+
+  // Open edit dialog via action menu
+  const row = page.locator('tr').filter({ hasText: name });
+  await row.locator('button[aria-haspopup="true"]').click();
+  await page.locator('[role="menu"]').filter({ hasText: 'Edit' }).getByRole('button', { name: 'Edit' }).click();
+
+  const editDialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Product' });
+  await expect(editDialog).toBeVisible();
+
+  // margin = (400-200)/400*100 = 50.0%
+  const marginBadge = editDialog.locator('[data-testid="edit-margin"]');
+  await expect(marginBadge).toBeVisible();
+  await expect(marginBadge).toContainText('50.0%');
+});
+
+// ---------------------------------------------------------------------------
 // Grid / List view toggle
 // ---------------------------------------------------------------------------
 

@@ -656,6 +656,16 @@ interface ColEntry {
               />
             </div>
           </div>
+          @if (addFormMargin !== null) {
+            <p
+              data-testid="add-margin"
+              class="text-xs font-medium"
+              [class.text-green-600]="addFormMargin >= 0"
+              [class.text-red-500]="addFormMargin < 0"
+            >
+              Margin: {{ addFormMargin | number: '1.1-1' }}%
+            </p>
+          }
 
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">Description</label>
@@ -918,6 +928,16 @@ interface ColEntry {
             />
           </div>
         </div>
+        @if (editFormMargin !== null) {
+          <p
+            data-testid="edit-margin"
+            class="text-xs font-medium"
+            [class.text-green-600]="editFormMargin >= 0"
+            [class.text-red-500]="editFormMargin < 0"
+          >
+            Margin: {{ editFormMargin | number: '1.1-1' }}%
+          </p>
+        }
         <div>
           <label class="mb-1.5 block text-xs font-medium text-muted">Description</label>
           <textarea
@@ -1156,6 +1176,19 @@ export class ProductsPageComponent implements OnInit {
   margin(product: Product): number {
     if (!product.selling_price) return 0;
     return ((product.selling_price - product.unit_cost) / product.selling_price) * 100;
+  }
+
+  get addFormMargin(): number | null {
+    const { unit_cost, selling_price } = this.addForm;
+    if (!selling_price) return null;
+    return ((selling_price - unit_cost) / selling_price) * 100;
+  }
+
+  get editFormMargin(): number | null {
+    const cost = this.editForm.unit_cost ?? 0;
+    const price = this.editForm.selling_price ?? 0;
+    if (!price) return null;
+    return ((price - cost) / price) * 100;
   }
 
   sortIcon(col: string): string {
