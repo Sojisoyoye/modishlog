@@ -163,11 +163,11 @@ import { ProductsService } from '../../../core/services/products.service';
                   </td>
                   <td
                     class="px-3 py-2.5 text-right font-semibold"
-                    [class]="mov.quantity >= 0 ? 'text-success' : 'text-danger'"
+                    [class]="mov.quantity_change >= 0 ? 'text-success' : 'text-danger'"
                   >
-                    {{ mov.quantity >= 0 ? '+' : '' }}{{ mov.quantity }}
+                    {{ mov.quantity_change >= 0 ? '+' : '' }}{{ mov.quantity_change }}
                   </td>
-                  <td class="px-3 py-2.5 text-muted">{{ mov.notes ?? '--' }}</td>
+                  <td class="px-3 py-2.5 text-muted">{{ mov.reason ?? '--' }}</td>
                 </tr>
               } @empty {
                 <tr>
@@ -270,9 +270,18 @@ export class InventoryPageComponent implements OnInit {
             this.inventory.set(items);
           },
         });
+        this.inventoryService.getMovements().subscribe({
+          next: (movements) => {
+            movements.forEach((m) => (m.product_name = nameMap.get(m.product_id) ?? 'Unknown'));
+            this.movements.set(movements);
+          },
+          error: () => {
+            // movements are non-critical; silently clear on failure
+            this.movements.set([]);
+          },
+        });
       },
     });
-    this.inventoryService.getMovements().subscribe({ next: (d) => this.movements.set(d) });
   }
 
   stockStatus(item: InventoryItem): 'success' | 'warning' | 'danger' {
