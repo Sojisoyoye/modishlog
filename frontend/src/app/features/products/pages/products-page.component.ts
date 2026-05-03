@@ -1547,7 +1547,19 @@ export class ProductsPageComponent implements OnInit {
         this.products.update((list) => list.map((p) => (p.category_id === cat.id ? { ...p, category_id: null } : p)));
         this.messageService.add({ severity: 'success', summary: 'Deleted', detail: `Category "${cat.name}" deleted` });
       },
-      error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to delete category' }),
+      error: (err) => {
+        if (err.status === 409) {
+          // Extract product count from backend detail: "Category X has N linked products"
+          const count = /has (\d+) linked/.exec(err.error?.detail ?? '')?.[1];
+          const noun = count === '1' ? 'product' : 'products';
+          const detail = count
+            ? `"${cat.name}" still has ${count} ${noun}. Move or delete them before removing the category.`
+            : `"${cat.name}" still has products. Move or delete them before removing the category.`;
+          this.messageService.add({ severity: 'warn', summary: 'Cannot Delete', detail });
+        } else {
+          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to delete category' });
+        }
+      },
     });
   }
 }

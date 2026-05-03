@@ -1,5 +1,6 @@
 import { test, expect, request as pwRequest } from '@playwright/test';
 import { ensureTestUser, loginViaUI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
+import { ensureCategory, ensureProductInCategory } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
 
@@ -523,4 +524,45 @@ test('GET /api/v1/products returns image_url field in items', async () => {
   }
 
   await ctx.dispose();
+});
+
+// ---------------------------------------------------------------------------
+// Friendly 409 error when deleting a category with products (task #60)
+// ---------------------------------------------------------------------------
+
+test.describe('Category delete with linked products', () => {
+  test('shows friendly warning toast when deleting a category that has products', async ({ page }) => {
+    // Seed: category + product assigned to it, both via API
+    const category = await ensureCategory(`E2E Cat Delete ${Date.now()}`);
+    await ensureProductInCategory(category.id, `E2E Cat Product ${Date.now()}`);
+
+    // Reload so the freshly-seeded category appears (beforeEach navigated before API seed)
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
+
+    // Switch to the Categories tab
+    await page.getByRole('button', { name: /Categories/i }).click();
+
+    // Wait for the category row to appear
+    const categoryRow = page.getByRole('row').filter({ hasText: category.name }).first();
+    await expect(categoryRow).toBeVisible({ timeout: 8_000 });
+
+    // Click the trash icon to initiate delete
+    await categoryRow.locator('button[title="Delete category"]').click();
+
+    // Confirm in the inline alert banner that appears
+    const alertBanner = page.locator('app-alert-banner');
+    await expect(alertBanner).toBeVisible({ timeout: 5_000 });
+    await alertBanner.getByRole('button', { name: 'Delete' }).click();
+
+    // A WARN toast (amber) must appear — severity='warn' → PrimeNG class p-toast-message-warn
+    const toast = page.locator('.p-toast-message');
+    await expect(toast).toBeVisible({ timeout: 8_000 });
+    await expect(toast).toHaveClass(/p-toast-message-warn/);
+    // Message must mention products and guide the user
+    await expect(page.getByText(/still has|Move or delete|before removing/i)).toBeVisible({ timeout: 5_000 });
+
+    // Category must still be in the table (not deleted)
+    await expect(categoryRow).toBeVisible();
+  });
 });
