@@ -592,7 +592,7 @@ def _build_transaction_read(
 ) -> "SaleTransactionRead":
     """Build a SaleTransactionRead from a list of Sale records."""
 
-    total_amount = sum(s.total_amount for s in items)
+    total_amount = sum((s.total_amount for s in items), Decimal("0"))
     sale_date = items[0].sale_date if items else date.today()
     created_at = (
         min(s.created_at for s in items) if items else datetime.now(timezone.utc)
@@ -616,7 +616,7 @@ def _build_transaction_read(
             discount_amount=s.discount_amount,
             total_amount=s.total_amount,
             currency=s.currency,
-            status=s.status.value if hasattr(s.status, "value") else str(s.status),
+            status=s.status.value,
             notes=s.notes,
         )
         for s in items

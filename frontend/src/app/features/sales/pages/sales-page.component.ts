@@ -629,6 +629,7 @@ interface EntryRow {
                   <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Unit Price</th>
                   <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Discount</th>
                   <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Line Total</th>
+                  <th class="px-3 py-2 text-center text-xs font-semibold uppercase text-muted">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
@@ -649,12 +650,45 @@ interface EntryRow {
                     <td class="px-3 py-2 text-right font-semibold">
                       {{ item.total_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
                     </td>
+                    <td class="px-3 py-2 text-center">
+                      <div class="flex items-center justify-center gap-1">
+                        @if (item.status !== 'voided') {
+                          <button
+                            data-testid="txn-item-edit-btn"
+                            (click)="$event.stopPropagation(); openEditDialog(itemToSaleRecord(item, viewingTransaction()!))"
+                            class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary"
+                            title="Edit sale"
+                            type="button"
+                          >
+                            <i class="pi pi-pencil text-xs"></i>
+                          </button>
+                          <button
+                            data-testid="txn-item-void-btn"
+                            (click)="$event.stopPropagation(); openVoidDialog(itemToSaleRecord(item, viewingTransaction()!))"
+                            class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                            title="Void sale"
+                            type="button"
+                          >
+                            <i class="pi pi-trash text-xs"></i>
+                          </button>
+                        }
+                        <button
+                          data-testid="txn-item-audit-btn"
+                          (click)="$event.stopPropagation(); openAuditDialog(itemToSaleRecord(item, viewingTransaction()!))"
+                          class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text"
+                          title="View audit trail"
+                          type="button"
+                        >
+                          <i class="pi pi-clock text-xs"></i>
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 }
               </tbody>
               <tfoot>
                 <tr class="border-t-2 border-gray-300 bg-gray-50/80">
-                  <td colspan="4" class="px-3 py-2.5 text-right text-sm font-semibold text-text">Grand Total</td>
+                  <td colspan="5" class="px-3 py-2.5 text-right text-sm font-semibold text-text">Grand Total</td>
                   <td class="px-3 py-2.5 text-right text-base font-bold text-primary">
                     {{ viewingTransaction()!.total_amount | currency: (viewingTransaction()!.currency || 'NGN') : 'symbol' : '1.2-2' }}
                   </td>
@@ -827,6 +861,25 @@ export class SalesPageComponent implements OnInit {
     this.transactionDetailVisible = true;
   }
 
+  itemToSaleRecord(item: SaleTransactionItem, txn: SaleTransaction): SaleRecord {
+    return {
+      id: item.id,
+      product_id: item.product_id,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      total_amount: item.total_amount,
+      discount_amount: item.discount_amount ?? null,
+      currency: item.currency,
+      sale_date: txn.sale_date,
+      channel: 'retail',
+      status: item.status,
+      notes: item.notes,
+      recorded_by: '',
+      created_at: txn.created_at,
+      updated_at: txn.created_at,
+    };
+  }
+
   getStock(productId: string): number | undefined {
     if (!productId) return undefined;
     return this.stockMap().get(productId);
@@ -939,6 +992,7 @@ export class SalesPageComponent implements OnInit {
         this.saving.set(false);
         this.editDialogVisible = false;
         this.editingsale.set(null);
+        this.transactionDetailVisible = false;
         this.messageService.add({
           severity: 'success',
           summary: 'Updated',
@@ -946,6 +1000,7 @@ export class SalesPageComponent implements OnInit {
         });
         this.loadHistory();
         this.loadInventory();
+        this.loadTransactions();
       },
       error: () => {
         this.saving.set(false);
@@ -977,6 +1032,7 @@ export class SalesPageComponent implements OnInit {
         this.saving.set(false);
         this.voidDialogVisible = false;
         this.voidingSaleRecord.set(null);
+        this.transactionDetailVisible = false;
         this.messageService.add({
           severity: 'success',
           summary: 'Voided',
@@ -984,6 +1040,7 @@ export class SalesPageComponent implements OnInit {
         });
         this.loadHistory();
         this.loadInventory();
+        this.loadTransactions();
       },
       error: () => {
         this.saving.set(false);
