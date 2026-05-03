@@ -1,38 +1,39 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { ApiService } from './api.service';
 
 export interface Order {
   id: string;
   order_number: string;
-  supplier: string;
-  total_usd: number;
-  total_ngn: number;
+  supplier_name: string;
+  total_amount: number;
   status: string;
-  order_date: string;
-  estimated_arrival_date: string | null;
-  locked_fx_rate: number | null;
+  created_at: string;
+  expected_delivery_date: string | null;
+  fx_rate_at_creation: number | null;
   fx_rate_at_delivery: number | null;
-  locked_amount_usd: number;
-  floating_amount_usd: number;
-  items: OrderItem[];
+  shipping_cost: number;
+  clearing_cost: number;
+  line_items: OrderItem[];
+  // Derived/optional fields not returned by backend
+  locked_amount_usd?: number;
+  floating_amount_usd?: number;
 }
 
 export interface OrderItem {
   id: string;
   product_id: string;
-  product_name: string;
   quantity: number;
-  unit_cost_usd: number;
-  total_usd: number;
+  unit_cost: number;
+  line_total: number;
 }
 
 export interface CreateOrderPayload {
-  supplier: string;
-  items: { product_id: string; quantity: number; unit_cost_usd: number }[];
-  production_days: number;
-  shipping_days: number;
-  clearing_days: number;
+  supplier_name: string;
+  line_items: { product_id: string; quantity: number; unit_cost: number }[];
+  production_days?: number;
+  shipping_days?: number;
+  clearing_days?: number;
 }
 
 export interface ProfitProjection {
@@ -54,7 +55,9 @@ export class OrdersService {
   private readonly api = inject(ApiService);
 
   getAll(params?: Record<string, string>): Observable<Order[]> {
-    return this.api.get<Order[]>('/orders', params);
+    return this.api.get<{ items: Order[]; total: number }>('/orders', params).pipe(
+      map((resp) => resp.items),
+    );
   }
 
   getById(id: string): Observable<Order> {
@@ -67,9 +70,7 @@ export class OrdersService {
 
   updateStatus(id: string, newStatus: string, fxRateAtDelivery?: number): Observable<Order> {
     const body: Record<string, unknown> = { new_status: newStatus };
-    if (fxRateAtDelivery != null) {
-      body['fx_rate_at_delivery'] = fxRateAtDelivery;
-    }
+    if (fxRateAtDelivery != null) body['fx_rate_at_delivery'] = fxRateAtDelivery;
     return this.api.put<Order>(`/orders/${id}/status`, body);
   }
 
