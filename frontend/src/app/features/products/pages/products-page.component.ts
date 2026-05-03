@@ -660,7 +660,8 @@ interface ColEntry {
             <p
               data-testid="add-margin"
               class="text-xs font-medium"
-              [class]="addFormMargin >= 0 ? 'text-green-600' : 'text-red-500'"
+              [class.text-green-600]="addFormMargin >= 0"
+              [class.text-red-500]="addFormMargin < 0"
             >
               Margin: {{ addFormMargin | number: '1.1-1' }}%
             </p>
@@ -931,7 +932,8 @@ interface ColEntry {
           <p
             data-testid="edit-margin"
             class="text-xs font-medium"
-            [class]="editFormMargin >= 0 ? 'text-green-600' : 'text-red-500'"
+            [class.text-green-600]="editFormMargin >= 0"
+            [class.text-red-500]="editFormMargin < 0"
           >
             Margin: {{ editFormMargin | number: '1.1-1' }}%
           </p>
