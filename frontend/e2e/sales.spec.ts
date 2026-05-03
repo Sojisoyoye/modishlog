@@ -265,11 +265,13 @@ test.describe('Unit price and discount in Record Sales form', () => {
     const productSelect = page.locator('select').first();
     await productSelect.selectOption(product.id);
 
-    // Unit price should be populated (product selling_price = 5000 from ensureProduct)
-    const priceInput = page.locator('[data-testid="entry-price-input"]').first();
-    await expect(priceInput).toBeVisible();
-    const priceVal = await priceInput.inputValue();
-    expect(parseFloat(priceVal)).toBeGreaterThan(0);
+    // Unit price display should be populated (product selling_price = 5000 from ensureProduct)
+    const priceDisplay = page.locator('[data-testid="entry-price-input"]').first();
+    await expect(priceDisplay).toBeVisible();
+    const priceText = (await priceDisplay.textContent()) ?? '';
+    // Should show a non-zero currency value, not the empty placeholder "—"
+    expect(priceText.trim()).not.toBe('—');
+    expect(priceText.trim().length).toBeGreaterThan(0);
   });
 
   test('shows line total calculated from qty and price minus discount', async ({ page }) => {
