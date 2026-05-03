@@ -143,36 +143,60 @@ npx ng serve --port 4200
 
 ## Staging Deployment
 
-Staging runs on Azure Container Apps (backend) + Vercel (frontend) + Neon PostgreSQL.
+Staging is **live**. Every push to `main` automatically deploys.
 
-| Component | Service |
-|-----------|---------|
-| Backend | Azure Container Apps (`modishlog-backend-staging`) |
-| Database | Neon PostgreSQL (external, SSL required) |
-| Migrations | Azure Container Apps Job (`modishlog-migrate-staging`) |
-| Frontend | Vercel |
-| Registry | GitHub Container Registry (GHCR) |
-| CI/CD | GitHub Actions (`.github/workflows/deploy-staging.yml`) |
+| Component | Service | URL |
+|-----------|---------|-----|
+| Frontend | Vercel | https://modishlog-staging.vercel.app |
+| Backend API | Azure Container Apps | https://modishlog-backend-staging.braverock-8f81d107.germanywestcentral.azurecontainerapps.io |
+| API Docs | Swagger UI (staging) | https://modishlog-backend-staging.braverock-8f81d107.germanywestcentral.azurecontainerapps.io/docs |
+| Database | Neon PostgreSQL (staging branch, SSL) | — |
+| Migrations | Azure Container Apps Job (`modishlog-migrate-staging`) | — |
+| Registry | GitHub Container Registry (GHCR) | `ghcr.io/sojisoyoye/modishlog/backend:staging` |
+| CI/CD | GitHub Actions | `.github/workflows/deploy-staging.yml` |
 
-Every push to `main` triggers the pipeline:
-1. Run `pytest` — must pass before deploy
-2. Build Docker image → push to GHCR
-3. Deploy frontend to Vercel
-4. Update Container App image on Azure
-5. Run Alembic migration job (`alembic upgrade head`)
-6. Health-check `GET /health` until 200
+### Deployment pipeline (triggered on every push to `main`)
 
-**First-time setup:**
+1. Run `pytest` against a temporary PostgreSQL container — must pass before any deploy step
+2. Build Docker image → push to `ghcr.io/sojisoyoye/modishlog/backend:staging`
+3. Deploy frontend to Vercel (`npm run build:staging` with `STAGING_API_URL` substituted at build time)
+4. Update Azure Container App to the new image SHA
+5. Run Alembic migration job (`alembic upgrade head`) and wait for completion
+6. Health-check `GET /health` until 200 (handles cold-start — scales from 0)
+
+### Architecture notes
+
+- **Database**: Neon PostgreSQL staging branch. Connection string format: `postgresql+asyncpg://user:pass@ep-xxx-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require`. SSL is auto-configured via `connect_args={"ssl": True}`.
+- **Shared CAE**: Azure Container App uses the `cae-heimpath` shared environment (Azure student tier allows only 1 CAE per region per subscription).
+- **Scale to zero**: Backend scales to 0 replicas when idle. Cold-start after inactivity can take 30–60 s. The CI health-check polls for up to 5 min.
+- **Frontend env injection**: `STAGING_API_URL` is injected by Vercel's `buildCommand` via `sed` into `environment.staging.ts` at build time — it is not a runtime env var.
+
+### Environment variables reference
+
+See `.env.staging.example` for the full list. Required GitHub Actions secrets:
+
+| Secret | Purpose |
+|--------|---------|
+| `STAGING_DATABASE_URL` | Neon connection string |
+| `STAGING_SECRET_KEY` | JWT signing key (`openssl rand -hex 32`) |
+| `STAGING_CORS_ORIGINS` | Allowed frontend origins |
+| `STAGING_API_URL` | Backend URL (also set in Vercel dashboard env vars) |
+| `AZURE_CREDENTIALS` | Azure service principal JSON |
+| `GHCR_TOKEN` | GitHub PAT (packages:read + packages:write) |
+| `VERCEL_TOKEN` | Vercel API token |
+| `VERCEL_ORG_ID` | Vercel org ID |
+| `VERCEL_PROJECT_ID` | Vercel project ID |
+
+### Re-provisioning from scratch
+
 ```bash
-export STAGING_DATABASE_URL="postgresql://..."   # Neon connection string
-export STAGING_SECRET_KEY="$(openssl rand -hex 32)"
-export STAGING_CORS_ORIGINS="https://your-app.vercel.app"
-export GHCR_TOKEN="ghp_..."
+# 1. Create Neon project → staging branch → get pooled connection string
+# 2. Set all GitHub Actions secrets (see table above + .env.staging.example)
+# 3. Set STAGING_API_URL in Vercel project dashboard (Settings → Environment Variables)
+# 4. Provision Azure resources:
 bash infra/azure/setup-staging.sh
+# 5. Push to main — CI/CD handles the rest
 ```
-
-Then add these GitHub Actions secrets to the repo:
-`AZURE_CREDENTIALS`, `GHCR_TOKEN`, `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`
 
 ---
 
