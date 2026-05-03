@@ -34,6 +34,48 @@ test('displays product tabs (All Products, Stock Report, Add Product, Categories
 });
 
 // ---------------------------------------------------------------------------
+// Price decimal display in Edit Product dialog (task #59)
+// ---------------------------------------------------------------------------
+
+test.describe('Edit Product price decimal display', () => {
+  test('unit cost and selling price inputs show at most 2 decimal places', async ({ page }) => {
+    // Create a product via the UI so it appears in the table
+    const name = `E2E Decimal ${Date.now()}`;
+    await page.getByRole('button', { name: 'New Product' }).click();
+    const addForm = page.locator('#add-product-form');
+    await addForm.getByPlaceholder('Product name').fill(name);
+    const nums = addForm.locator('input[type="number"]');
+    await nums.nth(0).fill('10500');  // unit_cost
+    await nums.nth(1).fill('15500');  // selling_price
+    // Submit button inside the add form is labelled "Create Product"
+    await addForm.getByRole('button', { name: 'Create Product' }).click();
+    await expect(page.getByText('Product created')).toBeVisible({ timeout: 5_000 });
+
+    // Wait for the product row to be visible before interacting
+    const row = page.getByRole('row').filter({ hasText: name }).first();
+    await expect(row).toBeVisible({ timeout: 5_000 });
+
+    // Open the action menu and click Edit
+    await row.getByRole('button', { name: /actions/i }).click();
+    await page.getByRole('menuitem', { name: 'Edit' }).click();
+
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Product' });
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    // Read raw input values via stable data-testid selectors
+    const costVal = await dialog.locator('[data-testid="edit-unit-cost-input"]').inputValue();
+    const priceVal = await dialog.locator('[data-testid="edit-selling-price-input"]').inputValue();
+
+    // Must not have 3+ decimal places (e.g. "10500.000000" from Pydantic Decimal)
+    expect(costVal).not.toMatch(/\.\d{3,}/);
+    expect(priceVal).not.toMatch(/\.\d{3,}/);
+    // Must equal the values entered (no precision loss, no zeroing)
+    expect(parseFloat(costVal)).toBe(10500);
+    expect(parseFloat(priceVal)).toBe(15500);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Action menu visibility (must not be clipped by overflow:auto container)
 // ---------------------------------------------------------------------------
 

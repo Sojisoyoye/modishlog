@@ -376,6 +376,7 @@ interface ColEntry {
                       (click)="toggleActionMenu(product.id, $event)"
                       [attr.aria-expanded]="openActionId() === product.id"
                       aria-haspopup="true"
+                      aria-label="Product actions"
                       class="rounded-lg p-1.5 text-muted hover:bg-gray-100"
                     >
                       <i class="pi pi-ellipsis-v text-sm"></i>
@@ -913,6 +914,7 @@ interface ColEntry {
               min="0"
               step="0.01"
               placeholder="0.00"
+              data-testid="edit-unit-cost-input"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -924,6 +926,7 @@ interface ColEntry {
               min="0"
               step="0.01"
               placeholder="0.00"
+              data-testid="edit-selling-price-input"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -1308,8 +1311,9 @@ export class ProductsPageComponent implements OnInit {
     this.editForm = {
       name: product.name,
       category_id: product.category_id ?? '',
-      unit_cost: product.unit_cost,
-      selling_price: product.selling_price,
+      // parseFloat strips trailing zeros from Decimal strings (e.g. "10500.000000" → 10500)
+      unit_cost: parseFloat(String(product.unit_cost ?? 0)),
+      selling_price: parseFloat(String(product.selling_price ?? 0)),
       description: product.description ?? '',
       is_active: product.is_active,
     };
