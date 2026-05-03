@@ -9,6 +9,7 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: 'http://localhost:4200',
+    locale: 'en-US',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
