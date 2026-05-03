@@ -2,8 +2,6 @@ import { test, expect } from '@playwright/test';
 import { ensureTestUser, loginViaUI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
 import { ensureProduct, addStock } from './helpers/data';
 
-const API = 'http://localhost:8000/api/v1';
-
 test.beforeAll(async () => {
   await ensureTestUser();
 });
