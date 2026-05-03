@@ -39,7 +39,7 @@ describe('ProductsPageComponent — executeDeleteCategory()', () => {
     vi.spyOn(messageService, 'add');
 
     // Seed a pending-delete category
-    component.categoryPendingDelete.set({ id: 'cat-1', name: 'Edge Tape', description: null });
+    component.categoryPendingDelete.set({ id: 'cat-1', name: 'Edge Tape', description: undefined });
     component.executeDeleteCategory();
 
     const req = httpMock.expectOne((r) => r.url.includes('/products/categories/cat-1'));
@@ -62,7 +62,7 @@ describe('ProductsPageComponent — executeDeleteCategory()', () => {
   it('shows generic warn toast when 409 detail does not contain a parseable count', () => {
     vi.spyOn(messageService, 'add');
 
-    component.categoryPendingDelete.set({ id: 'cat-2', name: 'Panels', description: null });
+    component.categoryPendingDelete.set({ id: 'cat-2', name: 'Panels', description: undefined });
     component.executeDeleteCategory();
 
     const req = httpMock.expectOne((r) => r.url.includes('/products/categories/cat-2'));
@@ -80,7 +80,7 @@ describe('ProductsPageComponent — executeDeleteCategory()', () => {
   it('shows error toast for non-409 failures', () => {
     vi.spyOn(messageService, 'add');
 
-    component.categoryPendingDelete.set({ id: 'cat-3', name: 'Wood', description: null });
+    component.categoryPendingDelete.set({ id: 'cat-3', name: 'Wood', description: undefined });
     component.executeDeleteCategory();
 
     const req = httpMock.expectOne((r) => r.url.includes('/products/categories/cat-3'));
