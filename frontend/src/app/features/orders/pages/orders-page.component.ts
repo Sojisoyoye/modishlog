@@ -71,11 +71,22 @@ import { FxService } from '../../../core/services/fx.service';
 
       <!-- Orders Table -->
       <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div class="mb-5 flex items-center gap-2">
-          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-            <i class="pi pi-list text-sm text-secondary"></i>
+        <div class="mb-5 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+              <i class="pi pi-list text-sm text-secondary"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">All Orders</h3>
           </div>
-          <h3 class="text-base font-semibold text-text">All Orders</h3>
+          <button
+            type="button"
+            data-testid="export-orders-csv"
+            (click)="exportOrdersCsv()"
+            class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+          >
+            <i class="pi pi-download text-xs"></i>
+            Export CSV
+          </button>
         </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
@@ -638,6 +649,26 @@ export class OrdersPageComponent implements OnInit {
           severity: 'error',
           summary: 'Error',
           detail: 'Failed to create order',
+        });
+      },
+    });
+  }
+
+  exportOrdersCsv(): void {
+    this.ordersService.exportCsv().subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'orders_export.csv';
+        link.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => {
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Failed to export orders CSV',
         });
       },
     });

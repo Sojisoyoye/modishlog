@@ -1,6 +1,8 @@
 import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { ApiService } from './api.service';
+import { environment } from '../../../environments/environment';
 
 export interface Order {
   id: string;
@@ -50,6 +52,7 @@ export interface ScenarioResult {
 @Injectable({ providedIn: 'root' })
 export class OrdersService {
   private readonly api = inject(ApiService);
+  private readonly http = inject(HttpClient);
 
   getAll(params?: Record<string, string>): Observable<Order[]> {
     return this.api.get<{ items: Order[]; total: number }>('/orders', params).pipe(
@@ -77,6 +80,19 @@ export class OrdersService {
 
   getLogisticsEfficiency(): Observable<LogisticsEfficiency> {
     return this.api.get<LogisticsEfficiency>('/orders/logistics-efficiency');
+  }
+
+  exportCsv(params?: Record<string, string>): Observable<Blob> {
+    let queryString = '';
+    if (params) {
+      const parts = Object.entries(params)
+        .filter(([, v]) => v !== undefined && v !== '')
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+      if (parts.length > 0) queryString = '?' + parts.join('&');
+    }
+    return this.http.get(`${environment.apiBaseUrl}/orders/export.csv${queryString}`, {
+      responseType: 'blob',
+    });
   }
 }
 

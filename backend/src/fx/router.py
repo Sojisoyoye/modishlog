@@ -1,9 +1,13 @@
 """FX API routes."""
 
+import csv
+import io
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user
@@ -18,6 +22,7 @@ from src.fx.exceptions import (
     InsufficientRateDataError,
     SimulationNotFoundError,
 )
+from src.fx.models import FXRate
 from src.fx.schemas import (
     ExposureConfigRead,
     ExposureConfigUpdate,
@@ -85,6 +90,51 @@ async def ingest_rate_endpoint(
 async def current_rates_endpoint(db: AsyncSession = Depends(get_db)):
     """Get current rates for all tracked pairs."""
     return await get_all_current_rates(db)
+
+
+@router.get("/export.csv")
+async def export_fx_csv_endpoint(
+    pair: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Export FX rate observations as a CSV file."""
+    query = select(FXRate)
+    if pair is not None:
+        query = query.where(FXRate.pair == pair)
+    if date_from is not None:
+        query = query.where(
+            FXRate.timestamp >= datetime.combine(date_from, datetime.min.time())
+        )
+    if date_to is not None:
+        query = query.where(
+            FXRate.timestamp <= datetime.combine(date_to, datetime.max.time())
+        )
+    query = query.order_by(FXRate.timestamp.desc())
+
+    result = await db.execute(query)
+    rates = list(result.scalars().all())
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["id", "pair", "rate", "source", "timestamp"])
+    for rate in rates:
+        writer.writerow(
+            [
+                str(rate.id),
+                rate.pair,
+                str(rate.rate),
+                rate.source.value if rate.source else "",
+                rate.timestamp.isoformat() if rate.timestamp else "",
+            ]
+        )
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=fx_rates_export.csv"},
+    )
 
 
 @router.get("/rates/{pair}", response_model=FXRateRead)

@@ -623,6 +623,95 @@ class TestSalesEndpoints:
 
 
 # ---------------------------------------------------------------------------
+# CSV Export endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestSalesExportEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _make_execute_side_effects(self, sales: list):
+        """Return two execute side effects: count then list."""
+        count_result = MagicMock()
+        count_result.scalar.return_value = len(sales)
+        list_result = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = sales
+        list_result.scalars.return_value = scalars_mock
+        return [count_result, list_result]
+
+    def test_export_sales_csv_returns_csv_content_type(self):
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/sales/export.csv")
+
+        assert resp.status_code == 200
+        assert "text/csv" in resp.headers["content-type"]
+
+    def test_export_sales_csv_has_correct_headers(self):
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/sales/export.csv")
+
+        assert resp.status_code == 200
+        first_line = resp.text.splitlines()[0]
+        assert "sale_date" in first_line
+        assert "quantity" in first_line
+        assert "total_amount" in first_line
+        assert "status" in first_line
+
+    def test_export_sales_csv_content_disposition(self):
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/sales/export.csv")
+
+        assert resp.status_code == 200
+        assert "attachment" in resp.headers.get("content-disposition", "")
+        assert ".csv" in resp.headers.get("content-disposition", "")
+
+    def test_export_sales_csv_with_data_row(self):
+        product_id = uuid.uuid4()
+        sale = _make_sale(product_id=product_id)
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=self._make_execute_side_effects([sale]))
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/sales/export.csv")
+
+        assert resp.status_code == 200
+        lines = resp.text.strip().splitlines()
+        # Header + 1 data row
+        assert len(lines) == 2
+        # Data row should contain the sale date
+        assert "2026-03-15" in lines[1]
+
+
+# ---------------------------------------------------------------------------
 # Quick Quote tests
 # ---------------------------------------------------------------------------
 

@@ -1,9 +1,12 @@
 """Orders API routes."""
 
+import csv
+import io
 import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user
@@ -114,6 +117,50 @@ async def orders_summary_endpoint(db: AsyncSession = Depends(get_db)):
 async def overdue_orders_endpoint(db: AsyncSession = Depends(get_db)):
     """List overdue orders."""
     return await get_overdue_orders(db)
+
+
+@router.get("/export.csv")
+async def export_orders_csv_endpoint(
+    order_status: str | None = None,
+    supplier_name: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Export purchase orders as a CSV file matching current filter params."""
+    items, _ = await list_orders(
+        db,
+        status=order_status,
+        supplier_name=supplier_name,
+        date_from=date_from,
+        date_to=date_to,
+        page=1,
+        page_size=100_000,
+    )
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        ["id", "order_number", "supplier_name", "status", "total_amount", "currency", "expected_delivery_date", "actual_delivery_date"]
+    )
+    for order in items:
+        writer.writerow(
+            [
+                str(order.id),
+                order.order_number,
+                order.supplier_name,
+                order.status.value if order.status else "",
+                str(order.total_amount),
+                order.currency,
+                str(order.expected_delivery_date) if order.expected_delivery_date else "",
+                str(order.actual_delivery_date) if order.actual_delivery_date else "",
+            ]
+        )
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=orders_export.csv"},
+    )
 
 
 @router.get("/{order_id}", response_model=OrderDetailRead)

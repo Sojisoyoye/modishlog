@@ -1,7 +1,9 @@
 import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { ApiService } from './api.service';
+import { environment } from '../../../environments/environment';
 
 export interface FxRate {
   id: string;
@@ -82,6 +84,7 @@ export interface FXAlertUpdate {
 @Injectable({ providedIn: 'root' })
 export class FxService {
   private readonly api = inject(ApiService);
+  private readonly http = inject(HttpClient);
 
   getLatest(): Observable<FxRate> {
     return this.api.get<FXRateRead[]>('/fx/rates/current').pipe(
@@ -202,5 +205,18 @@ export class FxService {
           : null;
       })
     );
+  }
+
+  exportCsv(params?: Record<string, string>): Observable<Blob> {
+    let queryString = '';
+    if (params) {
+      const parts = Object.entries(params)
+        .filter(([, v]) => v !== undefined && v !== '')
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+      if (parts.length > 0) queryString = '?' + parts.join('&');
+    }
+    return this.http.get(`${environment.apiBaseUrl}/fx/export.csv${queryString}`, {
+      responseType: 'blob',
+    });
   }
 }

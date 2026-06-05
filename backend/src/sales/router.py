@@ -1,9 +1,12 @@
 """Sales API routes."""
 
+import csv
+import io
 import uuid
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user, require_any_role
@@ -240,6 +243,54 @@ async def get_transaction_endpoint(
         return await get_transaction(db, transaction_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/export.csv")
+async def export_sales_csv_endpoint(
+    product_id: uuid.UUID | None = None,
+    channel: str | None = None,
+    sale_status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Export sales as a CSV file matching current filter params."""
+    items, _ = await list_sales(
+        db,
+        product_id=product_id,
+        channel=channel,
+        status=sale_status,
+        date_from=date_from,
+        date_to=date_to,
+        page=1,
+        page_size=100_000,
+    )
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        ["id", "sale_date", "product_id", "quantity", "unit_price", "total_amount", "discount_amount", "channel", "status", "currency"]
+    )
+    for sale in items:
+        writer.writerow(
+            [
+                str(sale.id),
+                str(sale.sale_date),
+                str(sale.product_id),
+                sale.quantity,
+                str(sale.unit_price),
+                str(sale.total_amount),
+                str(sale.discount_amount) if sale.discount_amount is not None else "",
+                sale.channel.value if sale.channel else "",
+                sale.status.value if sale.status else "",
+                sale.currency,
+            ]
+        )
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=sales_export.csv"},
+    )
 
 
 @router.get("/{sale_id}", response_model=SaleRead)

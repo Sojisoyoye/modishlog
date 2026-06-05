@@ -975,3 +975,89 @@ class TestUpdateForecastAccuracy:
         result = await update_forecast_accuracy(db, "USDNGN")
         assert result.total_evaluated == 0
         assert result.mean_mae == Decimal("0")
+
+
+# ---------------------------------------------------------------------------
+# CSV Export endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestFXExportEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _make_execute_for_rates(self, rates: list):
+        """Return AsyncMock execute for listing FX rates."""
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = rates
+        result_mock.scalars.return_value = scalars_mock
+        return AsyncMock(return_value=result_mock)
+
+    def test_export_fx_csv_returns_csv_content_type(self):
+        db = _mock_db()
+        db.execute = self._make_execute_for_rates([])
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/fx/export.csv")
+
+        assert resp.status_code == 200
+        assert "text/csv" in resp.headers["content-type"]
+
+    def test_export_fx_csv_has_correct_headers(self):
+        db = _mock_db()
+        db.execute = self._make_execute_for_rates([])
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/fx/export.csv")
+
+        assert resp.status_code == 200
+        first_line = resp.text.splitlines()[0]
+        assert "pair" in first_line
+        assert "rate" in first_line
+        assert "source" in first_line
+        assert "timestamp" in first_line
+
+    def test_export_fx_csv_content_disposition(self):
+        db = _mock_db()
+        db.execute = self._make_execute_for_rates([])
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/fx/export.csv")
+
+        assert resp.status_code == 200
+        assert "attachment" in resp.headers.get("content-disposition", "")
+        assert ".csv" in resp.headers.get("content-disposition", "")
+
+    def test_export_fx_csv_with_data_row(self):
+        rate = _make_fx_rate(pair="USDNGN", rate=Decimal("1650.250000"))
+        db = _mock_db()
+        db.execute = self._make_execute_for_rates([rate])
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/fx/export.csv?pair=USDNGN")
+
+        assert resp.status_code == 200
+        lines = resp.text.strip().splitlines()
+        # Header + 1 data row
+        assert len(lines) == 2
+        # Data row should contain the pair
+        assert "USDNGN" in lines[1]
