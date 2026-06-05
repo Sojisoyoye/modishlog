@@ -234,67 +234,58 @@ interface EntryRow {
             </div>
           </div>
 
-          <!-- Recent Sales (shown alongside entry form) -->
+          <!-- Recent Sales (grouped by transaction — click to see details) -->
           <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-            <div class="mb-5 flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
-                <i class="pi pi-history text-sm text-success"></i>
+            <div class="mb-5 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
+                  <i class="pi pi-history text-sm text-success"></i>
+                </div>
+                <h3 class="text-base font-semibold text-text">Recent Sales</h3>
               </div>
-              <h3 class="text-base font-semibold text-text">Recent Sales</h3>
+              <span class="text-xs text-muted">Click a row to view details</span>
             </div>
 
             <div class="overflow-x-auto">
               <table class="min-w-full divide-y divide-gray-200 text-sm">
-                <caption class="sr-only">Recent sales records</caption>
+                <caption class="sr-only">Recent sales transactions</caption>
                 <thead>
                   <tr class="bg-gray-50/80">
                     <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
-                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Product</th>
-                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Qty</th>
+                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Products</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Items</th>
                     <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total</th>
                     <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Status</th>
-                    <th class="px-3 py-2.5 text-center text-xs font-semibold uppercase text-muted">Actions</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
-                  @for (sale of history(); track sale.id) {
-                    <tr class="transition-colors hover:bg-gray-50/50">
-                      <td class="px-3 py-2.5 text-muted">{{ sale.sale_date | date: 'mediumDate' }}</td>
-                      <td class="px-3 py-2.5 font-medium">{{ getProductName(sale.product_id) }}</td>
-                      <td class="px-3 py-2.5 text-right">{{ sale.quantity }}</td>
+                  @for (txn of transactions(); track txn.transaction_id) {
+                    <tr
+                      class="cursor-pointer transition-colors hover:bg-blue-50/40"
+                      (click)="openTransactionDetail(txn)"
+                      title="Click to view details"
+                    >
+                      <td class="px-3 py-2.5 text-muted whitespace-nowrap">{{ txn.sale_date | date: 'mediumDate' }}</td>
+                      <td class="px-3 py-2.5 font-medium text-text">{{ txnProductNames(txn) }}</td>
+                      <td class="px-3 py-2.5 text-right text-muted">{{ txn.item_count }}</td>
                       <td class="px-3 py-2.5 text-right font-semibold">
-                        {{ sale.total_amount | currency: (sale.currency || 'NGN') : 'symbol' : '1.0-0' }}
+                        {{ txn.total_amount | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
                       </td>
                       <td class="px-3 py-2.5">
                         <span
                           class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
-                          [class.bg-green-100]="sale.status === 'completed'"
-                          [class.text-green-700]="sale.status === 'completed'"
-                          [class.bg-red-100]="sale.status === 'voided'"
-                          [class.text-red-700]="sale.status === 'voided'"
-                          [class.bg-yellow-100]="sale.status === 'pending'"
-                          [class.text-yellow-700]="sale.status === 'pending'"
-                        >{{ sale.status }}</span>
-                      </td>
-                      <td class="px-3 py-2.5 text-center">
-                        <div class="flex items-center justify-center gap-1">
-                          @if (sale.status !== 'voided') {
-                            <button data-testid="edit-sale-btn" (click)="openEditDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary" title="Edit sale" type="button">
-                              <i class="pi pi-pencil text-xs"></i>
-                            </button>
-                            <button data-testid="void-sale-btn" (click)="openVoidDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger" title="Void sale" type="button">
-                              <i class="pi pi-trash text-xs"></i>
-                            </button>
-                          }
-                          <button data-testid="audit-sale-btn" (click)="openAuditDialog(sale)" class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text" title="View audit trail" type="button">
-                            <i class="pi pi-clock text-xs"></i>
-                          </button>
-                        </div>
+                          [class.bg-green-100]="txn.status === 'completed'"
+                          [class.text-green-700]="txn.status === 'completed'"
+                          [class.bg-red-100]="txn.status === 'voided'"
+                          [class.text-red-700]="txn.status === 'voided'"
+                          [class.bg-yellow-100]="txn.status === 'partial'"
+                          [class.text-yellow-700]="txn.status === 'partial'"
+                        >{{ txn.status }}</span>
                       </td>
                     </tr>
                   } @empty {
                     <tr>
-                      <td colspan="6" class="px-3 py-10 text-center text-sm text-muted">
+                      <td colspan="5" class="px-3 py-10 text-center text-sm text-muted">
                         <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
                         No sales recorded yet
                       </td>
@@ -887,6 +878,12 @@ export class SalesPageComponent implements OnInit {
 
   getProductName(productId: string): string {
     return this.productMap().get(productId) || 'Unknown';
+  }
+
+  txnProductNames(txn: SaleTransaction): string {
+    const names = txn.items.map((item) => this.getProductName(item.product_id));
+    if (names.length <= 2) return names.join(', ');
+    return `${names[0]}, ${names[1]} and ${names.length - 2} more`;
   }
 
   exceedsStock(row: EntryRow): boolean {

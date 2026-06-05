@@ -15,23 +15,20 @@ import { Dialog } from 'primeng/dialog';
       [closeOnEscape]="false"
     >
       <p class="py-2 text-sm text-text">{{ message() }}</p>
-
-      <ng-template pTemplate="footer">
-        <div class="flex justify-end gap-2 pt-2">
-          <button
-            (click)="cancelled.emit()"
-            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            (click)="confirmed.emit()"
-            class="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
-          >
-            {{ confirmLabel() }}
-          </button>
-        </div>
-      </ng-template>
+      <div class="flex justify-end gap-2 pt-4">
+        <button
+          (click)="cancelled.emit()"
+          class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          (click)="confirmed.emit()"
+          class="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+        >
+          {{ confirmLabel() }}
+        </button>
+      </div>
     </p-dialog>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

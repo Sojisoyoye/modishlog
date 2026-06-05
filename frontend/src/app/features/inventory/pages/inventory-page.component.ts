@@ -275,7 +275,7 @@ import { ProductsService } from '../../../core/services/products.service';
             <tbody class="divide-y divide-gray-100">
               @for (mov of productMovements(); track mov.id) {
                 <tr class="transition-colors hover:bg-gray-50/50">
-                  <td class="px-3 py-2.5 text-muted">{{ mov.created_at | date: 'short' }}</td>
+                  <td class="px-3 py-2.5 text-muted whitespace-nowrap">{{ mov.created_at | date: 'MMM d, y, h:mm a' }}</td>
                   <td class="px-3 py-2.5">
                     <app-status-badge
                       [label]="movementTypeLabel(mov.movement_type)"
@@ -389,7 +389,7 @@ export class InventoryPageComponent implements OnInit {
     if (type === 'manual_add') return 'success';
     if (type === 'manual_remove') return 'warning';
     if (type === 'damaged') return 'danger';
-    if (type === 'sale') return 'danger';
+    if (type === 'sale' || type === 'sale_depletion') return 'danger';
     if (type === 'return') return 'info';
     return 'warning';
   }
@@ -397,6 +397,7 @@ export class InventoryPageComponent implements OnInit {
   movementTypeLabel(type: string): string {
     const labels: Record<string, string> = {
       sale: 'Sale',
+      sale_depletion: 'Sale',
       order_received: 'Restocked',
       manual_add: 'Manual Add',
       manual_remove: 'Manual Remove',
@@ -413,7 +414,10 @@ export class InventoryPageComponent implements OnInit {
     this.historyVisible = true;
     this.inventoryService.getProductMovements(item.product_id).subscribe({
       next: (movements) => {
-        this.productMovements.set(movements);
+        const sorted = [...movements].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        );
+        this.productMovements.set(sorted);
         this.productMovementsLoading.set(false);
       },
       error: () => {

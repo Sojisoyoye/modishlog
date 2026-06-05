@@ -837,15 +837,6 @@ interface ColEntry {
           </div>
         </div>
 
-        @if (categoryPendingDelete()) {
-          <app-alert-banner
-            severity="danger"
-            [message]="'Delete category &quot;' + categoryPendingDelete()!.name + '&quot;? Products will become uncategorised.'"
-            confirmLabel="Delete"
-            (confirmed)="executeDeleteCategory()"
-            (dismissed)="categoryPendingDelete.set(null)"
-          />
-        }
 
         <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
           <table class="min-w-full text-sm">
@@ -1025,6 +1016,15 @@ interface ColEntry {
         </button>
       </div>
     </p-dialog>
+
+    <!-- ── CONFIRM DELETE CATEGORY DIALOG ───────────────────────────────────── -->
+    <app-confirm-dialog
+      [visible]="!!categoryPendingDelete()"
+      header="Delete Category"
+      [message]="'Delete category &quot;' + (categoryPendingDelete()?.name ?? '') + '&quot;? Products will become uncategorised.'"
+      (confirmed)="executeDeleteCategory()"
+      (cancelled)="categoryPendingDelete.set(null)"
+    />
 
     <!-- ── CONFIRM DELETE PRODUCT DIALOG ────────────────────────────────────── -->
     <app-confirm-dialog
