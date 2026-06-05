@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_active_user
 from src.auth.models import User
 from src.core.database import get_db
-from src.fx.models import FXRate
 from src.fx.exceptions import (
     ExposureConfigError,
     ExposureLockExceededError,
@@ -23,6 +22,7 @@ from src.fx.exceptions import (
     InsufficientRateDataError,
     SimulationNotFoundError,
 )
+from src.fx.models import FXRate
 from src.fx.schemas import (
     ExposureConfigRead,
     ExposureConfigUpdate,
