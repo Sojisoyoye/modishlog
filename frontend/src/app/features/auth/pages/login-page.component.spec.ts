@@ -71,4 +71,44 @@ describe('LoginPageComponent', () => {
     req.flush('Too Many', { status: 429, statusText: 'Too Many Requests' });
     expect(component.errorMessage()).toContain('locked');
   });
+
+  describe('password visibility toggle', () => {
+    it('showPassword signal starts as false', () => {
+      expect(component.showPassword()).toBe(false);
+    });
+
+    it('password input has type password initially', () => {
+      const el: HTMLElement = fixture.nativeElement;
+      const input = el.querySelector('#login-password') as HTMLInputElement;
+      expect(input.type).toBe('password');
+    });
+
+    it('clicking toggle button sets showPassword to true and changes input type to text', () => {
+      const el: HTMLElement = fixture.nativeElement;
+      const toggleBtn = el.querySelector('[data-testid="toggle-password"]') as HTMLButtonElement;
+      toggleBtn.click();
+      fixture.detectChanges();
+      expect(component.showPassword()).toBe(true);
+      const input = el.querySelector('#login-password') as HTMLInputElement;
+      expect(input.type).toBe('text');
+    });
+
+    it('clicking toggle button twice reverts input type back to password', () => {
+      const el: HTMLElement = fixture.nativeElement;
+      const toggleBtn = el.querySelector('[data-testid="toggle-password"]') as HTMLButtonElement;
+      toggleBtn.click();
+      fixture.detectChanges();
+      toggleBtn.click();
+      fixture.detectChanges();
+      expect(component.showPassword()).toBe(false);
+      const input = el.querySelector('#login-password') as HTMLInputElement;
+      expect(input.type).toBe('password');
+    });
+
+    it('toggle button is of type button (does not submit form)', () => {
+      const el: HTMLElement = fixture.nativeElement;
+      const toggleBtn = el.querySelector('[data-testid="toggle-password"]') as HTMLButtonElement;
+      expect(toggleBtn.type).toBe('button');
+    });
+  });
 });
