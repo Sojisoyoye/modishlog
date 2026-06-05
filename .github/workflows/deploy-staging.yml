@@ -8,10 +8,8 @@ on:
 env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE: ghcr.io/sojisoyoye/modishlog/backend
-  RESOURCE_GROUP: rg-modishlog-staging
-  CONTAINER_APP: modishlog-backend-staging
-  MIGRATE_JOB: modishlog-migrate-staging
-  SUBSCRIPTION_ID: 8b21f152-e36b-4d53-9b88-70fc38d906bc
+  HETZNER_HOST: 178.104.122.53
+  DEPLOY_DIR: /root/modishlog
 
 jobs:
   # ─── 1. Run tests before deploying ────────────────────────────────────────
@@ -110,144 +108,42 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-  # ─── 4. Deploy backend to Azure Container Apps ────────────────────────────
+  # ─── 4. Deploy backend to Hetzner via SSH ─────────────────────────────────
   deploy-backend:
-    name: Deploy backend to Azure
-    # Needs build-backend so we can reference its image_tag output
+    name: Deploy backend to Hetzner
     needs: build-backend
     runs-on: ubuntu-latest
     environment: staging
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Azure login
-        uses: azure/login@v2
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          host: ${{ env.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            # Login to GHCR to pull latest image
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u sojisoyoye --password-stdin
 
-      - name: Refresh GHCR credentials on container app
-        run: |
-          az containerapp registry set \
-            --name ${{ env.CONTAINER_APP }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --subscription ${{ env.SUBSCRIPTION_ID }} \
-            --server ghcr.io \
-            --username ${{ github.repository_owner }} \
-            --password ${{ secrets.GHCR_TOKEN }}
+            # Pull latest image
+            cd ${{ env.DEPLOY_DIR }}
+            docker-compose pull backend
 
-      - name: Update Container App image
-        run: |
-          az containerapp update \
-            --name ${{ env.CONTAINER_APP }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --subscription ${{ env.SUBSCRIPTION_ID }} \
-            --image ${{ env.BACKEND_IMAGE }}:${{ needs.build-backend.outputs.image_tag }}
+            # Run migrations before swapping container
+            docker-compose run --rm --no-deps backend alembic upgrade head
 
-      - name: Refresh GHCR credentials on migration job
-        run: |
-          az containerapp job registry set \
-            --name ${{ env.MIGRATE_JOB }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --subscription ${{ env.SUBSCRIPTION_ID }} \
-            --server ghcr.io \
-            --username ${{ github.repository_owner }} \
-            --password ${{ secrets.GHCR_TOKEN }}
+            # Restart backend with new image
+            docker-compose up -d --no-deps backend
 
-      - name: Update migration job image
-        run: |
-          az containerapp job update \
-            --name ${{ env.MIGRATE_JOB }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --subscription ${{ env.SUBSCRIPTION_ID }} \
-            --image ${{ env.BACKEND_IMAGE }}:${{ needs.build-backend.outputs.image_tag }} \
-            --command "alembic" \
-            --args "upgrade" "head"
-
-      - name: Run database migrations
-        run: |
-          az containerapp job start \
-            --name ${{ env.MIGRATE_JOB }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --subscription ${{ env.SUBSCRIPTION_ID }}
-
-          # Wait for migration job to complete (max 3 minutes)
-          for i in $(seq 1 18); do
-            STATUS=$(az containerapp job execution list \
-              --name ${{ env.MIGRATE_JOB }} \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --subscription ${{ env.SUBSCRIPTION_ID }} \
-              --query "[0].properties.status" -o tsv)
-            echo "Migration status: $STATUS"
-            if [ "$STATUS" = "Succeeded" ]; then
-              echo "✅ Migrations complete"
-              exit 0
-            elif [ "$STATUS" = "Failed" ]; then
-              echo "❌ Migration job failed"
-              exit 1
-            fi
-            sleep 10
-          done
-          echo "⚠️ Migration job timed out"
-          exit 1
-
-      - name: Wait for revision to be provisioned
-        run: |
-          # az containerapp update returns as soon as the new revision is created,
-          # but the container may still be pulling the image and starting.
-          # Poll the revision provisioning state before hitting the health endpoint.
-          # Capture the latest revision name from the container app rather than
-          # relying on list index [0], which has no guaranteed sort order.
-          REVISION=$(az containerapp show \
-            --name ${{ env.CONTAINER_APP }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --subscription ${{ env.SUBSCRIPTION_ID }} \
-            --query "properties.latestRevisionName" -o tsv)
-          if [ -z "$REVISION" ]; then
-            echo "❌ Could not determine latest revision name"
+            # Wait for health check
+            for i in $(seq 1 24); do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8002/health || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                echo "✅ Backend healthy"
+                exit 0
+              fi
+              echo "Waiting for backend... attempt $i/24 ($STATUS)"
+              sleep 5
+            done
+            echo "❌ Backend health check failed after 2 min"
             exit 1
-          fi
-          echo "Waiting for revision: $REVISION"
-          for i in $(seq 1 30); do
-            STATE=$(az containerapp revision show \
-              --name ${{ env.CONTAINER_APP }} \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --subscription ${{ env.SUBSCRIPTION_ID }} \
-              --revision "$REVISION" \
-              --query "properties.provisioningState" -o tsv)
-            echo "Revision provisioning state: $STATE"
-            if [ "$STATE" = "Provisioned" ]; then
-              echo "✅ Revision provisioned"
-              break
-            elif [ "$STATE" = "Failed" ]; then
-              echo "❌ Revision provisioning failed (image pull or config error)"
-              exit 1
-            fi
-            if [ "$i" = "30" ]; then
-              echo "⚠️ Revision provisioning timed out after 5 min"
-              exit 1
-            fi
-            sleep 10
-          done
-
-      - name: Verify backend health
-        run: |
-          FQDN=$(az containerapp show \
-            --name ${{ env.CONTAINER_APP }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --subscription ${{ env.SUBSCRIPTION_ID }} \
-            --query "properties.configuration.ingress.fqdn" -o tsv)
-          echo "Backend URL: https://$FQDN"
-          # Wait up to 5 min for the container to accept traffic.
-          # With --min-replicas 0 the container cold-starts on the first request;
-          # image pull + container scheduling can take 2-3 min on Azure.
-          for i in $(seq 1 60); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$FQDN/health" || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ Backend healthy"
-              exit 0
-            fi
-            echo "Waiting for backend... ($STATUS)"
-            sleep 5
-          done
-          echo "❌ Backend health check failed"
-          exit 1
