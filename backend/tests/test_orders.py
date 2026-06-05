@@ -803,3 +803,91 @@ class TestOrderEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_orders"] == 0
+
+
+# ---------------------------------------------------------------------------
+# CSV Export endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestOrdersExportEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _make_execute_side_effects(self, orders: list):
+        """Return two execute side effects: count then list."""
+        count_result = MagicMock()
+        count_result.scalar.return_value = len(orders)
+        list_result = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = orders
+        list_result.scalars.return_value = scalars_mock
+        return [count_result, list_result]
+
+    def test_export_orders_csv_returns_csv_content_type(self):
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/orders/export.csv")
+
+        assert resp.status_code == 200
+        assert "text/csv" in resp.headers["content-type"]
+
+    def test_export_orders_csv_has_correct_headers(self):
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/orders/export.csv")
+
+        assert resp.status_code == 200
+        first_line = resp.text.splitlines()[0]
+        assert "order_number" in first_line
+        assert "supplier_name" in first_line
+        assert "total_amount" in first_line
+        assert "status" in first_line
+
+    def test_export_orders_csv_content_disposition(self):
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/orders/export.csv")
+
+        assert resp.status_code == 200
+        assert "attachment" in resp.headers.get("content-disposition", "")
+        assert ".csv" in resp.headers.get("content-disposition", "")
+
+    def test_export_orders_csv_with_data_row(self):
+        order = _make_order()
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=self._make_execute_side_effects([order]))
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/orders/export.csv")
+
+        assert resp.status_code == 200
+        lines = resp.text.strip().splitlines()
+        # Header + 1 data row
+        assert len(lines) == 2
+        # Data row should contain the order number
+        assert "PO-2026-00001" in lines[1]

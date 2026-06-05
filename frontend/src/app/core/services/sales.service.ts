@@ -170,4 +170,17 @@ export class SalesService {
       formData,
     );
   }
+
+  exportCsv(params?: Record<string, string>): Observable<Blob> {
+    let queryString = '';
+    if (params) {
+      const parts = Object.entries(params)
+        .filter(([, v]) => v !== undefined && v !== '')
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+      if (parts.length > 0) queryString = '?' + parts.join('&');
+    }
+    return this.http.get(`${environment.apiBaseUrl}/sales/export.csv${queryString}`, {
+      responseType: 'blob',
+    });
+  }
 }

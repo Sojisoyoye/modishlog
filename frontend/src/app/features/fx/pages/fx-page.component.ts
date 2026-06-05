@@ -18,9 +18,20 @@ import {
   template: `
     <p-toast />
     <div>
-      <div class="mb-6">
-        <h2 class="text-2xl font-bold text-text">FX Rates</h2>
-        <p class="mt-1 text-sm text-muted">Track and forecast NGN/USD exchange rates</p>
+      <div class="mb-6 flex items-center justify-between">
+        <div>
+          <h2 class="text-2xl font-bold text-text">FX Rates</h2>
+          <p class="mt-1 text-sm text-muted">Track and forecast NGN/USD exchange rates</p>
+        </div>
+        <button
+          type="button"
+          data-testid="export-fx-csv"
+          (click)="exportFxCsv()"
+          class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+        >
+          <i class="pi pi-download text-xs"></i>
+          Export CSV
+        </button>
       </div>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -603,6 +614,26 @@ export class FxPageComponent implements OnInit {
     link.download = 'fx_rates_history.csv';
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  exportFxCsv(): void {
+    this.fxService.exportCsv().subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'fx_rates_export.csv';
+        link.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => {
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Failed to export FX rates CSV',
+        });
+      },
+    });
   }
 
   deleteAlert(id: string): void {
