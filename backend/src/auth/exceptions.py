@@ -23,3 +23,7 @@ class WeakPasswordError(Exception):
 
 class InvalidResetTokenError(Exception):
     """Raised when a password-reset token is invalid, expired, or already used."""
+
+
+class InvalidRefreshTokenError(Exception):
+    """Raised when a refresh token is invalid, expired, or revoked."""

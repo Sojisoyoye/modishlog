@@ -22,10 +22,23 @@ class UserLogin(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """JWT token response."""
+    """JWT token response (includes refresh token on login)."""
 
     access_token: str
+    refresh_token: str = ""
     token_type: str = "bearer"
+
+
+class RefreshRequest(BaseModel):
+    """Token refresh request."""
+
+    refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    """Logout request -- revokes the refresh token."""
+
+    refresh_token: str
 
 
 class UserProfile(BaseModel):

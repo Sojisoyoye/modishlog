@@ -79,7 +79,8 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "dev-secret-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # CORS — accepts a JSON array string or comma-separated string from env vars
     CORS_ORIGINS: list[str] = ["http://localhost:4200"]
