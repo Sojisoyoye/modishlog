@@ -73,14 +73,23 @@ import { AuthService } from '../../../core/services/auth.service';
                 ></i>
                 <input
                   id="login-password"
-                  type="password"
+                  [type]="showPassword() ? 'text' : 'password'"
                   [(ngModel)]="password"
                   name="password"
                   autocomplete="current-password"
-                  class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-10 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                   required
                   minlength="8"
                 />
+                <button
+                  type="button"
+                  data-testid="toggle-password"
+                  (click)="showPassword.set(!showPassword())"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text focus:outline-none"
+                  [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
+                >
+                  <i [class]="showPassword() ? 'pi pi-eye-slash text-sm' : 'pi pi-eye text-sm'"></i>
+                </button>
               </div>
             </div>
             <button
@@ -178,6 +187,7 @@ export class LoginPageComponent implements OnDestroy {
   password = '';
   loading = signal(false);
   errorMessage = signal('');
+  showPassword = signal(false);
 
   // Lockout countdown state
   lockoutSeconds = signal(0);
