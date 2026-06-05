@@ -3,6 +3,7 @@
 import enum
 import uuid as _uuid
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -49,5 +50,22 @@ class PasswordResetToken(UUIDMixin, TimestampMixin, Base):
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    user: Mapped["User"] = relationship(lazy="joined")
+
+
+class RefreshToken(UUIDMixin, TimestampMixin, Base):
+    """Long-lived refresh token stored as a hash."""
+
+    __tablename__ = "refresh_tokens"
+
+    user_id: Mapped[_uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
 
     user: Mapped["User"] = relationship(lazy="joined")

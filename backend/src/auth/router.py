@@ -8,6 +8,7 @@ from src.auth.dependencies import get_current_active_user
 from src.auth.exceptions import (
     AccountLockedError,
     InvalidCredentialsError,
+    InvalidRefreshTokenError,
     InvalidResetTokenError,
     UserAlreadyExistsError,
     WeakPasswordError,
@@ -15,7 +16,9 @@ from src.auth.exceptions import (
 from src.auth.models import User
 from src.auth.schemas import (
     ForgotPasswordRequest,
+    LogoutRequest,
     MessageResponse,
+    RefreshRequest,
     ResetPasswordRequest,
     TokenResponse,
     UserLogin,
@@ -25,9 +28,12 @@ from src.auth.schemas import (
 from src.auth.service import (
     authenticate_user,
     build_token,
+    create_refresh_token,
     create_user,
     generate_password_reset_token,
+    refresh_access_token,
     reset_password,
+    revoke_refresh_token,
 )
 from src.core.database import get_db
 
@@ -48,7 +54,7 @@ async def register(body: UserRegister, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: UserLogin, db: AsyncSession = Depends(get_db)):
-    """Authenticate and return a JWT access token."""
+    """Authenticate and return a JWT access token and refresh token."""
     try:
         user = await authenticate_user(db, body.email, body.password)
     except InvalidCredentialsError:
@@ -64,8 +70,32 @@ async def login(body: UserLogin, db: AsyncSession = Depends(get_db)):
                 "locked_until": e.locked_until.isoformat(),
             },
         )
-    token = build_token(user)
-    return TokenResponse(access_token=token)
+    access_token = build_token(user)
+    raw_refresh_token = await create_refresh_token(db, user)
+    return TokenResponse(access_token=access_token, refresh_token=raw_refresh_token)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
+    """Issue a new access token given a valid refresh token."""
+    try:
+        new_access_token = await refresh_access_token(db, body.refresh_token)
+    except InvalidRefreshTokenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e),
+        )
+    return TokenResponse(access_token=new_access_token)
+
+
+@router.post("/logout", response_model=MessageResponse)
+async def logout(body: LogoutRequest, db: AsyncSession = Depends(get_db)):
+    """Revoke the refresh token (logout).
+
+    Always returns 200 -- never reveals whether the token existed.
+    """
+    await revoke_refresh_token(db, body.refresh_token)
+    return MessageResponse(message="Logged out successfully.")
 
 
 @router.post("/forgot-password", response_model=MessageResponse)

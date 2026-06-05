@@ -1,6 +1,8 @@
 """Auth business logic -- all async operations."""
 
+import hashlib
 import re
+import secrets
 import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 
@@ -11,11 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.exceptions import (
     AccountLockedError,
     InvalidCredentialsError,
+    InvalidRefreshTokenError,
     InvalidResetTokenError,
     UserAlreadyExistsError,
     WeakPasswordError,
 )
-from src.auth.models import PasswordResetToken, User, UserRole
+from src.auth.models import PasswordResetToken, RefreshToken, User, UserRole
+from src.core.config import settings
 from src.core.security import create_access_token, get_password_hash, verify_password
 
 logger = structlog.get_logger()
@@ -170,3 +174,85 @@ async def reset_password(
     token_obj.used = True
     await db.flush()
     await logger.ainfo("password_reset_success", user_id=str(user.id))
+
+
+# ---------------------------------------------------------------------------
+# Refresh token helpers
+# ---------------------------------------------------------------------------
+
+
+def _hash_token(raw_token: str) -> str:
+    """Return the SHA-256 hex digest of a raw token string."""
+    return hashlib.sha256(raw_token.encode()).hexdigest()
+
+
+async def create_refresh_token(db: AsyncSession, user: User) -> str:
+    """Generate a new opaque refresh token, persist its hash, and return the raw value.
+
+    The raw value is returned to the caller once (to be sent to the client).
+    Only the hash is stored in the database.
+    """
+    raw_token = secrets.token_urlsafe(64)
+    token_hash = _hash_token(raw_token)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+
+    refresh_token = RefreshToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+        revoked_at=None,
+    )
+    db.add(refresh_token)
+    await db.flush()
+    await logger.ainfo("refresh_token_created", user_id=str(user.id))
+    return raw_token
+
+
+async def refresh_access_token(db: AsyncSession, raw_token: str) -> str:
+    """Validate a refresh token and issue a new access token.
+
+    Raises ``InvalidRefreshTokenError`` if the token is not found,
+    expired, or revoked.
+    """
+    token_hash = _hash_token(raw_token)
+    result = await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+    )
+    token_obj = result.scalar_one_or_none()
+
+    if token_obj is None:
+        raise InvalidRefreshTokenError("Invalid refresh token.")
+
+    now = datetime.now(timezone.utc)
+
+    if token_obj.revoked_at is not None:
+        await logger.awarn("refresh_token_revoked_reuse", token_hash=token_hash[:16])
+        raise InvalidRefreshTokenError("Refresh token has been revoked.")
+
+    if token_obj.expires_at < now:
+        await logger.awarn("refresh_token_expired", token_hash=token_hash[:16])
+        raise InvalidRefreshTokenError("Refresh token has expired.")
+
+    new_access_token = create_access_token(data={"sub": str(token_obj.user.id)})
+    await logger.ainfo("access_token_refreshed", user_id=str(token_obj.user.id))
+    return new_access_token
+
+
+async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
+    """Revoke a refresh token by recording the revocation timestamp.
+
+    This is a no-op if the token does not exist (idempotent logout).
+    """
+    token_hash = _hash_token(raw_token)
+    result = await db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+    )
+    token_obj = result.scalar_one_or_none()
+
+    if token_obj is None:
+        await logger.ainfo("refresh_token_revoke_noop", reason="not_found")
+        return
+
+    token_obj.revoked_at = datetime.now(timezone.utc)
+    await db.flush()
+    await logger.ainfo("refresh_token_revoked", user_id=str(token_obj.user_id))

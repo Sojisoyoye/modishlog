@@ -33,16 +33,16 @@ describe('errorInterceptor', () => {
     localStorage.clear();
   });
 
-  it('clears token and navigates to login on 401', () => {
-    localStorage.setItem('modishlog_token', 'tok');
-    vi.spyOn(router, 'navigate');
-
-    http.get('/api/test').subscribe({ error: () => {} });
+  it('propagates 401 errors (silent refresh is handled by authInterceptor)', () => {
+    let receivedError: HttpErrorResponse | null = null;
+    http.get('/api/test').subscribe({
+      error: (err) => (receivedError = err),
+    });
     const req = httpMock.expectOne('/api/test');
     req.flush('Unauthorized', { status: 401, statusText: 'Unauthorized' });
 
-    expect(localStorage.getItem('modishlog_token')).toBeNull();
-    expect(router.navigate).toHaveBeenCalledWith(['/login']);
+    expect(receivedError).toBeTruthy();
+    expect(receivedError!.status).toBe(401);
   });
 
   it('passes through non-401 errors', () => {

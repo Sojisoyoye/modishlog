@@ -768,3 +768,399 @@ class TestResetPasswordService:
         db.get = AsyncMock(return_value=user)
         with pytest.raises(WeakPasswordError):
             await reset_password(db, "weak-pw-svc-token", "weak")
+
+
+# ---------------------------------------------------------------------------
+# Refresh token service tests
+# ---------------------------------------------------------------------------
+
+
+class TestCreateRefreshToken:
+    @pytest.mark.asyncio
+    async def test_creates_refresh_token_for_user(self):
+        from src.auth.service import create_refresh_token
+
+        user = _make_user()
+        db = _mock_db()
+        token_str = await create_refresh_token(db, user)
+        assert token_str is not None
+        assert len(token_str) > 32  # secrets.token_urlsafe(64) produces >= 86 chars
+        db.add.assert_called_once()
+        db.flush.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_creates_unique_tokens_per_call(self):
+        from src.auth.service import create_refresh_token
+
+        user = _make_user()
+        db1 = _mock_db()
+        db2 = _mock_db()
+        t1 = await create_refresh_token(db1, user)
+        t2 = await create_refresh_token(db2, user)
+        assert t1 != t2
+
+
+class TestRefreshAccessToken:
+    @pytest.mark.asyncio
+    async def test_valid_refresh_token_returns_new_access_token(self):
+        from src.auth.models import RefreshToken
+        from src.auth.service import create_refresh_token, refresh_access_token
+        import hashlib
+
+        user = _make_user()
+
+        # Simulate a raw token
+        raw_token = "a" * 64
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+        refresh_token_obj = RefreshToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+            revoked_at=None,
+        )
+        refresh_token_obj.id = uuid.uuid4()
+        refresh_token_obj.created_at = datetime.now(timezone.utc)
+        refresh_token_obj.updated_at = datetime.now(timezone.utc)
+        refresh_token_obj.user = user
+
+        db = _mock_db_multi([refresh_token_obj])
+        db.flush = AsyncMock()
+
+        new_access_token = await refresh_access_token(db, raw_token)
+        assert new_access_token is not None
+        # Decode it to verify
+        from src.core.security import decode_access_token
+        payload = decode_access_token(new_access_token)
+        assert payload["sub"] == str(user.id)
+
+    @pytest.mark.asyncio
+    async def test_expired_refresh_token_raises(self):
+        from src.auth.models import RefreshToken
+        from src.auth.exceptions import InvalidRefreshTokenError
+        from src.auth.service import refresh_access_token
+        import hashlib
+
+        user = _make_user()
+        raw_token = "b" * 64
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+        refresh_token_obj = RefreshToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(timezone.utc) - timedelta(days=1),  # expired
+            revoked_at=None,
+        )
+        refresh_token_obj.id = uuid.uuid4()
+        refresh_token_obj.created_at = datetime.now(timezone.utc)
+        refresh_token_obj.updated_at = datetime.now(timezone.utc)
+        refresh_token_obj.user = user
+
+        db = _mock_db_multi([refresh_token_obj])
+
+        with pytest.raises(InvalidRefreshTokenError):
+            await refresh_access_token(db, raw_token)
+
+    @pytest.mark.asyncio
+    async def test_revoked_refresh_token_raises(self):
+        from src.auth.models import RefreshToken
+        from src.auth.exceptions import InvalidRefreshTokenError
+        from src.auth.service import refresh_access_token
+        import hashlib
+
+        user = _make_user()
+        raw_token = "c" * 64
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+        refresh_token_obj = RefreshToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+            revoked_at=datetime.now(timezone.utc) - timedelta(minutes=1),  # revoked
+        )
+        refresh_token_obj.id = uuid.uuid4()
+        refresh_token_obj.created_at = datetime.now(timezone.utc)
+        refresh_token_obj.updated_at = datetime.now(timezone.utc)
+        refresh_token_obj.user = user
+
+        db = _mock_db_multi([refresh_token_obj])
+
+        with pytest.raises(InvalidRefreshTokenError):
+            await refresh_access_token(db, raw_token)
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_refresh_token_raises(self):
+        from src.auth.exceptions import InvalidRefreshTokenError
+        from src.auth.service import refresh_access_token
+
+        db = _mock_db(user=None)
+
+        with pytest.raises(InvalidRefreshTokenError):
+            await refresh_access_token(db, "nonexistent-token")
+
+
+class TestRevokeRefreshToken:
+    @pytest.mark.asyncio
+    async def test_revoke_sets_revoked_at(self):
+        from src.auth.models import RefreshToken
+        from src.auth.service import revoke_refresh_token
+        import hashlib
+
+        user = _make_user()
+        raw_token = "d" * 64
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+        refresh_token_obj = RefreshToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+            revoked_at=None,
+        )
+        refresh_token_obj.id = uuid.uuid4()
+        refresh_token_obj.created_at = datetime.now(timezone.utc)
+        refresh_token_obj.updated_at = datetime.now(timezone.utc)
+        refresh_token_obj.user = user
+
+        db = _mock_db_multi([refresh_token_obj])
+        db.flush = AsyncMock()
+
+        await revoke_refresh_token(db, raw_token)
+        assert refresh_token_obj.revoked_at is not None
+
+    @pytest.mark.asyncio
+    async def test_revoke_nonexistent_token_is_noop(self):
+        """Revoking a token that does not exist should not raise."""
+        from src.auth.service import revoke_refresh_token
+
+        db = _mock_db(user=None)
+        # Should not raise
+        await revoke_refresh_token(db, "nonexistent-refresh-token")
+
+
+# ---------------------------------------------------------------------------
+# Refresh token endpoint tests
+# ---------------------------------------------------------------------------
+
+
+class TestRefreshEndpoint:
+    """POST /auth/refresh endpoint tests."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_refresh_with_valid_token_returns_access_token(self):
+        from src.auth.models import RefreshToken
+        import hashlib
+
+        user = _make_user()
+        raw_token = "e" * 64
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+        refresh_token_obj = RefreshToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+            revoked_at=None,
+        )
+        refresh_token_obj.id = uuid.uuid4()
+        refresh_token_obj.created_at = datetime.now(timezone.utc)
+        refresh_token_obj.updated_at = datetime.now(timezone.utc)
+        refresh_token_obj.user = user
+
+        db = _mock_db_multi([refresh_token_obj])
+        db.flush = AsyncMock()
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/refresh",
+                json={"refresh_token": raw_token},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "access_token" in data
+        assert data["token_type"] == "bearer"
+
+    def test_refresh_with_invalid_token_returns_401(self):
+        db = _mock_db(user=None)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/refresh",
+                json={"refresh_token": "bogus-refresh-token"},
+            )
+        assert resp.status_code == 401
+
+    def test_refresh_with_expired_token_returns_401(self):
+        from src.auth.models import RefreshToken
+        import hashlib
+
+        user = _make_user()
+        raw_token = "f" * 64
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+        expired_rt = RefreshToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+            revoked_at=None,
+        )
+        expired_rt.id = uuid.uuid4()
+        expired_rt.created_at = datetime.now(timezone.utc)
+        expired_rt.updated_at = datetime.now(timezone.utc)
+        expired_rt.user = user
+
+        db = _mock_db_multi([expired_rt])
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/refresh",
+                json={"refresh_token": raw_token},
+            )
+        assert resp.status_code == 401
+
+    def test_refresh_with_revoked_token_returns_401(self):
+        from src.auth.models import RefreshToken
+        import hashlib
+
+        user = _make_user()
+        raw_token = "g" * 64
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+        revoked_rt = RefreshToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+            revoked_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        )
+        revoked_rt.id = uuid.uuid4()
+        revoked_rt.created_at = datetime.now(timezone.utc)
+        revoked_rt.updated_at = datetime.now(timezone.utc)
+        revoked_rt.user = user
+
+        db = _mock_db_multi([revoked_rt])
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/refresh",
+                json={"refresh_token": raw_token},
+            )
+        assert resp.status_code == 401
+
+
+class TestLogoutEndpoint:
+    """POST /auth/logout endpoint tests."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_logout_with_valid_token_returns_200(self):
+        from src.auth.models import RefreshToken
+        import hashlib
+
+        user = _make_user()
+        raw_token = "h" * 64
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+
+        rt_obj = RefreshToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+            revoked_at=None,
+        )
+        rt_obj.id = uuid.uuid4()
+        rt_obj.created_at = datetime.now(timezone.utc)
+        rt_obj.updated_at = datetime.now(timezone.utc)
+        rt_obj.user = user
+
+        db = _mock_db_multi([rt_obj])
+        db.flush = AsyncMock()
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/logout",
+                json={"refresh_token": raw_token},
+            )
+        assert resp.status_code == 200
+        assert "message" in resp.json()
+
+    def test_logout_with_unknown_token_still_returns_200(self):
+        """Logout is idempotent -- unknown tokens should not reveal anything."""
+        db = _mock_db(user=None)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/logout",
+                json={"refresh_token": "completely-unknown-token"},
+            )
+        assert resp.status_code == 200
+
+
+class TestLoginReturnsRefreshToken:
+    """POST /auth/login should now include refresh_token in response."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_login_returns_both_tokens(self):
+        user = _make_user()
+        db = _mock_db(user=user)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"email": user.email, "password": VALID_PASSWORD},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "access_token" in data
+        assert "refresh_token" in data
+        assert data["token_type"] == "bearer"
