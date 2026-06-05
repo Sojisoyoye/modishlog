@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { Observable, tap } from 'rxjs';
 import { ApiService } from './api.service';
@@ -45,6 +45,13 @@ export class AuthService {
 
   forgotPassword(email: string): Observable<{ message: string }> {
     return this.api.post<{ message: string }>('/auth/forgot-password', { email });
+  }
+
+  resetPassword(token: string, newPassword: string): Observable<{ message: string }> {
+    return this.api.post<{ message: string }>('/auth/reset-password', {
+      token,
+      new_password: newPassword,
+    });
   }
 
   private hasStoredToken(): boolean {
