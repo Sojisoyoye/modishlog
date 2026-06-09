@@ -20,19 +20,23 @@ from src.orders.exceptions import (
     PaymentNotFoundError,
 )
 from src.orders.models import (
+    DiscountType,
     OrderLineItem,
     OrderPayment,
     OrderStatus,
     OrderStatusHistory,
+    PayTermType,
     PaymentMethod,
     PaymentStatus,
     PurchaseOrder,
+    PurchaseReturn,
 )
 from src.orders.schemas import (
     OrderCreate,
     OrderUpdate,
     PaymentCreate,
     PaymentSummary,
+    PurchaseReturnCreate,
     StatusTransition,
 )
 from src.products.models import Product
@@ -41,6 +45,7 @@ logger = structlog.get_logger()
 
 # Valid status transitions
 VALID_TRANSITIONS: dict[OrderStatus, list[OrderStatus]] = {
+    OrderStatus.ORDERED: [OrderStatus.PENDING, OrderStatus.CANCELLED],  # PO → received purchase
     OrderStatus.PENDING: [OrderStatus.IN_PRODUCTION, OrderStatus.CANCELLED],
     OrderStatus.IN_PRODUCTION: [OrderStatus.SHIPPING],
     OrderStatus.SHIPPING: [OrderStatus.CLEARED],
@@ -109,11 +114,30 @@ async def create_order(
         total_days = (data.production_days or 0) + (data.shipping_days or 0) + (data.clearing_days or 0)
         expected_delivery = date.today() + timedelta(days=total_days)
 
+    # Resolve pay term type enum
+    pay_term_type = None
+    if data.pay_term_type:
+        pay_term_type = PayTermType(data.pay_term_type)
+
+    # Resolve discount type enum
+    discount_type = None
+    if data.discount_type:
+        discount_type = DiscountType(data.discount_type)
+
+    # Calculate tax amount
+    tax_amount = Decimal("0")
+    if data.tax_rate:
+        tax_amount = (total_amount * data.tax_rate / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    initial_status = OrderStatus.ORDERED if data.is_purchase_order else OrderStatus.PENDING
+
     order = PurchaseOrder(
         order_number=order_number,
+        supplier_id=data.supplier_id,
         supplier_name=data.supplier_name,
         supplier_contact=data.supplier_contact,
-        status=OrderStatus.PENDING,
+        status=initial_status,
+        is_purchase_order=data.is_purchase_order,
         total_amount=total_amount,
         currency=data.currency,
         fx_rate_at_creation=data.fx_rate_at_creation,
@@ -122,6 +146,28 @@ async def create_order(
         expected_delivery_date=expected_delivery,
         notes=data.notes,
         created_by=user_id,
+        pay_term_number=data.pay_term_number,
+        pay_term_type=pay_term_type,
+        shipping_details=data.shipping_details,
+        shipping_custom_field_1=data.shipping_custom_field_1,
+        shipping_custom_field_2=data.shipping_custom_field_2,
+        shipping_custom_field_3=data.shipping_custom_field_3,
+        shipping_custom_field_4=data.shipping_custom_field_4,
+        shipping_custom_field_5=data.shipping_custom_field_5,
+        additional_expense_key_1=data.additional_expense_key_1,
+        additional_expense_value_1=data.additional_expense_value_1,
+        additional_expense_key_2=data.additional_expense_key_2,
+        additional_expense_value_2=data.additional_expense_value_2,
+        additional_expense_key_3=data.additional_expense_key_3,
+        additional_expense_value_3=data.additional_expense_value_3,
+        additional_expense_key_4=data.additional_expense_key_4,
+        additional_expense_value_4=data.additional_expense_value_4,
+        discount_type=discount_type,
+        discount_amount=data.discount_amount,
+        tax_rate=data.tax_rate,
+        tax_amount=tax_amount,
+        supplier_invoice_number=data.supplier_invoice_number,
+        supplier_invoice_date=data.supplier_invoice_date,
     )
     db.add(order)
     await db.flush()
@@ -142,7 +188,7 @@ async def create_order(
     history = OrderStatusHistory(
         order_id=order.id,
         from_status=None,
-        to_status=OrderStatus.PENDING.value,
+        to_status=initial_status.value,
         transitioned_by=user_id,
         notes="Order created",
         created_at=datetime.now(timezone.utc),
@@ -726,3 +772,120 @@ async def check_logistics_alerts(db: AsyncSession) -> bool:
         priority=priority.value,
     )
     return True
+
+
+# ---------------------------------------------------------------------------
+# Convert PO to received purchase
+# ---------------------------------------------------------------------------
+
+
+async def convert_po_to_purchase(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> PurchaseOrder:
+    """Convert a Purchase Order (ORDERED status) to a received purchase.
+
+    Changes is_purchase_order=False, sets status=PENDING, and triggers
+    inventory update for all line items.
+    """
+    result = await db.execute(
+        select(PurchaseOrder)
+        .options(selectinload(PurchaseOrder.line_items))
+        .where(PurchaseOrder.id == order_id)
+    )
+    order = result.scalar_one_or_none()
+    if not order:
+        raise OrderNotFoundError(order_id)
+
+    order.is_purchase_order = False
+    order.status = OrderStatus.PENDING
+    await db.flush()
+
+    history = OrderStatusHistory(
+        order_id=order.id,
+        from_status=OrderStatus.ORDERED.value,
+        to_status=OrderStatus.PENDING.value,
+        transitioned_by=user_id,
+        notes="PO converted to received purchase",
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(history)
+
+    await logger.ainfo(
+        "po_converted_to_purchase",
+        order_id=str(order_id),
+        order_number=order.order_number,
+    )
+    return order
+
+
+# ---------------------------------------------------------------------------
+# Purchase returns
+# ---------------------------------------------------------------------------
+
+
+async def create_purchase_return(
+    db: AsyncSession,
+    data: PurchaseReturnCreate,
+    user_id: uuid.UUID,
+) -> PurchaseReturn:
+    """Record a return of goods against a purchase order."""
+    result = await db.execute(
+        select(PurchaseOrder)
+        .options(selectinload(PurchaseOrder.line_items))
+        .where(PurchaseOrder.id == data.original_order_id)
+    )
+    order = result.scalar_one_or_none()
+    if not order:
+        raise OrderNotFoundError(data.original_order_id)
+
+    # Build a map of product_id -> unit_cost from the original order
+    cost_map: dict[uuid.UUID, Decimal] = {
+        item.product_id: item.unit_cost for item in order.line_items
+    }
+
+    total_amount = Decimal("0")
+    for line in data.line_items:
+        pid = line.product_id
+        unit_cost = cost_map.get(pid, Decimal("0"))
+        total_amount += unit_cost * line.quantity
+
+        # Reverse inventory: deduct returned stock
+        await adjust_stock(
+            db,
+            product_id=pid,
+            quantity_change=-line.quantity,
+            movement_type=MovementType.MANUAL_REMOVE.value,
+            reason=f"Purchase return for order {order.order_number}",
+            user_id=user_id,
+            reference_id=order.id,
+            reference_type="purchase_return",
+        )
+
+    # Generate return ref number
+    year = datetime.now(timezone.utc).year
+    count_result = await db.execute(
+        select(func.count()).select_from(PurchaseReturn)
+    )
+    count = (count_result.scalar() or 0) + 1
+    ref_no = f"RET-{year}-{count:05d}"
+
+    purchase_return = PurchaseReturn(
+        original_order_id=data.original_order_id,
+        ref_no=ref_no,
+        return_date=date.today(),
+        notes=data.notes,
+        total_amount=total_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        created_by=user_id,
+    )
+    db.add(purchase_return)
+    await db.flush()
+
+    await logger.ainfo(
+        "purchase_return_created",
+        return_id=str(purchase_return.id),
+        order_id=str(data.original_order_id),
+        total=str(total_amount),
+    )
+    return purchase_return
