@@ -1031,7 +1031,7 @@ interface ColEntry {
         }
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Unit Cost ({{editCurrency() }})</label>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Unit Cost ({{ editCurrency() }})</label>
             <input
               type="text"
               data-testid="edit-unit-cost-input"
