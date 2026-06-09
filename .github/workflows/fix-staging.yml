@@ -12,47 +12,54 @@ jobs:
     name: Fix CORS and seed admin user
     runs-on: ubuntu-latest
     steps:
-      - name: Fix CORS on backend container
+      - name: Reset admin password via backend container
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.HETZNER_HOST }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            echo "=== Current CORS_ORIGINS in running container ==="
-            docker inspect modishlog-backend \
-              --format '{{range .Config.Env}}{{println .}}{{end}}' \
-              | grep -i cors || echo "(not set)"
+            cat > /tmp/reset_admin.py << 'PYEOF'
+import asyncio, os
+from passlib.context import CryptContext
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
 
-            echo ""
-            echo "=== Server compose files ==="
-            find /root/modishlog -name "docker-compose*.yml" 2>/dev/null || echo "(none found)"
-            ls /root/modishlog/ 2>/dev/null || echo "(dir not found)"
+NEW_PASSWORD = "ModishAdmin@2024!"
+EMAIL = "admin@modishlog.com"
 
-            echo ""
-            echo "=== Server docker-compose.yml ==="
-            cat /root/modishlog/docker-compose.yml 2>/dev/null || echo "(not found)"
+pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+hashed = pwd_ctx.hash(NEW_PASSWORD)
+print(f"Hash generated for {EMAIL}")
 
-      - name: Test CORS from server
+async def main():
+    engine = create_async_engine(os.environ["DATABASE_URL"])
+    async with engine.begin() as conn:
+        result = await conn.execute(
+            text("UPDATE users SET hashed_password = :h, failed_login_attempts = 0, locked_until = NULL WHERE email = :e"),
+            {"h": hashed, "e": EMAIL},
+        )
+        print(f"Rows updated: {result.rowcount}")
+        if result.rowcount == 0:
+            await conn.execute(
+                text("INSERT INTO users (id, email, hashed_password, full_name, is_active) VALUES (gen_random_uuid(), :e, :h, 'Admin User', true)"),
+                {"e": EMAIL, "h": hashed},
+            )
+            print("User inserted")
+    await engine.dispose()
+
+asyncio.run(main())
+print(f"Done — password set to: {NEW_PASSWORD}")
+PYEOF
+
+            docker cp /tmp/reset_admin.py modishlog-backend:/tmp/reset_admin.py
+            docker exec modishlog-backend python3 /tmp/reset_admin.py
+            rm /tmp/reset_admin.py
+
+      - name: Verify login works
         run: |
-          echo "=== CORS preflight test ==="
-          curl -s -o /dev/null -w "HTTP %{http_code}\n" \
-            -H "Origin: https://modishlog-staging.vercel.app" \
-            -H "Access-Control-Request-Method: POST" \
-            -H "Access-Control-Request-Headers: Content-Type" \
-            -X OPTIONS \
-            ${{ env.API_URL }}/api/v1/auth/login
-
-          echo "=== CORS response headers ==="
-          curl -s -I \
-            -H "Origin: https://modishlog-staging.vercel.app" \
-            ${{ env.API_URL }}/api/v1/auth/login
-
-      - name: Test login endpoint
-        run: |
-          echo "=== Test login (expect 401 if user exists, 422/500 if not) ==="
+          echo "=== Test login ==="
           curl -s -w "\nHTTP %{http_code}\n" \
             -X POST "${{ env.API_URL }}/api/v1/auth/login" \
             -H "Content-Type: application/json" \
-            -H "Origin: https://modishlog-staging.vercel.app" \
-            -d '{"email":"admin@modishlog.com","password":"Admin@1234"}'
+            -d '{"email":"admin@modishlog.com","password":"ModishAdmin@2024!"}'
