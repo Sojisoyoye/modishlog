@@ -7,7 +7,10 @@ import { environment } from '../../../environments/environment';
 export interface Order {
   id: string;
   order_number: string;
+  supplier_id: string | null;
   supplier_name: string;
+  supplier_contact: string | null;
+  is_purchase_order: boolean;
   total_amount: number;
   status: string;
   created_at: string;
@@ -16,6 +19,15 @@ export interface Order {
   fx_rate_at_delivery: number | null;
   shipping_cost: number;
   clearing_cost: number;
+  pay_term_number: number | null;
+  pay_term_type: string | null;
+  shipping_details: string | null;
+  discount_type: string | null;
+  discount_amount: number;
+  tax_rate: number | null;
+  tax_amount: number;
+  supplier_invoice_number: string | null;
+  supplier_invoice_date: string | null;
   line_items: OrderItem[];
 }
 
@@ -29,10 +41,36 @@ export interface OrderItem {
 
 export interface CreateOrderPayload {
   supplier_name: string;
+  supplier_id?: string | null;
+  is_purchase_order?: boolean;
   line_items: { product_id: string; quantity: number; unit_cost: number }[];
   production_days?: number;
   shipping_days?: number;
   clearing_days?: number;
+  shipping_cost?: number;
+  clearing_cost?: number;
+  pay_term_number?: number | null;
+  pay_term_type?: string | null;
+  shipping_details?: string | null;
+  discount_type?: string | null;
+  discount_amount?: number;
+  tax_rate?: number | null;
+  additional_expense_key_1?: string | null;
+  additional_expense_value_1?: number | null;
+  additional_expense_key_2?: string | null;
+  additional_expense_value_2?: number | null;
+  additional_expense_key_3?: string | null;
+  additional_expense_value_3?: number | null;
+  additional_expense_key_4?: string | null;
+  additional_expense_value_4?: number | null;
+  supplier_invoice_number?: string | null;
+  supplier_invoice_date?: string | null;
+}
+
+export interface PurchaseReturnPayload {
+  original_order_id: string;
+  notes?: string | null;
+  line_items: { product_id: string; quantity: number }[];
 }
 
 export interface ProfitProjection {
@@ -72,6 +110,14 @@ export class OrdersService {
     const body: Record<string, unknown> = { new_status: newStatus };
     if (fxRateAtDelivery != null) body['fx_rate_at_delivery'] = fxRateAtDelivery;
     return this.api.put<Order>(`/orders/${id}/status`, body);
+  }
+
+  convertPoToPurchase(id: string): Observable<Order> {
+    return this.api.post<Order>(`/orders/${id}/convert-to-purchase`, {});
+  }
+
+  createReturn(data: PurchaseReturnPayload): Observable<unknown> {
+    return this.api.post<unknown>('/orders/returns', data);
   }
 
   getProfitProjection(id: string): Observable<ProfitProjection> {
