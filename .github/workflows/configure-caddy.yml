@@ -18,22 +18,34 @@ jobs:
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            echo "=== Locating Caddy ==="
-            which caddy || true
-            caddy version || true
+            set -e
 
-            echo "=== Caddy process ==="
-            ps aux | grep caddy | grep -v grep || true
+            CADDYFILE=/opt/modish/Caddyfile
+            DOMAIN=api-modishlog.modishstandard.com
 
-            echo "=== Caddy service ==="
-            systemctl status caddy --no-pager 2>/dev/null || true
+            # Caddy runs in Docker; reach backend via Docker bridge gateway
+            DOCKER_GW=$(docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')
+            BACKEND="${DOCKER_GW}:8002"
 
-            echo "=== Searching for Caddyfile ==="
-            find / -name "Caddyfile" 2>/dev/null | grep -v proc || true
-            find / -name "caddy.json" 2>/dev/null | grep -v proc || true
+            echo "=== Current Caddyfile ==="
+            cat "$CADDYFILE"
 
-            echo "=== Docker containers ==="
-            docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}" || true
+            if grep -q "$DOMAIN" "$CADDYFILE"; then
+              echo "✅ $DOMAIN already present — skipping"
+            else
+              cat >> "$CADDYFILE" <<EOF
 
-            echo "=== Listening ports ==="
-            ss -tlnp | grep -E "80|443|8002|8000" || netstat -tlnp | grep -E "80|443|8002|8000" || true
+            $DOMAIN {
+                reverse_proxy $BACKEND
+            }
+            EOF
+              echo "✅ Added $DOMAIN -> $BACKEND"
+            fi
+
+            echo "=== Updated Caddyfile ==="
+            cat "$CADDYFILE"
+
+            # Validate and reload inside the Caddy container
+            docker exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+            echo "✅ Caddy reloaded"
