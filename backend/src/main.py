@@ -75,6 +75,10 @@ from src.ai_engine.router import router as ai_engine_router  # noqa: E402
 
 app.include_router(ai_engine_router, prefix="/api/v1/ai", tags=["ai"])
 
+from src.reports.router import router as reports_router  # noqa: E402
+
+app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
+
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:

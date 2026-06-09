@@ -1,0 +1,262 @@
+"""Reports domain business logic."""
+
+from datetime import date
+from decimal import Decimal
+
+import structlog
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.cashflow.models import OperatingCost
+from src.inventory.models import InventoryBatch
+from src.orders.models import PurchaseOrder
+from src.products.models import Product, ProductCategory
+from src.inventory.models import InventoryLevel
+from src.reports.schemas import (
+    ProfitLossReport,
+    PurchaseSaleReport,
+    StockReport,
+    StockReportItem,
+)
+from src.sales.models import Sale, SaleStatus
+
+logger = structlog.get_logger()
+
+
+async def get_profit_loss_report(
+    db: AsyncSession,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> ProfitLossReport:
+    """Calculate profit and loss report for an optional date range.
+
+    Args:
+        db: Async database session.
+        start_date: Start of reporting period (inclusive). None means all time.
+        end_date: End of reporting period (inclusive). None means all time.
+
+    Returns:
+        ProfitLossReport with all computed fields.
+    """
+    logger.info(
+        "generating profit_loss_report", start_date=start_date, end_date=end_date
+    )
+
+    # -- Total purchases (sum of all purchase orders in period) --
+    purchase_query = select(func.sum(PurchaseOrder.total_amount))
+    if start_date:
+        purchase_query = purchase_query.where(PurchaseOrder.created_at >= start_date)
+    if end_date:
+        purchase_query = purchase_query.where(PurchaseOrder.created_at <= end_date)
+    purchase_result = await db.execute(purchase_query)
+    total_purchase = purchase_result.scalar() or Decimal("0")
+
+    # -- Total completed sales in period --
+    sales_query = select(func.sum(Sale.total_amount)).where(
+        Sale.status == SaleStatus.COMPLETED
+    )
+    if start_date:
+        sales_query = sales_query.where(Sale.sale_date >= start_date)
+    if end_date:
+        sales_query = sales_query.where(Sale.sale_date <= end_date)
+    sales_result = await db.execute(sales_query)
+    total_sales = sales_result.scalar() or Decimal("0")
+
+    # -- Operating costs (active only) --
+    opex_query = select(OperatingCost).where(OperatingCost.is_active == True)  # noqa: E712
+    opex_result = await db.execute(opex_query)
+    operating_costs = opex_result.scalars().all()
+
+    # Approximate months in period (default 1 month if no dates given)
+    if start_date and end_date:
+        delta_days = (end_date - start_date).days
+        months = Decimal(str(max(1, delta_days / 30)))
+    else:
+        months = Decimal("1")
+
+    total_operating_costs = (
+        sum(
+            (oc.monthly_equivalent for oc in operating_costs),
+            Decimal("0"),
+        )
+        * months
+    )
+
+    # -- Current stock value (opening and closing use same query: current state) --
+    stock_query = select(
+        func.sum(
+            InventoryBatch.quantity_remaining * InventoryBatch.landed_cost_per_unit
+        )
+    )
+    stock_result = await db.execute(stock_query)
+    stock_value = stock_result.scalar() or Decimal("0")
+
+    # -- Purchase returns (placeholder — PurchaseReturn model not yet in codebase) --
+    purchase_returns_result = await db.execute(
+        select(func.sum(PurchaseOrder.total_amount)).where(
+            PurchaseOrder.total_amount == Decimal("0")  # always-false placeholder
+        )
+    )
+    purchase_returns_total = purchase_returns_result.scalar() or Decimal("0")
+
+    gross_profit = total_sales - total_purchase
+    net_profit = gross_profit - total_operating_costs
+
+    return ProfitLossReport(
+        total_purchase_excl_tax=total_purchase,
+        purchase_returns_total=purchase_returns_total,
+        total_sales=total_sales,
+        gross_profit=gross_profit,
+        total_operating_costs=total_operating_costs,
+        net_profit=net_profit,
+        opening_stock_value=stock_value,
+        closing_stock_value=stock_value,
+        purchase_due=Decimal("0"),
+        sales_due=Decimal("0"),
+    )
+
+
+async def get_stock_report(
+    db: AsyncSession,
+    category_id: str | None = None,
+) -> StockReport:
+    """Generate a stock report showing inventory levels and valuations.
+
+    Args:
+        db: Async database session.
+        category_id: Optional UUID string to filter by product category.
+
+    Returns:
+        StockReport with per-product rows and aggregated totals.
+    """
+    logger.info("generating stock_report", category_id=category_id)
+
+    # Build the query: products JOIN inventory_levels LEFT JOIN sales aggregate
+    # Using a subquery for total_sold per product
+    sold_subq = (
+        select(
+            Sale.product_id,
+            func.sum(Sale.quantity).label("total_sold"),
+        )
+        .where(Sale.status == SaleStatus.COMPLETED)
+        .group_by(Sale.product_id)
+        .subquery()
+    )
+
+    query = (
+        select(
+            Product.id.label("product_id"),
+            Product.sku.label("sku"),
+            Product.name.label("product_name"),
+            ProductCategory.name.label("category"),
+            Product.unit_cost.label("unit_cost"),
+            Product.selling_price.label("selling_price"),
+            InventoryLevel.quantity_on_hand.label("quantity_on_hand"),
+            func.coalesce(sold_subq.c.total_sold, 0).label("total_sold"),
+        )
+        .join(InventoryLevel, InventoryLevel.product_id == Product.id)
+        .join(ProductCategory, ProductCategory.id == Product.category_id)
+        .outerjoin(sold_subq, sold_subq.c.product_id == Product.id)
+        .where(Product.is_active == True)  # noqa: E712
+    )
+
+    if category_id:
+        import uuid
+
+        query = query.where(Product.category_id == uuid.UUID(category_id))
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    items: list[StockReportItem] = []
+    for row in rows:
+        unit_cost = row.unit_cost or Decimal("0")
+        selling_price = row.selling_price or Decimal("0")
+        qty = row.quantity_on_hand or 0
+        total_sold = row.total_sold or 0
+
+        stock_value = unit_cost * Decimal(str(qty))
+        potential_profit = (selling_price - unit_cost) * Decimal(str(qty))
+
+        items.append(
+            StockReportItem(
+                product_id=row.product_id,
+                sku=row.sku,
+                product_name=row.product_name,
+                category=row.category,
+                unit_cost=unit_cost,
+                selling_price=selling_price,
+                quantity_on_hand=qty,
+                stock_value=stock_value,
+                potential_profit=potential_profit,
+                total_sold=total_sold,
+            )
+        )
+
+    total_stock_value = sum((i.stock_value for i in items), Decimal("0"))
+    total_potential_profit = sum((i.potential_profit for i in items), Decimal("0"))
+    total_sold_all = sum(i.total_sold for i in items)
+
+    return StockReport(
+        items=items,
+        total_stock_value=total_stock_value,
+        total_potential_profit=total_potential_profit,
+        total_sold=total_sold_all,
+    )
+
+
+async def get_purchase_sale_report(
+    db: AsyncSession,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> PurchaseSaleReport:
+    """Generate a purchase and sale summary report.
+
+    Args:
+        db: Async database session.
+        start_date: Start of reporting period (inclusive). None means all time.
+        end_date: End of reporting period (inclusive). None means all time.
+
+    Returns:
+        PurchaseSaleReport with purchase and sales totals.
+    """
+    logger.info(
+        "generating purchase_sale_report", start_date=start_date, end_date=end_date
+    )
+
+    # -- Total purchases --
+    purchase_query = select(func.sum(PurchaseOrder.total_amount))
+    if start_date:
+        purchase_query = purchase_query.where(PurchaseOrder.created_at >= start_date)
+    if end_date:
+        purchase_query = purchase_query.where(PurchaseOrder.created_at <= end_date)
+    purchase_result = await db.execute(purchase_query)
+    total_purchase = purchase_result.scalar() or Decimal("0")
+
+    # -- Purchase returns (placeholder) --
+    returns_query = select(func.sum(PurchaseOrder.total_amount)).where(
+        PurchaseOrder.total_amount == Decimal("0")  # always-false placeholder
+    )
+    returns_result = await db.execute(returns_query)
+    total_purchase_returns = returns_result.scalar() or Decimal("0")
+
+    # -- Total completed sales --
+    sales_query = select(func.sum(Sale.total_amount)).where(
+        Sale.status == SaleStatus.COMPLETED
+    )
+    if start_date:
+        sales_query = sales_query.where(Sale.sale_date >= start_date)
+    if end_date:
+        sales_query = sales_query.where(Sale.sale_date <= end_date)
+    sales_result = await db.execute(sales_query)
+    total_sales = sales_result.scalar() or Decimal("0")
+
+    net_position = total_sales - total_purchase
+
+    return PurchaseSaleReport(
+        total_purchase=total_purchase,
+        total_purchase_returns=total_purchase_returns,
+        total_sales=total_sales,
+        total_sales_returns=Decimal("0"),
+        net_position=net_position,
+    )
