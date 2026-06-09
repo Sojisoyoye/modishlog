@@ -15,6 +15,7 @@ import {
   BulkUploadResult,
 } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
+import { FxService } from '../../../core/services/fx.service';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { AlertBannerComponent } from '../../../shared/components/alert-banner/alert-banner.component';
 
@@ -636,7 +637,41 @@ interface ColEntry {
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Unit Cost *</label>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Cost Currency</label>
+              <select
+                [ngModel]="addCurrency()"
+                (ngModelChange)="addCurrency.set($event)"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="NGN">NGN (Naira)</option>
+                <option value="USD">USD (Dollar)</option>
+                <option value="EUR">EUR (Euro)</option>
+                <option value="GBP">GBP (Pound)</option>
+              </select>
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Min Margin %</label>
+              <input
+                type="number"
+                data-testid="add-min-margin-input"
+                [ngModel]="addMinMarginPct()"
+                (ngModelChange)="addMinMarginPct.set(+$event)"
+                min="1"
+                max="99"
+                step="1"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          </div>
+          @if (addCurrency() !== 'NGN' && currentFxRate() > 0) {
+            <p class="text-xs text-muted">
+              <i class="pi pi-info-circle mr-1"></i>
+              Live rate: 1 {{ addCurrency() }} = {{ currentFxRate() | number: '1.0-2' }} NGN
+            </p>
+          }
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Unit Cost ({{ addCurrency() }}) *</label>
               <input
                 type="text"
                 data-testid="add-unit-cost-input"
@@ -648,7 +683,7 @@ interface ColEntry {
               />
             </div>
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Selling Price *</label>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Selling Price (NGN) *</label>
               <input
                 type="text"
                 data-testid="add-selling-price-input"
@@ -660,6 +695,14 @@ interface ColEntry {
               />
             </div>
           </div>
+          @if (addMinSellingPrice !== null) {
+            <p
+              data-testid="add-min-price-hint"
+              class="text-xs font-medium text-blue-600"
+            >
+              Min. suggested price ({{ addMinMarginPct() }}% margin): {{ addMinSellingPrice | number: '1.0-2' }} NGN
+            </p>
+          }
           @if (addFormMargin !== null) {
             <p
               data-testid="add-margin"
@@ -669,6 +712,15 @@ interface ColEntry {
             >
               Margin: {{ addFormMargin | number: '1.1-1' }}%
             </p>
+          }
+          @if (addMinSellingPrice !== null && addForm.selling_price > 0 && addForm.selling_price < addMinSellingPrice) {
+            <div
+              data-testid="add-price-below-min-warning"
+              class="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700"
+            >
+              <i class="pi pi-exclamation-triangle mt-0.5 text-xs"></i>
+              <span>Selling price is below the {{ addMinMarginPct() }}% minimum margin threshold (min: {{ addMinSellingPrice | number: '1.0-2' }} NGN).</span>
+            </div>
           }
 
           <div>
@@ -943,7 +995,41 @@ interface ColEntry {
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Unit Cost</label>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Cost Currency</label>
+            <select
+              [ngModel]="editCurrency()"
+              (ngModelChange)="editCurrency.set($event)"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="NGN">NGN (Naira)</option>
+              <option value="USD">USD (Dollar)</option>
+              <option value="EUR">EUR (Euro)</option>
+              <option value="GBP">GBP (Pound)</option>
+            </select>
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Min Margin %</label>
+            <input
+              type="number"
+              data-testid="edit-min-margin-input"
+              [ngModel]="editMinMarginPct()"
+              (ngModelChange)="editMinMarginPct.set(+$event)"
+              min="1"
+              max="99"
+              step="1"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+        </div>
+        @if (editCurrency() !== 'NGN' && currentFxRate() > 0) {
+          <p class="text-xs text-muted">
+            <i class="pi pi-info-circle mr-1"></i>
+            Live rate: 1 {{ editCurrency() }} = {{ currentFxRate() | number: '1.0-2' }} NGN
+          </p>
+        }
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Unit Cost ({{ editCurrency() }})</label>
             <input
               type="text"
               data-testid="edit-unit-cost-input"
@@ -955,7 +1041,7 @@ interface ColEntry {
             />
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Selling Price</label>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Selling Price (NGN)</label>
             <input
               type="text"
               data-testid="edit-selling-price-input"
@@ -967,6 +1053,14 @@ interface ColEntry {
             />
           </div>
         </div>
+        @if (editMinSellingPrice !== null) {
+          <p
+            data-testid="edit-min-price-hint"
+            class="text-xs font-medium text-blue-600"
+          >
+            Min. suggested price ({{ editMinMarginPct() }}% margin): {{ editMinSellingPrice | number: '1.0-2' }} NGN
+          </p>
+        }
         @if (editFormMargin !== null) {
           <p
             data-testid="edit-margin"
@@ -976,6 +1070,15 @@ interface ColEntry {
           >
             Margin: {{ editFormMargin | number: '1.1-1' }}%
           </p>
+        }
+        @if (editMinSellingPrice !== null && (editForm.selling_price ?? 0) > 0 && (editForm.selling_price ?? 0) < editMinSellingPrice) {
+          <div
+            data-testid="edit-price-below-min-warning"
+            class="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-700"
+          >
+            <i class="pi pi-exclamation-triangle mt-0.5 text-xs"></i>
+            <span>Selling price is below the {{ editMinMarginPct() }}% minimum margin threshold (min: {{ editMinSellingPrice | number: '1.0-2' }} NGN).</span>
+          </div>
         }
         <div>
           <label class="mb-1.5 block text-xs font-medium text-muted">Description</label>
@@ -1040,6 +1143,7 @@ interface ColEntry {
 export class ProductsPageComponent implements OnInit {
   private readonly productsService = inject(ProductsService);
   private readonly inventoryService = inject(InventoryService);
+  private readonly fxService = inject(FxService);
   private readonly messageService = inject(MessageService);
 
   // ── Shared state ──────────────────────────────────────────────────────────
@@ -1129,6 +1233,13 @@ export class ProductsPageComponent implements OnInit {
   newCategoryDescription = '';
   savingCategory = signal(false);
 
+  // ── FX-aware selling price suggestion ────────────────────────────────────
+  currentFxRate = signal<number>(0);
+  addMinMarginPct = signal<number>(35);
+  addCurrency = signal<string>('NGN');
+  editMinMarginPct = signal<number>(35);
+  editCurrency = signal<string>('NGN');
+
   // ── Computed ──────────────────────────────────────────────────────────────
   filteredProducts = computed(() => {
     let items = this.products();
@@ -1195,6 +1306,10 @@ export class ProductsPageComponent implements OnInit {
     this.loadProducts();
     this.productsService.getCategories().subscribe({ next: (cats) => this.categories.set(cats) });
     this.loadStock();
+    this.fxService.getLatest().subscribe({
+      next: (rate) => this.currentFxRate.set(rate.rate),
+      error: () => { /* FX rate unavailable — min price hint will be hidden for foreign currencies */ },
+    });
   }
 
   private loadProducts(): void {
@@ -1249,6 +1364,30 @@ export class ProductsPageComponent implements OnInit {
     const price = this.editForm.selling_price ?? 0;
     if (!price) return null;
     return ((price - cost) / price) * 100;
+  }
+
+  get addMinSellingPrice(): number | null {
+    const cost = this.addForm.unit_cost;
+    if (!cost || cost <= 0) return null;
+    const margin = this.addMinMarginPct();
+    if (margin >= 100) return null;
+    const fxRate = this.currentFxRate();
+    const currency = this.addCurrency();
+    if (currency !== 'NGN' && !fxRate) return null;
+    const costNgn = currency === 'NGN' ? cost : cost * fxRate;
+    return costNgn / (1 - margin / 100);
+  }
+
+  get editMinSellingPrice(): number | null {
+    const cost = this.editForm.unit_cost ?? 0;
+    if (!cost || cost <= 0) return null;
+    const margin = this.editMinMarginPct();
+    if (margin >= 100) return null;
+    const fxRate = this.currentFxRate();
+    const currency = this.editCurrency();
+    if (currency !== 'NGN' && !fxRate) return null;
+    const costNgn = currency === 'NGN' ? cost : cost * fxRate;
+    return costNgn / (1 - margin / 100);
   }
 
   sortIcon(col: string): string {
@@ -1390,6 +1529,8 @@ export class ProductsPageComponent implements OnInit {
     this.editCostStr = this.formatMoney(cost);
     this.editPriceStr = this.formatMoney(price);
     this.editFile = null;
+    this.editCurrency.set(product.currency || 'NGN');
+    this.editMinMarginPct.set(35);
     this.showEdit = true;
     this.closeActionMenu();
   }
@@ -1433,6 +1574,8 @@ export class ProductsPageComponent implements OnInit {
     this.addFile = null;
     this.showInlineCategoryForm = false;
     this.inlineCategoryName = '';
+    this.addCurrency.set('NGN');
+    this.addMinMarginPct.set(35);
     this.activeTab.set('products');
   }
 
@@ -1445,6 +1588,7 @@ export class ProductsPageComponent implements OnInit {
       unit_cost: this.addForm.unit_cost,
       selling_price: this.addForm.selling_price,
       category_id: this.addForm.category_id || undefined,
+      currency: this.addCurrency(),
     };
     this.productsService.create(body).subscribe({
       next: (created) => {

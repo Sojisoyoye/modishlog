@@ -66,9 +66,7 @@ async def _fetch_sales_history(
     if len(rows) < MIN_DATA_POINTS:
         raise InsufficientPriceDataError(product_id, len(rows), MIN_DATA_POINTS)
 
-    df = pd.DataFrame(
-        [{"ds": row[0], "y": float(row[1])} for row in rows]
-    )
+    df = pd.DataFrame([{"ds": row[0], "y": float(row[1])} for row in rows])
     df["ds"] = pd.to_datetime(df["ds"])
     return df
 
@@ -89,7 +87,8 @@ def _train_demand_model(df: pd.DataFrame):  # -> Prophet (lazy-imported)
 
 
 def _generate_demand_forecast(
-    model, horizon_days: int  # model is a Prophet instance (lazy-imported type)
+    model,
+    horizon_days: int,  # model is a Prophet instance (lazy-imported type)
 ) -> pd.DataFrame:
     """Generate Prophet demand forecast (CPU-intensive)."""
     future = model.make_future_dataframe(periods=horizon_days)
@@ -131,12 +130,14 @@ async def calculate_demand_forecast(
         lower = max(0, row["yhat_lower"] * multiplier)
         upper = max(0, row["yhat_upper"] * multiplier)
         total_demand += yhat
-        forecasts.append({
-            "date": row["ds"].date(),
-            "demand": round(yhat, 2),
-            "demand_lower": round(lower, 2),
-            "demand_upper": round(upper, 2),
-        })
+        forecasts.append(
+            {
+                "date": row["ds"].date(),
+                "demand": round(yhat, 2),
+                "demand_lower": round(lower, 2),
+                "demand_upper": round(upper, 2),
+            }
+        )
 
     return {
         "product_id": product_id,
@@ -153,12 +154,11 @@ async def calculate_demand_forecast(
 
 async def _get_product(db: AsyncSession, product_id: uuid.UUID) -> Product:
     """Fetch product or raise."""
-    result = await db.execute(
-        select(Product).where(Product.id == product_id)
-    )
+    result = await db.execute(select(Product).where(Product.id == product_id))
     product = result.scalar_one_or_none()
     if product is None:
         from src.products.exceptions import ProductNotFoundError
+
         raise ProductNotFoundError(product_id)
     return product
 
@@ -168,9 +168,7 @@ async def _get_elasticity_coefficient(
 ) -> Decimal:
     """Get elasticity coefficient for a product, or default."""
     result = await db.execute(
-        select(DemandElasticity).where(
-            DemandElasticity.product_id == product_id
-        )
+        select(DemandElasticity).where(DemandElasticity.product_id == product_id)
     )
     elasticity = result.scalar_one_or_none()
     if elasticity is None:
@@ -202,14 +200,10 @@ async def calculate_price_elasticity_impact(
     }
 
 
-async def get_elasticity(
-    db: AsyncSession, product_id: uuid.UUID
-) -> DemandElasticity:
+async def get_elasticity(db: AsyncSession, product_id: uuid.UUID) -> DemandElasticity:
     """Get elasticity record for a product."""
     result = await db.execute(
-        select(DemandElasticity).where(
-            DemandElasticity.product_id == product_id
-        )
+        select(DemandElasticity).where(DemandElasticity.product_id == product_id)
     )
     elasticity = result.scalar_one_or_none()
     if elasticity is None:
@@ -224,9 +218,7 @@ async def update_elasticity_config(
 ) -> DemandElasticity:
     """Create or update elasticity coefficient for a product."""
     result = await db.execute(
-        select(DemandElasticity).where(
-            DemandElasticity.product_id == product_id
-        )
+        select(DemandElasticity).where(DemandElasticity.product_id == product_id)
     )
     elasticity = result.scalar_one_or_none()
 
@@ -292,16 +284,18 @@ async def calculate_portfolio_margin(
         cogs = unit_cost * qty
         margin_pct = float((revenue - cogs) / revenue * 100) if revenue else 0.0
 
-        products.append({
-            "product_id": pid,
-            "product_name": name,
-            "unit_cost": unit_cost,
-            "selling_price": selling_price,
-            "margin_pct": round(margin_pct, 2),
-            "revenue_30d": revenue,
-            "cogs_30d": cogs,
-            "quantity_30d": qty,
-        })
+        products.append(
+            {
+                "product_id": pid,
+                "product_name": name,
+                "unit_cost": unit_cost,
+                "selling_price": selling_price,
+                "margin_pct": round(margin_pct, 2),
+                "revenue_30d": revenue,
+                "cogs_30d": cogs,
+                "quantity_30d": qty,
+            }
+        )
         total_revenue += revenue
         total_cogs += cogs
 
@@ -314,7 +308,9 @@ async def calculate_portfolio_margin(
     return {
         "blended_margin": Decimal(str(round(float(blended_margin), 2))),
         "target_margin": target_margin,
-        "margin_gap": Decimal(str(round(float(blended_margin) - float(target_margin), 2))),
+        "margin_gap": Decimal(
+            str(round(float(blended_margin) - float(target_margin), 2))
+        ),
         "total_revenue": total_revenue,
         "total_cogs": total_cogs,
         "products": products,
@@ -404,14 +400,16 @@ def _optimize_prices(
 
     # Bounds: min 10% margin above cost, max 3x cost
     bounds = [
-        (float(p["unit_cost"]) * 1.10, float(p["unit_cost"]) * 3.0)
-        for p in products
+        (float(p["unit_cost"]) * 1.10, float(p["unit_cost"]) * 3.0) for p in products
     ]
 
     constraints = [{"type": "ineq", "fun": margin_constraint}]
 
     result = minimize(
-        objective, x0, bounds=bounds, method="SLSQP",
+        objective,
+        x0,
+        bounds=bounds,
+        method="SLSQP",
         constraints=constraints,
     )
     if not result.success:
@@ -419,12 +417,14 @@ def _optimize_prices(
 
     optimized = []
     for i, p in enumerate(products):
-        optimized.append({
-            "product_id": p["product_id"],
-            "current_price": p["selling_price"],
-            "optimized_price": Decimal(str(round(result.x[i], 2))),
-            "unit_cost": p["unit_cost"],
-        })
+        optimized.append(
+            {
+                "product_id": p["product_id"],
+                "current_price": p["selling_price"],
+                "optimized_price": Decimal(str(round(result.x[i], 2))),
+                "unit_cost": p["unit_cost"],
+            }
+        )
     return optimized
 
 
@@ -442,12 +442,13 @@ async def generate_recommendations(
 
     # Get products below target margin
     below_target = [
-        p for p in portfolio["products"]
-        if p["margin_pct"] < float(target_margin)
+        p for p in portfolio["products"] if p["margin_pct"] < float(target_margin)
     ]
 
     if not below_target:
-        await logger.ainfo("pricing_no_recommendations_needed", margin=str(portfolio["blended_margin"]))
+        await logger.ainfo(
+            "pricing_no_recommendations_needed", margin=str(portfolio["blended_margin"])
+        )
         return []
 
     # Prepare data for optimizer
@@ -455,20 +456,24 @@ async def generate_recommendations(
     for p in below_target:
         elasticity = await _get_elasticity_coefficient(db, p["product_id"])
         avg_daily = p["quantity_30d"] / 30 if p["quantity_30d"] else 1
-        opt_inputs.append({
-            "product_id": p["product_id"],
-            "product_name": p["product_name"],
-            "unit_cost": p["unit_cost"],
-            "selling_price": p["selling_price"],
-            "avg_daily_sales": avg_daily,
-            "elasticity": float(elasticity),
-            "current_margin_pct": p["margin_pct"],
-        })
+        opt_inputs.append(
+            {
+                "product_id": p["product_id"],
+                "product_name": p["product_name"],
+                "unit_cost": p["unit_cost"],
+                "selling_price": p["selling_price"],
+                "avg_daily_sales": avg_daily,
+                "elasticity": float(elasticity),
+                "current_margin_pct": p["margin_pct"],
+            }
+        )
 
     # Run optimization in thread pool
     try:
         optimized = await asyncio.to_thread(
-            _optimize_prices, opt_inputs, float(target_margin) / 100,
+            _optimize_prices,
+            opt_inputs,
+            float(target_margin) / 100,
         )
     except OptimizationInfeasibleError:
         return []
@@ -489,12 +494,8 @@ async def generate_recommendations(
         demand_change = float(elasticity) * price_change_pct / 100
 
         # Estimate margin improvement
-        new_margin = float(
-            (recommended - opt["unit_cost"]) / recommended * 100
-        )
-        margin_change = new_margin - float(
-            (current - opt["unit_cost"]) / current * 100
-        )
+        new_margin = float((recommended - opt["unit_cost"]) / recommended * 100)
+        margin_change = new_margin - float((current - opt["unit_cost"]) / current * 100)
 
         # Determine priority
         margin_gap = float(target_margin) - float(
@@ -641,6 +642,7 @@ async def analyze_cross_subsidization(
 
     if len(portfolio["products"]) < 2:
         from src.pricing.exceptions import CrossSubsidyAnalysisError
+
         raise CrossSubsidyAnalysisError("Need at least 2 products with sales")
 
     high_margin = []
@@ -660,11 +662,13 @@ async def analyze_cross_subsidization(
 
     recs = []
     for lm in low_margin:
-        recs.append({
-            "product_id": lm["product_id"],
-            "action": "consider_price_increase",
-            "reasoning": f"Margin {lm['margin_pct']}% below 35% target",
-        })
+        recs.append(
+            {
+                "product_id": lm["product_id"],
+                "action": "consider_price_increase",
+                "reasoning": f"Margin {lm['margin_pct']}% below 35% target",
+            }
+        )
 
     now = datetime.now(timezone.utc)
     analysis = CrossSubsidyAnalysis(
@@ -702,9 +706,7 @@ async def upsert_mix_targets(
         target_pct = Decimal(str(t["target_pct"]))
 
         result = await db.execute(
-            select(ProductMixTarget).where(
-                ProductMixTarget.category_id == category_id
-            )
+            select(ProductMixTarget).where(ProductMixTarget.category_id == category_id)
         )
         existing = result.scalar_one_or_none()
 
@@ -771,13 +773,15 @@ async def get_mix_status(
         target_pct = targets.get(cat_id, Decimal("0"))
         variance_pct = actual_pct - target_pct
 
-        statuses.append({
-            "category_id": cat_id,
-            "category_name": cat_name,
-            "actual_pct": actual_pct.quantize(Decimal("0.01")),
-            "target_pct": target_pct,
-            "variance_pct": variance_pct.quantize(Decimal("0.01")),
-        })
+        statuses.append(
+            {
+                "category_id": cat_id,
+                "category_name": cat_name,
+                "actual_pct": actual_pct.quantize(Decimal("0.01")),
+                "target_pct": target_pct,
+                "variance_pct": variance_pct.quantize(Decimal("0.01")),
+            }
+        )
 
     # Include categories with targets but no revenue
     seen_ids = {s["category_id"] for s in statuses}
@@ -788,13 +792,17 @@ async def get_mix_status(
                 select(ProductCategory.name).where(ProductCategory.id == cat_id)
             )
             cat_name = cat_result.scalar_one_or_none() or "Unknown"
-            statuses.append({
-                "category_id": cat_id,
-                "category_name": cat_name,
-                "actual_pct": Decimal("0.00"),
-                "target_pct": target_pct,
-                "variance_pct": (Decimal("0") - target_pct).quantize(Decimal("0.01")),
-            })
+            statuses.append(
+                {
+                    "category_id": cat_id,
+                    "category_name": cat_name,
+                    "actual_pct": Decimal("0.00"),
+                    "target_pct": target_pct,
+                    "variance_pct": (Decimal("0") - target_pct).quantize(
+                        Decimal("0.01")
+                    ),
+                }
+            )
 
     return statuses
 
@@ -810,9 +818,7 @@ async def check_mix_drift_alert(db: AsyncSession) -> None:
     )
 
     statuses = await get_mix_status(db)
-    drifted = [
-        s for s in statuses if abs(s["variance_pct"]) > MIX_DRIFT_THRESHOLD
-    ]
+    drifted = [s for s in statuses if abs(s["variance_pct"]) > MIX_DRIFT_THRESHOLD]
 
     if not drifted:
         return
@@ -903,9 +909,7 @@ async def sensitivity_calc(
     if product_id is None and unit_cost_usd_override is None:
         raise ValueError("Either product_id or unit_cost_usd must be provided")
 
-    landed_cost_ngn = (unit_cost_usd * fx_rate).quantize(
-        Decimal("0.000001")
-    )
+    landed_cost_ngn = (unit_cost_usd * fx_rate).quantize(Decimal("0.000001"))
 
     margin_pct = Decimal("0")
     if selling_price > 0:
@@ -996,3 +1000,69 @@ async def list_scenarios(
         .order_by(PricingScenario.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+# ---------------------------------------------------------------------------
+# Selling Price Suggestion (FX-aware)
+# ---------------------------------------------------------------------------
+
+
+async def get_selling_price_suggestion(
+    db: AsyncSession,
+    product_id: uuid.UUID | None,
+    unit_cost_override: Decimal | None,
+    currency: str,
+    fx_rate_override: Decimal | None,
+    min_margin_pct: Decimal,
+) -> dict:
+    """Compute the minimum recommended selling price in NGN.
+
+    If currency is not NGN, the unit_cost is treated as being in that
+    foreign currency and is converted to NGN using the current USDNGN FX rate
+    (or the provided fx_rate_override). The minimum selling price is then:
+
+        min_price = unit_cost_ngn / (1 - min_margin_pct / 100)
+
+    ensuring the gross margin never falls below the specified threshold.
+    """
+    if min_margin_pct >= Decimal("100"):
+        raise ValueError("min_margin_pct must be less than 100")
+
+    unit_cost: Decimal
+    resolved_currency: str
+
+    if product_id is not None:
+        product = await _get_product(db, product_id)
+        unit_cost = product.unit_cost
+        resolved_currency = product.currency
+    else:
+        if unit_cost_override is None:
+            raise ValueError("Either product_id or unit_cost_override must be provided")
+        unit_cost = unit_cost_override
+        resolved_currency = currency
+
+    if resolved_currency == "NGN":
+        fx_rate = Decimal("1")
+        unit_cost_ngn = unit_cost
+    else:
+        if fx_rate_override is not None:
+            fx_rate = fx_rate_override
+        else:
+            from src.fx.service import get_current_rate as _get_fx_rate
+
+            pair = f"{resolved_currency}NGN"
+            rate_record = await _get_fx_rate(db, pair)
+            fx_rate = rate_record.rate
+        unit_cost_ngn = (unit_cost * fx_rate).quantize(Decimal("0.000001"))
+
+    margin_factor = Decimal("1") - (min_margin_pct / Decimal("100"))
+    min_selling_price = (unit_cost_ngn / margin_factor).quantize(Decimal("0.000001"))
+
+    return {
+        "unit_cost": unit_cost,
+        "currency": resolved_currency,
+        "fx_rate": fx_rate,
+        "unit_cost_ngn": unit_cost_ngn,
+        "min_margin_pct": min_margin_pct,
+        "min_selling_price": min_selling_price,
+    }
