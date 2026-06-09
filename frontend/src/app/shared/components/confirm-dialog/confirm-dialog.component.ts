@@ -11,6 +11,7 @@ import { Dialog } from 'primeng/dialog';
       [visible]="visible()"
       [modal]="true"
       [style]="{ width: '420px' }"
+      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
       [closable]="false"
       [closeOnEscape]="false"
     >

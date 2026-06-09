@@ -197,6 +197,7 @@ import { ProductsService } from '../../../core/services/products.service';
       [(visible)]="adjustVisible"
       [modal]="true"
       [style]="{ width: '400px' }"
+      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
     >
       @if (adjustItem()) {
         <div class="space-y-4">
@@ -254,6 +255,7 @@ import { ProductsService } from '../../../core/services/products.service';
       [(visible)]="historyVisible"
       [modal]="true"
       [style]="{ width: '680px' }"
+      [breakpoints]="{ '960px': '90vw', '640px': '95vw' }"
     >
       @if (productMovementsLoading()) {
         <div class="py-8 text-center text-muted">
