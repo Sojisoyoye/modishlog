@@ -933,6 +933,7 @@ interface ColEntry {
       (visibleChange)="!$event && editingCategory.set(null)"
       [modal]="true"
       [style]="{ width: '400px' }"
+      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
     >
       @if (editingCategory()) {
         <div class="space-y-4 pt-2">
@@ -972,6 +973,7 @@ interface ColEntry {
       (visibleChange)="showEdit = $event"
       [modal]="true"
       [style]="{ width: '480px' }"
+      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
     >
       <div class="space-y-4 pt-2">
         <div>
@@ -993,7 +995,7 @@ interface ColEntry {
             }
           </select>
         </div>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">Cost Currency</label>
             <select
@@ -1027,7 +1029,7 @@ interface ColEntry {
             Live rate: 1 {{ editCurrency() }} = {{ currentFxRate() | number: '1.0-2' }} NGN
           </p>
         }
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">Unit Cost ({{ editCurrency() }})</label>
             <input

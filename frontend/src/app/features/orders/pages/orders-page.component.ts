@@ -164,6 +164,7 @@ import { FxService } from '../../../core/services/fx.service';
       [(visible)]="detailVisible"
       [modal]="true"
       [style]="{ width: '600px' }"
+      [breakpoints]="{ '960px': '90vw', '640px': '95vw' }"
     >
       @if (selectedOrder()) {
         <div class="space-y-5">
@@ -174,7 +175,7 @@ import { FxService } from '../../../core/services/fx.service';
               [status]="orderStatus(selectedOrder()!.status)"
             />
           </div>
-          <div class="grid grid-cols-2 gap-4 rounded-lg bg-gray-50 p-4 text-sm">
+          <div class="grid grid-cols-1 gap-4 rounded-lg bg-gray-50 p-4 text-sm sm:grid-cols-2">
             <div>
               <p class="text-xs font-medium text-muted">Supplier</p>
               <p class="mt-0.5 font-semibold text-text">{{ selectedOrder()!.supplier_name }}</p>
@@ -239,7 +240,7 @@ import { FxService } from '../../../core/services/fx.service';
           <!-- FX Exposure -->
           <div class="rounded-lg border border-gray-200 p-4">
             <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">FX Exposure</p>
-            <div class="grid grid-cols-2 gap-4 text-sm">
+            <div class="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
               <div>
                 <p class="text-xs text-muted">Locked (30%)</p>
                 <p class="mt-0.5 text-lg font-bold text-success">
@@ -258,7 +259,7 @@ import { FxService } from '../../../core/services/fx.service';
                 <p class="mb-2 text-xs font-bold uppercase tracking-wider text-muted">
                   Predicted vs Actual FX Rate
                 </p>
-                <div class="grid grid-cols-3 gap-3 text-sm">
+                <div class="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
                   <div>
                     <p class="text-xs text-muted">At Creation</p>
                     <p class="mt-0.5 font-semibold text-text">
@@ -376,6 +377,7 @@ import { FxService } from '../../../core/services/fx.service';
       [(visible)]="showCreate"
       [modal]="true"
       [style]="{ width: '600px' }"
+      [breakpoints]="{ '960px': '90vw', '640px': '95vw' }"
     >
       <div class="space-y-4">
         <div>
@@ -391,7 +393,7 @@ import { FxService } from '../../../core/services/fx.service';
         <div>
           <label class="mb-1.5 block text-xs font-medium text-muted">Items</label>
           @for (item of newOrderItems(); track $index) {
-            <div class="mb-2 flex gap-2">
+            <div class="mb-2 flex flex-wrap gap-2">
               <select
                 [(ngModel)]="item.product_id"
                 class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
@@ -427,7 +429,7 @@ import { FxService } from '../../../core/services/fx.service';
           </button>
         </div>
 
-        <div class="grid grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <label for="order-production-days" class="mb-1.5 block text-xs font-medium text-muted">Production (days)</label>
             <input

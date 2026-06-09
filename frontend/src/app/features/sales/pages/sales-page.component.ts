@@ -564,6 +564,7 @@ interface TransactionMeta {
       [(visible)]="editDialogVisible"
       [modal]="true"
       [style]="{ width: '450px' }"
+      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
     >
       @if (editingSale()) {
         <div class="space-y-4">
@@ -645,6 +646,7 @@ interface TransactionMeta {
       [(visible)]="voidDialogVisible"
       [modal]="true"
       [style]="{ width: '420px' }"
+      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
     >
       @if (voidingSale()) {
         <div class="space-y-4">
@@ -699,6 +701,7 @@ interface TransactionMeta {
       [(visible)]="transactionDetailVisible"
       [modal]="true"
       [style]="{ width: '600px' }"
+      [breakpoints]="{ '960px': '90vw', '640px': '95vw' }"
     >
       @if (viewingTransaction()) {
         <div class="space-y-4">
@@ -798,6 +801,7 @@ interface TransactionMeta {
       [(visible)]="newCustomerDialogVisible"
       [modal]="true"
       [style]="{ width: '420px' }"
+      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
     >
       <div class="space-y-4">
         <div>
@@ -859,6 +863,7 @@ interface TransactionMeta {
       [(visible)]="auditDialogVisible"
       [modal]="true"
       [style]="{ width: '550px' }"
+      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
     >
       <div class="space-y-3">
         @if (auditLoading()) {

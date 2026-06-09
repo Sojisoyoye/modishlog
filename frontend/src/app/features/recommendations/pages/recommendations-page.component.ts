@@ -171,6 +171,7 @@ import {
       [(visible)]="dismissVisible"
       [modal]="true"
       [style]="{ width: '400px' }"
+      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
     >
       <div class="space-y-4">
         <p class="text-sm text-muted">Why are you dismissing this recommendation?</p>
