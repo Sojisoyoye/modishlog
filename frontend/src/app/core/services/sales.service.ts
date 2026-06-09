@@ -9,6 +9,11 @@ export interface DailyEntry {
   quantity: number;
   sale_date: string;
   discount_amount?: number | null;
+  customer_id?: string | null;
+  customer_name?: string | null;
+  contact_number?: string | null;
+  payment_method?: string | null;
+  payment_status?: string;
 }
 
 export interface SaleRecord {
@@ -89,6 +94,9 @@ export interface SaleTransactionItem {
   total_amount: number;
   currency: string;
   status: string;
+  customer_name?: string | null;
+  contact_number?: string | null;
+  payment_method?: string | null;
   notes: string | null;
 }
 
@@ -97,8 +105,15 @@ export interface SaleTransaction {
   sale_date: string;
   item_count: number;
   total_amount: number;
+  total_paid: number;
+  sale_due: number;
   currency: string;
   status: string;
+  customer_id?: string | null;
+  customer_name?: string | null;
+  contact_number?: string | null;
+  payment_method?: string | null;
+  payment_status?: string | null;
   items: SaleTransactionItem[];
   created_at: string;
 }

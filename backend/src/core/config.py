@@ -30,6 +30,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
+        extra="ignore",
     )
 
     # Database — normalised to postgresql+asyncpg:// with libpq params stripped
@@ -107,6 +108,8 @@ class Settings(BaseSettings):
     # External APIs
     FX_API_KEY: str = ""
     FX_API_URL: str = "https://api.example.com/fx"
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_BASE_URL: str = "https://api.anthropic.com"
 
 
 settings = Settings()

@@ -15,6 +15,7 @@ import {
 } from '../../../core/services/sales.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
+import { CustomerService, Customer } from '../../../core/services/customer.service';
 
 interface EntryRow {
   product_id: string;
@@ -22,6 +23,12 @@ interface EntryRow {
   sale_date: string;
   unit_price: number | null;
   discount_amount: number | null;
+}
+
+interface TransactionMeta {
+  customer_id: string;
+  payment_method: string;
+  payment_status: string;
 }
 
 @Component({
@@ -210,6 +217,59 @@ interface EntryRow {
               </div>
             }
 
+            <!-- Transaction-level customer + payment fields -->
+            <div class="mt-4 grid grid-cols-1 gap-3 border-t border-gray-100 pt-4 sm:grid-cols-3">
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted">Customer</label>
+                <div class="flex gap-2">
+                  <select
+                    [(ngModel)]="txnMeta.customer_id"
+                    name="customer_id"
+                    (change)="onCustomerSelected()"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">— Select Customer —</option>
+                    @for (c of customers(); track c.id) {
+                      <option [value]="c.id">{{ c.name }}{{ c.contact_number ? ' · ' + c.contact_number : '' }}</option>
+                    }
+                  </select>
+                  <button
+                    type="button"
+                    (click)="newCustomerDialogVisible = true"
+                    title="Add new customer"
+                    class="flex-shrink-0 flex items-center gap-1 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/10 whitespace-nowrap"
+                  >
+                    <i class="pi pi-plus text-xs"></i> New
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted">Payment Method</label>
+                <select
+                  [(ngModel)]="txnMeta.payment_method"
+                  name="payment_method"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">— Select —</option>
+                  <option value="cash">Cash</option>
+                  <option value="card">Card</option>
+                  <option value="bank_transfer">Bank Transfer</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted">Payment Status</label>
+                <select
+                  [(ngModel)]="txnMeta.payment_status"
+                  name="payment_status"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                >
+                  <option value="paid">Paid</option>
+                  <option value="credit">Credit</option>
+                </select>
+              </div>
+            </div>
+
             <div class="mt-4 flex gap-3">
               <button
                 (click)="addRow()"
@@ -252,10 +312,15 @@ interface EntryRow {
                 <thead>
                   <tr class="bg-gray-50/80">
                     <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
-                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Products</th>
+                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Invoice No.</th>
+                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Customer</th>
+                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Contact</th>
+                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Payment Status</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total Amount</th>
+                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Method</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total Paid</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Sale Due</th>
                     <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Items</th>
-                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total</th>
-                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Status</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
@@ -263,29 +328,39 @@ interface EntryRow {
                     <tr
                       class="cursor-pointer transition-colors hover:bg-blue-50/40"
                       (click)="openTransactionDetail(txn)"
-                      title="Click to view details"
+                      title="Click to view product details"
                     >
-                      <td class="px-3 py-2.5 text-muted whitespace-nowrap">{{ txn.sale_date | date: 'mediumDate' }}</td>
-                      <td class="px-3 py-2.5 font-medium text-text">{{ txnProductNames(txn) }}</td>
-                      <td class="px-3 py-2.5 text-right text-muted">{{ txn.item_count }}</td>
-                      <td class="px-3 py-2.5 text-right font-semibold">
-                        {{ txn.total_amount | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
-                      </td>
+                      <td class="whitespace-nowrap px-3 py-2.5 text-muted">{{ txn.sale_date | date: 'mediumDate' }}</td>
+                      <td class="whitespace-nowrap px-3 py-2.5 font-mono text-xs text-secondary">{{ invoiceNo(txn.transaction_id) }}</td>
+                      <td class="px-3 py-2.5 font-medium text-text">{{ txn.customer_name || '—' }}</td>
+                      <td class="whitespace-nowrap px-3 py-2.5 text-muted">{{ txn.contact_number || '—' }}</td>
                       <td class="px-3 py-2.5">
                         <span
                           class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
-                          [class.bg-green-100]="txn.status === 'completed'"
-                          [class.text-green-700]="txn.status === 'completed'"
-                          [class.bg-red-100]="txn.status === 'voided'"
-                          [class.text-red-700]="txn.status === 'voided'"
-                          [class.bg-yellow-100]="txn.status === 'partial'"
-                          [class.text-yellow-700]="txn.status === 'partial'"
-                        >{{ txn.status }}</span>
+                          [class.bg-green-100]="txn.payment_status === 'paid' || !txn.payment_status"
+                          [class.text-green-700]="txn.payment_status === 'paid' || !txn.payment_status"
+                          [class.bg-amber-100]="txn.payment_status === 'credit'"
+                          [class.text-amber-700]="txn.payment_status === 'credit'"
+                        >{{ txn.payment_status || 'paid' }}</span>
                       </td>
+                      <td class="whitespace-nowrap px-3 py-2.5 text-right font-semibold">
+                        {{ txn.total_amount | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
+                      </td>
+                      <td class="px-3 py-2.5 text-muted">{{ formatPaymentMethod(txn.payment_method) }}</td>
+                      <td class="whitespace-nowrap px-3 py-2.5 text-right font-medium text-success">
+                        {{ txn.total_paid | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
+                      </td>
+                      <td class="whitespace-nowrap px-3 py-2.5 text-right font-medium"
+                        [class.text-danger]="txn.sale_due > 0"
+                        [class.text-muted]="txn.sale_due <= 0"
+                      >
+                        {{ txn.sale_due | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
+                      </td>
+                      <td class="px-3 py-2.5 text-right text-muted">{{ txn.item_count }}</td>
                     </tr>
                   } @empty {
                     <tr>
-                      <td colspan="5" class="px-3 py-10 text-center text-sm text-muted">
+                      <td colspan="10" class="px-3 py-10 text-center text-sm text-muted">
                         <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
                         No sales recorded yet
                       </td>
@@ -325,10 +400,15 @@ interface EntryRow {
               <thead>
                 <tr class="bg-gray-50/80">
                   <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted"># Items</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Status</th>
-                  <th class="px-3 py-2.5 text-center text-xs font-semibold uppercase text-muted">Actions</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Invoice No.</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Customer</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Contact</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Payment Status</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total Amount</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Method</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total Paid</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Sale Due</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Items</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
@@ -337,38 +417,39 @@ interface EntryRow {
                     data-testid="transaction-row"
                     class="cursor-pointer transition-colors hover:bg-gray-50/50"
                     (click)="openTransactionDetail(txn)"
+                    title="Click to view product details"
                   >
-                    <td class="px-3 py-2.5 text-muted">{{ txn.sale_date | date: 'mediumDate' }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ txn.item_count }}</td>
-                    <td class="px-3 py-2.5 text-right font-semibold">
-                      {{ txn.total_amount | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
-                    </td>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-muted">{{ txn.sale_date | date: 'mediumDate' }}</td>
+                    <td class="whitespace-nowrap px-3 py-2.5 font-mono text-xs text-secondary">{{ invoiceNo(txn.transaction_id) }}</td>
+                    <td class="px-3 py-2.5 font-medium text-text">{{ txn.customer_name || '—' }}</td>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-muted">{{ txn.contact_number || '—' }}</td>
                     <td class="px-3 py-2.5">
                       <span
                         class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
-                        [class.bg-green-100]="txn.status === 'completed'"
-                        [class.text-green-700]="txn.status === 'completed'"
-                        [class.bg-red-100]="txn.status === 'voided'"
-                        [class.text-red-700]="txn.status === 'voided'"
-                        [class.bg-yellow-100]="txn.status === 'partial'"
-                        [class.text-yellow-700]="txn.status === 'partial'"
-                      >{{ txn.status }}</span>
+                        [class.bg-green-100]="txn.payment_status === 'paid' || !txn.payment_status"
+                        [class.text-green-700]="txn.payment_status === 'paid' || !txn.payment_status"
+                        [class.bg-amber-100]="txn.payment_status === 'credit'"
+                        [class.text-amber-700]="txn.payment_status === 'credit'"
+                      >{{ txn.payment_status || 'paid' }}</span>
                     </td>
-                    <td class="px-3 py-2.5 text-center">
-                      <button
-                        data-testid="view-transaction-btn"
-                        (click)="$event.stopPropagation(); openTransactionDetail(txn)"
-                        class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary"
-                        title="View transaction detail"
-                        type="button"
-                      >
-                        <i class="pi pi-eye text-xs"></i>
-                      </button>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-right font-semibold">
+                      {{ txn.total_amount | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
                     </td>
+                    <td class="px-3 py-2.5 text-muted">{{ formatPaymentMethod(txn.payment_method) }}</td>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-right font-medium text-success">
+                      {{ txn.total_paid | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-2.5 text-right font-medium"
+                      [class.text-danger]="txn.sale_due > 0"
+                      [class.text-muted]="txn.sale_due <= 0"
+                    >
+                      {{ txn.sale_due | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
+                    </td>
+                    <td class="px-3 py-2.5 text-right text-muted">{{ txn.item_count }}</td>
                   </tr>
                 } @empty {
                   <tr>
-                    <td colspan="5" class="px-3 py-10 text-center text-sm text-muted">
+                    <td colspan="10" class="px-3 py-10 text-center text-sm text-muted">
                       <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
                       No transactions recorded yet
                     </td>
@@ -711,6 +792,67 @@ interface EntryRow {
       }
     </p-dialog>
 
+    <!-- New Customer Dialog -->
+    <p-dialog
+      header="Add New Customer"
+      [(visible)]="newCustomerDialogVisible"
+      [modal]="true"
+      [style]="{ width: '420px' }"
+    >
+      <div class="space-y-4">
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted">Name <span class="text-danger">*</span></label>
+          <input
+            type="text"
+            [(ngModel)]="newCustomerForm.name"
+            name="new_customer_name"
+            placeholder="Customer name"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+          />
+        </div>
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted">Contact Number</label>
+          <input
+            type="text"
+            [(ngModel)]="newCustomerForm.contact_number"
+            name="new_customer_contact"
+            placeholder="Optional"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+          />
+        </div>
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted">Email</label>
+          <input
+            type="email"
+            [(ngModel)]="newCustomerForm.email"
+            name="new_customer_email"
+            placeholder="Optional"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+          />
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button
+            (click)="newCustomerDialogVisible = false"
+            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50"
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            (click)="saveNewCustomer()"
+            [disabled]="savingCustomer() || !newCustomerForm.name.trim()"
+            class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+          >
+            @if (savingCustomer()) {
+              <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
+            } @else {
+              <i class="pi pi-check text-sm"></i> Save Customer
+            }
+          </button>
+        </div>
+      </div>
+    </p-dialog>
+
     <!-- Audit Trail Dialog -->
     <p-dialog
       header="Audit Trail"
@@ -777,6 +919,7 @@ export class SalesPageComponent implements OnInit {
   private readonly productsService = inject(ProductsService);
   private readonly inventoryService = inject(InventoryService);
   private readonly messageService = inject(MessageService);
+  private readonly customerService = inject(CustomerService);
 
   products = signal<Product[]>([]);
   history = signal<SaleRecord[]>([]);
@@ -786,8 +929,17 @@ export class SalesPageComponent implements OnInit {
   stockMap = signal<Map<string, number>>(new Map());
   productMap = signal<Map<string, string>>(new Map());
 
+  // Customer state
+  customers = signal<Customer[]>([]);
+  newCustomerDialogVisible = false;
+  newCustomerForm = { name: '', contact_number: '', email: '' };
+  savingCustomer = signal(false);
+
   // Tab state
   activeTab = signal<'record' | 'all' | 'upload'>('record');
+
+  // Transaction-level customer + payment meta (shared across all rows in one submission)
+  txnMeta: TransactionMeta = { customer_id: '', payment_method: '', payment_status: 'paid' };
 
   // CSV upload state
   selectedFile = signal<File | null>(null);
@@ -840,6 +992,7 @@ export class SalesPageComponent implements OnInit {
     this.loadHistory();
     this.loadInventory();
     this.loadTransactions();
+    this.loadCustomers();
   }
 
   private loadInventory(): void {
@@ -850,6 +1003,55 @@ export class SalesPageComponent implements OnInit {
         this.stockMap.set(map);
       },
     });
+  }
+
+  loadCustomers(search?: string): void {
+    this.customerService.getAll(search).subscribe({
+      next: (r) => this.customers.set(r.items ?? []),
+      error: () => {
+        // silently ignore — auth interceptor will redirect to login if needed
+      },
+    });
+  }
+
+  onCustomerSelected(): void {
+    // Customer info is resolved server-side; nothing extra needed here.
+  }
+
+  saveNewCustomer(): void {
+    const name = this.newCustomerForm.name.trim();
+    if (!name) return;
+
+    this.savingCustomer.set(true);
+    this.customerService
+      .create({
+        name,
+        contact_number: this.newCustomerForm.contact_number || null,
+        email: this.newCustomerForm.email || null,
+      })
+      .subscribe({
+        next: (created) => {
+          this.savingCustomer.set(false);
+          this.newCustomerDialogVisible = false;
+          this.newCustomerForm = { name: '', contact_number: '', email: '' };
+          this.loadCustomers();
+          // Auto-select newly created customer
+          this.txnMeta.customer_id = created.id;
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Customer Created',
+            detail: `${created.name} added and selected`,
+          });
+        },
+        error: () => {
+          this.savingCustomer.set(false);
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'Failed to create customer',
+          });
+        },
+      });
   }
 
   private loadTransactions(): void {
@@ -922,6 +1124,21 @@ export class SalesPageComponent implements OnInit {
     return Object.keys(obj);
   }
 
+  invoiceNo(transactionId: string): string {
+    return 'INV-' + transactionId.replace(/-/g, '').slice(0, 8).toUpperCase();
+  }
+
+  formatPaymentMethod(method?: string | null): string {
+    if (!method) return '—';
+    const map: Record<string, string> = {
+      cash: 'Cash',
+      card: 'Card',
+      bank_transfer: 'Bank Transfer',
+      other: 'Other',
+    };
+    return map[method] ?? method;
+  }
+
   private newRow(): EntryRow {
     return {
       product_id: '',
@@ -941,6 +1158,7 @@ export class SalesPageComponent implements OnInit {
   }
 
   submitEntries(): void {
+    const meta = this.txnMeta;
     const valid = this.entryRows()
       .filter((r) => r.product_id && r.quantity > 0)
       .map((r) => ({
@@ -948,6 +1166,9 @@ export class SalesPageComponent implements OnInit {
         quantity: r.quantity,
         sale_date: r.sale_date,
         discount_amount: r.discount_amount ?? null,
+        customer_id: meta.customer_id || null,
+        payment_method: meta.payment_method || null,
+        payment_status: meta.payment_status || 'paid',
       }));
     if (valid.length === 0) return;
 
@@ -956,6 +1177,7 @@ export class SalesPageComponent implements OnInit {
       next: () => {
         this.submitting.set(false);
         this.entryRows.set([this.newRow()]);
+        this.txnMeta = { customer_id: '', payment_method: '', payment_status: 'paid' };
         this.messageService.add({
           severity: 'success',
           summary: 'Success',

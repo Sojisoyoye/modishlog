@@ -21,6 +21,11 @@ class SaleCreate(BaseModel):
     notes: str | None = None
     discount_amount: Decimal | None = Field(None, ge=0)
     transaction_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
+    customer_name: str | None = None
+    contact_number: str | None = None
+    payment_method: str | None = None
+    payment_status: str | None = "paid"
 
 
 class SaleUpdate(BaseModel):
@@ -36,6 +41,11 @@ class DailyEntryItem(BaseModel):
     quantity: int = Field(..., gt=0)
     sale_date: date
     discount_amount: Decimal | None = Field(None, ge=0)
+    customer_id: uuid.UUID | None = None
+    customer_name: str | None = None
+    contact_number: str | None = None
+    payment_method: str | None = None
+    payment_status: str | None = "paid"
 
 
 class DailyEntryRequest(BaseModel):
@@ -56,6 +66,11 @@ class SaleRead(BaseModel):
     sale_date: date
     channel: str
     status: str
+    customer_id: uuid.UUID | None = None
+    customer_name: str | None = None
+    contact_number: str | None = None
+    payment_method: str | None = None
+    payment_status: str | None = None
     notes: str | None = None
     recorded_by: uuid.UUID
     created_at: datetime
@@ -168,6 +183,9 @@ class SaleTransactionItemRead(BaseModel):
     total_amount: Decimal
     currency: str
     status: str
+    customer_name: str | None = None
+    contact_number: str | None = None
+    payment_method: str | None = None
     notes: str | None = None
 
 
@@ -178,8 +196,15 @@ class SaleTransactionRead(BaseModel):
     sale_date: date
     item_count: int
     total_amount: Decimal
+    total_paid: Decimal
+    sale_due: Decimal
     currency: str
     status: str  # 'completed' | 'voided' | 'partial'
+    customer_id: uuid.UUID | None = None
+    customer_name: str | None = None
+    contact_number: str | None = None
+    payment_method: str | None = None
+    payment_status: str | None = None
     items: list[SaleTransactionItemRead]
     created_at: datetime
 

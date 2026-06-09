@@ -14,27 +14,27 @@ from src.core.database import Base, TimestampMixin, UUIDMixin
 class OrderStatus(str, enum.Enum):
     """Purchase order lifecycle status."""
 
-    PENDING = "Pending"
-    IN_PRODUCTION = "In Production"
-    SHIPPING = "Shipping"
-    CLEARED = "Cleared"
-    DELIVERED = "Delivered"
-    CANCELLED = "Cancelled"
+    PENDING = "PENDING"
+    IN_PRODUCTION = "IN_PRODUCTION"
+    SHIPPING = "SHIPPING"
+    CLEARED = "CLEARED"
+    DELIVERED = "DELIVERED"
+    CANCELLED = "CANCELLED"
 
 
 class PaymentMethod(str, enum.Enum):
     """Payment method for order payments."""
 
-    BANK_TRANSFER = "bank_transfer"
-    LC = "lc"
-    CASH = "cash"
+    BANK_TRANSFER = "BANK_TRANSFER"
+    LC = "LC"
+    CASH = "CASH"
 
 
 class PaymentStatus(str, enum.Enum):
     """Payment record status."""
 
-    COMPLETED = "completed"
-    VOIDED = "voided"
+    COMPLETED = "COMPLETED"
+    VOIDED = "VOIDED"
 
 
 class PurchaseOrder(UUIDMixin, TimestampMixin, Base):

@@ -1,0 +1,181 @@
+{
+	"meta": {
+		"generatedAt": "2026-04-12T11:17:28.674Z",
+		"tasksAnalyzed": 21,
+		"totalTasks": 43,
+		"analysisCount": 21,
+		"thresholdScore": 5,
+		"projectName": "Task Master",
+		"usedResearch": false
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 23,
+			"taskTitle": "Forgot Password flow",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down the forgot password flow into: (1) Backend token generation and email service integration, (2) Backend password reset validation and security, (3) Frontend forgot password link and form UI, (4) Frontend reset password form with validation, (5) E2E testing and security validation",
+			"reasoning": "Moderate complexity involving both backend and frontend work. Requires secure token generation, email integration, form handling, and proper security validation. Well-defined requirements but involves multiple components and security considerations."
+		},
+		{
+			"taskId": 24,
+			"taskTitle": "Login lockout countdown timer",
+			"complexityScore": 4,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Split into: (1) Backend modification to return locked_until timestamp in 429 response, (2) Frontend countdown timer component with real-time updates, (3) Integration testing and edge case handling",
+			"reasoning": "Low-medium complexity. Straightforward feature with clear requirements. Backend change is minimal, frontend requires timer logic and real-time updates. Limited scope with well-defined acceptance criteria."
+		},
+		{
+			"taskId": 25,
+			"taskTitle": "Stock-level validation on sales entry",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Organize into: (1) Frontend inventory level fetching and caching, (2) Real-time stock display in product dropdown, (3) Validation logic and error messaging, (4) Form integration and user experience testing",
+			"reasoning": "Medium complexity involving real-time data fetching, form validation, and user experience considerations. Requires coordination between inventory API and sales form, with proper error handling and user feedback."
+		},
+		{
+			"taskId": 26,
+			"taskTitle": "Sales history edit/delete with audit trail",
+			"complexityScore": 8,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Break into: (1) Backend audit trail model and service implementation, (2) Edit functionality with inventory adjustment logic, (3) Delete functionality with inventory reversal, (4) Frontend edit/delete UI components, (5) Audit log display and tracking, (6) Comprehensive testing of data integrity",
+			"reasoning": "High complexity due to data integrity requirements, audit trail implementation, and inventory synchronization. Involves complex business logic for reversing transactions and maintaining data consistency across multiple entities."
+		},
+		{
+			"taskId": 27,
+			"taskTitle": "CSV bulk upload for sales",
+			"complexityScore": 7,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Structure as: (1) CSV template generation and download, (2) File upload UI with drag-and-drop, (3) Client-side file validation and parsing, (4) Progress indicator and batch processing, (5) Error reporting and validation feedback, (6) Results summary and success handling",
+			"reasoning": "High-medium complexity involving file handling, validation, progress tracking, and error reporting. Backend endpoint exists but frontend requires sophisticated file processing, validation, and user feedback mechanisms."
+		},
+		{
+			"taskId": 28,
+			"taskTitle": "FX rate prompt on order delivery",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Divide into: (1) Backend order status transition with FX rate capture, (2) Frontend modal dialog for FX rate input, (3) Order detail view with predicted vs actual comparison, (4) Integration testing and validation",
+			"reasoning": "Medium complexity with clear business logic. Involves modal dialog implementation, order status workflow modification, and comparison display. Well-defined requirements with moderate technical challenges."
+		},
+		{
+			"taskId": 29,
+			"taskTitle": "Order date and 30% deposit recording",
+			"complexityScore": 4,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Split into: (1) Backend order model extension and deposit calculation logic, (2) Frontend order form enhancement with date and deposit fields, (3) Order detail display and testing",
+			"reasoning": "Low-medium complexity with straightforward form enhancements and data model changes. Clear requirements with minimal technical challenges. Mostly involves adding fields and basic calculations."
+		},
+		{
+			"taskId": 30,
+			"taskTitle": "FX alert threshold configuration UI",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Organize into: (1) Settings page routing and navigation, (2) FX threshold configuration form with validation, (3) Integration with existing FXAlert backend, (4) Settings persistence and testing",
+			"reasoning": "Medium complexity involving new page creation, form handling, and backend integration. Backend exists but requires new UI components and proper form validation for threshold configuration."
+		},
+		{
+			"taskId": 31,
+			"taskTitle": "Demand elasticity configuration UI",
+			"complexityScore": 6,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Structure as: (1) Pricing page enhancement with elasticity section, (2) Per-product elasticity form with tooltips and help text, (3) Backend integration with existing elasticity model, (4) Validation and user experience testing",
+			"reasoning": "Medium-high complexity due to complex domain concepts requiring clear UI/UX design. Involves per-product configuration, tooltip implementation, and integration with existing mathematical models."
+		},
+		{
+			"taskId": 32,
+			"taskTitle": "Cross-subsidisation display on Pricing page",
+			"complexityScore": 6,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break into: (1) Backend cross-subsidy calculation and pairing logic, (2) Frontend visual indicator design and implementation, (3) Pricing page integration and layout, (4) Data visualization and testing",
+			"reasoning": "Medium-high complexity involving complex business logic for margin analysis and visual representation. Requires sophisticated calculations and clear data visualization to communicate cross-subsidy relationships."
+		},
+		{
+			"taskId": 33,
+			"taskTitle": "CSV export buttons on Sales and FX pages",
+			"complexityScore": 3,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Divide into: (1) Client-side CSV generation utility, (2) Export button integration on Sales page, (3) Export button integration on FX page with testing",
+			"reasoning": "Low complexity with straightforward implementation. Client-side CSV generation is well-established, and button integration is minimal. Clear requirements with limited technical challenges."
+		},
+		{
+			"taskId": 34,
+			"taskTitle": "Missing cashflow scenario presets and save/compare",
+			"complexityScore": 7,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Structure as: (1) Scenario preset button implementation, (2) Save scenario functionality and storage, (3) Scenario comparison UI with side-by-side view, (4) Scenario management and persistence, (5) Integration testing and user workflow",
+			"reasoning": "High-medium complexity involving multiple features: preset scenarios, save functionality, and comparison views. Requires data persistence, complex UI layouts, and scenario management logic."
+		},
+		{
+			"taskId": 35,
+			"taskTitle": "Trend arrows on liquidity metrics (7-day delta)",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break into: (1) Backend 7-day delta calculation logic, (2) Frontend trend arrow component design, (3) Integration with Dashboard and Cashflow pages, (4) Testing and validation of trend calculations",
+			"reasoning": "Medium complexity involving time-series calculations and visual indicators. Requires backend logic for historical comparison and frontend components for trend visualization across multiple pages."
+		},
+		{
+			"taskId": 36,
+			"taskTitle": "Cash Runway display in months (not days)",
+			"complexityScore": 2,
+			"recommendedSubtasks": 0,
+			"expansionPrompt": "Simple frontend display change - update labels and remove unnecessary conversion logic",
+			"reasoning": "Very low complexity. Simple frontend change to remove conversion logic and update display labels. Backend already provides correct data format. Minimal implementation effort required."
+		},
+		{
+			"taskId": 37,
+			"taskTitle": "Portfolio margin impact in scenario results",
+			"complexityScore": 5,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Split into: (1) Backend margin impact calculation in scenario simulation, (2) Frontend results display enhancement, (3) Integration testing and validation",
+			"reasoning": "Medium complexity involving business logic enhancement and display updates. Requires understanding of portfolio margin calculations and integration with existing scenario simulation system."
+		},
+		{
+			"taskId": 38,
+			"taskTitle": "Per-order FX scenario view (best/base/worst)",
+			"complexityScore": 6,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Organize into: (1) Backend FX scenario calculation for orders, (2) Order detail view enhancement with scenario table, (3) Frontend scenario display component, (4) Integration and testing",
+			"reasoning": "Medium-high complexity involving FX scenario calculations and detailed view enhancements. Requires financial modeling logic and sophisticated display components for scenario comparison."
+		},
+		{
+			"taskId": 39,
+			"taskTitle": "Extend FX forecast horizon to 180 days",
+			"complexityScore": 4,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Break into: (1) Backend forecast generation with 180-day parameter, (2) Frontend service update and date range toggle, (3) Chart display and UI testing",
+			"reasoning": "Low-medium complexity with clear parameter changes. Involves backend forecast extension and frontend UI updates for date range selection. Straightforward implementation with defined requirements."
+		},
+		{
+			"taskId": 40,
+			"taskTitle": "Depletion forecast confidence interval display",
+			"complexityScore": 6,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Structure as: (1) Backend confidence interval calculation logic, (2) Statistical modeling for forecast uncertainty, (3) Frontend display enhancement with +/- range, (4) Testing and validation of statistical accuracy",
+			"reasoning": "Medium-high complexity involving statistical calculations and uncertainty modeling. Requires mathematical logic for confidence intervals and clear display of forecast uncertainty ranges."
+		},
+		{
+			"taskId": 41,
+			"taskTitle": "Editable low-stock threshold per product",
+			"complexityScore": 4,
+			"recommendedSubtasks": 3,
+			"expansionPrompt": "Divide into: (1) Backend threshold update endpoint, (2) Frontend inline editing component, (3) Integration with inventory page and validation",
+			"reasoning": "Low-medium complexity with straightforward CRUD operations. Involves inline editing UI patterns and simple backend updates. Clear requirements with moderate implementation effort."
+		},
+		{
+			"taskId": 42,
+			"taskTitle": "Settings page (API key + alert thresholds)",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break into: (1) Settings page routing and navigation, (2) API key configuration with masked input, (3) Test connection functionality, (4) Alert threshold configuration, (5) Settings persistence and validation",
+			"reasoning": "Medium-high complexity involving multiple configuration sections, security considerations for API key handling, and integration with existing alert systems. Requires comprehensive settings management."
+		},
+		{
+			"taskId": 43,
+			"taskTitle": "WCAG accessibility audit and remediation",
+			"complexityScore": 9,
+			"recommendedSubtasks": 8,
+			"expansionPrompt": "Structure as: (1) Accessibility audit setup with axe-core, (2) Navigation and form ARIA implementation, (3) Interactive elements and keyboard navigation, (4) Data table accessibility enhancements, (5) Chart and visual content alternatives, (6) Dynamic content and live regions, (7) Mobile accessibility and touch targets, (8) Comprehensive testing and validation",
+			"reasoning": "Very high complexity requiring comprehensive accessibility knowledge and extensive testing. Involves systematic review of all components, ARIA implementation, keyboard navigation, and compliance validation across the entire application."
+		}
+	]
+}

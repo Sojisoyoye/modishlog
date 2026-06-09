@@ -114,6 +114,11 @@ async def daily_entry_endpoint(
             channel="retail",
             discount_amount=entry.discount_amount,
             transaction_id=transaction_id,
+            customer_id=entry.customer_id,
+            customer_name=entry.customer_name,
+            contact_number=entry.contact_number,
+            payment_method=entry.payment_method,
+            payment_status=entry.payment_status,
         )
         try:
             sale = await create_sale(db, sale_data, current_user.id)

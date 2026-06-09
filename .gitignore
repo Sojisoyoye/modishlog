@@ -15,11 +15,6 @@ dist/
 postgres_data/
 .vscode/settings.json
 .idea/
-# Claude Code
-.claude/
-
-# Task Master
-.taskmaster/
 
 # Logs
 logs

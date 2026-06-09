@@ -74,6 +74,13 @@ class Sale(UUIDMixin, TimestampMixin, Base):
     fifo_gross_profit: Mapped[Decimal | None] = mapped_column(
         Numeric(18, 6), nullable=True, default=None
     )
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("customers.id"), nullable=True, default=None
+    )
+    customer_name: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    contact_number: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
+    payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
+    payment_status: Mapped[str | None] = mapped_column(String(20), nullable=True, default="paid")
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
 

@@ -80,6 +80,20 @@ async def create_sale(
         )
     total_amount = gross - discount
 
+    # If customer_id is provided, look up and denormalize name/contact
+    resolved_customer_name = data.customer_name
+    resolved_contact_number = data.contact_number
+    if data.customer_id is not None:
+        from src.customers.models import Customer
+
+        customer_result = await db.execute(
+            select(Customer).where(Customer.id == data.customer_id)
+        )
+        customer_obj = customer_result.scalar_one_or_none()
+        if customer_obj:
+            resolved_customer_name = customer_obj.name
+            resolved_contact_number = customer_obj.contact_number
+
     sale = Sale(
         product_id=data.product_id,
         quantity=data.quantity,
@@ -91,6 +105,11 @@ async def create_sale(
         sale_date=data.sale_date,
         channel=SaleChannel(data.channel),
         status=SaleStatus.COMPLETED,
+        customer_id=data.customer_id,
+        customer_name=resolved_customer_name,
+        contact_number=resolved_contact_number,
+        payment_method=data.payment_method,
+        payment_status=data.payment_status or "paid",
         notes=data.notes,
         recorded_by=user_id,
     )
@@ -593,11 +612,28 @@ def _build_transaction_read(
     """Build a SaleTransactionRead from a list of Sale records."""
 
     total_amount = sum((s.total_amount for s in items), Decimal("0"))
+    # Credit sales: nothing collected yet — full amount is outstanding
+    is_credit = any(s.payment_status == "credit" for s in items if s.status != SaleStatus.VOIDED)
+    if is_credit:
+        total_paid = Decimal("0")
+    else:
+        total_paid = sum(
+            (s.total_amount for s in items if s.status != SaleStatus.VOIDED),
+            Decimal("0"),
+        )
+    sale_due = total_amount - total_paid
     sale_date = items[0].sale_date if items else date.today()
     created_at = (
         min(s.created_at for s in items) if items else datetime.now(timezone.utc)
     )
     currency = items[0].currency if items else "NGN"
+    # Use customer/payment info from the first non-voided item (consistent per txn)
+    first = next((s for s in items if s.status != SaleStatus.VOIDED), items[0] if items else None)
+    customer_id = first.customer_id if first else None
+    customer_name = first.customer_name if first else None
+    contact_number = first.contact_number if first else None
+    payment_method = first.payment_method if first else None
+    payment_status = first.payment_status if first else None
 
     statuses = {s.status for s in items}
     if statuses == {SaleStatus.VOIDED}:
@@ -617,6 +653,9 @@ def _build_transaction_read(
             total_amount=s.total_amount,
             currency=s.currency,
             status=s.status.value,
+            customer_name=s.customer_name,
+            contact_number=s.contact_number,
+            payment_method=s.payment_method,
             notes=s.notes,
         )
         for s in items
@@ -627,8 +666,15 @@ def _build_transaction_read(
         sale_date=sale_date,
         item_count=len(items),
         total_amount=total_amount,
+        total_paid=total_paid,
+        sale_due=sale_due,
         currency=currency,
         status=status,
+        customer_id=customer_id,
+        customer_name=customer_name,
+        contact_number=contact_number,
+        payment_method=payment_method,
+        payment_status=payment_status,
         items=item_reads,
         created_at=created_at,
     )
