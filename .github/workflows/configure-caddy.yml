@@ -23,10 +23,10 @@ jobs:
             CADDYFILE=/opt/modish/Caddyfile
             DOMAIN=api-modishlog.modishstandard.com
 
-            # Resolve Docker bridge gateway so Caddy can reach the backend
-            # even if the containers are not on the same Docker network.
-            # The backend exposes port 8002 on all host interfaces.
-            DOCKER_GW=$(docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')
+            # Get IPv4-only Docker bridge gateway (inspect returns IPv4+IPv6 concatenated).
+            DOCKER_GW=$(docker network inspect bridge \
+              --format '{{range .IPAM.Config}}{{.Gateway}}{{"\n"}}{{end}}' \
+              | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
             BACKEND="${DOCKER_GW}:8002"
 
             echo "=== Docker gateway: $DOCKER_GW ==="
@@ -35,15 +35,15 @@ jobs:
             echo "=== Current Caddyfile ==="
             cat "$CADDYFILE"
 
-            # Remove any existing stale block for this domain, then re-add with
-            # the correct backend address (gateway IP instead of container name).
+            # Remove any existing block for this domain, then re-add with
+            # the correct backend address (IPv4 gateway instead of container name).
             python3 - <<PYEOF
             import re, pathlib
 
             path = pathlib.Path("$CADDYFILE")
             text = path.read_text()
 
-            # Strip the old block for this domain (handles multiline block)
+            # Strip any existing block for this domain (handles multiline)
             text = re.sub(
                 r'\n?$DOMAIN\s*\{[^}]*\}',
                 '',
@@ -51,7 +51,7 @@ jobs:
                 flags=re.DOTALL,
             )
 
-            # Append the corrected block
+            # Append corrected block
             text = text.rstrip() + "\n\n$DOMAIN {\n    reverse_proxy $BACKEND\n}\n"
 
             path.write_text(text)
@@ -64,7 +64,7 @@ jobs:
             # Validate then reload inside the Caddy container
             docker exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
             docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
-            echo "✅ Caddy reloaded — $DOMAIN -> $BACKEND"
+            echo "Caddy reloaded — $DOMAIN -> $BACKEND"
 
             # Quick smoke-test
             echo "=== Health check via gateway ==="
