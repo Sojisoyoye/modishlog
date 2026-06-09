@@ -43,6 +43,9 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "purchase_orders"
 
     order_number: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    supplier_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("suppliers.id", ondelete="SET NULL"), default=None, index=True
+    )
     supplier_name: Mapped[str] = mapped_column(String(255))
     supplier_contact: Mapped[str | None] = mapped_column(String(255), default=None)
     status: Mapped[OrderStatus] = mapped_column(
@@ -74,6 +77,9 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     payments: Mapped[list["OrderPayment"]] = relationship(back_populates="order")
     status_history: Mapped[list["OrderStatusHistory"]] = relationship(
         back_populates="order"
+    )
+    supplier: Mapped[None] = relationship(
+        "Supplier", foreign_keys=[supplier_id], lazy="select", viewonly=True
     )
 
     def __repr__(self) -> str:

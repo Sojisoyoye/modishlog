@@ -43,6 +43,10 @@ from src.auth.router import router as auth_router  # noqa: E402
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 
+from src.suppliers.router import router as suppliers_router  # noqa: E402
+
+app.include_router(suppliers_router, prefix="/api/v1/suppliers", tags=["suppliers"])
+
 from src.customers.router import router as customers_router  # noqa: E402
 
 app.include_router(customers_router, prefix="/api/v1/customers", tags=["customers"])
