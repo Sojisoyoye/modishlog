@@ -72,6 +72,4 @@ class MixTargetSumError(Exception):
 
     def __init__(self, total):
         self.total = total
-        super().__init__(
-            f"Mix target percentages must sum to 100, got {total}"
-        )
+        super().__init__(f"Mix target percentages must sum to 100, got {total}")

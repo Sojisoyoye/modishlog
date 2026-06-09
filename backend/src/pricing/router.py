@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_active_user
 from src.auth.models import User
 from src.core.database import get_db
+from src.fx.exceptions import FXPairNotFoundError
 from src.pricing.exceptions import (
     CrossSubsidyAnalysisError,
     ElasticityNotFoundError,
@@ -32,6 +33,8 @@ from src.pricing.schemas import (
     RecommendationRead,
     ScenarioCreate,
     ScenarioRead,
+    SellingPriceSuggestionRequest,
+    SellingPriceSuggestionResponse,
     SensitivityCalcRequest,
     SensitivityCalcResponse,
 )
@@ -47,6 +50,7 @@ from src.pricing.service import (
     get_margin_targets,
     get_mix_status,
     get_recommendations,
+    get_selling_price_suggestion,
     list_scenarios,
     save_scenario,
     sensitivity_calc,
@@ -95,9 +99,7 @@ async def generate_recommendations_endpoint(
     try:
         return await generate_recommendations(db, body.target_margin)
     except OptimizationInfeasibleError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.post(
@@ -113,13 +115,9 @@ async def apply_recommendation_endpoint(
     try:
         return await apply_recommendation(db, rec_id, current_user.id)
     except RecommendationNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except RecommendationExpiredError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.post(
@@ -135,9 +133,7 @@ async def dismiss_recommendation_endpoint(
     try:
         return await dismiss_recommendation(db, rec_id)
     except RecommendationNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -159,9 +155,7 @@ async def demand_forecast_endpoint(
         data = await calculate_demand_forecast(db, product_id, horizon_days)
         return DemandForecastResponse(**data)
     except InsufficientPriceDataError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -181,9 +175,7 @@ async def get_elasticity_endpoint(
     try:
         return await get_elasticity(db, product_id)
     except ElasticityNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.post(
@@ -197,9 +189,7 @@ async def configure_elasticity_endpoint(
     current_user: User = Depends(get_current_active_user),
 ):
     """Update elasticity coefficient for a product."""
-    return await update_elasticity_config(
-        db, product_id, body.elasticity_coefficient
-    )
+    return await update_elasticity_config(db, product_id, body.elasticity_coefficient)
 
 
 @router.get("/elasticity-impact/{product_id}")
@@ -264,9 +254,7 @@ async def upsert_mix_targets_endpoint(
         ]
         return await upsert_mix_targets(db, targets_data)
     except MixTargetSumError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("/mix-status", response_model=MixStatusResponse)
@@ -292,9 +280,7 @@ async def cross_subsidy_endpoint(
     try:
         return await analyze_cross_subsidization(db)
     except CrossSubsidyAnalysisError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -319,8 +305,31 @@ async def sensitivity_calc_endpoint(
         )
         return SensitivityCalcResponse(**data)
     except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/selling-price-suggestion", response_model=SellingPriceSuggestionResponse)
+async def selling_price_suggestion_endpoint(
+    body: SellingPriceSuggestionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the FX-adjusted minimum selling price for a given cost and margin target."""
+    try:
+        data = await get_selling_price_suggestion(
+            db,
+            product_id=body.product_id,
+            unit_cost_override=body.unit_cost_override,
+            currency=body.currency,
+            fx_rate_override=body.fx_rate_override,
+            min_margin_pct=body.min_margin_pct,
+        )
+        return SellingPriceSuggestionResponse(**data)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except FXPairNotFoundError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"No FX rate found for currency pair: {e}",
         )
 
 
