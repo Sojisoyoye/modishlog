@@ -38,64 +38,10 @@ jobs:
             echo "=== Current Caddyfile ==="
             cat "$CADDYFILE"
 
-            # Replace the api-modishlog block using brace-count matching, then
-            # re-add it with explicit CORS handling at the Caddy layer.
-            python3 - "$BACKEND" <<'PYEOF'
-import pathlib, sys
-
-CADDYFILE = "/opt/modish/Caddyfile"
-DOMAIN    = "api-modishlog.modishstandard.com"
-BACKEND   = sys.argv[1]
-
-path = pathlib.Path(CADDYFILE)
-text = path.read_text()
-
-# --- Remove the existing block for DOMAIN (handles nested braces) ---
-start = text.find(f'\n{DOMAIN}')
-if start == -1:
-    start = text.find(f'{DOMAIN}')
-
-if start != -1:
-    depth, found_open, end = 0, False, start
-    for i, ch in enumerate(text[start:]):
-        if ch == '{':
-            depth += 1
-            found_open = True
-        elif ch == '}':
-            depth -= 1
-            if found_open and depth == 0:
-                end = start + i + 1
-                break
-    text = text[:start] + text[end:]
-    print("Removed existing block")
-
-# --- Append new block with CORS preflight handling ---
-new_block = (
-    f"\n\n{DOMAIN} {{\n"
-    f"    # CORS preflight: respond before any upstream security module sees it.\n"
-    f"    @cors_preflight {{\n"
-    f"        method OPTIONS\n"
-    f"    }}\n"
-    f"    handle @cors_preflight {{\n"
-    f"        header Access-Control-Allow-Origin \"https://modishlog-staging.vercel.app\"\n"
-    f"        header Access-Control-Allow-Credentials \"true\"\n"
-    f"        header Access-Control-Allow-Methods \"GET, POST, PUT, PATCH, DELETE, OPTIONS\"\n"
-    f"        header Access-Control-Allow-Headers \"Content-Type, Authorization, X-Requested-With\"\n"
-    f"        header Access-Control-Max-Age \"3600\"\n"
-    f"        respond 204\n"
-    f"    }}\n\n"
-    f"    # All other requests: add CORS headers then proxy to backend.\n"
-    f"    handle {{\n"
-    f"        header Access-Control-Allow-Origin \"https://modishlog-staging.vercel.app\"\n"
-    f"        header Access-Control-Allow-Credentials \"true\"\n"
-    f"        reverse_proxy {BACKEND}\n"
-    f"    }}\n"
-    f"}}\n"
-)
-text = text.rstrip() + new_block
-path.write_text(text)
-print("Caddyfile updated with CORS handling")
-PYEOF
+            # Decode and run the Python update script (base64 avoids YAML indentation issues)
+            echo aW1wb3J0IHBhdGhsaWIsIHN5cwoKQ0FERFlGSUxFID0gIi9vcHQvbW9kaXNoL0NhZGR5ZmlsZSIKRE9NQUlOICAgID0gImFwaS1tb2Rpc2hsb2cubW9kaXNoc3RhbmRhcmQuY29tIgpCQUNLRU5EICAgPSBzeXMuYXJndlsxXQoKcGF0aCA9IHBhdGhsaWIuUGF0aChDQUREWUZJTEUpCnRleHQgPSBwYXRoLnJlYWRfdGV4dCgpCgojIFJlbW92ZSB0aGUgZXhpc3RpbmcgYmxvY2sgZm9yIERPTUFJTiB1c2luZyBicmFjZS1jb3VudCB3YWxraW5nCnN0YXJ0ID0gdGV4dC5maW5kKGYnXG57RE9NQUlOfScpCmlmIHN0YXJ0ID09IC0xOgogICAgc3RhcnQgPSB0ZXh0LmZpbmQoZid7RE9NQUlOfScpCgppZiBzdGFydCAhPSAtMToKICAgIGRlcHRoLCBmb3VuZF9vcGVuLCBlbmQgPSAwLCBGYWxzZSwgc3RhcnQKICAgIGZvciBpLCBjaCBpbiBlbnVtZXJhdGUodGV4dFtzdGFydDpdKToKICAgICAgICBpZiBjaCA9PSAneyc6CiAgICAgICAgICAgIGRlcHRoICs9IDEKICAgICAgICAgICAgZm91bmRfb3BlbiA9IFRydWUKICAgICAgICBlbGlmIGNoID09ICd9JzoKICAgICAgICAgICAgZGVwdGggLT0gMQogICAgICAgICAgICBpZiBmb3VuZF9vcGVuIGFuZCBkZXB0aCA9PSAwOgogICAgICAgICAgICAgICAgZW5kID0gc3RhcnQgKyBpICsgMQogICAgICAgICAgICAgICAgYnJlYWsKICAgIHRleHQgPSB0ZXh0WzpzdGFydF0gKyB0ZXh0W2VuZDpdCiAgICBwcmludCgiUmVtb3ZlZCBleGlzdGluZyBibG9jayIpCgpuZXdfYmxvY2sgPSAoCiAgICBmIlxuXG57RE9NQUlOfSB7e1xuIgogICAgZiIgICAgQGNvcnNfcHJlZmxpZ2h0IHt7XG4iCiAgICBmIiAgICAgICAgbWV0aG9kIE9QVElPTlNcbiIKICAgIGYiICAgIH19XG4iCiAgICBmIiAgICBoYW5kbGUgQGNvcnNfcHJlZmxpZ2h0IHt7XG4iCiAgICBmIiAgICAgICAgaGVhZGVyIEFjY2Vzcy1Db250cm9sLUFsbG93LU9yaWdpbiBcImh0dHBzOi8vbW9kaXNobG9nLXN0YWdpbmcudmVyY2VsLmFwcFwiXG4iCiAgICBmIiAgICAgICAgaGVhZGVyIEFjY2Vzcy1Db250cm9sLUFsbG93LUNyZWRlbnRpYWxzIFwidHJ1ZVwiXG4iCiAgICBmIiAgICAgICAgaGVhZGVyIEFjY2Vzcy1Db250cm9sLUFsbG93LU1ldGhvZHMgXCJHRVQsIFBPU1QsIFBVVCwgUEFUQ0gsIERFTEVURSwgT1BUSU9OU1wiXG4iCiAgICBmIiAgICAgICAgaGVhZGVyIEFjY2Vzcy1Db250cm9sLUFsbG93LUhlYWRlcnMgXCJDb250ZW50LVR5cGUsIEF1dGhvcml6YXRpb24sIFgtUmVxdWVzdGVkLVdpdGhcIlxuIgogICAgZiIgICAgICAgIGhlYWRlciBBY2Nlc3MtQ29udHJvbC1NYXgtQWdlIFwiMzYwMFwiXG4iCiAgICBmIiAgICAgICAgcmVzcG9uZCAyMDRcbiIKICAgIGYiICAgIH19XG5cbiIKICAgIGYiICAgIGhhbmRsZSB7e1xuIgogICAgZiIgICAgICAgIGhlYWRlciBBY2Nlc3MtQ29udHJvbC1BbGxvdy1PcmlnaW4gXCJodHRwczovL21vZGlzaGxvZy1zdGFnaW5nLnZlcmNlbC5hcHBcIlxuIgogICAgZiIgICAgICAgIGhlYWRlciBBY2Nlc3MtQ29udHJvbC1BbGxvdy1DcmVkZW50aWFscyBcInRydWVcIlxuIgogICAgZiIgICAgICAgIHJldmVyc2VfcHJveHkge0JBQ0tFTkR9XG4iCiAgICBmIiAgICB9fVxuIgogICAgZiJ9fVxuIgopCnRleHQgPSB0ZXh0LnJzdHJpcCgpICsgbmV3X2Jsb2NrCnBhdGgud3JpdGVfdGV4dCh0ZXh0KQpwcmludCgiQ2FkZHlmaWxlIHVwZGF0ZWQgd2l0aCBDT1JTIGhhbmRsaW5nIikK | base64 -d > /tmp/update_caddy.py
+            python3 /tmp/update_caddy.py "$BACKEND"
+            rm /tmp/update_caddy.py
 
             echo "=== Updated Caddyfile ==="
             cat "$CADDYFILE"
