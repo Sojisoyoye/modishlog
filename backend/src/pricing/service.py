@@ -1007,13 +1007,6 @@ async def list_scenarios(
 # ---------------------------------------------------------------------------
 
 
-async def get_current_fx_rate(db: AsyncSession, pair: str = "USDNGN"):
-    """Fetch the latest FX rate record for the given pair."""
-    from src.fx.service import get_current_rate
-
-    return await get_current_rate(db, pair)
-
-
 async def get_selling_price_suggestion(
     db: AsyncSession,
     product_id: uuid.UUID | None,
@@ -1055,8 +1048,10 @@ async def get_selling_price_suggestion(
         if fx_rate_override is not None:
             fx_rate = fx_rate_override
         else:
+            from src.fx.service import get_current_rate as _get_fx_rate
+
             pair = f"{resolved_currency}NGN"
-            rate_record = await get_current_fx_rate(db, pair)
+            rate_record = await _get_fx_rate(db, pair)
             fx_rate = rate_record.rate
         unit_cost_ngn = (unit_cost * fx_rate).quantize(Decimal("0.000001"))
 

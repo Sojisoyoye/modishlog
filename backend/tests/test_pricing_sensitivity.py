@@ -389,7 +389,7 @@ class TestSellingPriceSuggestion:
         mock_rate.rate = Decimal("1650")
 
         with patch(
-            "src.pricing.service.get_current_fx_rate",
+            "src.fx.service.get_current_rate",
             new_callable=AsyncMock,
             return_value=mock_rate,
         ):

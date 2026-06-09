@@ -1306,7 +1306,10 @@ export class ProductsPageComponent implements OnInit {
     this.loadProducts();
     this.productsService.getCategories().subscribe({ next: (cats) => this.categories.set(cats) });
     this.loadStock();
-    this.fxService.getLatest().subscribe({ next: (rate) => this.currentFxRate.set(rate.rate) });
+    this.fxService.getLatest().subscribe({
+      next: (rate) => this.currentFxRate.set(rate.rate),
+      error: () => { /* FX rate unavailable — min price hint will be hidden for foreign currencies */ },
+    });
   }
 
   private loadProducts(): void {
@@ -1370,7 +1373,8 @@ export class ProductsPageComponent implements OnInit {
     if (margin >= 100) return null;
     const fxRate = this.currentFxRate();
     const currency = this.addCurrency();
-    const costNgn = currency === 'NGN' ? cost : cost * (fxRate || 1);
+    if (currency !== 'NGN' && !fxRate) return null;
+    const costNgn = currency === 'NGN' ? cost : cost * fxRate;
     return costNgn / (1 - margin / 100);
   }
 
@@ -1381,7 +1385,8 @@ export class ProductsPageComponent implements OnInit {
     if (margin >= 100) return null;
     const fxRate = this.currentFxRate();
     const currency = this.editCurrency();
-    const costNgn = currency === 'NGN' ? cost : cost * (fxRate || 1);
+    if (currency !== 'NGN' && !fxRate) return null;
+    const costNgn = currency === 'NGN' ? cost : cost * fxRate;
     return costNgn / (1 - margin / 100);
   }
 

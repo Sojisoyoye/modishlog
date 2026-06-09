@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +215,12 @@ class SellingPriceSuggestionRequest(BaseModel):
     currency: str = Field(default="NGN", max_length=3)
     fx_rate_override: Decimal | None = Field(default=None, gt=0)
     min_margin_pct: Decimal = Field(default=Decimal("35.00"), ge=1, lt=100)
+
+    @model_validator(mode="after")
+    def require_cost_source(self) -> "SellingPriceSuggestionRequest":
+        if self.product_id is None and self.unit_cost_override is None:
+            raise ValueError("Either product_id or unit_cost_override must be provided")
+        return self
 
 
 class SellingPriceSuggestionResponse(BaseModel):

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_active_user
 from src.auth.models import User
 from src.core.database import get_db
+from src.fx.exceptions import FXPairNotFoundError
 from src.pricing.exceptions import (
     CrossSubsidyAnalysisError,
     ElasticityNotFoundError,
@@ -325,6 +326,11 @@ async def selling_price_suggestion_endpoint(
         return SellingPriceSuggestionResponse(**data)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except FXPairNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"No FX rate found for currency pair: {e}",
+        )
 
 
 @router.post(
