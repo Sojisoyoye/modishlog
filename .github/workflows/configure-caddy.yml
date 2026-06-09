@@ -18,35 +18,22 @@ jobs:
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            set -e
+            echo "=== Locating Caddy ==="
+            which caddy || true
+            caddy version || true
 
-            CADDYFILE=/etc/caddy/Caddyfile
-            DOMAIN=api-modishlog.modishstandard.com
-            BACKEND=localhost:8002
+            echo "=== Caddy process ==="
+            ps aux | grep caddy | grep -v grep || true
 
-            echo "=== Current Caddyfile ==="
-            cat "$CADDYFILE"
+            echo "=== Caddy service ==="
+            systemctl status caddy --no-pager 2>/dev/null || true
 
-            # Only add the block if it's not already there
-            if grep -q "$DOMAIN" "$CADDYFILE"; then
-              echo "✅ $DOMAIN already present in Caddyfile — skipping"
-            else
-              echo "" >> "$CADDYFILE"
-              cat >> "$CADDYFILE" <<EOF
+            echo "=== Searching for Caddyfile ==="
+            find / -name "Caddyfile" 2>/dev/null | grep -v proc || true
+            find / -name "caddy.json" 2>/dev/null | grep -v proc || true
 
-            $DOMAIN {
-                reverse_proxy $BACKEND
-            }
-            EOF
-              echo "✅ Added $DOMAIN block"
-            fi
+            echo "=== Docker containers ==="
+            docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}" || true
 
-            echo "=== Updated Caddyfile ==="
-            cat "$CADDYFILE"
-
-            # Validate config before reloading
-            caddy validate --config "$CADDYFILE"
-
-            # Reload Caddy (graceful, no downtime)
-            caddy reload --config "$CADDYFILE"
-            echo "✅ Caddy reloaded successfully"
+            echo "=== Listening ports ==="
+            ss -tlnp | grep -E "80|443|8002|8000" || netstat -tlnp | grep -E "80|443|8002|8000" || true
