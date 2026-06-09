@@ -133,9 +133,7 @@ class PaymentCreate(BaseModel):
     amount: Decimal = Field(..., gt=0)
     currency: str = "USD"
     payment_date: date
-    payment_method: str = Field(
-        ..., pattern="^(bank_transfer|lc|cash)$"
-    )
+    payment_method: str = Field(..., pattern="^(BANK_TRANSFER|LC|CASH)$")
     reference: str | None = None
     notes: str | None = None
 
