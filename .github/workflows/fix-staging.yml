@@ -19,46 +19,13 @@ jobs:
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            cat > /tmp/reset_admin.py << 'PYEOF'
-import asyncio, os
-from passlib.context import CryptContext
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy import text
-
-NEW_PASSWORD = "ModishAdmin@2024!"
-EMAIL = "admin@modishlog.com"
-
-pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-hashed = pwd_ctx.hash(NEW_PASSWORD)
-print(f"Hash generated for {EMAIL}")
-
-async def main():
-    engine = create_async_engine(os.environ["DATABASE_URL"])
-    async with engine.begin() as conn:
-        result = await conn.execute(
-            text("UPDATE users SET hashed_password = :h, failed_login_attempts = 0, locked_until = NULL WHERE email = :e"),
-            {"h": hashed, "e": EMAIL},
-        )
-        print(f"Rows updated: {result.rowcount}")
-        if result.rowcount == 0:
-            await conn.execute(
-                text("INSERT INTO users (id, email, hashed_password, full_name, is_active) VALUES (gen_random_uuid(), :e, :h, 'Admin User', true)"),
-                {"e": EMAIL, "h": hashed},
-            )
-            print("User inserted")
-    await engine.dispose()
-
-asyncio.run(main())
-print(f"Done — password set to: {NEW_PASSWORD}")
-PYEOF
-
+            echo aW1wb3J0IGFzeW5jaW8sIG9zCmZyb20gcGFzc2xpYi5jb250ZXh0IGltcG9ydCBDcnlwdENvbnRleHQKZnJvbSBzcWxhbGNoZW15LmV4dC5hc3luY2lvIGltcG9ydCBjcmVhdGVfYXN5bmNfZW5naW5lCmZyb20gc3FsYWxjaGVteSBpbXBvcnQgdGV4dAoKTkVXX1BBU1NXT1JEID0gIk1vZGlzaEFkbWluQDIwMjQhIgpFTUFJTCA9ICJhZG1pbkBtb2Rpc2hsb2cuY29tIgoKcHdkX2N0eCA9IENyeXB0Q29udGV4dChzY2hlbWVzPVsiYmNyeXB0Il0sIGRlcHJlY2F0ZWQ9ImF1dG8iKQpoYXNoZWQgPSBwd2RfY3R4Lmhhc2goTkVXX1BBU1NXT1JEKQpwcmludChmIkhhc2ggZ2VuZXJhdGVkIGZvciB7RU1BSUx9IikKCmFzeW5jIGRlZiBtYWluKCk6CiAgICBlbmdpbmUgPSBjcmVhdGVfYXN5bmNfZW5naW5lKG9zLmVudmlyb25bIkRBVEFCQVNFX1VSTCJdKQogICAgYXN5bmMgd2l0aCBlbmdpbmUuYmVnaW4oKSBhcyBjb25uOgogICAgICAgIHJlc3VsdCA9IGF3YWl0IGNvbm4uZXhlY3V0ZSgKICAgICAgICAgICAgdGV4dCgiVVBEQVRFIHVzZXJzIFNFVCBoYXNoZWRfcGFzc3dvcmQgPSA6aCwgZmFpbGVkX2xvZ2luX2F0dGVtcHRzID0gMCwgbG9ja2VkX3VudGlsID0gTlVMTCBXSEVSRSBlbWFpbCA9IDplIiksCiAgICAgICAgICAgIHsiaCI6IGhhc2hlZCwgImUiOiBFTUFJTH0sCiAgICAgICAgKQogICAgICAgIHByaW50KGYiUm93cyB1cGRhdGVkOiB7cmVzdWx0LnJvd2NvdW50fSIpCiAgICAgICAgaWYgcmVzdWx0LnJvd2NvdW50ID09IDA6CiAgICAgICAgICAgIGF3YWl0IGNvbm4uZXhlY3V0ZSgKICAgICAgICAgICAgICAgIHRleHQoIklOU0VSVCBJTlRPIHVzZXJzIChpZCwgZW1haWwsIGhhc2hlZF9wYXNzd29yZCwgZnVsbF9uYW1lLCBpc19hY3RpdmUpIFZBTFVFUyAoZ2VuX3JhbmRvbV91dWlkKCksIDplLCA6aCwgJ0FkbWluIFVzZXInLCB0cnVlKSIpLAogICAgICAgICAgICAgICAgeyJlIjogRU1BSUwsICJoIjogaGFzaGVkfSwKICAgICAgICAgICAgKQogICAgICAgICAgICBwcmludCgiVXNlciBpbnNlcnRlZCIpCiAgICBhd2FpdCBlbmdpbmUuZGlzcG9zZSgpCgphc3luY2lvLnJ1bihtYWluKCkpCnByaW50KGYiRG9uZSAtIHBhc3N3b3JkIHNldCB0bzoge05FV19QQVNTV09SRH0iKQo= | base64 -d > /tmp/reset_admin.py
             docker cp /tmp/reset_admin.py modishlog-backend:/tmp/reset_admin.py
             docker exec modishlog-backend python3 /tmp/reset_admin.py
             rm /tmp/reset_admin.py
 
       - name: Verify login works
         run: |
-          echo "=== Test login ==="
           curl -s -w "\nHTTP %{http_code}\n" \
             -X POST "${{ env.API_URL }}/api/v1/auth/login" \
             -H "Content-Type: application/json" \
