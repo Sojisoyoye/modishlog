@@ -1,6 +1,6 @@
 # ModishLog
 
-**AI-Powered Import & Trade Intelligence Platform**
+**Trade Intelligence Inventory Management Software (IMS), Stock Control Software, or an Order Management System (OMS)**
 
 A smart financial co-pilot for importers navigating currency volatility. ModishLog unifies FX forecasting, demand modelling, inventory management, cashflow monitoring, and AI-driven recommendations into a single platform.
 
