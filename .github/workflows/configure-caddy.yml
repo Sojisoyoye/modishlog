@@ -23,29 +23,49 @@ jobs:
             CADDYFILE=/opt/modish/Caddyfile
             DOMAIN=api-modishlog.modishstandard.com
 
-            # Caddy runs in Docker; reach backend via Docker bridge gateway
+            # Resolve Docker bridge gateway so Caddy can reach the backend
+            # even if the containers are not on the same Docker network.
+            # The backend exposes port 8002 on all host interfaces.
             DOCKER_GW=$(docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}')
             BACKEND="${DOCKER_GW}:8002"
+
+            echo "=== Docker gateway: $DOCKER_GW ==="
+            echo "=== Backend target: $BACKEND ==="
 
             echo "=== Current Caddyfile ==="
             cat "$CADDYFILE"
 
-            if grep -q "$DOMAIN" "$CADDYFILE"; then
-              echo "✅ $DOMAIN already present — skipping"
-            else
-              cat >> "$CADDYFILE" <<EOF
+            # Remove any existing stale block for this domain, then re-add with
+            # the correct backend address (gateway IP instead of container name).
+            python3 - <<PYEOF
+            import re, pathlib
 
-            $DOMAIN {
-                reverse_proxy $BACKEND
-            }
-            EOF
-              echo "✅ Added $DOMAIN -> $BACKEND"
-            fi
+            path = pathlib.Path("$CADDYFILE")
+            text = path.read_text()
+
+            # Strip the old block for this domain (handles multiline block)
+            text = re.sub(
+                r'\n?$DOMAIN\s*\{[^}]*\}',
+                '',
+                text,
+                flags=re.DOTALL,
+            )
+
+            # Append the corrected block
+            text = text.rstrip() + "\n\n$DOMAIN {\n    reverse_proxy $BACKEND\n}\n"
+
+            path.write_text(text)
+            print("Caddyfile updated")
+            PYEOF
 
             echo "=== Updated Caddyfile ==="
             cat "$CADDYFILE"
 
-            # Validate and reload inside the Caddy container
+            # Validate then reload inside the Caddy container
             docker exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
             docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
-            echo "✅ Caddy reloaded"
+            echo "✅ Caddy reloaded — $DOMAIN -> $BACKEND"
+
+            # Quick smoke-test
+            echo "=== Health check via gateway ==="
+            docker exec caddy wget -qO- --timeout=5 "http://$BACKEND/health" 2>&1 || true
