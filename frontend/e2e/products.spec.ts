@@ -674,3 +674,61 @@ test.describe('Currency-formatted price inputs', () => {
     await expect(row).toContainText('14,500.00');
   });
 });
+
+// ---------------------------------------------------------------------------
+// FX-aware selling price suggestion (Task: selling-price-fx-margins)
+// ---------------------------------------------------------------------------
+
+test.describe('FX-aware selling price suggestion', () => {
+  test('add form shows minimum selling price hint when unit cost is entered', async ({ page }) => {
+    await page.getByRole('button', { name: 'New Product' }).click();
+    const addForm = page.locator('#add-product-form');
+
+    await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10000');
+
+    const hint = addForm.locator('[data-testid="add-min-price-hint"]');
+    await expect(hint).toBeVisible();
+  });
+
+  test('add form min selling price updates when margin % changes', async ({ page }) => {
+    await page.getByRole('button', { name: 'New Product' }).click();
+    const addForm = page.locator('#add-product-form');
+
+    await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10000');
+
+    const marginInput = addForm.locator('[data-testid="add-min-margin-input"]');
+    await expect(marginInput).toBeVisible();
+
+    // Change margin from 35 to 50
+    await marginInput.fill('50');
+
+    const hint = addForm.locator('[data-testid="add-min-price-hint"]');
+    await expect(hint).toBeVisible();
+    // min price at 50% margin on NGN 10000 = 10000/0.50 = 20000
+    await expect(hint).toContainText('20,000');
+  });
+
+  test('add form shows warning when selling price is below minimum', async ({ page }) => {
+    await page.getByRole('button', { name: 'New Product' }).click();
+    const addForm = page.locator('#add-product-form');
+
+    await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10000');
+    // 35% min margin → min price ≈ 15385; set price below it
+    await addForm.locator('[data-testid="add-selling-price-input"]').fill('12000');
+
+    const warning = addForm.locator('[data-testid="add-price-below-min-warning"]');
+    await expect(warning).toBeVisible();
+  });
+
+  test('add form warning disappears when selling price meets minimum', async ({ page }) => {
+    await page.getByRole('button', { name: 'New Product' }).click();
+    const addForm = page.locator('#add-product-form');
+
+    await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10000');
+    // Enter a price well above the 35% min (~15385)
+    await addForm.locator('[data-testid="add-selling-price-input"]').fill('20000');
+
+    const warning = addForm.locator('[data-testid="add-price-below-min-warning"]');
+    await expect(warning).not.toBeVisible();
+  });
+});

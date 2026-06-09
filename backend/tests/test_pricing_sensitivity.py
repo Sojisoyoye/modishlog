@@ -7,7 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.pricing.service import sensitivity_calc, save_scenario, list_scenarios, MAX_SAVED_SCENARIOS
+from src.pricing.service import (
+    MAX_SAVED_SCENARIOS,
+    get_selling_price_suggestion,
+    list_scenarios,
+    save_scenario,
+    sensitivity_calc,
+)
 from src.pricing.models import PricingScenario
 
 
@@ -263,6 +269,141 @@ class TestScenarioSave:
         )
 
         assert scenario.product_id == product_id
+
+
+# ---------------------------------------------------------------------------
+# Selling price suggestion tests
+# ---------------------------------------------------------------------------
+
+
+class TestSellingPriceSuggestion:
+    @pytest.mark.asyncio
+    async def test_suggestion_ngn_currency_no_fx(self):
+        """NGN unit cost needs no FX conversion; min price = cost / (1 - margin)."""
+        db = _mock_db()
+
+        result = await get_selling_price_suggestion(
+            db,
+            product_id=None,
+            unit_cost_override=Decimal("10000"),
+            currency="NGN",
+            fx_rate_override=None,
+            min_margin_pct=Decimal("35"),
+        )
+
+        assert result["currency"] == "NGN"
+        assert result["fx_rate"] == Decimal("1")
+        assert result["unit_cost_ngn"] == Decimal("10000")
+        # min_selling_price = 10000 / (1 - 0.35) = 10000 / 0.65 ≈ 15384.615384
+        assert result["min_selling_price"] > Decimal("15384")
+        assert result["min_selling_price"] < Decimal("15385")
+        assert result["min_margin_pct"] == Decimal("35")
+
+    @pytest.mark.asyncio
+    async def test_suggestion_usd_currency_with_fx_override(self):
+        """USD unit cost is multiplied by FX rate override to get NGN cost."""
+        db = _mock_db()
+
+        result = await get_selling_price_suggestion(
+            db,
+            product_id=None,
+            unit_cost_override=Decimal("10"),
+            currency="USD",
+            fx_rate_override=Decimal("1600"),
+            min_margin_pct=Decimal("35"),
+        )
+
+        assert result["currency"] == "USD"
+        assert result["fx_rate"] == Decimal("1600")
+        assert result["unit_cost_ngn"] == Decimal("16000")
+        # min = 16000 / 0.65 ≈ 24615.38...
+        assert result["min_selling_price"] > Decimal("24615")
+        assert result["min_selling_price"] < Decimal("24616")
+
+    @pytest.mark.asyncio
+    async def test_suggestion_custom_margin(self):
+        """Custom min_margin_pct updates the suggested price accordingly."""
+        db = _mock_db()
+
+        result_50 = await get_selling_price_suggestion(
+            db,
+            product_id=None,
+            unit_cost_override=Decimal("20000"),
+            currency="NGN",
+            fx_rate_override=None,
+            min_margin_pct=Decimal("50"),
+        )
+        # min = 20000 / 0.50 = 40000
+        assert result_50["min_selling_price"] == Decimal("40000.000000")
+
+    @pytest.mark.asyncio
+    async def test_suggestion_with_product_id_ngn(self):
+        """product_id lookup uses product's unit_cost and currency."""
+        db = _mock_db()
+        product_id = uuid.uuid4()
+
+        product = MagicMock()
+        product.id = product_id
+        product.unit_cost = Decimal("5000.000000")
+        product.currency = "NGN"
+        product.selling_price = Decimal("7000.000000")
+
+        with patch(
+            "src.pricing.service._get_product",
+            new_callable=AsyncMock,
+            return_value=product,
+        ):
+            result = await get_selling_price_suggestion(
+                db,
+                product_id=product_id,
+                unit_cost_override=None,
+                currency="NGN",
+                fx_rate_override=None,
+                min_margin_pct=Decimal("35"),
+            )
+
+        assert result["unit_cost_ngn"] == Decimal("5000.000000")
+        assert result["min_selling_price"] > Decimal("7692")
+
+    @pytest.mark.asyncio
+    async def test_suggestion_margin_100_raises(self):
+        """min_margin_pct of 100 produces a division-by-zero and should raise."""
+        db = _mock_db()
+
+        with pytest.raises(ValueError, match="min_margin_pct must be less than 100"):
+            await get_selling_price_suggestion(
+                db,
+                product_id=None,
+                unit_cost_override=Decimal("1000"),
+                currency="NGN",
+                fx_rate_override=None,
+                min_margin_pct=Decimal("100"),
+            )
+
+    @pytest.mark.asyncio
+    async def test_suggestion_usd_fetches_live_rate_when_no_override(self):
+        """When no fx_rate_override and currency==USD, fetch live USDNGN rate."""
+        db = _mock_db()
+
+        mock_rate = MagicMock()
+        mock_rate.rate = Decimal("1650")
+
+        with patch(
+            "src.pricing.service.get_current_fx_rate",
+            new_callable=AsyncMock,
+            return_value=mock_rate,
+        ):
+            result = await get_selling_price_suggestion(
+                db,
+                product_id=None,
+                unit_cost_override=Decimal("20"),
+                currency="USD",
+                fx_rate_override=None,
+                min_margin_pct=Decimal("35"),
+            )
+
+        assert result["fx_rate"] == Decimal("1650")
+        assert result["unit_cost_ngn"] == Decimal("33000")
 
 
 class TestScenarioList:

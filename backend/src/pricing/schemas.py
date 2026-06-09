@@ -204,6 +204,28 @@ class SensitivityCalcResponse(BaseModel):
     gross_profit: Decimal
 
 
+# ---------------------------------------------------------------------------
+# Selling price suggestion schemas
+# ---------------------------------------------------------------------------
+
+
+class SellingPriceSuggestionRequest(BaseModel):
+    product_id: uuid.UUID | None = None
+    unit_cost_override: Decimal | None = Field(default=None, gt=0)
+    currency: str = Field(default="NGN", max_length=3)
+    fx_rate_override: Decimal | None = Field(default=None, gt=0)
+    min_margin_pct: Decimal = Field(default=Decimal("35.00"), ge=1, lt=100)
+
+
+class SellingPriceSuggestionResponse(BaseModel):
+    unit_cost: Decimal
+    currency: str
+    fx_rate: Decimal
+    unit_cost_ngn: Decimal
+    min_margin_pct: Decimal
+    min_selling_price: Decimal
+
+
 class ScenarioCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     product_id: uuid.UUID | None = None

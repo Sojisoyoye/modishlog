@@ -5,7 +5,17 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    JSON,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
