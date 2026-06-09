@@ -233,8 +233,8 @@ class TestOrderModels:
         assert po.currency == "USD"
 
     def test_order_status_enum(self):
-        assert OrderStatus.IN_PRODUCTION.value == "In Production"
-        assert OrderStatus.DELIVERED.value == "Delivered"
+        assert OrderStatus.IN_PRODUCTION.value == "IN_PRODUCTION"
+        assert OrderStatus.DELIVERED.value == "DELIVERED"
 
     def test_order_line_item(self):
         item = OrderLineItem(

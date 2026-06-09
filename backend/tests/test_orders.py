@@ -397,7 +397,7 @@ class TestTransitionStatus:
         order = _make_order(status=OrderStatus.PENDING)
         db = _mock_db_with_execute(scalar_result=order)
 
-        transition = StatusTransition(new_status="In Production")
+        transition = StatusTransition(new_status="IN_PRODUCTION")
         result = await transition_status(db, order.id, transition, uuid.uuid4())
         assert result.status == OrderStatus.IN_PRODUCTION
 
@@ -406,7 +406,7 @@ class TestTransitionStatus:
         order = _make_order(status=OrderStatus.PENDING)
         db = _mock_db_with_execute(scalar_result=order)
 
-        transition = StatusTransition(new_status="Delivered")
+        transition = StatusTransition(new_status="DELIVERED")
         with pytest.raises(InvalidStatusTransitionError):
             await transition_status(db, order.id, transition, uuid.uuid4())
 
@@ -440,7 +440,7 @@ class TestTransitionStatus:
         db.execute = mock_execute
 
         transition = StatusTransition(
-            new_status="Delivered",
+            new_status="DELIVERED",
             actual_delivery_date=date(2026, 3, 30),
         )
         result = await transition_status(db, order.id, transition, uuid.uuid4())
@@ -479,7 +479,7 @@ class TestTransitionStatus:
         db.execute = mock_execute
 
         transition = StatusTransition(
-            new_status="Delivered",
+            new_status="DELIVERED",
             actual_delivery_date=date(2026, 4, 10),
             fx_rate_at_delivery=Decimal("1620.500000"),
         )
@@ -516,7 +516,7 @@ class TestTransitionStatus:
         db.execute = mock_execute
 
         transition = StatusTransition(
-            new_status="Delivered",
+            new_status="DELIVERED",
             actual_delivery_date=date(2026, 4, 10),
         )
         result = await transition_status(db, order.id, transition, uuid.uuid4())
@@ -564,7 +564,7 @@ class TestTransitionStatus:
         db.execute = mock_execute
 
         transition = StatusTransition(
-            new_status="Delivered",
+            new_status="DELIVERED",
             actual_delivery_date=date(2026, 4, 10),
             fx_rate_at_delivery=Decimal("1650.000000"),
         )
@@ -608,7 +608,7 @@ class TestPayments:
         data = PaymentCreate(
             amount=Decimal("1500"),
             payment_date=date(2026, 3, 15),
-            payment_method="bank_transfer",
+            payment_method="BANK_TRANSFER",
         )
         payment = await record_payment(db, order.id, data, uuid.uuid4())
         assert payment.amount == Decimal("1500")
@@ -639,7 +639,7 @@ class TestPayments:
         data = PaymentCreate(
             amount=Decimal("2000"),  # would exceed balance of 1000
             payment_date=date(2026, 3, 15),
-            payment_method="bank_transfer",
+            payment_method="BANK_TRANSFER",
         )
         with pytest.raises(OverpaymentError):
             await record_payment(db, order.id, data, uuid.uuid4())
