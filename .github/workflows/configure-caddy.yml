@@ -1,0 +1,52 @@
+name: Configure Caddy on Hetzner
+
+on:
+  workflow_dispatch:
+
+env:
+  HETZNER_HOST: 178.104.122.53
+
+jobs:
+  configure-caddy:
+    name: Add api-modishlog.modishstandard.com to Caddyfile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Caddyfile and reload Caddy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            set -e
+
+            CADDYFILE=/etc/caddy/Caddyfile
+            DOMAIN=api-modishlog.modishstandard.com
+            BACKEND=localhost:8002
+
+            echo "=== Current Caddyfile ==="
+            cat "$CADDYFILE"
+
+            # Only add the block if it's not already there
+            if grep -q "$DOMAIN" "$CADDYFILE"; then
+              echo "✅ $DOMAIN already present in Caddyfile — skipping"
+            else
+              echo "" >> "$CADDYFILE"
+              cat >> "$CADDYFILE" <<EOF
+
+            $DOMAIN {
+                reverse_proxy $BACKEND
+            }
+            EOF
+              echo "✅ Added $DOMAIN block"
+            fi
+
+            echo "=== Updated Caddyfile ==="
+            cat "$CADDYFILE"
+
+            # Validate config before reloading
+            caddy validate --config "$CADDYFILE"
+
+            # Reload Caddy (graceful, no downtime)
+            caddy reload --config "$CADDYFILE"
+            echo "✅ Caddy reloaded successfully"
