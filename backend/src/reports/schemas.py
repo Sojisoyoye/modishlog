@@ -1,0 +1,69 @@
+"""Reports domain Pydantic schemas."""
+
+import uuid
+from decimal import Decimal
+
+from pydantic import BaseModel, ConfigDict
+
+
+class ProfitLossReport(BaseModel):
+    """Profit and loss summary for a given period."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    total_purchase_excl_tax: Decimal
+    purchase_returns_total: Decimal
+    total_sales: Decimal
+    gross_profit: Decimal  # total_sales - total_purchase_excl_tax
+    total_operating_costs: (
+        Decimal  # sum of monthly_equivalent from cashflow.operating_costs
+    )
+    net_profit: Decimal  # gross_profit - total_operating_costs
+    opening_stock_value: (
+        Decimal  # sum(batches.quantity_remaining * batches.landed_cost_per_unit)
+    )
+    closing_stock_value: Decimal  # same at query time (current)
+    purchase_due: Decimal  # 0 for now (placeholder)
+    sales_due: Decimal  # 0 for now (placeholder)
+
+
+class StockReportItem(BaseModel):
+    """Individual product row in a stock report."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    product_id: uuid.UUID
+    sku: str
+    product_name: str
+    category: str | None
+    unit_cost: Decimal
+    selling_price: Decimal
+    quantity_on_hand: int
+    stock_value: Decimal  # qty * unit_cost
+    potential_profit: Decimal  # (selling_price - unit_cost) * qty
+    total_sold: int  # sum of sales qty for this product
+
+
+class StockReport(BaseModel):
+    """Stock report with aggregated totals."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[StockReportItem]
+    total_stock_value: Decimal
+    total_potential_profit: Decimal
+    total_sold: int
+
+
+class PurchaseSaleReport(BaseModel):
+    """Purchase and sale summary for a given period."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    total_purchase: (
+        Decimal  # sum of purchase_orders.total_amount (is_purchase_order=False)
+    )
+    total_purchase_returns: Decimal  # sum of purchase_returns.total_amount
+    total_sales: Decimal  # sum of sales.total_amount (status=COMPLETED)
+    total_sales_returns: Decimal  # 0 placeholder
+    net_position: Decimal  # total_sales - total_purchase
