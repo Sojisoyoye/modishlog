@@ -23,8 +23,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://modishlog:${POSTGRES_PASSWORD:-modishlog_dev}@db/modishlog
       REDIS_URL: redis://redis:6379
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-modish-cliproxy-key}
-      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://cliproxy.modishstandard.com}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       CORS_ORIGINS: '["http://localhost:4200","http://localhost","https://modishlog-staging.vercel.app"]'
       ENVIRONMENT: development
     ports: ['8000:8000']

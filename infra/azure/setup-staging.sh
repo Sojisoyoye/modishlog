@@ -17,7 +17,8 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-SUBSCRIPTION_ID="8b21f152-e36b-4d53-9b88-70fc38d906bc"
+: "${AZURE_SUBSCRIPTION_ID:?Set AZURE_SUBSCRIPTION_ID (az account show --query id -o tsv)}"
+SUBSCRIPTION_ID="$AZURE_SUBSCRIPTION_ID"
 RESOURCE_GROUP="rg-modishlog-staging"
 LOCATION="germanywestcentral"
 # Reuse heimpath's existing Container App Environment — Azure student/free tier

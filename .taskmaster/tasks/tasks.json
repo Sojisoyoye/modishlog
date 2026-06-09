@@ -3275,7 +3275,7 @@
       {
         "id": "46",
         "title": "Deploy backend staging to Azure Container Apps",
-        "description": "Deploy ModishLog backend to Azure Container Apps using docker-compose.staging.yml on the student Azure subscription. Keep within free tier: 180,000 vCPU-seconds/month, 360,000 GiB-seconds/month. Use subscription 8b21f152-e36b-4d53-9b88-70fc38d906bc, region germanywestcentral.",
+        "description": "Deploy ModishLog backend to Azure Container Apps using docker-compose.staging.yml on the student Azure subscription. Keep within free tier: 180,000 vCPU-seconds/month, 360,000 GiB-seconds/month. Use region germanywestcentral.",
         "details": "1. Create docker-compose.staging.yml (backend + redis only; DB is on Neon)\n2. Create infra/azure/setup-staging.sh: az CLI script to create resource group rg-modishlog-staging, Container App Environment cae-modishlog, deploy via az containerapp compose create\n3. Configure Container App: 0.25 CPU / 0.5Gi memory, min_replicas=0 max_replicas=1 (scale to zero saves cost)\n4. Set environment variables via --env-vars: DATABASE_URL, SECRET_KEY, REDIS_URL, ENVIRONMENT=staging, CORS_ORIGINS\n5. Create GitHub Actions deploy step in deploy-staging.yml: login to Azure with AZURE_CREDENTIALS secret (same service principal as heimpath), update container image\n6. Run alembic upgrade head as a Container App Job post-deploy\n7. Output backend URL from Container App (https://modishlog-backend-staging.{env}.germanywestcentral.azurecontainerapps.io)",
         "testStrategy": "curl /health endpoint returns 200. Run pytest against staging DB URL. Verify swagger UI accessible at /docs.",
         "status": "done",
