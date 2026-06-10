@@ -599,7 +599,9 @@ import { FxService } from '../../../core/services/fx.service';
         <div class="rounded-lg border border-gray-200 p-4">
           <p class="mb-1 text-sm font-semibold text-text">Step 1 — Download the template</p>
           <p class="mb-3 text-xs text-muted">
-            Fill in one row per line item. Leave supplier_name blank to continue the previous order.
+            One row per product. Order-level fields (shipping, discount, tax…) go on the
+            <strong>first row</strong> of each order only — leave them blank on subsequent rows
+            for the same order. Start a new order by filling in <code>supplier_name</code> again.
           </p>
           <a
             [href]="templateUrl"
