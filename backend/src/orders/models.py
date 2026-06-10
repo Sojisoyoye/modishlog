@@ -4,9 +4,13 @@ import enum
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from src.suppliers.models import Supplier
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
 
@@ -62,12 +66,8 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     )
     expected_delivery_date: Mapped[date | None] = mapped_column(Date, default=None)
     actual_delivery_date: Mapped[date | None] = mapped_column(Date, default=None)
-    shipping_cost: Mapped[Decimal] = mapped_column(
-        Numeric(18, 6), default=Decimal("0")
-    )
-    clearing_cost: Mapped[Decimal] = mapped_column(
-        Numeric(18, 6), default=Decimal("0")
-    )
+    shipping_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=Decimal("0"))
+    clearing_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=Decimal("0"))
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
 
@@ -78,8 +78,8 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     status_history: Mapped[list["OrderStatusHistory"]] = relationship(
         back_populates="order"
     )
-    supplier: Mapped[None] = relationship(
-        "Supplier", foreign_keys=[supplier_id], lazy="select", viewonly=True
+    supplier: Mapped["Supplier | None"] = relationship(
+        "Supplier", foreign_keys=[supplier_id], lazy="raise", viewonly=True
     )
 
     def __repr__(self) -> str:

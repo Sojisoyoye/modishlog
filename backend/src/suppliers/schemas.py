@@ -6,6 +6,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.suppliers.models import PayTermType
+
 
 class SupplierCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -21,7 +23,7 @@ class SupplierCreate(BaseModel):
     country: str | None = None
     zip_code: str | None = Field(None, max_length=20)
     pay_term_number: int | None = Field(None, ge=1)
-    pay_term_type: str | None = None
+    pay_term_type: PayTermType | None = None
     opening_balance: Decimal = Field(default=Decimal("0"), ge=0)
     notes: str | None = None
 
@@ -40,7 +42,7 @@ class SupplierUpdate(BaseModel):
     country: str | None = None
     zip_code: str | None = Field(None, max_length=20)
     pay_term_number: int | None = Field(None, ge=1)
-    pay_term_type: str | None = None
+    pay_term_type: PayTermType | None = None
     opening_balance: Decimal | None = Field(None, ge=0)
     notes: str | None = None
     is_active: bool | None = None

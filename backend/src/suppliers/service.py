@@ -1,7 +1,6 @@
 """Suppliers domain business logic."""
 
 import uuid
-from datetime import datetime, timezone
 from decimal import Decimal
 
 import structlog
@@ -10,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.suppliers.exceptions import SupplierNotFoundError
-from src.suppliers.models import PayTermType, Supplier
+from src.suppliers.models import Supplier
 from src.suppliers.schemas import (
     ActivityEntry,
     LedgerEntry,
@@ -27,10 +26,6 @@ async def create_supplier(
     data: SupplierCreate,
     user_id: uuid.UUID,
 ) -> Supplier:
-    pay_term_type = None
-    if data.pay_term_type:
-        pay_term_type = PayTermType(data.pay_term_type)
-
     supplier = Supplier(
         name=data.name,
         contact_person=data.contact_person,
@@ -45,7 +40,7 @@ async def create_supplier(
         country=data.country,
         zip_code=data.zip_code,
         pay_term_number=data.pay_term_number,
-        pay_term_type=pay_term_type,
+        pay_term_type=data.pay_term_type,
         opening_balance=data.opening_balance,
         notes=data.notes,
         is_active=True,
@@ -53,7 +48,9 @@ async def create_supplier(
     )
     db.add(supplier)
     await db.flush()
-    await logger.ainfo("supplier_created", supplier_id=str(supplier.id), name=supplier.name)
+    await logger.ainfo(
+        "supplier_created", supplier_id=str(supplier.id), name=supplier.name
+    )
     return supplier
 
 
@@ -107,8 +104,6 @@ async def update_supplier(
     supplier = await get_supplier(db, supplier_id)
     update_fields = data.model_dump(exclude_unset=True)
     for field, value in update_fields.items():
-        if field == "pay_term_type" and value is not None:
-            value = PayTermType(value)
         setattr(supplier, field, value)
     await db.flush()
     await logger.ainfo("supplier_updated", supplier_id=str(supplier_id))
@@ -136,7 +131,7 @@ async def get_supplier_ledger(
     supplier_id: uuid.UUID,
 ) -> list[LedgerEntry]:
     """Build a running debit/credit ledger for the supplier from orders and payments."""
-    from src.orders.models import OrderPayment, PurchaseOrder
+    from src.orders.models import PurchaseOrder
 
     orders_result = await db.execute(
         select(PurchaseOrder)
@@ -199,7 +194,7 @@ async def get_supplier_stock_report(
     supplier_id: uuid.UUID,
 ) -> list[StockReportItem]:
     """Products with current stock that were sourced from this supplier."""
-    from src.inventory.models import InventoryBatch, InventoryLevel
+    from src.inventory.models import InventoryLevel
     from src.orders.models import OrderLineItem, PurchaseOrder
     from src.products.models import Product
 
@@ -240,7 +235,7 @@ async def get_supplier_activities(
     supplier_id: uuid.UUID,
 ) -> list[ActivityEntry]:
     """Timeline of all activity for a supplier — purchases and payments."""
-    from src.orders.models import OrderPayment, PurchaseOrder
+    from src.orders.models import PurchaseOrder
 
     orders_result = await db.execute(
         select(PurchaseOrder)

@@ -288,9 +288,7 @@ class TestSupplierStockReport:
         supplier_id = uuid.uuid4()
         db = _mock_db()
         mock_result = MagicMock()
-        scalars_mock = MagicMock()
-        scalars_mock.all.return_value = []
-        mock_result.scalars.return_value = scalars_mock
+        mock_result.all.return_value = []
         db.execute = AsyncMock(return_value=mock_result)
 
         result = await get_supplier_stock_report(db, supplier_id)

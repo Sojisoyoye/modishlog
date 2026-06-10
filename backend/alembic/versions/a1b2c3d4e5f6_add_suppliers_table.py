@@ -40,7 +40,7 @@ def upgrade() -> None:
         ),
         sa.Column(
             "opening_balance",
-            sa.Numeric(18, 2),
+            sa.Numeric(18, 6),
             nullable=False,
             server_default="0",
         ),
@@ -70,7 +70,7 @@ def upgrade() -> None:
         sa.Column("supplier_id", sa.UUID(), nullable=False),
         sa.Column("product_id", sa.UUID(), nullable=False),
         sa.Column("is_default", sa.Boolean(), nullable=False, server_default="false"),
-        sa.Column("unit_cost", sa.Numeric(18, 2), nullable=True),
+        sa.Column("unit_cost", sa.Numeric(18, 6), nullable=True),
         sa.Column("lead_time_days", sa.Integer(), nullable=True),
         sa.ForeignKeyConstraint(
             ["supplier_id"], ["suppliers.id"], ondelete="CASCADE"

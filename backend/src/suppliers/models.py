@@ -2,8 +2,18 @@
 
 import enum
 import uuid
+from decimal import Decimal
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -36,7 +46,9 @@ class Supplier(UUIDMixin, TimestampMixin, Base):
         Enum(PayTermType, values_callable=lambda x: [e.value for e in x]),
         default=None,
     )
-    opening_balance: Mapped[float] = mapped_column(Numeric(18, 2), default=0)
+    opening_balance: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6), default=Decimal("0")
+    )
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
@@ -60,10 +72,12 @@ class SupplierProduct(UUIDMixin, Base):
     )
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
-    unit_cost: Mapped[float | None] = mapped_column(Numeric(18, 2), default=None)
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), default=None)
     lead_time_days: Mapped[int | None] = mapped_column(Integer, default=None)
 
     supplier: Mapped["Supplier"] = relationship(back_populates="products")
 
     def __repr__(self) -> str:
-        return f"<SupplierProduct(supplier={self.supplier_id}, product={self.product_id})>"
+        return (
+            f"<SupplierProduct(supplier={self.supplier_id}, product={self.product_id})>"
+        )
