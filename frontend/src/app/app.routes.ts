@@ -85,6 +85,13 @@ export const routes: Routes = [
             (m) => m.SettingsPageComponent,
           ),
       },
+      {
+        path: 'settings/invoice-schemes',
+        loadComponent: () =>
+          import('./features/settings/pages/invoice-schemes-page.component').then(
+            (m) => m.InvoiceSchemesPageComponent,
+          ),
+      },
     ],
   },
   {

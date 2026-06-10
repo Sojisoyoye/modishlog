@@ -79,6 +79,10 @@ from src.reports.router import router as reports_router  # noqa: E402
 
 app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
 
+from src.invoice_schemes.router import router as invoice_schemes_router  # noqa: E402
+
+app.include_router(invoice_schemes_router, prefix="/api/v1/invoice-schemes", tags=["invoice-schemes"])
+
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
