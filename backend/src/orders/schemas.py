@@ -251,3 +251,19 @@ class LogisticsEfficiencyResponse(BaseModel):
     amber_threshold_pct: Decimal
     red_threshold_pct: Decimal
     status: str  # "healthy", "amber", "red"
+
+
+# ---------------------------------------------------------------------------
+# Bulk import schemas
+# ---------------------------------------------------------------------------
+
+
+class ImportRowError(BaseModel):
+    row: int
+    message: str
+
+
+class BulkImportResult(BaseModel):
+    created: int
+    orders: list[OrderRead]
+    errors: list[ImportRowError]

@@ -10,6 +10,8 @@ import {
   OrdersService,
   Order,
   CreateOrderPayload,
+  BulkImportResult,
+  ImportRowError,
 } from '../../../core/services/orders.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
 import { FxService } from '../../../core/services/fx.service';
@@ -26,12 +28,20 @@ import { FxService } from '../../../core/services/fx.service';
           <h2 class="text-2xl font-bold text-text">Orders</h2>
           <p class="mt-1 text-sm text-muted">Track purchase orders and pipeline</p>
         </div>
-        <button
-          (click)="showCreate = true"
-          class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
-        >
-          <i class="pi pi-plus text-sm"></i> New Order
-        </button>
+        <div class="flex gap-2">
+          <button
+            (click)="openImportDialog()"
+            class="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-text shadow-sm transition-all hover:bg-gray-50"
+          >
+            <i class="pi pi-upload text-sm"></i> Import Orders
+          </button>
+          <button
+            (click)="showCreate = true"
+            class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+          >
+            <i class="pi pi-plus text-sm"></i> New Order
+          </button>
+        </div>
       </div>
 
       <!-- Pipeline View -->
@@ -575,6 +585,96 @@ import { FxService } from '../../../core/services/fx.service';
         </button>
       </div>
     </p-dialog>
+
+    <!-- Import Orders Dialog -->
+    <p-dialog
+      header="Import Orders"
+      [(visible)]="showImport"
+      [modal]="true"
+      [style]="{ width: '520px' }"
+      [breakpoints]="{ '768px': '95vw' }"
+    >
+      <div class="space-y-5">
+        <!-- Step 1: Download template -->
+        <div class="rounded-lg border border-gray-200 p-4">
+          <p class="mb-1 text-sm font-semibold text-text">Step 1 — Download the template</p>
+          <p class="mb-3 text-xs text-muted">
+            Fill in one row per line item. Leave supplier_name blank to continue the previous order.
+          </p>
+          <a
+            [href]="templateUrl"
+            download="orders_import_template.csv"
+            class="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-text transition-colors hover:bg-gray-50"
+          >
+            <i class="pi pi-download text-sm"></i> Download Template (CSV)
+          </a>
+        </div>
+
+        <!-- Step 2: Upload file -->
+        <div class="rounded-lg border border-gray-200 p-4">
+          <p class="mb-1 text-sm font-semibold text-text">Step 2 — Upload your file</p>
+          <p class="mb-3 text-xs text-muted">Accepts .csv and .xlsx files.</p>
+          <label
+            class="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 p-6 text-center transition-colors hover:border-primary hover:bg-primary/5"
+            (dragover)="$event.preventDefault()"
+            (drop)="onFileDrop($event)"
+          >
+            <i class="pi pi-file-import mb-2 text-2xl text-muted"></i>
+            @if (importFile()) {
+              <p class="text-sm font-medium text-text">{{ importFile()!.name }}</p>
+              <p class="text-xs text-muted">{{ importRowCount() }} row(s) detected</p>
+            } @else {
+              <p class="text-sm text-muted">Click or drag a file here</p>
+            }
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              class="hidden"
+              (change)="onFileSelect($event)"
+            />
+          </label>
+        </div>
+
+        <!-- Error table -->
+        @if (importErrors().length > 0) {
+          <div class="rounded-lg border border-red-200 bg-red-50 p-3">
+            <p class="mb-2 text-sm font-semibold text-red-700">
+              Import failed — {{ importErrors().length }} error(s):
+            </p>
+            <div class="max-h-40 overflow-y-auto">
+              <table class="min-w-full text-xs">
+                <thead>
+                  <tr>
+                    <th class="pr-4 text-left font-semibold text-red-700">Row</th>
+                    <th class="text-left font-semibold text-red-700">Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (err of importErrors(); track err.row) {
+                    <tr>
+                      <td class="pr-4 text-red-600">{{ err.row }}</td>
+                      <td class="text-red-600">{{ err.message }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        }
+
+        <button
+          (click)="submitImport()"
+          [disabled]="!importFile() || importing()"
+          class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+        >
+          @if (importing()) {
+            <i class="pi pi-spinner pi-spin text-sm"></i> Importing...
+          } @else {
+            <i class="pi pi-check text-sm"></i> Submit Import
+          }
+        </button>
+      </div>
+    </p-dialog>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -591,6 +691,14 @@ export class OrdersPageComponent implements OnInit {
   detailVisible = false;
   showCreate = false;
   creating = signal(false);
+
+  // Import state
+  showImport = false;
+  importFile = signal<File | null>(null);
+  importRowCount = signal(0);
+  importing = signal(false);
+  importErrors = signal<ImportRowError[]>([]);
+  readonly templateUrl = this.ordersService.getImportTemplateUrl();
   deliveryFxRate: number | null = null;
 
   fxScenarios = computed(() => {
@@ -834,6 +942,70 @@ export class OrdersPageComponent implements OnInit {
           summary: 'Error',
           detail: 'Failed to export orders CSV',
         });
+      },
+    });
+  }
+
+  openImportDialog(): void {
+    this.importFile.set(null);
+    this.importRowCount.set(0);
+    this.importErrors.set([]);
+    this.showImport = true;
+  }
+
+  onFileSelect(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    this.setImportFile(file);
+  }
+
+  onFileDrop(event: DragEvent): void {
+    event.preventDefault();
+    const file = event.dataTransfer?.files[0] ?? null;
+    this.setImportFile(file);
+  }
+
+  private setImportFile(file: File | null): void {
+    this.importFile.set(file);
+    this.importErrors.set([]);
+    if (!file) {
+      this.importRowCount.set(0);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = (e.target?.result as string) ?? '';
+      const lines = text.split('\n').filter((l) => l.trim().length > 0);
+      this.importRowCount.set(Math.max(0, lines.length - 1)); // subtract header
+    };
+    reader.readAsText(file);
+  }
+
+  submitImport(): void {
+    const file = this.importFile();
+    if (!file) return;
+    this.importing.set(true);
+    this.importErrors.set([]);
+    this.ordersService.importOrders(file).subscribe({
+      next: (result: BulkImportResult) => {
+        this.importing.set(false);
+        if (result.errors.length > 0) {
+          this.importErrors.set(result.errors);
+        } else {
+          this.showImport = false;
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Import complete',
+            detail: `${result.created} order(s) created successfully`,
+          });
+          this.loadOrders();
+        }
+      },
+      error: (err) => {
+        this.importing.set(false);
+        const detail =
+          err?.error?.detail ?? 'Failed to import orders. Check the file format.';
+        this.messageService.add({ severity: 'error', summary: 'Import failed', detail });
       },
     });
   }
