@@ -78,6 +78,34 @@ export const routes: Routes = [
             (m) => m.SettingsPageComponent,
           ),
       },
+      {
+        path: 'reports',
+        loadComponent: () =>
+          import('./features/reports/pages/reports-index.component').then(
+            (m) => m.ReportsIndexComponent,
+          ),
+      },
+      {
+        path: 'reports/profit-loss',
+        loadComponent: () =>
+          import('./features/reports/pages/profit-loss-page.component').then(
+            (m) => m.ProfitLossPageComponent,
+          ),
+      },
+      {
+        path: 'reports/stock',
+        loadComponent: () =>
+          import('./features/reports/pages/stock-report-page.component').then(
+            (m) => m.StockReportPageComponent,
+          ),
+      },
+      {
+        path: 'reports/purchase-sale',
+        loadComponent: () =>
+          import('./features/reports/pages/purchase-sale-page.component').then(
+            (m) => m.PurchaseSalePageComponent,
+          ),
+      },
     ],
   },
   {
