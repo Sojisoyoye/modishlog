@@ -24,7 +24,10 @@ from src.orders.exceptions import (
     OverpaymentError,
     PaymentNotFoundError,
 )
+from fastapi import File, UploadFile
+
 from src.orders.schemas import (
+    BulkImportResult,
     LogisticsEfficiencyResponse,
     OrderCreate,
     OrderDetailRead,
@@ -41,6 +44,7 @@ from src.orders.schemas import (
     StatusTransition,
 )
 from src.orders.service import (
+    build_import_template_csv,
     cancel_order,
     convert_po_to_purchase,
     create_order,
@@ -51,6 +55,7 @@ from src.orders.service import (
     get_overdue_orders,
     get_payment_summary,
     get_status_history,
+    import_orders_from_file,
     list_orders,
     list_payments,
     record_payment,
@@ -101,6 +106,49 @@ async def list_orders_endpoint(
         page_size=page_size,
     )
     return OrderListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/import/template")
+async def get_import_template_endpoint():
+    """Download a CSV template with all supported import columns and an example row."""
+    content = build_import_template_csv()
+    return StreamingResponse(
+        iter([content]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=orders_import_template.csv"
+        },
+    )
+
+
+@router.post("/import", response_model=BulkImportResult, status_code=status.HTTP_200_OK)
+async def import_orders_endpoint(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Import multiple purchase orders from a CSV or Excel file."""
+    allowed = {
+        "text/csv",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "application/octet-stream",
+    }
+    if file.content_type and file.content_type not in allowed:
+        # Check by extension as browsers sometimes send wrong content-type
+        fname = (file.filename or "").lower()
+        if not (
+            fname.endswith(".csv") or fname.endswith(".xlsx") or fname.endswith(".xls")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Only CSV and Excel (.xlsx) files are supported",
+            )
+
+    file_bytes = await file.read()
+    return await import_orders_from_file(
+        db, file_bytes, file.filename or "upload.csv", current_user.id
+    )
 
 
 @router.get("/logistics-efficiency", response_model=LogisticsEfficiencyResponse)

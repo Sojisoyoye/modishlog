@@ -140,6 +140,30 @@ export class OrdersService {
       responseType: 'blob',
     });
   }
+
+  getImportTemplateUrl(): string {
+    return `${environment.apiBaseUrl}/orders/import/template`;
+  }
+
+  importOrders(file: File): Observable<BulkImportResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.http.post<BulkImportResult>(
+      `${environment.apiBaseUrl}/orders/import`,
+      formData,
+    );
+  }
+}
+
+export interface ImportRowError {
+  row: number;
+  message: string;
+}
+
+export interface BulkImportResult {
+  created: number;
+  orders: Order[];
+  errors: ImportRowError[];
 }
 
 export interface LogisticsEfficiency {

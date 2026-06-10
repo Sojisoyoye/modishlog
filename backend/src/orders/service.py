@@ -1,5 +1,7 @@
 """Orders domain business logic."""
 
+import csv
+import io
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
@@ -20,17 +22,22 @@ from src.orders.exceptions import (
     PaymentNotFoundError,
 )
 from src.orders.models import (
+    DiscountType,
     OrderLineItem,
     OrderPayment,
     OrderStatus,
     OrderStatusHistory,
     PaymentMethod,
     PaymentStatus,
+    PayTermType,
     PurchaseOrder,
     PurchaseReturn,
 )
 from src.orders.schemas import (
+    BulkImportResult,
+    ImportRowError,
     OrderCreate,
+    OrderLineItemCreate,
     OrderUpdate,
     PaymentCreate,
     PaymentSummary,
@@ -916,3 +923,329 @@ async def create_purchase_return(
         total=str(total_amount),
     )
     return purchase_return
+
+
+# ---------------------------------------------------------------------------
+# Bulk order import
+# ---------------------------------------------------------------------------
+
+_REQUIRED_IMPORT_COLS = {
+    "supplier_name",
+    "currency",
+    "line_item_sku",
+    "line_item_quantity",
+    "line_item_unit_cost",
+}
+
+
+def build_import_template_csv() -> str:
+    """Return a CSV string with headers and one example row."""
+    ordered_cols = [
+        "supplier_name",
+        "currency",
+        "line_item_sku",
+        "line_item_quantity",
+        "line_item_unit_cost",
+        "supplier_contact",
+        "is_purchase_order",
+        "pay_term_number",
+        "pay_term_type",
+        "shipping_cost",
+        "clearing_cost",
+        "notes",
+        "discount_type",
+        "discount_amount",
+        "tax_rate",
+        "supplier_invoice_number",
+        "supplier_invoice_date",
+    ]
+    example = {
+        "supplier_name": "Acme Imports Ltd",
+        "currency": "USD",
+        "line_item_sku": "SKU-001",
+        "line_item_quantity": "10",
+        "line_item_unit_cost": "25.00",
+        "supplier_contact": "Jane Doe",
+        "is_purchase_order": "FALSE",
+        "pay_term_number": "30",
+        "pay_term_type": "days",
+        "shipping_cost": "500.00",
+        "clearing_cost": "200.00",
+        "notes": "Urgent order",
+        "discount_type": "percentage",
+        "discount_amount": "5",
+        "tax_rate": "7.5",
+        "supplier_invoice_number": "INV-2026-001",
+        "supplier_invoice_date": "2026-06-15",
+    }
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=ordered_cols)
+    writer.writeheader()
+    writer.writerow(example)
+    return buf.getvalue()
+
+
+def _opt_decimal(val: str) -> Decimal | None:
+    v = val.strip() if val else ""
+    if not v:
+        return None
+    try:
+        return Decimal(v)
+    except Exception:
+        return None
+
+
+def _opt_int(val: str) -> int | None:
+    v = val.strip() if val else ""
+    if not v:
+        return None
+    try:
+        return int(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def _opt_str(val: str) -> str | None:
+    v = val.strip() if val else ""
+    return v or None
+
+
+def _opt_date(val: str) -> date | None:
+    v = val.strip() if val else ""
+    if not v:
+        return None
+    try:
+        return date.fromisoformat(v)
+    except ValueError:
+        return None
+
+
+def _parse_csv_bytes(file_bytes: bytes) -> list[dict[str, str]]:
+    text = file_bytes.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    return list(reader)
+
+
+def _parse_xlsx_bytes(file_bytes: bytes) -> list[dict[str, str]]:
+    import openpyxl  # local import — optional dependency already in requirements
+
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+    headers = [str(c).strip() if c is not None else "" for c in rows[0]]
+    result = []
+    for raw_row in rows[1:]:
+        row_dict = {
+            headers[i]: (str(v).strip() if v is not None else "")
+            for i, v in enumerate(raw_row)
+            if i < len(headers)
+        }
+        result.append(row_dict)
+    return result
+
+
+async def import_orders_from_file(
+    db: AsyncSession,
+    file_bytes: bytes,
+    filename: str,
+    user_id: uuid.UUID,
+) -> BulkImportResult:
+    """Parse CSV or XLSX bytes and create multiple purchase orders.
+
+    Groups consecutive rows by supplier_name (empty = continue previous order).
+    Never partially commits — if any error exists no orders are created.
+    Invalid values for optional numeric/date fields are silently treated as absent.
+    """
+
+    errors: list[ImportRowError] = []
+
+    if not file_bytes:
+        return BulkImportResult(
+            created=0,
+            orders=[],
+            errors=[ImportRowError(row=0, message="File is empty")],
+        )
+
+    # Parse file
+    lower = filename.lower()
+    if lower.endswith(".xlsx") or lower.endswith(".xls"):
+        raw_rows = _parse_xlsx_bytes(file_bytes)
+    else:
+        raw_rows = _parse_csv_bytes(file_bytes)
+
+    if not raw_rows:
+        return BulkImportResult(
+            created=0,
+            orders=[],
+            errors=[ImportRowError(row=0, message="File has no data rows")],
+        )
+
+    # Validate required columns present
+    headers = set(raw_rows[0].keys())
+    missing = _REQUIRED_IMPORT_COLS - headers
+    if missing:
+        return BulkImportResult(
+            created=0,
+            orders=[],
+            errors=[
+                ImportRowError(
+                    row=0,
+                    message=f"Missing required columns: {', '.join(sorted(missing))}",
+                )
+            ],
+        )
+
+    # Group rows into orders by supplier_name
+    groups: list[list[tuple[int, dict]]] = []
+    for i, row in enumerate(raw_rows, start=2):  # row 1 = header
+        supplier = row.get("supplier_name", "").strip()
+        if supplier:
+            groups.append([(i, row)])
+        elif groups:
+            groups[-1].append((i, row))
+        else:
+            errors.append(
+                ImportRowError(
+                    row=i,
+                    message="Row has no supplier_name and no preceding order to attach to",
+                )
+            )
+
+    if not groups and not errors:
+        return BulkImportResult(
+            created=0,
+            orders=[],
+            errors=[ImportRowError(row=0, message="No order rows found")],
+        )
+
+    # Validate and resolve each group
+    order_creates = []
+    for group in groups:
+        first_row_num, first_row = group[0]
+        header_row = first_row
+
+        line_items = []
+        for row_num, row in group:
+            sku = row.get("line_item_sku", "").strip()
+            if not sku:
+                errors.append(
+                    ImportRowError(row=row_num, message="line_item_sku is required")
+                )
+                continue
+
+            # Resolve SKU → product_id
+            result = await db.execute(select(Product).where(Product.sku == sku))
+            product = result.scalar_one_or_none()
+            if product is None:
+                errors.append(
+                    ImportRowError(
+                        row=row_num, message=f"Product SKU '{sku}' not found"
+                    )
+                )
+                continue
+
+            qty_str = row.get("line_item_quantity", "").strip()
+            cost_str = row.get("line_item_unit_cost", "").strip()
+            try:
+                qty = int(qty_str)
+                if qty <= 0:
+                    raise ValueError("must be positive")
+            except (ValueError, TypeError):
+                errors.append(
+                    ImportRowError(
+                        row=row_num,
+                        message=f"line_item_quantity '{qty_str}' must be a positive integer",
+                    )
+                )
+                continue
+            try:
+                unit_cost = Decimal(cost_str)
+                if unit_cost <= 0:
+                    raise ValueError("must be positive")
+            except Exception:
+                errors.append(
+                    ImportRowError(
+                        row=row_num,
+                        message=f"line_item_unit_cost '{cost_str}' must be a positive number",
+                    )
+                )
+                continue
+
+            line_items.append(
+                {"product_id": product.id, "quantity": qty, "unit_cost": unit_cost}
+            )
+
+        if not line_items and not errors:
+            errors.append(
+                ImportRowError(
+                    row=first_row_num,
+                    message=f"Order for '{header_row.get('supplier_name')}' has no valid line items",
+                )
+            )
+            continue
+
+        if errors:
+            continue  # collect all errors before bailing
+
+        # Build OrderCreate data
+        is_po_str = header_row.get("is_purchase_order", "").strip().upper()
+        is_po = is_po_str == "TRUE"
+
+        pt_raw = _opt_str(header_row.get("pay_term_type", ""))
+        dt_raw = _opt_str(header_row.get("discount_type", ""))
+
+        pay_term_type = (
+            PayTermType(pt_raw) if pt_raw in (e.value for e in PayTermType) else None
+        )
+        discount_type = (
+            DiscountType(dt_raw) if dt_raw in (e.value for e in DiscountType) else None
+        )
+
+        order_data = OrderCreate(
+            supplier_name=header_row["supplier_name"].strip(),
+            supplier_contact=_opt_str(header_row.get("supplier_contact", "")),
+            currency=header_row.get("currency", "USD").strip() or "USD",
+            is_purchase_order=is_po,
+            pay_term_number=_opt_int(header_row.get("pay_term_number", "")),
+            pay_term_type=pay_term_type,
+            shipping_cost=_opt_decimal(header_row.get("shipping_cost", ""))
+            or Decimal("0"),
+            clearing_cost=_opt_decimal(header_row.get("clearing_cost", ""))
+            or Decimal("0"),
+            notes=_opt_str(header_row.get("notes", "")),
+            discount_type=discount_type,
+            discount_amount=_opt_decimal(header_row.get("discount_amount", ""))
+            or Decimal("0"),
+            tax_rate=_opt_decimal(header_row.get("tax_rate", "")),
+            supplier_invoice_number=_opt_str(
+                header_row.get("supplier_invoice_number", "")
+            ),
+            supplier_invoice_date=_opt_date(
+                header_row.get("supplier_invoice_date", "")
+            ),
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=li["product_id"],
+                    quantity=li["quantity"],
+                    unit_cost=li["unit_cost"],
+                )
+                for li in line_items
+            ],
+        )
+        order_creates.append(order_data)
+
+    if errors:
+        return BulkImportResult(created=0, orders=[], errors=errors)
+
+    # Create all orders
+    created_orders = []
+    for order_data in order_creates:
+        order = await create_order(db, order_data, user_id)
+        created_orders.append(order)
+
+    await logger.ainfo("bulk_import_complete", created=len(created_orders))
+    return BulkImportResult(
+        created=len(created_orders), orders=created_orders, errors=[]
+    )
