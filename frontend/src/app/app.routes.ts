@@ -92,6 +92,13 @@ export const routes: Routes = [
             (m) => m.InvoiceSchemesPageComponent,
           ),
       },
+      {
+        path: 'settings/locations',
+        loadComponent: () =>
+          import('./features/settings/pages/locations-page.component').then(
+            (m) => m.LocationsPageComponent,
+          ),
+      },
     ],
   },
   {
