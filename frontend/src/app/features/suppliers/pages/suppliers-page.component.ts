@@ -633,9 +633,14 @@ export class SuppliersPageComponent implements OnInit {
     this.saving.set(true);
     const existing = this.editingSupplier();
 
+    const payload: SupplierCreate = {
+      ...this.form,
+      pay_term_type: this.form.pay_term_type || null,
+    };
+
     const req$ = existing
-      ? this.suppliersService.update(existing.id, this.form)
-      : this.suppliersService.create(this.form);
+      ? this.suppliersService.update(existing.id, payload)
+      : this.suppliersService.create(payload);
 
     req$.subscribe({
       next: () => {
