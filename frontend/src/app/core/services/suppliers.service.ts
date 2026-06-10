@@ -65,6 +65,14 @@ export interface ActivityEntry {
   reference: string | null;
 }
 
+export interface SupplierPurchase {
+  id: string;
+  order_number: string;
+  status: string;
+  total_amount: number;
+  created_at: string;
+}
+
 export interface StockReportItem {
   product_id: string;
   sku: string;
@@ -94,8 +102,8 @@ export class SuppliersService {
     return this.api.patch<Supplier>(`/suppliers/${id}`, data);
   }
 
-  getPurchases(id: string): Observable<{ items: unknown[]; total: number }> {
-    return this.api.get<{ items: unknown[]; total: number }>(`/suppliers/${id}/purchases`);
+  getPurchases(id: string): Observable<{ items: SupplierPurchase[]; total: number }> {
+    return this.api.get<{ items: SupplierPurchase[]; total: number }>(`/suppliers/${id}/purchases`);
   }
 
   getLedger(id: string): Observable<LedgerEntry[]> {

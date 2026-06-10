@@ -15,6 +15,7 @@ import {
   Supplier,
   SupplierCreate,
   SupplierUpdate,
+  SupplierPurchase,
   LedgerEntry,
   ActivityEntry,
   StockReportItem,
@@ -403,12 +404,12 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
-                  @for (p of supplierPurchases(); track p['id']) {
+                  @for (p of supplierPurchases(); track p.id) {
                     <tr>
-                      <td class="px-3 py-2 font-medium text-secondary">{{ p['order_number'] }}</td>
-                      <td class="px-3 py-2 text-muted">{{ asStr(p['created_at']) | date: 'mediumDate' }}</td>
-                      <td class="px-3 py-2">{{ asStr(p['status']) }}</td>
-                      <td class="px-3 py-2 text-right font-semibold">{{ asNum(p['total_amount']) | number: '1.2-2' }}</td>
+                      <td class="px-3 py-2 font-medium text-secondary">{{ p.order_number }}</td>
+                      <td class="px-3 py-2 text-muted">{{ p.created_at | date: 'mediumDate' }}</td>
+                      <td class="px-3 py-2">{{ p.status }}</td>
+                      <td class="px-3 py-2 text-right font-semibold">{{ p.total_amount | number: '1.2-2' }}</td>
                     </tr>
                   }
                 </tbody>
@@ -461,7 +462,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                 <i class="pi pi-spinner pi-spin mr-2"></i>Loading...
               </p>
             } @else if (supplierActivities().length === 0) {
-              <p class="py-8 text-center text-sm text-muted">No activity yet for this supplier.</p>
+              <p class="py-8 text-center text-sm text-muted">No activity yet.</p>
             } @else {
               <div class="space-y-2">
                 @for (a of supplierActivities(); track a.timestamp) {
@@ -513,7 +514,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                       <td colspan="5" class="px-3 py-6 text-center text-muted">Opening balance</td>
                     </tr>
                   }
-                  @for (entry of supplierLedger(); track entry.date + entry.description) {
+                  @for (entry of supplierLedger(); track $index) {
                     <tr>
                       <td class="px-3 py-2 text-muted">{{ entry.date | date: 'mediumDate' }}</td>
                       <td class="px-3 py-2 text-text">{{ entry.description }}</td>
@@ -563,12 +564,12 @@ export class SuppliersPageComponent implements OnInit {
   selectedSupplier = signal<Supplier | null>(null);
   activeTab = signal<DetailTab>('purchases');
 
-  supplierPurchases = signal<Record<string, unknown>[]>([]);
+  supplierPurchases = signal<SupplierPurchase[]>([]);
   supplierStock = signal<StockReportItem[]>([]);
   supplierActivities = signal<ActivityEntry[]>([]);
   supplierLedger = signal<LedgerEntry[]>([]);
 
-  form: SupplierCreate & { notes?: string | null } = this.emptyForm();
+  form: SupplierCreate = this.emptyForm();
 
   readonly detailTabs: { key: DetailTab; label: string }[] = [
     { key: 'purchases', label: 'Purchases' },
@@ -590,6 +591,7 @@ export class SuppliersPageComponent implements OnInit {
         this.suppliers.set(resp.items);
         this.total.set(resp.total);
       },
+      error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to load suppliers' }),
     });
   }
 
@@ -660,14 +662,6 @@ export class SuppliersPageComponent implements OnInit {
     });
   }
 
-  asNum(val: unknown): number {
-    return Number(val) || 0;
-  }
-
-  asStr(val: unknown): string {
-    return val != null ? String(val) : '';
-  }
-
   openDetail(s: Supplier): void {
     this.selectedSupplier.set(s);
     this.activeTab.set('purchases');
@@ -685,7 +679,7 @@ export class SuppliersPageComponent implements OnInit {
     this.tabLoading.set(true);
     if (tab === 'purchases') {
       this.suppliersService.getPurchases(id).subscribe({
-        next: (r) => { this.supplierPurchases.set(r.items as Record<string, unknown>[]); this.tabLoading.set(false); },
+        next: (r) => { this.supplierPurchases.set(r.items); this.tabLoading.set(false); },
         error: () => this.tabLoading.set(false),
       });
     } else if (tab === 'stock-report') {
@@ -706,7 +700,7 @@ export class SuppliersPageComponent implements OnInit {
     }
   }
 
-  private emptyForm(): SupplierCreate & { notes?: string | null } {
+  private emptyForm(): SupplierCreate {
     return {
       name: '',
       contact_person: null,

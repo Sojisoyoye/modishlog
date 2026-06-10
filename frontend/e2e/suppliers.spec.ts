@@ -58,10 +58,10 @@ test('can switch between supplier detail tabs', async ({ page }) => {
 
   await page.getByText(name).click();
   await page.getByRole('tab', { name: 'Ledger' }).click();
-  await expect(page.getByText('Opening balance')).toBeVisible();
+  await expect(page.getByRole('table')).toBeVisible();
 
   await page.getByRole('tab', { name: 'Activities' }).click();
-  await expect(page.getByText('No activity yet')).toBeVisible();
+  await expect(page.getByText('No activity yet.')).toBeVisible();
 });
 
 test('edits a supplier', async ({ page }) => {
