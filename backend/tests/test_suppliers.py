@@ -1,16 +1,14 @@
 """Tests for suppliers CRUD and detail tab queries."""
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.auth.models import User, UserRole
-from src.core.security import get_password_hash
 from src.suppliers.exceptions import SupplierNotFoundError
-from src.suppliers.models import PayTermType, Supplier, SupplierProduct
+from src.suppliers.models import PayTermType, Supplier
 from src.suppliers.schemas import SupplierCreate, SupplierUpdate
 from src.suppliers.service import (
     create_supplier,
@@ -27,24 +25,6 @@ from src.suppliers.service import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_user(**overrides):
-    defaults = dict(
-        email="admin@test.com",
-        hashed_password=get_password_hash("Str0ng!Pass#99"),
-        full_name="Admin User",
-        is_active=True,
-        role=UserRole.ADMIN,
-        failed_login_attempts=0,
-        locked_until=None,
-    )
-    defaults.update(overrides)
-    user = User(**defaults)
-    user.id = overrides.get("id", uuid.uuid4())
-    user.created_at = datetime.now(timezone.utc)
-    user.updated_at = datetime.now(timezone.utc)
-    return user
 
 
 def _make_supplier(**overrides):

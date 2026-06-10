@@ -150,7 +150,7 @@ async def get_supplier_ledger(
     )
     supplier = supplier_result.scalar_one_or_none()
     if supplier and supplier.opening_balance:
-        running_balance = Decimal(str(supplier.opening_balance))
+        running_balance = supplier.opening_balance
         entries.append(
             LedgerEntry(
                 date=supplier.created_at,
@@ -162,7 +162,7 @@ async def get_supplier_ledger(
         )
 
     for order in orders:
-        amount = Decimal(str(order.total_amount))
+        amount = order.total_amount
         running_balance += amount
         entries.append(
             LedgerEntry(
@@ -174,7 +174,7 @@ async def get_supplier_ledger(
             )
         )
         for payment in order.payments:
-            paid = Decimal(str(payment.amount))
+            paid = payment.amount
             running_balance -= paid
             entries.append(
                 LedgerEntry(
@@ -252,7 +252,7 @@ async def get_supplier_activities(
                 timestamp=order.created_at,
                 event_type="purchase",
                 description=f"Purchase order #{order.order_number} created",
-                amount=Decimal(str(order.total_amount)),
+                amount=order.total_amount,
                 reference=order.order_number,
             )
         )
@@ -262,7 +262,7 @@ async def get_supplier_activities(
                     timestamp=payment.created_at,
                     event_type="payment",
                     description=f"Payment recorded for #{order.order_number}",
-                    amount=Decimal(str(payment.amount)),
+                    amount=payment.amount,
                     reference=payment.reference,
                 )
             )
