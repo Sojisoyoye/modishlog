@@ -6,7 +6,17 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 if TYPE_CHECKING:
@@ -18,12 +28,23 @@ from src.core.database import Base, TimestampMixin, UUIDMixin
 class OrderStatus(str, enum.Enum):
     """Purchase order lifecycle status."""
 
+    ORDERED = "ORDERED"  # PO sent to supplier, no stock impact yet
     PENDING = "PENDING"
     IN_PRODUCTION = "IN_PRODUCTION"
     SHIPPING = "SHIPPING"
     CLEARED = "CLEARED"
     DELIVERED = "DELIVERED"
     CANCELLED = "CANCELLED"
+
+
+class PayTermType(str, enum.Enum):
+    DAYS = "days"
+    MONTHS = "months"
+
+
+class DiscountType(str, enum.Enum):
+    PERCENTAGE = "percentage"
+    FIXED = "fixed"
 
 
 class PaymentMethod(str, enum.Enum):
@@ -70,6 +91,77 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     clearing_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=Decimal("0"))
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+
+    # PO vs received purchase distinction
+    is_purchase_order: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Payment terms (auto-populated from supplier)
+    pay_term_number: Mapped[int | None] = mapped_column(Integer, default=None)
+    pay_term_type: Mapped[PayTermType | None] = mapped_column(
+        Enum(PayTermType, values_callable=lambda x: [e.value for e in x]), default=None
+    )
+
+    # Shipping details
+    shipping_details: Mapped[str | None] = mapped_column(Text, default=None)
+    shipping_custom_field_1: Mapped[str | None] = mapped_column(
+        String(255), default=None
+    )
+    shipping_custom_field_2: Mapped[str | None] = mapped_column(
+        String(255), default=None
+    )
+    shipping_custom_field_3: Mapped[str | None] = mapped_column(
+        String(255), default=None
+    )
+    shipping_custom_field_4: Mapped[str | None] = mapped_column(
+        String(255), default=None
+    )
+    shipping_custom_field_5: Mapped[str | None] = mapped_column(
+        String(255), default=None
+    )
+
+    # Additional expenses (customs, insurance, etc.)
+    additional_expense_key_1: Mapped[str | None] = mapped_column(
+        String(100), default=None
+    )
+    additional_expense_value_1: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6), default=None
+    )
+    additional_expense_key_2: Mapped[str | None] = mapped_column(
+        String(100), default=None
+    )
+    additional_expense_value_2: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6), default=None
+    )
+    additional_expense_key_3: Mapped[str | None] = mapped_column(
+        String(100), default=None
+    )
+    additional_expense_value_3: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6), default=None
+    )
+    additional_expense_key_4: Mapped[str | None] = mapped_column(
+        String(100), default=None
+    )
+    additional_expense_value_4: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6), default=None
+    )
+
+    # Invoice-level discount
+    discount_type: Mapped[DiscountType | None] = mapped_column(
+        Enum(DiscountType, values_callable=lambda x: [e.value for e in x]), default=None
+    )
+    discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6), default=Decimal("0")
+    )
+
+    # Invoice-level tax
+    tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), default=None)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=Decimal("0"))
+
+    # Supplier invoice reference
+    supplier_invoice_number: Mapped[str | None] = mapped_column(
+        String(100), default=None
+    )
+    supplier_invoice_date: Mapped[date | None] = mapped_column(Date, default=None)
 
     line_items: Mapped[list["OrderLineItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
@@ -147,3 +239,25 @@ class OrderPayment(UUIDMixin, Base):
 
     def __repr__(self) -> str:
         return f"<OrderPayment(id={self.id}, order_id={self.order_id})>"
+
+
+class PurchaseReturn(UUIDMixin, TimestampMixin, Base):
+    """Return of goods against a received purchase order."""
+
+    __tablename__ = "purchase_returns"
+
+    original_order_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("purchase_orders.id"), index=True
+    )
+    ref_no: Mapped[str | None] = mapped_column(String(100), default=None)
+    return_date: Mapped[date] = mapped_column(Date)
+    notes: Mapped[str | None] = mapped_column(Text, default=None)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+
+    original_order: Mapped["PurchaseOrder"] = relationship(
+        "PurchaseOrder", foreign_keys=[original_order_id], lazy="raise", viewonly=True
+    )
+
+    def __repr__(self) -> str:
+        return f"<PurchaseReturn(id={self.id}, order={self.original_order_id})>"

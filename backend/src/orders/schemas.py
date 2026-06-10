@@ -6,6 +6,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.orders.models import DiscountType, PayTermType
+
 
 # ---------------------------------------------------------------------------
 # Line item schemas
@@ -37,6 +39,7 @@ class OrderLineItemRead(BaseModel):
 
 class OrderCreate(BaseModel):
     supplier_name: str = Field(..., min_length=1, max_length=255)
+    supplier_id: uuid.UUID | None = None
     supplier_contact: str | None = None
     currency: str = "USD"
     fx_rate_at_creation: Decimal | None = None
@@ -49,6 +52,35 @@ class OrderCreate(BaseModel):
     clearing_cost: Decimal = Field(default=Decimal("0"), ge=0)
     notes: str | None = None
     line_items: list[OrderLineItemCreate] = Field(..., min_length=1)
+    # PO vs received purchase
+    is_purchase_order: bool = False
+    # Payment terms
+    pay_term_number: int | None = None
+    pay_term_type: PayTermType | None = None
+    # Shipping details
+    shipping_details: str | None = None
+    shipping_custom_field_1: str | None = None
+    shipping_custom_field_2: str | None = None
+    shipping_custom_field_3: str | None = None
+    shipping_custom_field_4: str | None = None
+    shipping_custom_field_5: str | None = None
+    # Additional expenses
+    additional_expense_key_1: str | None = None
+    additional_expense_value_1: Decimal | None = None
+    additional_expense_key_2: str | None = None
+    additional_expense_value_2: Decimal | None = None
+    additional_expense_key_3: str | None = None
+    additional_expense_value_3: Decimal | None = None
+    additional_expense_key_4: str | None = None
+    additional_expense_value_4: Decimal | None = None
+    # Discount
+    discount_type: DiscountType | None = None
+    discount_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    # Tax
+    tax_rate: Decimal | None = None
+    # Supplier invoice
+    supplier_invoice_number: str | None = None
+    supplier_invoice_date: date | None = None
 
 
 class OrderUpdate(BaseModel):
@@ -72,9 +104,11 @@ class OrderRead(BaseModel):
 
     id: uuid.UUID
     order_number: str
+    supplier_id: uuid.UUID | None = None
     supplier_name: str
     supplier_contact: str | None = None
     status: str
+    is_purchase_order: bool = False
     total_amount: Decimal
     currency: str
     fx_rate_at_creation: Decimal | None = None
@@ -84,6 +118,15 @@ class OrderRead(BaseModel):
     expected_delivery_date: date | None = None
     actual_delivery_date: date | None = None
     notes: str | None = None
+    pay_term_number: int | None = None
+    pay_term_type: str | None = None
+    shipping_details: str | None = None
+    discount_type: str | None = None
+    discount_amount: Decimal = Decimal("0")
+    tax_rate: Decimal | None = None
+    tax_amount: Decimal = Decimal("0")
+    supplier_invoice_number: str | None = None
+    supplier_invoice_date: date | None = None
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
@@ -157,6 +200,30 @@ class PaymentRead(BaseModel):
 # ---------------------------------------------------------------------------
 # Reporting schemas
 # ---------------------------------------------------------------------------
+
+
+class PurchaseReturnLineItem(BaseModel):
+    product_id: uuid.UUID
+    quantity: int = Field(..., gt=0)
+
+
+class PurchaseReturnCreate(BaseModel):
+    original_order_id: uuid.UUID
+    notes: str | None = None
+    line_items: list[PurchaseReturnLineItem] = Field(..., min_length=1)
+
+
+class PurchaseReturnRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    original_order_id: uuid.UUID
+    ref_no: str | None = None
+    return_date: date
+    notes: str | None = None
+    total_amount: Decimal
+    created_by: uuid.UUID
+    created_at: datetime
 
 
 class OrdersSummary(BaseModel):

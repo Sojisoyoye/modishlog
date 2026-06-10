@@ -35,12 +35,16 @@ from src.orders.schemas import (
     PaymentCreate,
     PaymentRead,
     PaymentSummary,
+    PurchaseReturnCreate,
+    PurchaseReturnRead,
     StatusHistoryRead,
     StatusTransition,
 )
 from src.orders.service import (
     cancel_order,
+    convert_po_to_purchase,
     create_order,
+    create_purchase_return,
     get_logistics_efficiency,
     get_order,
     get_orders_summary,
@@ -140,7 +144,16 @@ async def export_orders_csv_endpoint(
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(
-        ["id", "order_number", "supplier_name", "status", "total_amount", "currency", "expected_delivery_date", "actual_delivery_date"]
+        [
+            "id",
+            "order_number",
+            "supplier_name",
+            "status",
+            "total_amount",
+            "currency",
+            "expected_delivery_date",
+            "actual_delivery_date",
+        ]
     )
     for order in items:
         writer.writerow(
@@ -151,7 +164,9 @@ async def export_orders_csv_endpoint(
                 order.status.value if order.status else "",
                 str(order.total_amount),
                 order.currency,
-                str(order.expected_delivery_date) if order.expected_delivery_date else "",
+                str(order.expected_delivery_date)
+                if order.expected_delivery_date
+                else "",
                 str(order.actual_delivery_date) if order.actual_delivery_date else "",
             ]
         )
@@ -161,6 +176,21 @@ async def export_orders_csv_endpoint(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=orders_export.csv"},
     )
+
+
+@router.post(
+    "/returns", response_model=PurchaseReturnRead, status_code=status.HTTP_201_CREATED
+)
+async def create_purchase_return_endpoint(
+    body: PurchaseReturnCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Record a return of goods against a received purchase order."""
+    try:
+        return await create_purchase_return(db, body, current_user.id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get("/{order_id}", response_model=OrderDetailRead)
@@ -253,7 +283,11 @@ async def status_history_endpoint(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{order_id}/payments", response_model=PaymentRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{order_id}/payments",
+    response_model=PaymentRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def record_payment_endpoint(
     order_id: uuid.UUID,
     body: PaymentCreate,
@@ -307,3 +341,18 @@ async def void_payment_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except PaymentNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{order_id}/convert-to-purchase", response_model=OrderRead)
+async def convert_po_to_purchase_endpoint(
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Convert a Purchase Order (ORDERED status) to a received purchase."""
+    try:
+        return await convert_po_to_purchase(db, order_id, current_user.id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except InvalidStatusTransitionError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
