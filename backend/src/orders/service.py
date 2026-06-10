@@ -20,12 +20,10 @@ from src.orders.exceptions import (
     PaymentNotFoundError,
 )
 from src.orders.models import (
-    DiscountType,
     OrderLineItem,
     OrderPayment,
     OrderStatus,
     OrderStatusHistory,
-    PayTermType,
     PaymentMethod,
     PaymentStatus,
     PurchaseOrder,
@@ -45,7 +43,10 @@ logger = structlog.get_logger()
 
 # Valid status transitions
 VALID_TRANSITIONS: dict[OrderStatus, list[OrderStatus]] = {
-    OrderStatus.ORDERED: [OrderStatus.PENDING, OrderStatus.CANCELLED],  # PO → received purchase
+    OrderStatus.ORDERED: [
+        OrderStatus.PENDING,
+        OrderStatus.CANCELLED,
+    ],  # PO → received purchase
     OrderStatus.PENDING: [OrderStatus.IN_PRODUCTION, OrderStatus.CANCELLED],
     OrderStatus.IN_PRODUCTION: [OrderStatus.SHIPPING],
     OrderStatus.SHIPPING: [OrderStatus.CLEARED],
@@ -108,28 +109,26 @@ async def create_order(
 
     # Calculate expected delivery date from lead times if provided
     expected_delivery = data.expected_delivery_date
-    if expected_delivery is None and any([
-        data.production_days, data.shipping_days, data.clearing_days
-    ]):
-        total_days = (data.production_days or 0) + (data.shipping_days or 0) + (data.clearing_days or 0)
+    if expected_delivery is None and any(
+        [data.production_days, data.shipping_days, data.clearing_days]
+    ):
+        total_days = (
+            (data.production_days or 0)
+            + (data.shipping_days or 0)
+            + (data.clearing_days or 0)
+        )
         expected_delivery = date.today() + timedelta(days=total_days)
-
-    # Resolve pay term type enum
-    pay_term_type = None
-    if data.pay_term_type:
-        pay_term_type = PayTermType(data.pay_term_type)
-
-    # Resolve discount type enum
-    discount_type = None
-    if data.discount_type:
-        discount_type = DiscountType(data.discount_type)
 
     # Calculate tax amount
     tax_amount = Decimal("0")
     if data.tax_rate:
-        tax_amount = (total_amount * data.tax_rate / 100).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        tax_amount = (total_amount * data.tax_rate / 100).quantize(
+            Decimal("0.000001"), rounding=ROUND_HALF_UP
+        )
 
-    initial_status = OrderStatus.ORDERED if data.is_purchase_order else OrderStatus.PENDING
+    initial_status = (
+        OrderStatus.ORDERED if data.is_purchase_order else OrderStatus.PENDING
+    )
 
     order = PurchaseOrder(
         order_number=order_number,
@@ -147,7 +146,7 @@ async def create_order(
         notes=data.notes,
         created_by=user_id,
         pay_term_number=data.pay_term_number,
-        pay_term_type=pay_term_type,
+        pay_term_type=data.pay_term_type,
         shipping_details=data.shipping_details,
         shipping_custom_field_1=data.shipping_custom_field_1,
         shipping_custom_field_2=data.shipping_custom_field_2,
@@ -162,7 +161,7 @@ async def create_order(
         additional_expense_value_3=data.additional_expense_value_3,
         additional_expense_key_4=data.additional_expense_key_4,
         additional_expense_value_4=data.additional_expense_value_4,
-        discount_type=discount_type,
+        discount_type=data.discount_type,
         discount_amount=data.discount_amount,
         tax_rate=data.tax_rate,
         tax_amount=tax_amount,
@@ -256,11 +255,19 @@ async def list_orders(
         query = query.where(PurchaseOrder.supplier_name.ilike(pattern))
         count_query = count_query.where(PurchaseOrder.supplier_name.ilike(pattern))
     if date_from is not None:
-        query = query.where(PurchaseOrder.created_at >= datetime.combine(date_from, datetime.min.time()))
-        count_query = count_query.where(PurchaseOrder.created_at >= datetime.combine(date_from, datetime.min.time()))
+        query = query.where(
+            PurchaseOrder.created_at >= datetime.combine(date_from, datetime.min.time())
+        )
+        count_query = count_query.where(
+            PurchaseOrder.created_at >= datetime.combine(date_from, datetime.min.time())
+        )
     if date_to is not None:
-        query = query.where(PurchaseOrder.created_at <= datetime.combine(date_to, datetime.max.time()))
-        count_query = count_query.where(PurchaseOrder.created_at <= datetime.combine(date_to, datetime.max.time()))
+        query = query.where(
+            PurchaseOrder.created_at <= datetime.combine(date_to, datetime.max.time())
+        )
+        count_query = count_query.where(
+            PurchaseOrder.created_at <= datetime.combine(date_to, datetime.max.time())
+        )
     if overdue:
         today = date.today()
         terminal = [OrderStatus.DELIVERED, OrderStatus.CANCELLED]
@@ -277,7 +284,9 @@ async def list_orders(
     total = total_result.scalar() or 0
 
     offset = (page - 1) * page_size
-    query = query.order_by(PurchaseOrder.created_at.desc()).offset(offset).limit(page_size)
+    query = (
+        query.order_by(PurchaseOrder.created_at.desc()).offset(offset).limit(page_size)
+    )
     result = await db.execute(query)
     items = list(result.scalars().all())
 
@@ -412,8 +421,14 @@ async def transition_status(
 
         # Restock inventory and create FIFO batches for each line item
         # Prefer delivery FX rate over creation rate for FIFO cost calculations
-        fx_rate = transition.fx_rate_at_delivery or order.fx_rate_at_creation or Decimal("1500")
-        total_logistics = (order.shipping_cost or Decimal("0")) + (order.clearing_cost or Decimal("0"))
+        fx_rate = (
+            transition.fx_rate_at_delivery
+            or order.fx_rate_at_creation
+            or Decimal("1500")
+        )
+        total_logistics = (order.shipping_cost or Decimal("0")) + (
+            order.clearing_cost or Decimal("0")
+        )
         total_units = sum(li.quantity for li in order.line_items) or 1
         logistics_per_unit = (total_logistics / Decimal(str(total_units))).quantize(
             Decimal("0.000001"), rounding=ROUND_HALF_UP
@@ -617,7 +632,10 @@ async def get_orders_summary(db: AsyncSession) -> dict:
     """Get summary statistics for all orders."""
     # Total count and value
     result = await db.execute(
-        select(func.count(PurchaseOrder.id), func.coalesce(func.sum(PurchaseOrder.total_amount), 0))
+        select(
+            func.count(PurchaseOrder.id),
+            func.coalesce(func.sum(PurchaseOrder.total_amount), 0),
+        )
     )
     row = result.one()
     total_orders = row[0]
@@ -625,7 +643,9 @@ async def get_orders_summary(db: AsyncSession) -> dict:
 
     # Count by status
     status_result = await db.execute(
-        select(PurchaseOrder.status, func.count(PurchaseOrder.id)).group_by(PurchaseOrder.status)
+        select(PurchaseOrder.status, func.count(PurchaseOrder.id)).group_by(
+            PurchaseOrder.status
+        )
     )
     by_status = {row[0].value: row[1] for row in status_result.all()}
 
@@ -650,9 +670,9 @@ def calculate_logistics_pct(
     """Compute logistics % = (shipping + clearing) / total_cogs × 100."""
     if total_cogs <= 0:
         return Decimal("0")
-    return (
-        (shipping_cost + clearing_cost) / total_cogs * Decimal("100")
-    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return ((shipping_cost + clearing_cost) / total_cogs * Decimal("100")).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
 
 
 async def get_logistics_efficiency(db: AsyncSession) -> dict:
@@ -664,9 +684,10 @@ async def get_logistics_efficiency(db: AsyncSession) -> dict:
         .options(selectinload(PurchaseOrder.line_items))
         .where(
             PurchaseOrder.status != OrderStatus.CANCELLED,
-            PurchaseOrder.created_at >= datetime.combine(
-                ninety_days_ago, datetime.min.time()
-            ).replace(tzinfo=timezone.utc),
+            PurchaseOrder.created_at
+            >= datetime.combine(ninety_days_ago, datetime.min.time()).replace(
+                tzinfo=timezone.utc
+            ),
         )
         .order_by(PurchaseOrder.created_at.desc())
     )
@@ -682,19 +703,19 @@ async def get_logistics_efficiency(db: AsyncSession) -> dict:
         lp = calculate_logistics_pct(
             order.shipping_cost, order.clearing_cost, total_cogs
         )
-        per_order.append({
-            "order_id": order.id,
-            "order_number": order.order_number,
-            "logistics_pct": lp,
-            "logistics_ngn": logistics_ngn,
-            "total_cogs_ngn": total_cogs,
-        })
+        per_order.append(
+            {
+                "order_id": order.id,
+                "order_number": order.order_number,
+                "logistics_pct": lp,
+                "logistics_ngn": logistics_ngn,
+                "total_cogs_ngn": total_cogs,
+            }
+        )
         total_logistics += logistics_ngn
         total_cogs_sum += total_cogs
 
-    rolling_avg = calculate_logistics_pct(
-        total_logistics, Decimal("0"), total_cogs_sum
-    )
+    rolling_avg = calculate_logistics_pct(total_logistics, Decimal("0"), total_cogs_sum)
 
     if rolling_avg > LOGISTICS_RED_THRESHOLD:
         status = "red"
@@ -731,7 +752,9 @@ async def check_logistics_alerts(db: AsyncSession) -> bool:
 
     # Dedup: skip if pending logistics alert exists
     existing = await db.execute(
-        select(func.count()).select_from(AIRecommendation).where(
+        select(func.count())
+        .select_from(AIRecommendation)
+        .where(
             AIRecommendation.category == RecommendationCategory.INVENTORY,
             AIRecommendation.status == RecommendationStatus.PENDING,
             AIRecommendation.action_payload["type"].as_string() == "logistics_alert",
@@ -798,6 +821,14 @@ async def convert_po_to_purchase(
     if not order:
         raise OrderNotFoundError(order_id)
 
+    if not order.is_purchase_order or order.status != OrderStatus.ORDERED:
+        raise InvalidStatusTransitionError(
+            order_id,
+            order.status.value,
+            OrderStatus.PENDING.value,
+            [OrderStatus.ORDERED.value],
+        )
+
     order.is_purchase_order = False
     order.status = OrderStatus.PENDING
     await db.flush()
@@ -863,20 +894,15 @@ async def create_purchase_return(
             reference_type="purchase_return",
         )
 
-    # Generate return ref number
     year = datetime.now(timezone.utc).year
-    count_result = await db.execute(
-        select(func.count()).select_from(PurchaseReturn)
-    )
-    count = (count_result.scalar() or 0) + 1
-    ref_no = f"RET-{year}-{count:05d}"
+    ref_no = f"RET-{year}-{str(uuid.uuid4())[:8].upper()}"
 
     purchase_return = PurchaseReturn(
         original_order_id=data.original_order_id,
         ref_no=ref_no,
         return_date=date.today(),
         notes=data.notes,
-        total_amount=total_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        total_amount=total_amount.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP),
         created_by=user_id,
     )
     db.add(purchase_return)

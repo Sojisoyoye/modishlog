@@ -10,6 +10,7 @@ import pytest
 from src.auth.models import User, UserRole
 from src.core.security import get_password_hash
 from src.inventory.models import InventoryLevel
+import src.suppliers.models  # noqa: F401 — registers Supplier mapper for PurchaseOrder.supplier relationship
 from src.orders.models import (
     DiscountType,
     OrderLineItem,
@@ -361,6 +362,15 @@ class TestConvertPoToPurchase:
         with pytest.raises(OrderNotFoundError):
             await convert_po_to_purchase(db, uuid.uuid4(), user_id=uuid.uuid4())
 
+    @pytest.mark.asyncio
+    async def test_convert_non_po_raises(self):
+        """Attempting to convert an already-received purchase raises InvalidStatusTransitionError."""
+        order = _make_order(is_purchase_order=False, status=OrderStatus.PENDING)
+        db = _mock_db_with_execute(scalar_result=order)
+        from src.orders.exceptions import InvalidStatusTransitionError
+        with pytest.raises(InvalidStatusTransitionError):
+            await convert_po_to_purchase(db, order.id, user_id=uuid.uuid4())
+
 
 # ---------------------------------------------------------------------------
 # purchase_return
@@ -383,15 +393,13 @@ class TestPurchaseReturn:
         order = _make_order(status=OrderStatus.DELIVERED, line_items=[line])
 
         db = _mock_db()
-        # Execution: 1) load order, 2) inv check (adjust_stock), 3) count returns for ref_no
+        # Execution: 1) load order, 2) inv check (adjust_stock)
         order_result = MagicMock()
         order_result.scalar_one_or_none.return_value = order
         inv_result = MagicMock()
         inv_result.scalar_one_or_none.return_value = inv
-        count_result = MagicMock()
-        count_result.scalar.return_value = 0
 
-        db.execute = AsyncMock(side_effect=[order_result, inv_result, count_result])
+        db.execute = AsyncMock(side_effect=[order_result, inv_result])
 
         data = PurchaseReturnCreate(
             original_order_id=order.id,
@@ -400,7 +408,7 @@ class TestPurchaseReturn:
         )
         ret = await create_purchase_return(db, data, user_id=uuid.uuid4())
         assert ret.original_order_id == order.id
-        assert ret.total_amount == Decimal("200.00")
+        assert ret.total_amount == Decimal("200.000000")
 
     @pytest.mark.asyncio
     async def test_purchase_return_order_not_found(self):

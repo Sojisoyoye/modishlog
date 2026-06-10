@@ -6,6 +6,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.orders.models import DiscountType, PayTermType
+
 
 # ---------------------------------------------------------------------------
 # Line item schemas
@@ -54,7 +56,7 @@ class OrderCreate(BaseModel):
     is_purchase_order: bool = False
     # Payment terms
     pay_term_number: int | None = None
-    pay_term_type: str | None = None
+    pay_term_type: PayTermType | None = None
     # Shipping details
     shipping_details: str | None = None
     shipping_custom_field_1: str | None = None
@@ -72,7 +74,7 @@ class OrderCreate(BaseModel):
     additional_expense_key_4: str | None = None
     additional_expense_value_4: Decimal | None = None
     # Discount
-    discount_type: str | None = None
+    discount_type: DiscountType | None = None
     discount_amount: Decimal = Field(default=Decimal("0"), ge=0)
     # Tax
     tax_rate: Decimal | None = None
