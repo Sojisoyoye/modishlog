@@ -41,21 +41,41 @@ async def export_stock_csv(
     _: User = Depends(get_current_active_user),
 ) -> StreamingResponse:
     """Download the stock report as a CSV file."""
-    report = await get_stock_report(db, category_id=str(category_id) if category_id else None)
+    report = await get_stock_report(
+        db, category_id=str(category_id) if category_id else None
+    )
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        "product_id", "sku", "product_name", "category",
-        "unit_cost", "selling_price", "quantity_on_hand",
-        "stock_value", "potential_profit", "total_sold",
-    ])
+    writer.writerow(
+        [
+            "product_id",
+            "sku",
+            "product_name",
+            "category",
+            "unit_cost",
+            "selling_price",
+            "quantity_on_hand",
+            "stock_value",
+            "potential_profit",
+            "total_sold",
+        ]
+    )
     for item in report.items:
-        writer.writerow([
-            str(item.product_id), item.sku, item.product_name, item.category or "",
-            str(item.unit_cost), str(item.selling_price), item.quantity_on_hand,
-            str(item.stock_value), str(item.potential_profit), item.total_sold,
-        ])
+        writer.writerow(
+            [
+                str(item.product_id),
+                item.sku,
+                item.product_name,
+                item.category or "",
+                str(item.unit_cost),
+                str(item.selling_price),
+                item.quantity_on_hand,
+                str(item.stock_value),
+                str(item.potential_profit),
+                item.total_sold,
+            ]
+        )
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -71,7 +91,9 @@ async def stock_report_endpoint(
     _: User = Depends(get_current_active_user),
 ) -> StockReport:
     """Return the current stock report."""
-    return await get_stock_report(db, category_id=str(category_id) if category_id else None)
+    return await get_stock_report(
+        db, category_id=str(category_id) if category_id else None
+    )
 
 
 @router.get("/purchase-sale", response_model=PurchaseSaleReport)

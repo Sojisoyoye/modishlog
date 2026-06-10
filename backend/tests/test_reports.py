@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+import src.suppliers.models  # noqa: F401 — registers Supplier mapper for PurchaseOrder.supplier relationship
 from src.auth.service import build_token
 from src.core.security import get_password_hash
 
@@ -148,14 +149,15 @@ class TestProfitLossReport:
         from src.reports.service import get_profit_loss_report
 
         db = _mock_db()
-        # Sequence: total_purchase, total_sales, operating_costs, stock_value
+        # Sequence: total_purchase, total_sales, operating_costs, stock_value, purchase_returns
         _mock_execute_sequence(
             db,
             [
-                None,   # total_purchase (no rows)
-                None,   # total_sales (no rows)
-                [],     # operating costs (empty)
-                None,   # stock value (no batches)
+                None,  # total_purchase (no rows)
+                None,  # total_sales (no rows)
+                [],  # operating costs (empty)
+                None,  # stock value (no batches)
+                None,  # purchase_returns (no rows)
             ],
         )
 
@@ -177,15 +179,16 @@ class TestProfitLossReport:
         from src.reports.service import get_profit_loss_report
 
         db = _mock_db()
-        # total_purchase=200000, total_sales=350000, opex=[100000/mo], stock=500000
+        # total_purchase=200000, total_sales=350000, opex=[100000/mo], stock=500000, returns=5000
         opex = [_make_operating_cost(monthly_equivalent=Decimal("100000.00"))]
         _mock_execute_sequence(
             db,
             [
-                Decimal("200000.000000"),   # total_purchase
-                Decimal("350000.000000"),   # total_sales
-                opex,                       # operating_costs list
-                Decimal("500000.000000"),   # stock_value
+                Decimal("200000.000000"),  # total_purchase
+                Decimal("350000.000000"),  # total_sales
+                opex,  # operating_costs list
+                Decimal("500000.000000"),  # stock_value
+                Decimal("5000.000000"),  # purchase_returns
             ],
         )
 
@@ -197,7 +200,7 @@ class TestProfitLossReport:
         # operating costs = 100000 * 1 month
         assert result.total_operating_costs == Decimal("100000.00")
         assert result.net_profit == Decimal("50000.00")  # 150000 - 100000
-        assert result.purchase_returns_total == Decimal("0")  # placeholder until returns merged
+        assert result.purchase_returns_total == Decimal("5000.000000")
         # placeholders
         assert result.purchase_due == Decimal("0")
         assert result.sales_due == Decimal("0")
@@ -211,11 +214,11 @@ class TestProfitLossReport:
         _mock_execute_sequence(
             db,
             [
-                Decimal("100000.000000"),
-                Decimal("200000.000000"),
-                [],
-                Decimal("0"),
-                Decimal("0"),
+                Decimal("100000.000000"),  # total_purchase
+                Decimal("200000.000000"),  # total_sales
+                [],  # operating_costs (empty)
+                Decimal("0"),  # stock_value
+                Decimal("0"),  # purchase_returns
             ],
         )
 
@@ -241,11 +244,11 @@ class TestProfitLossReport:
         _mock_execute_sequence(
             db,
             [
-                Decimal("300000.000000"),   # purchases
-                Decimal("350000.000000"),   # sales
-                opex,                       # opex (200k/month)
+                Decimal("300000.000000"),  # purchases
+                Decimal("350000.000000"),  # sales
+                opex,  # opex (200k/month)
                 Decimal("1000000.000000"),  # stock
-                Decimal("0"),              # returns
+                Decimal("0"),  # purchase_returns
             ],
         )
 
@@ -399,15 +402,16 @@ class TestPurchaseSaleReport:
         _mock_execute_sequence(
             db,
             [
-                Decimal("500000.000000"),   # total_purchase
-                Decimal("750000.000000"),   # total_sales
+                Decimal("500000.000000"),  # total_purchase
+                Decimal("10000.000000"),  # total_purchase_returns
+                Decimal("750000.000000"),  # total_sales
             ],
         )
 
         result = await get_purchase_sale_report(db)
 
         assert result.total_purchase == Decimal("500000.000000")
-        assert result.total_purchase_returns == Decimal("0")  # placeholder
+        assert result.total_purchase_returns == Decimal("10000.000000")
         assert result.total_sales == Decimal("750000.000000")
         assert result.total_sales_returns == Decimal("0")
         # net_position = total_sales - total_purchase = 750000 - 500000
@@ -421,7 +425,11 @@ class TestPurchaseSaleReport:
         db = _mock_db()
         _mock_execute_sequence(
             db,
-            [None, None],  # all sums return None
+            [
+                None,
+                None,
+                None,
+            ],  # total_purchase, purchase_returns, total_sales all None
         )
 
         result = await get_purchase_sale_report(db)
@@ -441,8 +449,9 @@ class TestPurchaseSaleReport:
         _mock_execute_sequence(
             db,
             [
-                Decimal("100000.000000"),
-                Decimal("150000.000000"),
+                Decimal("100000.000000"),  # total_purchase
+                Decimal("0"),  # purchase_returns
+                Decimal("150000.000000"),  # total_sales
             ],
         )
 
@@ -455,7 +464,7 @@ class TestPurchaseSaleReport:
         assert result.total_purchase == Decimal("100000.000000")
         assert result.total_sales == Decimal("150000.000000")
         assert result.net_position == Decimal("50000.000000")
-        assert result.total_purchase_returns == Decimal("0")  # placeholder
+        assert result.total_purchase_returns == Decimal("0")
 
     @pytest.mark.asyncio
     async def test_purchase_sale_negative_net_position(self):
@@ -466,8 +475,9 @@ class TestPurchaseSaleReport:
         _mock_execute_sequence(
             db,
             [
-                Decimal("800000.000000"),   # purchases
-                Decimal("600000.000000"),   # sales
+                Decimal("800000.000000"),  # purchases
+                Decimal("0"),  # purchase_returns
+                Decimal("600000.000000"),  # sales
             ],
         )
 
@@ -528,10 +538,11 @@ class TestReportsEndpoints:
         _mock_execute_sequence(
             db,
             [
-                Decimal("200000.000000"),
-                Decimal("350000.000000"),
-                opex,
-                Decimal("500000.000000"),
+                Decimal("200000.000000"),  # total_purchase
+                Decimal("350000.000000"),  # total_sales
+                opex,  # operating_costs
+                Decimal("500000.000000"),  # stock_value
+                Decimal("0"),  # purchase_returns
             ],
         )
         self._override_db(db)
@@ -549,10 +560,11 @@ class TestReportsEndpoints:
         _mock_execute_sequence(
             db,
             [
-                Decimal("100000.000000"),
-                Decimal("200000.000000"),
-                [],
-                Decimal("0"),
+                Decimal("100000.000000"),  # total_purchase
+                Decimal("200000.000000"),  # total_sales
+                [],  # operating_costs
+                Decimal("0"),  # stock_value
+                Decimal("0"),  # purchase_returns
             ],
         )
         self._override_db(db)
@@ -599,8 +611,9 @@ class TestReportsEndpoints:
         _mock_execute_sequence(
             db,
             [
-                Decimal("500000.000000"),
-                Decimal("750000.000000"),
+                Decimal("500000.000000"),  # total_purchase
+                Decimal("0"),  # purchase_returns
+                Decimal("750000.000000"),  # total_sales
             ],
         )
         self._override_db(db)
@@ -618,8 +631,9 @@ class TestReportsEndpoints:
         _mock_execute_sequence(
             db,
             [
-                Decimal("100000.000000"),
-                Decimal("150000.000000"),
+                Decimal("100000.000000"),  # total_purchase
+                Decimal("0"),  # purchase_returns
+                Decimal("150000.000000"),  # total_sales
             ],
         )
         self._override_db(db)

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
 from src.inventory.models import InventoryBatch, InventoryLevel
-from src.orders.models import PurchaseOrder
+from src.orders.models import PurchaseOrder, PurchaseReturn
 from src.products.models import Product, ProductCategory
 from src.reports.schemas import (
     ProfitLossReport,
@@ -91,8 +91,14 @@ async def get_profit_loss_report(
     stock_result = await db.execute(stock_query)
     stock_value = stock_result.scalar() or Decimal("0")
 
-    # Purchase returns — placeholder until PurchaseReturn table is merged into main
-    purchase_returns_total = Decimal("0")
+    # -- Purchase returns in period --
+    returns_query = select(func.sum(PurchaseReturn.total_amount))
+    if start_date:
+        returns_query = returns_query.where(PurchaseReturn.return_date >= start_date)
+    if end_date:
+        returns_query = returns_query.where(PurchaseReturn.return_date <= end_date)
+    returns_result = await db.execute(returns_query)
+    purchase_returns_total = returns_result.scalar() or Decimal("0")
 
     gross_profit = total_sales - total_purchase
     net_profit = gross_profit - total_operating_costs
@@ -226,8 +232,18 @@ async def get_purchase_sale_report(
     purchase_result = await db.execute(purchase_query)
     total_purchase = purchase_result.scalar() or Decimal("0")
 
-    # Purchase returns — placeholder until PurchaseReturn table is merged into main
-    total_purchase_returns = Decimal("0")
+    # -- Purchase returns in period --
+    purchase_returns_query = select(func.sum(PurchaseReturn.total_amount))
+    if start_date:
+        purchase_returns_query = purchase_returns_query.where(
+            PurchaseReturn.return_date >= start_date
+        )
+    if end_date:
+        purchase_returns_query = purchase_returns_query.where(
+            PurchaseReturn.return_date <= end_date
+        )
+    purchase_returns_result = await db.execute(purchase_returns_query)
+    total_purchase_returns = purchase_returns_result.scalar() or Decimal("0")
 
     # -- Total completed sales --
     sales_query = select(func.sum(Sale.total_amount)).where(
