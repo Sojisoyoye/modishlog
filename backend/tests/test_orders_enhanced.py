@@ -7,17 +7,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.auth.models import User, UserRole
-from src.core.security import get_password_hash
 from src.inventory.models import InventoryLevel
 import src.suppliers.models  # noqa: F401 — registers Supplier mapper for PurchaseOrder.supplier relationship
 from src.orders.models import (
     DiscountType,
     OrderLineItem,
-    OrderPayment,
     OrderStatus,
-    PaymentMethod,
-    PaymentStatus,
     PayTermType,
     PurchaseOrder,
     PurchaseReturn,
@@ -34,26 +29,6 @@ from src.orders.service import (
     create_purchase_return,
 )
 from src.products.models import Product
-
-VALID_PASSWORD = "Str0ng!Pass#99"
-
-
-def _make_user(**overrides):
-    defaults = dict(
-        email="test@example.com",
-        hashed_password=get_password_hash(VALID_PASSWORD),
-        full_name="Test User",
-        is_active=True,
-        role=UserRole.ADMIN,
-        failed_login_attempts=0,
-        locked_until=None,
-    )
-    defaults.update(overrides)
-    user = User(**defaults)
-    user.id = overrides.get("id", uuid.uuid4())
-    user.created_at = datetime.now(timezone.utc)
-    user.updated_at = datetime.now(timezone.utc)
-    return user
 
 
 def _make_product(**overrides):
@@ -241,7 +216,9 @@ class TestCreateOrderPO:
             supplier_name="Acme",
             is_purchase_order=True,
             line_items=[
-                OrderLineItemCreate(product_id=product.id, quantity=10, unit_cost=Decimal("100"))
+                OrderLineItemCreate(
+                    product_id=product.id, quantity=10, unit_cost=Decimal("100")
+                )
             ],
         )
 
@@ -263,7 +240,9 @@ class TestCreateOrderPO:
         unique_result = MagicMock()
         unique_result.scalar_one_or_none.return_value = None
         reload_result = MagicMock()
-        reloaded_order = _make_order(is_purchase_order=False, status=OrderStatus.PENDING)
+        reloaded_order = _make_order(
+            is_purchase_order=False, status=OrderStatus.PENDING
+        )
         reload_result.scalar_one.return_value = reloaded_order
 
         db.execute = AsyncMock(
@@ -274,7 +253,9 @@ class TestCreateOrderPO:
             supplier_name="Acme",
             is_purchase_order=False,
             line_items=[
-                OrderLineItemCreate(product_id=product.id, quantity=10, unit_cost=Decimal("100"))
+                OrderLineItemCreate(
+                    product_id=product.id, quantity=10, unit_cost=Decimal("100")
+                )
             ],
         )
 
@@ -295,7 +276,9 @@ class TestCreateOrderPayTerms:
         unique_result = MagicMock()
         unique_result.scalar_one_or_none.return_value = None
         reload_result = MagicMock()
-        reloaded = _make_order(is_purchase_order=False, pay_term_number=30, pay_term_type=PayTermType.DAYS)
+        reloaded = _make_order(
+            is_purchase_order=False, pay_term_number=30, pay_term_type=PayTermType.DAYS
+        )
         reload_result.scalar_one.return_value = reloaded
 
         db.execute = AsyncMock(
@@ -308,7 +291,9 @@ class TestCreateOrderPayTerms:
             pay_term_number=30,
             pay_term_type="days",
             line_items=[
-                OrderLineItemCreate(product_id=product.id, quantity=5, unit_cost=Decimal("200"))
+                OrderLineItemCreate(
+                    product_id=product.id, quantity=5, unit_cost=Decimal("200")
+                )
             ],
         )
         order = await create_order(db, data, user_id=uuid.uuid4())
@@ -359,6 +344,7 @@ class TestConvertPoToPurchase:
     async def test_convert_po_not_found_raises(self):
         db = _mock_db_with_execute(scalar_result=None)
         from src.orders.exceptions import OrderNotFoundError
+
         with pytest.raises(OrderNotFoundError):
             await convert_po_to_purchase(db, uuid.uuid4(), user_id=uuid.uuid4())
 
@@ -368,6 +354,7 @@ class TestConvertPoToPurchase:
         order = _make_order(is_purchase_order=False, status=OrderStatus.PENDING)
         db = _mock_db_with_execute(scalar_result=order)
         from src.orders.exceptions import InvalidStatusTransitionError
+
         with pytest.raises(InvalidStatusTransitionError):
             await convert_po_to_purchase(db, order.id, user_id=uuid.uuid4())
 
@@ -414,6 +401,7 @@ class TestPurchaseReturn:
     async def test_purchase_return_order_not_found(self):
         db = _mock_db_with_execute(scalar_result=None)
         from src.orders.exceptions import OrderNotFoundError
+
         data = PurchaseReturnCreate(
             original_order_id=uuid.uuid4(),
             notes=None,

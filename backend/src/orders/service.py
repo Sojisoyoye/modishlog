@@ -809,8 +809,9 @@ async def convert_po_to_purchase(
 ) -> PurchaseOrder:
     """Convert a Purchase Order (ORDERED status) to a received purchase.
 
-    Changes is_purchase_order=False, sets status=PENDING, and triggers
-    inventory update for all line items.
+    Sets is_purchase_order=False and status=PENDING so the order enters
+    the normal delivery flow (PENDING → IN_PRODUCTION → ... → DELIVERED),
+    at which point inventory is updated.
     """
     result = await db.execute(
         select(PurchaseOrder)
