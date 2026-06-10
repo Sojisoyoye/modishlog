@@ -90,6 +90,36 @@ class TestCreateScheme:
         with pytest.raises(SchemeNotFoundError):
             await get_scheme(db, uuid.uuid4())
 
+    @pytest.mark.asyncio
+    async def test_get_scheme_happy_path(self):
+        scheme = _make_scheme(name="Test Scheme")
+        db = _mock_db_with_execute(scalar_result=scheme)
+        result = await get_scheme(db, scheme.id)
+        assert result.name == "Test Scheme"
+
+
+# ---------------------------------------------------------------------------
+# Update scheme tests
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateScheme:
+    @pytest.mark.asyncio
+    async def test_update_scheme_happy_path(self):
+        scheme = _make_scheme(name="Old Name", prefix="INV-")
+        db = _mock_db_with_execute(scalar_result=scheme)
+        data = SchemeUpdate(name="New Name")
+        updated = await update_scheme(db, scheme.id, data)
+        assert updated.name == "New Name"
+        db.flush.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_scheme_not_found(self):
+        db = _mock_db_with_execute(scalar_result=None)
+        data = SchemeUpdate(name="New Name")
+        with pytest.raises(SchemeNotFoundError):
+            await update_scheme(db, uuid.uuid4(), data)
+
 
 # ---------------------------------------------------------------------------
 # List schemes tests

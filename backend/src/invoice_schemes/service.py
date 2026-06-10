@@ -31,7 +31,9 @@ async def create_scheme(
     )
     db.add(scheme)
     await db.flush()
-    await logger.ainfo("invoice_scheme_created", scheme_id=str(scheme.id), name=scheme.name)
+    await logger.ainfo(
+        "invoice_scheme_created", scheme_id=str(scheme.id), name=scheme.name
+    )
     return scheme
 
 
@@ -51,9 +53,7 @@ async def get_scheme(
 
 async def list_schemes(db: AsyncSession) -> list[InvoiceScheme]:
     """List all invoice numbering schemes."""
-    result = await db.execute(
-        select(InvoiceScheme).order_by(InvoiceScheme.name.asc())
-    )
+    result = await db.execute(select(InvoiceScheme).order_by(InvoiceScheme.name.asc()))
     return list(result.scalars().all())
 
 
