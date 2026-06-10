@@ -64,11 +64,13 @@ def _make_location(**overrides):
 # TestCreateLocation
 # ---------------------------------------------------------------------------
 
+
 class TestCreateLocation:
     @pytest.mark.asyncio
     async def test_create_location_happy_path(self):
         """Creates a location successfully, db.add should be called."""
         db = AsyncMock()
+        db.add = MagicMock()  # db.add is synchronous in the service
         user_id = uuid.uuid4()
 
         # No existing location with this code
@@ -116,6 +118,7 @@ class TestCreateLocation:
 # TestGetLocation
 # ---------------------------------------------------------------------------
 
+
 class TestGetLocation:
     @pytest.mark.asyncio
     async def test_get_location_found(self):
@@ -151,6 +154,7 @@ class TestGetLocation:
 # TestListLocations
 # ---------------------------------------------------------------------------
 
+
 class TestListLocations:
     @pytest.mark.asyncio
     async def test_list_locations_returns_all(self):
@@ -176,3 +180,40 @@ class TestListLocations:
         assert len(result_items) == 2
         assert result_items[0].name == "Branch A"
         assert result_items[1].name == "Branch B"
+
+
+# ---------------------------------------------------------------------------
+# TestUpdateLocation
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateLocation:
+    @pytest.mark.asyncio
+    async def test_update_location_happy_path(self):
+        """Updates a location field successfully."""
+        db = AsyncMock()
+        location_id = uuid.uuid4()
+        location = _make_location(id=location_id, name="Old Name")
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = location
+        db.execute.return_value = mock_result
+
+        data = LocationUpdate(name="New Name")
+        updated = await update_location(db, location_id, data)
+
+        assert updated.name == "New Name"
+        db.flush.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_location_not_found(self):
+        """Raises LocationNotFoundError when location doesn't exist."""
+        db = AsyncMock()
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        db.execute.return_value = mock_result
+
+        data = LocationUpdate(name="New Name")
+        with pytest.raises(LocationNotFoundError):
+            await update_location(db, uuid.uuid4(), data)
