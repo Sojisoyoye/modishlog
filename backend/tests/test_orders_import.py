@@ -48,6 +48,10 @@ def _make_order(**overrides):
         fx_rate_at_delivery=None,
         expected_delivery_date=None,
         actual_delivery_date=None,
+        shipping_cost=Decimal("0"),
+        clearing_cost=Decimal("0"),
+        discount_amount=Decimal("0"),
+        tax_amount=Decimal("0"),
         notes=None,
         created_by=uuid.uuid4(),
     )
@@ -181,8 +185,8 @@ class TestImportOrdersHappyPath:
         )
 
         result = await import_orders_from_file(db, csv_bytes, "orders.csv", user_id)
-        assert result["created"] == 1
-        assert len(result["errors"]) == 0
+        assert result.created == 1
+        assert len(result.errors) == 0
 
     @pytest.mark.asyncio
     async def test_two_orders_three_line_items(self):
@@ -224,8 +228,8 @@ class TestImportOrdersHappyPath:
         )
 
         result = await import_orders_from_file(db, csv_bytes, "orders.csv", user_id)
-        assert result["created"] == 2
-        assert result["errors"] == []
+        assert result.created == 2
+        assert result.errors == []
 
 
 # ---------------------------------------------------------------------------
@@ -252,9 +256,9 @@ class TestImportOrdersErrors:
             }
         )
         result = await import_orders_from_file(db, csv_bytes, "orders.csv", user_id)
-        assert result["created"] == 0
-        assert len(result["errors"]) > 0
-        assert any("UNKNOWN-SKU" in e["message"] for e in result["errors"])
+        assert result.created == 0
+        assert len(result.errors) > 0
+        assert any("UNKNOWN-SKU" in e.message for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_missing_required_column_returns_error(self):
@@ -270,8 +274,8 @@ class TestImportOrdersErrors:
         csv_bytes = buf.getvalue().encode()
 
         result = await import_orders_from_file(db, csv_bytes, "orders.csv", user_id)
-        assert result["created"] == 0
-        assert any("line_item_sku" in e["message"] for e in result["errors"])
+        assert result.created == 0
+        assert any("line_item_sku" in e.message for e in result.errors)
 
     @pytest.mark.asyncio
     async def test_invalid_quantity_returns_error(self):
@@ -292,8 +296,8 @@ class TestImportOrdersErrors:
             }
         )
         result = await import_orders_from_file(db, csv_bytes, "orders.csv", user_id)
-        assert result["created"] == 0
-        assert len(result["errors"]) > 0
+        assert result.created == 0
+        assert len(result.errors) > 0
 
     @pytest.mark.asyncio
     async def test_empty_file_returns_error(self):
@@ -302,5 +306,5 @@ class TestImportOrdersErrors:
         db.execute = AsyncMock()
 
         result = await import_orders_from_file(db, b"", "orders.csv", user_id)
-        assert result["created"] == 0
-        assert len(result["errors"]) > 0
+        assert result.created == 0
+        assert len(result.errors) > 0

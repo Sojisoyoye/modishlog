@@ -146,10 +146,9 @@ async def import_orders_endpoint(
             )
 
     file_bytes = await file.read()
-    result = await import_orders_from_file(
+    return await import_orders_from_file(
         db, file_bytes, file.filename or "upload.csv", current_user.id
     )
-    return BulkImportResult(**result)
 
 
 @router.get("/logistics-efficiency", response_model=LogisticsEfficiencyResponse)

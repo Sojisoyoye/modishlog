@@ -34,6 +34,8 @@ from src.orders.models import (
     PurchaseReturn,
 )
 from src.orders.schemas import (
+    BulkImportResult,
+    ImportRowError,
     OrderCreate,
     OrderLineItemCreate,
     OrderUpdate,
@@ -935,21 +937,6 @@ _REQUIRED_IMPORT_COLS = {
     "line_item_unit_cost",
 }
 
-_OPTIONAL_IMPORT_COLS = [
-    "supplier_contact",
-    "is_purchase_order",
-    "pay_term_number",
-    "pay_term_type",
-    "shipping_cost",
-    "clearing_cost",
-    "notes",
-    "discount_type",
-    "discount_amount",
-    "tax_rate",
-    "supplier_invoice_number",
-    "supplier_invoice_date",
-]
-
 
 def build_import_template_csv() -> str:
     """Return a CSV string with headers and one example row."""
@@ -1064,22 +1051,22 @@ async def import_orders_from_file(
     file_bytes: bytes,
     filename: str,
     user_id: uuid.UUID,
-) -> dict:
+) -> BulkImportResult:
     """Parse CSV or XLSX bytes and create multiple purchase orders.
 
     Groups consecutive rows by supplier_name (empty = continue previous order).
-    Returns {"created": N, "orders": [...], "errors": [{"row": N, "message": str}]}.
     Never partially commits — if any error exists no orders are created.
+    Invalid values for optional numeric/date fields are silently treated as absent.
     """
 
-    errors: list[dict] = []
+    errors: list[ImportRowError] = []
 
     if not file_bytes:
-        return {
-            "created": 0,
-            "orders": [],
-            "errors": [{"row": 0, "message": "File is empty"}],
-        }
+        return BulkImportResult(
+            created=0,
+            orders=[],
+            errors=[ImportRowError(row=0, message="File is empty")],
+        )
 
     # Parse file
     lower = filename.lower()
@@ -1089,26 +1076,26 @@ async def import_orders_from_file(
         raw_rows = _parse_csv_bytes(file_bytes)
 
     if not raw_rows:
-        return {
-            "created": 0,
-            "orders": [],
-            "errors": [{"row": 0, "message": "File has no data rows"}],
-        }
+        return BulkImportResult(
+            created=0,
+            orders=[],
+            errors=[ImportRowError(row=0, message="File has no data rows")],
+        )
 
     # Validate required columns present
     headers = set(raw_rows[0].keys())
     missing = _REQUIRED_IMPORT_COLS - headers
     if missing:
-        return {
-            "created": 0,
-            "orders": [],
-            "errors": [
-                {
-                    "row": 0,
-                    "message": f"Missing required columns: {', '.join(sorted(missing))}",
-                }
+        return BulkImportResult(
+            created=0,
+            orders=[],
+            errors=[
+                ImportRowError(
+                    row=0,
+                    message=f"Missing required columns: {', '.join(sorted(missing))}",
+                )
             ],
-        }
+        )
 
     # Group rows into orders by supplier_name
     groups: list[list[tuple[int, dict]]] = []
@@ -1120,18 +1107,18 @@ async def import_orders_from_file(
             groups[-1].append((i, row))
         else:
             errors.append(
-                {
-                    "row": i,
-                    "message": "Row has no supplier_name and no preceding order to attach to",
-                }
+                ImportRowError(
+                    row=i,
+                    message="Row has no supplier_name and no preceding order to attach to",
+                )
             )
 
     if not groups and not errors:
-        return {
-            "created": 0,
-            "orders": [],
-            "errors": [{"row": 0, "message": "No order rows found"}],
-        }
+        return BulkImportResult(
+            created=0,
+            orders=[],
+            errors=[ImportRowError(row=0, message="No order rows found")],
+        )
 
     # Validate and resolve each group
     order_creates = []
@@ -1143,7 +1130,9 @@ async def import_orders_from_file(
         for row_num, row in group:
             sku = row.get("line_item_sku", "").strip()
             if not sku:
-                errors.append({"row": row_num, "message": "line_item_sku is required"})
+                errors.append(
+                    ImportRowError(row=row_num, message="line_item_sku is required")
+                )
                 continue
 
             # Resolve SKU → product_id
@@ -1151,7 +1140,9 @@ async def import_orders_from_file(
             product = result.scalar_one_or_none()
             if product is None:
                 errors.append(
-                    {"row": row_num, "message": f"Product SKU '{sku}' not found"}
+                    ImportRowError(
+                        row=row_num, message=f"Product SKU '{sku}' not found"
+                    )
                 )
                 continue
 
@@ -1163,10 +1154,10 @@ async def import_orders_from_file(
                     raise ValueError("must be positive")
             except (ValueError, TypeError):
                 errors.append(
-                    {
-                        "row": row_num,
-                        "message": f"line_item_quantity '{qty_str}' must be a positive integer",
-                    }
+                    ImportRowError(
+                        row=row_num,
+                        message=f"line_item_quantity '{qty_str}' must be a positive integer",
+                    )
                 )
                 continue
             try:
@@ -1175,10 +1166,10 @@ async def import_orders_from_file(
                     raise ValueError("must be positive")
             except Exception:
                 errors.append(
-                    {
-                        "row": row_num,
-                        "message": f"line_item_unit_cost '{cost_str}' must be a positive number",
-                    }
+                    ImportRowError(
+                        row=row_num,
+                        message=f"line_item_unit_cost '{cost_str}' must be a positive number",
+                    )
                 )
                 continue
 
@@ -1188,10 +1179,10 @@ async def import_orders_from_file(
 
         if not line_items and not errors:
             errors.append(
-                {
-                    "row": first_row_num,
-                    "message": f"Order for '{header_row.get('supplier_name')}' has no valid line items",
-                }
+                ImportRowError(
+                    row=first_row_num,
+                    message=f"Order for '{header_row.get('supplier_name')}' has no valid line items",
+                )
             )
             continue
 
@@ -1246,7 +1237,7 @@ async def import_orders_from_file(
         order_creates.append(order_data)
 
     if errors:
-        return {"created": 0, "orders": [], "errors": errors}
+        return BulkImportResult(created=0, orders=[], errors=errors)
 
     # Create all orders
     created_orders = []
@@ -1255,4 +1246,6 @@ async def import_orders_from_file(
         created_orders.append(order)
 
     await logger.ainfo("bulk_import_complete", created=len(created_orders))
-    return {"created": len(created_orders), "orders": created_orders, "errors": []}
+    return BulkImportResult(
+        created=len(created_orders), orders=created_orders, errors=[]
+    )
