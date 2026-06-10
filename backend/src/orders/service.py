@@ -939,49 +939,97 @@ _REQUIRED_IMPORT_COLS = {
 
 
 def build_import_template_csv() -> str:
-    """Return a CSV string with headers and one example row."""
+    """Return a CSV template demonstrating multi-product order grouping.
+
+    Order-level fields (shipping_cost, discount, tax, etc.) go on the FIRST row
+    of each order only.  Continuation rows (blank supplier_name) carry only the
+    three line-item columns; all other cells must be left empty.
+    """
     ordered_cols = [
-        "supplier_name",
-        "currency",
+        # ── Line-item columns (fill on EVERY row) ──────────────────────────
+        "supplier_name",  # Leave blank on rows 2+ of the same order
+        "currency",  # Leave blank on continuation rows
         "line_item_sku",
         "line_item_quantity",
         "line_item_unit_cost",
+        # ── Order-level columns (fill on FIRST row of each order ONLY) ──────
         "supplier_contact",
-        "is_purchase_order",
+        "is_purchase_order",  # TRUE or FALSE
         "pay_term_number",
-        "pay_term_type",
-        "shipping_cost",
-        "clearing_cost",
+        "pay_term_type",  # days or months
+        "shipping_cost",  # Shared across ALL products in this order
+        "clearing_cost",  # Shared across ALL products in this order
         "notes",
-        "discount_type",
+        "discount_type",  # percentage or fixed
         "discount_amount",
         "tax_rate",
         "supplier_invoice_number",
-        "supplier_invoice_date",
+        "supplier_invoice_date",  # YYYY-MM-DD
     ]
-    example = {
+
+    _blank = {col: "" for col in ordered_cols}
+
+    # ── Example: Order 1 — Acme Imports with 3 products ──────────────────
+    order1_row1 = {
+        **_blank,
         "supplier_name": "Acme Imports Ltd",
         "currency": "USD",
         "line_item_sku": "SKU-001",
         "line_item_quantity": "10",
         "line_item_unit_cost": "25.00",
+        # Order-level fields — set ONCE here, shared across all 3 products
         "supplier_contact": "Jane Doe",
         "is_purchase_order": "FALSE",
         "pay_term_number": "30",
         "pay_term_type": "days",
         "shipping_cost": "500.00",
         "clearing_cost": "200.00",
-        "notes": "Urgent order",
+        "notes": "Urgent shipment",
         "discount_type": "percentage",
         "discount_amount": "5",
         "tax_rate": "7.5",
         "supplier_invoice_number": "INV-2026-001",
         "supplier_invoice_date": "2026-06-15",
     }
+    # Continuation rows — supplier_name is blank; only line-item cols filled
+    order1_row2 = {
+        **_blank,
+        "line_item_sku": "SKU-002",
+        "line_item_quantity": "5",
+        "line_item_unit_cost": "40.00",
+    }
+    order1_row3 = {
+        **_blank,
+        "line_item_sku": "SKU-003",
+        "line_item_quantity": "3",
+        "line_item_unit_cost": "60.00",
+    }
+
+    # ── Example: Order 2 — Beta Corp with 2 products ──────────────────────
+    order2_row1 = {
+        **_blank,
+        "supplier_name": "Beta Corp",
+        "currency": "NGN",
+        "line_item_sku": "SKU-010",
+        "line_item_quantity": "20",
+        "line_item_unit_cost": "1500.00",
+        "supplier_contact": "John Smith",
+        "is_purchase_order": "TRUE",
+        "shipping_cost": "8000.00",
+        "supplier_invoice_number": "INV-2026-002",
+        "supplier_invoice_date": "2026-06-20",
+    }
+    order2_row2 = {
+        **_blank,
+        "line_item_sku": "SKU-011",
+        "line_item_quantity": "8",
+        "line_item_unit_cost": "2000.00",
+    }
+
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=ordered_cols)
     writer.writeheader()
-    writer.writerow(example)
+    writer.writerows([order1_row1, order1_row2, order1_row3, order2_row1, order2_row2])
     return buf.getvalue()
 
 
