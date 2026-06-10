@@ -267,3 +267,21 @@ class BulkImportResult(BaseModel):
     created: int
     orders: list[OrderRead]
     errors: list[ImportRowError]
+
+
+# ---------------------------------------------------------------------------
+# Parse-products schemas (file → resolved line items, no order creation)
+# ---------------------------------------------------------------------------
+
+
+class ParsedLineItem(BaseModel):
+    product_id: uuid.UUID
+    sku: str
+    product_name: str
+    quantity: int
+    unit_cost: Decimal
+
+
+class ParseProductsResult(BaseModel):
+    items: list[ParsedLineItem]
+    errors: list[ImportRowError]

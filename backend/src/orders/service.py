@@ -39,6 +39,8 @@ from src.orders.schemas import (
     OrderCreate,
     OrderLineItemCreate,
     OrderUpdate,
+    ParsedLineItem,
+    ParseProductsResult,
     PaymentCreate,
     PaymentSummary,
     PurchaseReturnCreate,
@@ -1297,3 +1299,117 @@ async def import_orders_from_file(
     return BulkImportResult(
         created=len(created_orders), orders=created_orders, errors=[]
     )
+
+
+# ---------------------------------------------------------------------------
+# Parse products from file (no order creation — feed into the create-order form)
+# ---------------------------------------------------------------------------
+
+_PRODUCT_TEMPLATE_COLS = ["sku", "quantity", "unit_cost"]
+
+
+def build_products_template_csv() -> str:
+    """Simple 3-column template: one row per product, no order-level fields."""
+    example = {"sku": "SKU-001", "quantity": "10", "unit_cost": "25.00"}
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=_PRODUCT_TEMPLATE_COLS)
+    writer.writeheader()
+    writer.writerow(example)
+    writer.writerow({"sku": "SKU-002", "quantity": "5", "unit_cost": "40.00"})
+    return buf.getvalue()
+
+
+async def parse_products_from_file(
+    db: AsyncSession,
+    file_bytes: bytes,
+    filename: str,
+) -> ParseProductsResult:
+    """Parse a CSV or XLSX file and resolve SKUs to product IDs.
+
+    Returns resolved line items ready to pre-fill the create-order form.
+    Does NOT write anything to the database.
+    """
+    errors: list[ImportRowError] = []
+
+    if not file_bytes:
+        return ParseProductsResult(
+            items=[], errors=[ImportRowError(row=0, message="File is empty")]
+        )
+
+    lower = filename.lower()
+    if lower.endswith(".xlsx") or lower.endswith(".xls"):
+        raw_rows = _parse_xlsx_bytes(file_bytes)
+    else:
+        raw_rows = _parse_csv_bytes(file_bytes)
+
+    if not raw_rows:
+        return ParseProductsResult(
+            items=[], errors=[ImportRowError(row=0, message="File has no data rows")]
+        )
+
+    headers = set(raw_rows[0].keys())
+    required = {"sku", "quantity", "unit_cost"}
+    missing = required - headers
+    if missing:
+        return ParseProductsResult(
+            items=[],
+            errors=[
+                ImportRowError(
+                    row=0,
+                    message=f"Missing required columns: {', '.join(sorted(missing))}",
+                )
+            ],
+        )
+
+    items: list[ParsedLineItem] = []
+    for i, row in enumerate(raw_rows, start=2):
+        sku = row.get("sku", "").strip()
+        if not sku:
+            errors.append(ImportRowError(row=i, message="sku is required"))
+            continue
+
+        result = await db.execute(select(Product).where(Product.sku == sku))
+        product = result.scalar_one_or_none()
+        if product is None:
+            errors.append(
+                ImportRowError(row=i, message=f"Product SKU '{sku}' not found")
+            )
+            continue
+
+        qty_str = row.get("quantity", "").strip()
+        cost_str = row.get("unit_cost", "").strip()
+
+        try:
+            qty = int(qty_str)
+            if qty <= 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            errors.append(
+                ImportRowError(
+                    row=i,
+                    message=f"quantity '{qty_str}' must be a positive integer",
+                )
+            )
+            continue
+
+        unit_cost = _opt_decimal(cost_str)
+        if unit_cost is None or unit_cost <= 0:
+            errors.append(
+                ImportRowError(
+                    row=i,
+                    message=f"unit_cost '{cost_str}' must be a positive number",
+                )
+            )
+            continue
+
+        items.append(
+            ParsedLineItem(
+                product_id=product.id,
+                sku=product.sku,
+                product_name=product.name,
+                quantity=qty,
+                unit_cost=unit_cost,
+            )
+        )
+
+    return ParseProductsResult(items=items, errors=errors)

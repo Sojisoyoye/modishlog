@@ -141,6 +141,19 @@ export class OrdersService {
     });
   }
 
+  getProductsTemplateUrl(): string {
+    return `${environment.apiBaseUrl}/orders/parse-products/template`;
+  }
+
+  parseProducts(file: File): Observable<ParseProductsResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.http.post<ParseProductsResult>(
+      `${environment.apiBaseUrl}/orders/parse-products`,
+      formData,
+    );
+  }
+
   getImportTemplateUrl(): string {
     return `${environment.apiBaseUrl}/orders/import/template`;
   }
@@ -163,6 +176,19 @@ export interface ImportRowError {
 export interface BulkImportResult {
   created: number;
   orders: Order[];
+  errors: ImportRowError[];
+}
+
+export interface ParsedLineItem {
+  product_id: string;
+  sku: string;
+  product_name: string;
+  quantity: number;
+  unit_cost: number;
+}
+
+export interface ParseProductsResult {
+  items: ParsedLineItem[];
   errors: ImportRowError[];
 }
 

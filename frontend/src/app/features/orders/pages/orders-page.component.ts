@@ -12,6 +12,7 @@ import {
   CreateOrderPayload,
   BulkImportResult,
   ImportRowError,
+  ParsedLineItem,
 } from '../../../core/services/orders.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
 import { FxService } from '../../../core/services/fx.service';
@@ -461,7 +462,29 @@ import { FxService } from '../../../core/services/fx.service';
 
         <!-- Line items -->
         <div>
-          <label class="mb-1.5 block text-xs font-medium text-muted">Items</label>
+          <div class="mb-2 flex items-center justify-between">
+            <label class="text-xs font-medium text-muted">Items</label>
+            <div class="flex items-center gap-3">
+              <a [href]="productsTemplateUrl" download="products_import_template.csv"
+                class="text-xs text-muted hover:text-secondary hover:underline">
+                <i class="pi pi-download text-[10px]"></i> Template
+              </a>
+              <label class="flex cursor-pointer items-center gap-1 text-xs font-medium text-secondary hover:text-primary hover:underline">
+                <i class="pi pi-upload text-[10px]"></i> Import Products
+                <input type="file" accept=".csv,.xlsx,.xls" class="hidden" (change)="onImportProductsFile($event)" />
+              </label>
+            </div>
+          </div>
+
+          @if (parseProductsErrors().length > 0) {
+            <div class="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              <p class="font-semibold">Import errors:</p>
+              @for (e of parseProductsErrors(); track $index) {
+                <p>Row {{ e.row }}: {{ e.message }}</p>
+              }
+            </div>
+          }
+
           @for (item of newOrderItems(); track $index) {
             <div class="mb-2 flex flex-wrap gap-2">
               <select
@@ -477,6 +500,10 @@ import { FxService } from '../../../core/services/fx.service';
                 class="w-20 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
               <input type="number" [(ngModel)]="item.unit_cost" placeholder="$/unit" min="0" step="0.01"
                 class="w-24 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+              <button type="button" (click)="removeOrderItem($index)"
+                class="rounded p-1.5 text-muted hover:bg-red-50 hover:text-red-500">
+                <i class="pi pi-times text-xs"></i>
+              </button>
             </div>
           }
           <button (click)="addOrderItem()" type="button"
@@ -760,6 +787,9 @@ export class OrdersPageComponent implements OnInit {
     { product_id: '', quantity: 1, unit_cost: 0 },
   ]);
 
+  parseProductsErrors = signal<{ row: number; message: string }[]>([]);
+  readonly productsTemplateUrl = this.ordersService.getProductsTemplateUrl();
+
   readonly pipelineStatuses = ['ORDERED', 'Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];
 
   private readonly statusTransitions: Record<string, string[]> = {
@@ -847,6 +877,42 @@ export class OrdersPageComponent implements OnInit {
     ]);
   }
 
+  removeOrderItem(index: number): void {
+    this.newOrderItems.update((items) => items.filter((_, i) => i !== index));
+  }
+
+  onImportProductsFile(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    input.value = '';
+    this.parseProductsErrors.set([]);
+    this.ordersService.parseProducts(file).subscribe({
+      next: (result) => {
+        if (result.errors.length > 0) {
+          this.parseProductsErrors.set(result.errors);
+        }
+        if (result.items.length > 0) {
+          const imported = result.items.map((item: ParsedLineItem) => ({
+            product_id: item.product_id,
+            quantity: item.quantity,
+            unit_cost: item.unit_cost,
+          }));
+          // Replace any empty placeholder rows, then append imported
+          const existing = this.newOrderItems().filter(
+            (i) => i.product_id || i.quantity > 0 || i.unit_cost > 0,
+          );
+          this.newOrderItems.set([...existing, ...imported]);
+        }
+      },
+      error: () => {
+        this.parseProductsErrors.set([
+          { row: 0, message: 'Failed to parse file. Check format and try again.' },
+        ]);
+      },
+    });
+  }
+
   createOrder(): void {
     const validItems = this.newOrderItems().filter((i) => i.product_id && i.quantity > 0 && i.unit_cost > 0);
     if (!this.newOrder.supplier_name || validItems.length === 0) return;
@@ -884,6 +950,7 @@ export class OrdersPageComponent implements OnInit {
         this.showCreate = false;
         this.newOrder = this.emptyOrder();
         this.newOrderItems.set([{ product_id: '', quantity: 1, unit_cost: 0 }]);
+        this.parseProductsErrors.set([]);
         this.messageService.add({
           severity: 'success',
           summary: 'Created',
