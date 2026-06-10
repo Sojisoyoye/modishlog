@@ -29,6 +29,7 @@ from fastapi import File, UploadFile
 from src.orders.schemas import (
     BulkImportResult,
     LogisticsEfficiencyResponse,
+    ParseProductsResult,
     OrderCreate,
     OrderDetailRead,
     OrderListResponse,
@@ -45,6 +46,7 @@ from src.orders.schemas import (
 )
 from src.orders.service import (
     build_import_template_csv,
+    build_products_template_csv,
     cancel_order,
     convert_po_to_purchase,
     create_order,
@@ -57,6 +59,7 @@ from src.orders.service import (
     get_status_history,
     import_orders_from_file,
     list_orders,
+    parse_products_from_file,
     list_payments,
     record_payment,
     transition_status,
@@ -106,6 +109,37 @@ async def list_orders_endpoint(
         page_size=page_size,
     )
     return OrderListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/parse-products/template")
+async def get_products_template_endpoint():
+    """Download the simple 3-column product import template (sku, quantity, unit_cost)."""
+    content = build_products_template_csv()
+    return StreamingResponse(
+        iter([content]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=products_import_template.csv"
+        },
+    )
+
+
+@router.post(
+    "/parse-products",
+    response_model=ParseProductsResult,
+    status_code=status.HTTP_200_OK,
+)
+async def parse_products_endpoint(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Parse a CSV or XLSX file and return resolved line items for the create-order form.
+
+    Does NOT create any orders — use this to pre-fill the product table.
+    """
+    file_bytes = await file.read()
+    return await parse_products_from_file(db, file_bytes, file.filename or "upload.csv")
 
 
 @router.get("/import/template")
