@@ -155,7 +155,7 @@ import { FxService } from '../../../core/services/fx.service';
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="7" class="px-3 py-10 text-center text-muted">
+                  <td colspan="8" class="px-3 py-10 text-center text-muted">
                     <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
                     No orders found
                   </td>
@@ -650,9 +650,10 @@ export class OrdersPageComponent implements OnInit {
     { product_id: '', quantity: 1, unit_cost: 0 },
   ]);
 
-  readonly pipelineStatuses = ['Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];
+  readonly pipelineStatuses = ['ORDERED', 'Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];
 
   private readonly statusTransitions: Record<string, string[]> = {
+    ORDERED: ['Pending'],
     Pending: ['In Production'],
     'In Production': ['Shipping'],
     Shipping: ['Cleared'],
@@ -675,7 +676,7 @@ export class OrdersPageComponent implements OnInit {
   orderStatus(status: string): 'info' | 'warning' | 'success' | 'neutral' {
     if (status === 'Delivered') return 'success';
     if (status === 'Shipping' || status === 'Cleared') return 'warning';
-    if (status === 'In Production') return 'info';
+    if (status === 'In Production' || status === 'ORDERED') return 'info';
     return 'neutral';
   }
 
@@ -791,7 +792,7 @@ export class OrdersPageComponent implements OnInit {
     });
   }
 
-  emptyOrder() {
+  private emptyOrder() {
     return {
       supplier_name: '',
       is_purchase_order: false,
