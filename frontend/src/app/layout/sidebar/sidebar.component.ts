@@ -76,6 +76,7 @@ export class SidebarComponent {
     { label: 'FX Rates', route: '/fx', icon: 'pi-money-bill' },
     { label: 'Cashflow', route: '/cashflow', icon: 'pi-chart-line' },
     { label: 'AI Insights', route: '/recommendations', icon: 'pi-sparkles' },
+    { label: 'Reports', route: '/reports', icon: 'pi-chart-bar' },
     { label: 'Invoice Schemes', route: '/settings/invoice-schemes', icon: 'pi-file-edit' },
     { label: 'Locations', route: '/settings/locations', icon: 'pi-map-marker' },
     { label: 'Settings', route: '/settings', icon: 'pi-cog' },
