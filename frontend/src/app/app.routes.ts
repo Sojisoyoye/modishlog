@@ -72,6 +72,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'suppliers',
+        loadComponent: () =>
+          import('./features/suppliers/pages/suppliers-page.component').then(
+            (m) => m.SuppliersPageComponent,
+          ),
+      },
+      {
         path: 'settings',
         loadComponent: () =>
           import('./features/settings/pages/settings-page.component').then(

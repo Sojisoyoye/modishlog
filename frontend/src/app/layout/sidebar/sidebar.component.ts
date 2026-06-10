@@ -71,6 +71,7 @@ export class SidebarComponent {
     { label: 'Products', route: '/products', icon: 'pi-barcode' },
     { label: 'Inventory', route: '/inventory', icon: 'pi-box' },
     { label: 'Orders', route: '/orders', icon: 'pi-truck' },
+    { label: 'Suppliers', route: '/suppliers', icon: 'pi-users' },
     { label: 'Pricing', route: '/pricing', icon: 'pi-tag' },
     { label: 'FX Rates', route: '/fx', icon: 'pi-money-bill' },
     { label: 'Cashflow', route: '/cashflow', icon: 'pi-chart-line' },
