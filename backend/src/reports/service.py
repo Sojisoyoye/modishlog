@@ -1,5 +1,6 @@
 """Reports domain business logic."""
 
+import uuid
 from datetime import date
 from decimal import Decimal
 
@@ -8,10 +9,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
-from src.inventory.models import InventoryBatch
+from src.inventory.models import InventoryBatch, InventoryLevel
 from src.orders.models import PurchaseOrder
 from src.products.models import Product, ProductCategory
-from src.inventory.models import InventoryLevel
 from src.reports.schemas import (
     ProfitLossReport,
     PurchaseSaleReport,
@@ -91,13 +91,8 @@ async def get_profit_loss_report(
     stock_result = await db.execute(stock_query)
     stock_value = stock_result.scalar() or Decimal("0")
 
-    # -- Purchase returns (placeholder — PurchaseReturn model not yet in codebase) --
-    purchase_returns_result = await db.execute(
-        select(func.sum(PurchaseOrder.total_amount)).where(
-            PurchaseOrder.total_amount == Decimal("0")  # always-false placeholder
-        )
-    )
-    purchase_returns_total = purchase_returns_result.scalar() or Decimal("0")
+    # Purchase returns — placeholder until PurchaseReturn table is merged into main
+    purchase_returns_total = Decimal("0")
 
     gross_profit = total_sales - total_purchase
     net_profit = gross_profit - total_operating_costs
@@ -161,8 +156,6 @@ async def get_stock_report(
     )
 
     if category_id:
-        import uuid
-
         query = query.where(Product.category_id == uuid.UUID(category_id))
 
     result = await db.execute(query)
@@ -233,12 +226,8 @@ async def get_purchase_sale_report(
     purchase_result = await db.execute(purchase_query)
     total_purchase = purchase_result.scalar() or Decimal("0")
 
-    # -- Purchase returns (placeholder) --
-    returns_query = select(func.sum(PurchaseOrder.total_amount)).where(
-        PurchaseOrder.total_amount == Decimal("0")  # always-false placeholder
-    )
-    returns_result = await db.execute(returns_query)
-    total_purchase_returns = returns_result.scalar() or Decimal("0")
+    # Purchase returns — placeholder until PurchaseReturn table is merged into main
+    total_purchase_returns = Decimal("0")
 
     # -- Total completed sales --
     sales_query = select(func.sum(Sale.total_amount)).where(

@@ -148,7 +148,7 @@ class TestProfitLossReport:
         from src.reports.service import get_profit_loss_report
 
         db = _mock_db()
-        # Sequence: total_purchase, total_sales, operating_costs, stock_value, purchase_returns
+        # Sequence: total_purchase, total_sales, operating_costs, stock_value
         _mock_execute_sequence(
             db,
             [
@@ -156,7 +156,6 @@ class TestProfitLossReport:
                 None,   # total_sales (no rows)
                 [],     # operating costs (empty)
                 None,   # stock value (no batches)
-                None,   # purchase_returns (no rows)
             ],
         )
 
@@ -178,7 +177,7 @@ class TestProfitLossReport:
         from src.reports.service import get_profit_loss_report
 
         db = _mock_db()
-        # total_purchase=200000, total_sales=350000, opex=[100000/mo], stock=500000, returns=10000
+        # total_purchase=200000, total_sales=350000, opex=[100000/mo], stock=500000
         opex = [_make_operating_cost(monthly_equivalent=Decimal("100000.00"))]
         _mock_execute_sequence(
             db,
@@ -187,7 +186,6 @@ class TestProfitLossReport:
                 Decimal("350000.000000"),   # total_sales
                 opex,                       # operating_costs list
                 Decimal("500000.000000"),   # stock_value
-                Decimal("10000.000000"),    # purchase_returns
             ],
         )
 
@@ -199,7 +197,7 @@ class TestProfitLossReport:
         # operating costs = 100000 * 1 month
         assert result.total_operating_costs == Decimal("100000.00")
         assert result.net_profit == Decimal("50000.00")  # 150000 - 100000
-        assert result.purchase_returns_total == Decimal("10000.000000")
+        assert result.purchase_returns_total == Decimal("0")  # placeholder until returns merged
         # placeholders
         assert result.purchase_due == Decimal("0")
         assert result.sales_due == Decimal("0")
@@ -402,7 +400,6 @@ class TestPurchaseSaleReport:
             db,
             [
                 Decimal("500000.000000"),   # total_purchase
-                Decimal("20000.000000"),    # total_purchase_returns
                 Decimal("750000.000000"),   # total_sales
             ],
         )
@@ -410,7 +407,7 @@ class TestPurchaseSaleReport:
         result = await get_purchase_sale_report(db)
 
         assert result.total_purchase == Decimal("500000.000000")
-        assert result.total_purchase_returns == Decimal("20000.000000")
+        assert result.total_purchase_returns == Decimal("0")  # placeholder
         assert result.total_sales == Decimal("750000.000000")
         assert result.total_sales_returns == Decimal("0")
         # net_position = total_sales - total_purchase = 750000 - 500000
@@ -424,7 +421,7 @@ class TestPurchaseSaleReport:
         db = _mock_db()
         _mock_execute_sequence(
             db,
-            [None, None, None],  # all sums return None
+            [None, None],  # all sums return None
         )
 
         result = await get_purchase_sale_report(db)
@@ -445,7 +442,6 @@ class TestPurchaseSaleReport:
             db,
             [
                 Decimal("100000.000000"),
-                Decimal("5000.000000"),
                 Decimal("150000.000000"),
             ],
         )
@@ -459,6 +455,7 @@ class TestPurchaseSaleReport:
         assert result.total_purchase == Decimal("100000.000000")
         assert result.total_sales == Decimal("150000.000000")
         assert result.net_position == Decimal("50000.000000")
+        assert result.total_purchase_returns == Decimal("0")  # placeholder
 
     @pytest.mark.asyncio
     async def test_purchase_sale_negative_net_position(self):
@@ -470,7 +467,6 @@ class TestPurchaseSaleReport:
             db,
             [
                 Decimal("800000.000000"),   # purchases
-                Decimal("0"),              # returns
                 Decimal("600000.000000"),   # sales
             ],
         )
@@ -496,12 +492,17 @@ class TestReportsEndpoints:
         app.dependency_overrides = self._original_overrides
 
     def _override_db(self, db_mock):
+        from src.auth.dependencies import get_current_active_user
         from src.core.database import get_db
 
         async def _fake_db():
             yield db_mock
 
+        def _fake_user():
+            return _make_user()
+
         self.app.dependency_overrides[get_db] = _fake_db
+        self.app.dependency_overrides[get_current_active_user] = _fake_user
 
     def _auth_headers(self):
         user = _make_user()
@@ -531,7 +532,6 @@ class TestReportsEndpoints:
                 Decimal("350000.000000"),
                 opex,
                 Decimal("500000.000000"),
-                Decimal("10000.000000"),
             ],
         )
         self._override_db(db)
@@ -552,7 +552,6 @@ class TestReportsEndpoints:
                 Decimal("100000.000000"),
                 Decimal("200000.000000"),
                 [],
-                Decimal("0"),
                 Decimal("0"),
             ],
         )
@@ -601,7 +600,6 @@ class TestReportsEndpoints:
             db,
             [
                 Decimal("500000.000000"),
-                Decimal("20000.000000"),
                 Decimal("750000.000000"),
             ],
         )
@@ -621,7 +619,6 @@ class TestReportsEndpoints:
             db,
             [
                 Decimal("100000.000000"),
-                Decimal("5000.000000"),
                 Decimal("150000.000000"),
             ],
         )
