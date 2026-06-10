@@ -22,17 +22,20 @@ from src.orders.exceptions import (
     PaymentNotFoundError,
 )
 from src.orders.models import (
+    DiscountType,
     OrderLineItem,
     OrderPayment,
     OrderStatus,
     OrderStatusHistory,
     PaymentMethod,
     PaymentStatus,
+    PayTermType,
     PurchaseOrder,
     PurchaseReturn,
 )
 from src.orders.schemas import (
     OrderCreate,
+    OrderLineItemCreate,
     OrderUpdate,
     PaymentCreate,
     PaymentSummary,
@@ -947,8 +950,6 @@ _OPTIONAL_IMPORT_COLS = [
     "supplier_invoice_date",
 ]
 
-_ALL_IMPORT_COLS = list(_REQUIRED_IMPORT_COLS) + _OPTIONAL_IMPORT_COLS
-
 
 def build_import_template_csv() -> str:
     """Return a CSV string with headers and one example row."""
@@ -995,6 +996,41 @@ def build_import_template_csv() -> str:
     writer.writeheader()
     writer.writerow(example)
     return buf.getvalue()
+
+
+def _opt_decimal(val: str) -> Decimal | None:
+    v = val.strip() if val else ""
+    if not v:
+        return None
+    try:
+        return Decimal(v)
+    except Exception:
+        return None
+
+
+def _opt_int(val: str) -> int | None:
+    v = val.strip() if val else ""
+    if not v:
+        return None
+    try:
+        return int(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def _opt_str(val: str) -> str | None:
+    v = val.strip() if val else ""
+    return v or None
+
+
+def _opt_date(val: str) -> date | None:
+    v = val.strip() if val else ""
+    if not v:
+        return None
+    try:
+        return date.fromisoformat(v)
+    except ValueError:
+        return None
 
 
 def _parse_csv_bytes(file_bytes: bytes) -> list[dict[str, str]]:
@@ -1163,31 +1199,8 @@ async def import_orders_from_file(
             continue  # collect all errors before bailing
 
         # Build OrderCreate data
-        def _opt_decimal(val: str) -> Decimal | None:
-            v = val.strip() if val else ""
-            return Decimal(v) if v else None
-
-        def _opt_int(val: str) -> int | None:
-            v = val.strip() if val else ""
-            return int(v) if v else None
-
-        def _opt_str(val: str) -> str | None:
-            v = val.strip() if val else ""
-            return v or None
-
-        def _opt_date(val: str) -> date | None:
-            v = val.strip() if val else ""
-            if not v:
-                return None
-            from datetime import date as date_type
-
-            return date_type.fromisoformat(v)
-
         is_po_str = header_row.get("is_purchase_order", "").strip().upper()
         is_po = is_po_str == "TRUE"
-
-        from src.orders.schemas import OrderCreate, OrderLineItemCreate
-        from src.orders.models import PayTermType, DiscountType
 
         pt_raw = _opt_str(header_row.get("pay_term_type", ""))
         dt_raw = _opt_str(header_row.get("discount_type", ""))

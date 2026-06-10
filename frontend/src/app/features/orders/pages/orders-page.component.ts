@@ -650,7 +650,7 @@ import { FxService } from '../../../core/services/fx.service';
                   </tr>
                 </thead>
                 <tbody>
-                  @for (err of importErrors(); track err.row) {
+                  @for (err of importErrors(); track $index) {
                     <tr>
                       <td class="pr-4 text-red-600">{{ err.row }}</td>
                       <td class="text-red-600">{{ err.message }}</td>
