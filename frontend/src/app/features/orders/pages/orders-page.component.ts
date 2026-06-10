@@ -103,6 +103,9 @@ import { FxService } from '../../../core/services/fx.service';
                   Total (USD)
                 </th>
                 <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                  Type
+                </th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
                   Status
                 </th>
                 <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
@@ -128,6 +131,12 @@ import { FxService } from '../../../core/services/fx.service';
                     {{ order.total_amount | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </td>
                   <td class="px-3 py-2.5">
+                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                      [class]="order.is_purchase_order ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'">
+                      {{ order.is_purchase_order ? 'PO' : 'Purchase' }}
+                    </span>
+                  </td>
+                  <td class="px-3 py-2.5">
                     <app-status-badge [label]="order.status" [status]="orderStatus(order.status)" />
                   </td>
                   <td class="px-3 py-2.5 text-muted">
@@ -146,7 +155,7 @@ import { FxService } from '../../../core/services/fx.service';
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="7" class="px-3 py-10 text-center text-muted">
+                  <td colspan="8" class="px-3 py-10 text-center text-muted">
                     <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
                     No orders found
                   </td>
@@ -376,90 +385,180 @@ import { FxService } from '../../../core/services/fx.service';
       header="New Order"
       [(visible)]="showCreate"
       [modal]="true"
-      [style]="{ width: '600px' }"
-      [breakpoints]="{ '960px': '90vw', '640px': '95vw' }"
+      [style]="{ width: '680px' }"
+      [breakpoints]="{ '960px': '95vw' }"
     >
       <div class="space-y-4">
-        <div>
-          <label for="order-supplier" class="mb-1.5 block text-xs font-medium text-muted">Supplier</label>
-          <input
-            id="order-supplier"
-            [(ngModel)]="newOrder.supplier_name"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            placeholder="Supplier name"
-          />
+        <!-- PO vs Purchase toggle -->
+        <div class="flex gap-4 rounded-lg bg-gray-50 p-3">
+          <label class="flex cursor-pointer items-center gap-2 text-sm font-medium text-text">
+            <input
+              type="radio"
+              name="order-type"
+              [value]="false"
+              [(ngModel)]="newOrder.is_purchase_order"
+              class="accent-primary"
+            />
+            <span>Received Purchase</span>
+            <span class="ml-1 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700">Updates stock</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-2 text-sm font-medium text-text">
+            <input
+              type="radio"
+              name="order-type"
+              [value]="true"
+              [(ngModel)]="newOrder.is_purchase_order"
+              class="accent-primary"
+            />
+            <span>Purchase Order</span>
+            <span class="ml-1 rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">No stock impact</span>
+          </label>
         </div>
 
+        <!-- Supplier & pay terms -->
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div class="sm:col-span-2">
+            <label for="order-supplier" class="mb-1.5 block text-xs font-medium text-muted">Supplier</label>
+            <input
+              id="order-supplier"
+              [(ngModel)]="newOrder.supplier_name"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              placeholder="Supplier name"
+            />
+          </div>
+          <div>
+            <label for="order-pay-term" class="mb-1.5 block text-xs font-medium text-muted">Pay Term</label>
+            <div class="flex gap-1">
+              <input
+                id="order-pay-term"
+                type="number"
+                [(ngModel)]="newOrder.pay_term_number"
+                placeholder="30"
+                min="1"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+              <select
+                [(ngModel)]="newOrder.pay_term_type"
+                class="rounded-lg border border-gray-300 px-2 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="">—</option>
+                <option value="days">Days</option>
+                <option value="months">Months</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Line items -->
         <div>
           <label class="mb-1.5 block text-xs font-medium text-muted">Items</label>
           @for (item of newOrderItems(); track $index) {
             <div class="mb-2 flex flex-wrap gap-2">
               <select
                 [(ngModel)]="item.product_id"
-                class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
               >
                 <option value="">Select product</option>
                 @for (p of products(); track p.id) {
                   <option [value]="p.id">{{ p.name }}</option>
                 }
               </select>
-              <input
-                type="number"
-                [(ngModel)]="item.quantity"
-                placeholder="Qty"
-                min="1"
-                class="w-20 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-              />
-              <input
-                type="number"
-                [(ngModel)]="item.unit_cost"
-                placeholder="$/unit"
-                min="0"
-                step="0.01"
-                class="w-24 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-              />
+              <input type="number" [(ngModel)]="item.quantity" placeholder="Qty" min="1"
+                class="w-20 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+              <input type="number" [(ngModel)]="item.unit_cost" placeholder="$/unit" min="0" step="0.01"
+                class="w-24 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
             </div>
           }
-          <button
-            (click)="addOrderItem()"
-            class="text-xs font-medium text-secondary transition-colors hover:text-primary hover:underline"
-            type="button"
-          >
+          <button (click)="addOrderItem()" type="button"
+            class="text-xs font-medium text-secondary hover:text-primary hover:underline">
             <i class="pi pi-plus text-[10px]"></i> Add item
           </button>
         </div>
 
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <!-- Lead times -->
+        <div class="grid grid-cols-3 gap-3">
           <div>
-            <label for="order-production-days" class="mb-1.5 block text-xs font-medium text-muted">Production (days)</label>
-            <input
-              id="order-production-days"
-              type="number"
-              [(ngModel)]="newOrder.production_days"
-              min="0"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            />
+            <label class="mb-1.5 block text-xs font-medium text-muted">Production (days)</label>
+            <input type="number" [(ngModel)]="newOrder.production_days" min="0"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
           </div>
           <div>
-            <label for="order-shipping-days" class="mb-1.5 block text-xs font-medium text-muted">Shipping (days)</label>
-            <input
-              id="order-shipping-days"
-              type="number"
-              [(ngModel)]="newOrder.shipping_days"
-              min="0"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            />
+            <label class="mb-1.5 block text-xs font-medium text-muted">Shipping (days)</label>
+            <input type="number" [(ngModel)]="newOrder.shipping_days" min="0"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
           </div>
           <div>
-            <label for="order-clearing-days" class="mb-1.5 block text-xs font-medium text-muted">Clearing (days)</label>
-            <input
-              id="order-clearing-days"
-              type="number"
-              [(ngModel)]="newOrder.clearing_days"
-              min="0"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            />
+            <label class="mb-1.5 block text-xs font-medium text-muted">Clearing (days)</label>
+            <input type="number" [(ngModel)]="newOrder.clearing_days" min="0"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
           </div>
+        </div>
+
+        <!-- Shipping charges -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Shipping Charges</label>
+            <input type="number" [(ngModel)]="newOrder.shipping_cost" min="0" step="0.01" placeholder="0.00"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Clearing Charges</label>
+            <input type="number" [(ngModel)]="newOrder.clearing_cost" min="0" step="0.01" placeholder="0.00"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+          </div>
+        </div>
+
+        <!-- Additional expenses -->
+        <div>
+          <p class="mb-2 text-xs font-semibold uppercase text-muted">Additional Expenses</p>
+          @for (exp of newOrder.expenses; track $index) {
+            <div class="mb-2 flex gap-2">
+              <input type="text" [(ngModel)]="exp.key" placeholder="Label (e.g. Customs)"
+                class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+              <input type="number" [(ngModel)]="exp.value" placeholder="Amount" min="0" step="0.01"
+                class="w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+            </div>
+          }
+          @if (newOrder.expenses.length < 4) {
+            <button type="button" (click)="addExpense()"
+              class="text-xs font-medium text-secondary hover:text-primary hover:underline">
+              <i class="pi pi-plus text-[10px]"></i> Add expense
+            </button>
+          }
+        </div>
+
+        <!-- Discount & Tax -->
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Discount</label>
+            <div class="flex gap-1">
+              <select [(ngModel)]="newOrder.discount_type"
+                class="rounded-lg border border-gray-300 px-2 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary">
+                <option value="">None</option>
+                <option value="percentage">%</option>
+                <option value="fixed">Fixed</option>
+              </select>
+              <input type="number" [(ngModel)]="newOrder.discount_amount" min="0" step="0.01" placeholder="0"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+            </div>
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Tax Rate (%)</label>
+            <input type="number" [(ngModel)]="newOrder.tax_rate" min="0" step="0.1" placeholder="0"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Supplier Invoice #</label>
+            <input type="text" [(ngModel)]="newOrder.supplier_invoice_number" placeholder="INV-001"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+          </div>
+        </div>
+
+        <!-- Shipping details -->
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted">Shipping Details / Notes</label>
+          <textarea [(ngModel)]="newOrder.shipping_details" rows="2" placeholder="Delivery instructions, container number, etc."
+            class="w-full resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"></textarea>
         </div>
 
         <button
@@ -470,7 +569,8 @@ import { FxService } from '../../../core/services/fx.service';
           @if (creating()) {
             <i class="pi pi-spinner pi-spin text-sm"></i> Creating...
           } @else {
-            <i class="pi pi-check text-sm"></i> Create Order
+            <i class="pi pi-check text-sm"></i>
+            {{ newOrder.is_purchase_order ? 'Create Purchase Order' : 'Create Purchase' }}
           }
         </button>
       </div>
@@ -529,14 +629,31 @@ export class OrdersPageComponent implements OnInit {
     ];
   });
 
-  newOrder = { supplier_name: '', production_days: 30, shipping_days: 21, clearing_days: 14 };
+  newOrder: {
+    supplier_name: string;
+    is_purchase_order: boolean;
+    production_days: number;
+    shipping_days: number;
+    clearing_days: number;
+    shipping_cost: number;
+    clearing_cost: number;
+    pay_term_number: number | null;
+    pay_term_type: string;
+    discount_type: string;
+    discount_amount: number;
+    tax_rate: number | null;
+    supplier_invoice_number: string;
+    shipping_details: string;
+    expenses: { key: string; value: number | null }[];
+  } = this.emptyOrder();
   newOrderItems = signal<{ product_id: string; quantity: number; unit_cost: number }[]>([
     { product_id: '', quantity: 1, unit_cost: 0 },
   ]);
 
-  readonly pipelineStatuses = ['Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];
+  readonly pipelineStatuses = ['ORDERED', 'Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];
 
   private readonly statusTransitions: Record<string, string[]> = {
+    ORDERED: ['Pending'],
     Pending: ['In Production'],
     'In Production': ['Shipping'],
     Shipping: ['Cleared'],
@@ -559,7 +676,7 @@ export class OrdersPageComponent implements OnInit {
   orderStatus(status: string): 'info' | 'warning' | 'success' | 'neutral' {
     if (status === 'Delivered') return 'success';
     if (status === 'Shipping' || status === 'Cleared') return 'warning';
-    if (status === 'In Production') return 'info';
+    if (status === 'In Production' || status === 'ORDERED') return 'info';
     return 'neutral';
   }
 
@@ -625,18 +742,37 @@ export class OrdersPageComponent implements OnInit {
     if (!this.newOrder.supplier_name || validItems.length === 0) return;
 
     this.creating.set(true);
+    const exps = this.newOrder.expenses.filter(e => e.key && e.value != null);
     const payload: CreateOrderPayload = {
       supplier_name: this.newOrder.supplier_name,
+      is_purchase_order: this.newOrder.is_purchase_order,
       line_items: validItems,
       production_days: this.newOrder.production_days,
       shipping_days: this.newOrder.shipping_days,
       clearing_days: this.newOrder.clearing_days,
+      shipping_cost: this.newOrder.shipping_cost || 0,
+      clearing_cost: this.newOrder.clearing_cost || 0,
+      pay_term_number: this.newOrder.pay_term_number,
+      pay_term_type: this.newOrder.pay_term_type || null,
+      shipping_details: this.newOrder.shipping_details || null,
+      discount_type: this.newOrder.discount_type || null,
+      discount_amount: this.newOrder.discount_amount || 0,
+      tax_rate: this.newOrder.tax_rate,
+      supplier_invoice_number: this.newOrder.supplier_invoice_number || null,
+      additional_expense_key_1: exps[0]?.key ?? null,
+      additional_expense_value_1: exps[0]?.value ?? null,
+      additional_expense_key_2: exps[1]?.key ?? null,
+      additional_expense_value_2: exps[1]?.value ?? null,
+      additional_expense_key_3: exps[2]?.key ?? null,
+      additional_expense_value_3: exps[2]?.value ?? null,
+      additional_expense_key_4: exps[3]?.key ?? null,
+      additional_expense_value_4: exps[3]?.value ?? null,
     };
     this.ordersService.create(payload).subscribe({
       next: () => {
         this.creating.set(false);
         this.showCreate = false;
-        this.newOrder = { supplier_name: '', production_days: 30, shipping_days: 21, clearing_days: 14 };
+        this.newOrder = this.emptyOrder();
         this.newOrderItems.set([{ product_id: '', quantity: 1, unit_cost: 0 }]);
         this.messageService.add({
           severity: 'success',
@@ -654,6 +790,32 @@ export class OrdersPageComponent implements OnInit {
         });
       },
     });
+  }
+
+  private emptyOrder() {
+    return {
+      supplier_name: '',
+      is_purchase_order: false,
+      production_days: 30,
+      shipping_days: 21,
+      clearing_days: 14,
+      shipping_cost: 0,
+      clearing_cost: 0,
+      pay_term_number: null as number | null,
+      pay_term_type: '',
+      discount_type: '',
+      discount_amount: 0,
+      tax_rate: null as number | null,
+      supplier_invoice_number: '',
+      shipping_details: '',
+      expenses: [] as { key: string; value: number | null }[],
+    };
+  }
+
+  addExpense(): void {
+    if (this.newOrder.expenses.length < 4) {
+      this.newOrder.expenses = [...this.newOrder.expenses, { key: '', value: null }];
+    }
   }
 
   exportOrdersCsv(): void {
