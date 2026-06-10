@@ -8,8 +8,7 @@ import { ReportsService, ProfitLossReport } from '../../../core/services/reports
 interface SummaryCard {
   label: string;
   key: keyof ProfitLossReport;
-  highlight?: 'profit' | 'loss' | 'neutral';
-  large?: boolean;
+  highlight?: 'profit' | 'neutral';
 }
 
 @Component({
@@ -130,8 +129,9 @@ export class ProfitLossPageComponent {
   loading = signal(false);
   report = signal<ProfitLossReport | null>(null);
 
-  readonly summaryCards: { label: string; key: keyof ProfitLossReport; highlight?: 'profit' | 'neutral' }[] = [
+  readonly summaryCards: SummaryCard[] = [
     { label: 'Total Purchases', key: 'total_purchase_excl_tax' },
+    { label: 'Purchase Returns', key: 'purchase_returns_total' },
     { label: 'Total Sales', key: 'total_sales' },
     { label: 'Gross Profit', key: 'gross_profit', highlight: 'profit' },
     { label: 'Operating Costs', key: 'total_operating_costs' },
