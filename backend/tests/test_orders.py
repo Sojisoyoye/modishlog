@@ -481,6 +481,214 @@ class TestUpdateOrder:
         assert new_item is not None
         assert new_item.unit_cost_ngn is None
 
+    @pytest.mark.asyncio
+    async def test_update_order_line_item_stores_sell_price_ngn(self):
+        """sell_price_ngn provided on a line item update is stored."""
+        product_id = uuid.uuid4()
+        product = _make_product(id=product_id)
+        order = _make_order(status=OrderStatus.PENDING)
+        order.line_items = []
+        db = _mock_db()
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = product
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderUpdate(
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=product_id,
+                    quantity=5,
+                    unit_cost=Decimal("100"),
+                    sell_price_ngn=Decimal("210000"),
+                )
+            ]
+        )
+        await update_order(db, order.id, data, uuid.uuid4())
+        new_item = next(
+            (o for o in added_objects if isinstance(o, OrderLineItem)), None
+        )
+        assert new_item is not None
+        assert new_item.sell_price_ngn == Decimal("210000")
+
+    @pytest.mark.asyncio
+    async def test_update_order_line_item_sell_price_ngn_optional(self):
+        """sell_price_ngn is optional — line items without it store None."""
+        product_id = uuid.uuid4()
+        product = _make_product(id=product_id)
+        order = _make_order(status=OrderStatus.PENDING)
+        order.line_items = []
+        db = _mock_db()
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = product
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderUpdate(
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=product_id,
+                    quantity=3,
+                    unit_cost=Decimal("50"),
+                )
+            ]
+        )
+        await update_order(db, order.id, data, uuid.uuid4())
+        new_item = next(
+            (o for o in added_objects if isinstance(o, OrderLineItem)), None
+        )
+        assert new_item is not None
+        assert new_item.sell_price_ngn is None
+
+    @pytest.mark.asyncio
+    async def test_create_order_stores_sell_price_ngn(self):
+        """sell_price_ngn on OrderLineItemCreate is stored in the line item."""
+        product_id = uuid.uuid4()
+        product = _make_product(id=product_id)
+        db = _mock_db()
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                # product existence check
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:
+                # _generate_order_number: count of existing orders
+                result.scalar.return_value = 0
+            elif call_count == 3:
+                # _generate_order_number: uniqueness check — no conflict
+                result.scalar_one_or_none.return_value = None
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderCreate(
+            supplier_name="Test Supplier",
+            currency="NGN",
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=product_id,
+                    quantity=10,
+                    unit_cost=Decimal("130000"),
+                    sell_price_ngn=Decimal("195000"),
+                )
+            ],
+        )
+        await create_order(db, data, uuid.uuid4())
+        new_item = next(
+            (o for o in added_objects if isinstance(o, OrderLineItem)), None
+        )
+        assert new_item is not None
+        assert new_item.sell_price_ngn == Decimal("195000")
+
+    @pytest.mark.asyncio
+    async def test_create_order_sell_price_ngn_defaults_null(self):
+        """sell_price_ngn is null when not provided on create."""
+        product_id = uuid.uuid4()
+        product = _make_product(id=product_id)
+        db = _mock_db()
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                # product existence check
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:
+                # _generate_order_number: count of existing orders
+                result.scalar.return_value = 0
+            elif call_count == 3:
+                # _generate_order_number: uniqueness check
+                result.scalar_one_or_none.return_value = None
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderCreate(
+            supplier_name="Test Supplier",
+            currency="NGN",
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=product_id,
+                    quantity=5,
+                    unit_cost=Decimal("100000"),
+                )
+            ],
+        )
+        await create_order(db, data, uuid.uuid4())
+        new_item = next(
+            (o for o in added_objects if isinstance(o, OrderLineItem)), None
+        )
+        assert new_item is not None
+        assert new_item.sell_price_ngn is None
+
 
 # ---------------------------------------------------------------------------
 # Service tests - cancel_order
