@@ -199,19 +199,19 @@ import { FxService } from '../../../core/services/fx.service';
                         Qty
                       </th>
                       <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
-                        Unit Cost (₦)
+                        Unit Cost (USD)
                       </th>
                       @if (order()!.fx_rate_at_creation) {
                         <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
-                          Unit Cost (USD)
+                          Unit Cost (₦)
                         </th>
                       }
                       <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
-                        Line Total (₦)
+                        Line Total (USD)
                       </th>
                       @if (order()!.fx_rate_at_creation) {
                         <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
-                          Line Total (USD)
+                          Line Total (₦)
                         </th>
                       }
                     </tr>
@@ -224,19 +224,19 @@ import { FxService } from '../../../core/services/fx.service';
                         </td>
                         <td class="px-3 py-2.5 text-right text-text">{{ item.quantity }}</td>
                         <td class="px-3 py-2.5 text-right text-text">
-                          ₦{{ item.unit_cost | number: '1.0-0' }}
+                          {{ item.unit_cost | currency: 'USD' : 'symbol' : '1.2-2' }}
                         </td>
                         @if (order()!.fx_rate_at_creation) {
                           <td class="px-3 py-2.5 text-right text-muted">
-                            {{ item.unit_cost / order()!.fx_rate_at_creation! | currency: 'USD' : 'symbol' : '1.2-2' }}
+                            ₦{{ item.unit_cost * order()!.fx_rate_at_creation! | number: '1.0-0' }}
                           </td>
                         }
                         <td class="px-3 py-2.5 text-right font-semibold text-text">
-                          ₦{{ item.line_total | number: '1.0-0' }}
+                          {{ item.line_total | currency: 'USD' : 'symbol' : '1.2-2' }}
                         </td>
                         @if (order()!.fx_rate_at_creation) {
                           <td class="px-3 py-2.5 text-right font-semibold text-muted">
-                            {{ item.line_total / order()!.fx_rate_at_creation! | currency: 'USD' : 'symbol' : '1.2-2' }}
+                            ₦{{ item.line_total * order()!.fx_rate_at_creation! | number: '1.0-0' }}
                           </td>
                         }
                       </tr>
@@ -287,24 +287,32 @@ import { FxService } from '../../../core/services/fx.service';
               <dl class="space-y-2 text-sm">
                 <div class="flex justify-between">
                   <dt class="text-muted">Goods total</dt>
-                  <dd class="font-semibold text-text">₦{{ goodsTotal() | number: '1.2-2' }}</dd>
+                  <dd class="font-semibold text-text">
+                    {{ goodsTotal() | currency: 'USD' : 'symbol' : '1.2-2' }}
+                  </dd>
                 </div>
                 @if (order()!.shipping_cost > 0) {
                   <div class="flex justify-between">
                     <dt class="text-muted">Shipping</dt>
-                    <dd class="font-semibold text-text">₦{{ order()!.shipping_cost | number: '1.2-2' }}</dd>
+                    <dd class="font-semibold text-text">
+                      {{ order()!.shipping_cost | currency: 'USD' : 'symbol' : '1.2-2' }}
+                    </dd>
                   </div>
                 }
                 @if (order()!.clearing_cost > 0) {
                   <div class="flex justify-between">
                     <dt class="text-muted">Clearing</dt>
-                    <dd class="font-semibold text-text">₦{{ order()!.clearing_cost | number: '1.2-2' }}</dd>
+                    <dd class="font-semibold text-text">
+                      {{ order()!.clearing_cost | currency: 'USD' : 'symbol' : '1.2-2' }}
+                    </dd>
                   </div>
                 }
                 @if (additionalExpensesTotal() > 0) {
                   <div class="flex justify-between">
                     <dt class="text-muted">Additional expenses</dt>
-                    <dd class="font-semibold text-text">₦{{ additionalExpensesTotal() | number: '1.2-2' }}</dd>
+                    <dd class="font-semibold text-text">
+                      {{ additionalExpensesTotal() | currency: 'USD' : 'symbol' : '1.2-2' }}
+                    </dd>
                   </div>
                 }
                 @if (order()!.discount_amount > 0) {
@@ -315,24 +323,30 @@ import { FxService } from '../../../core/services/fx.service';
                         (%)
                       }
                     </dt>
-                    <dd class="font-semibold text-danger">−₦{{ order()!.discount_amount | number: '1.2-2' }}</dd>
+                    <dd class="font-semibold text-danger">
+                      −{{ order()!.discount_amount | currency: 'USD' : 'symbol' : '1.2-2' }}
+                    </dd>
                   </div>
                 }
                 @if (order()!.tax_amount > 0) {
                   <div class="flex justify-between">
                     <dt class="text-muted">Tax ({{ order()!.tax_rate }}%)</dt>
-                    <dd class="font-semibold text-text">₦{{ order()!.tax_amount | number: '1.2-2' }}</dd>
+                    <dd class="font-semibold text-text">
+                      {{ order()!.tax_amount | currency: 'USD' : 'symbol' : '1.2-2' }}
+                    </dd>
                   </div>
                 }
                 <div class="flex justify-between border-t border-gray-200 pt-2">
-                  <dt class="font-bold text-text">Total (₦)</dt>
-                  <dd class="font-bold text-text">₦{{ order()!.total_amount | number: '1.2-2' }}</dd>
+                  <dt class="font-bold text-text">Total (USD)</dt>
+                  <dd class="font-bold text-text">
+                    {{ order()!.total_amount | currency: 'USD' : 'symbol' : '1.2-2' }}
+                  </dd>
                 </div>
                 @if (order()!.fx_rate_at_creation) {
                   <div class="flex justify-between">
-                    <dt class="text-muted">Total (USD est.)</dt>
+                    <dt class="text-muted">Total (₦ est.)</dt>
                     <dd class="font-semibold text-text">
-                      {{ order()!.total_amount / order()!.fx_rate_at_creation! | currency: 'USD' : 'symbol' : '1.2-2' }}
+                      ₦{{ order()!.total_amount * order()!.fx_rate_at_creation! | number: '1.0-0' }}
                     </dd>
                   </div>
                 }
