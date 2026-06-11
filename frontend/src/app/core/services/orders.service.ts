@@ -28,6 +28,18 @@ export interface Order {
   tax_amount: number;
   supplier_invoice_number: string | null;
   supplier_invoice_date: string | null;
+  actual_delivery_date: string | null;
+  notes: string | null;
+  currency: string;
+  updated_at: string;
+  additional_expense_key_1: string | null;
+  additional_expense_value_1: number | null;
+  additional_expense_key_2: string | null;
+  additional_expense_value_2: number | null;
+  additional_expense_key_3: string | null;
+  additional_expense_value_3: number | null;
+  additional_expense_key_4: string | null;
+  additional_expense_value_4: number | null;
   line_items: OrderItem[];
 }
 
@@ -87,6 +99,36 @@ export interface ScenarioResult {
   margin_pct: number;
 }
 
+function coerceOrderDetail(o: OrderDetail): OrderDetail {
+  const raw = o as unknown as Record<string, unknown>;
+  const numFields = [
+    'total_amount', 'shipping_cost', 'clearing_cost', 'discount_amount',
+    'tax_amount', 'fx_rate_at_creation', 'fx_rate_at_delivery', 'pay_term_number',
+    'additional_expense_value_1', 'additional_expense_value_2',
+    'additional_expense_value_3', 'additional_expense_value_4',
+  ];
+  const coerced = { ...raw };
+  for (const f of numFields) {
+    if (coerced[f] != null) coerced[f] = Number(coerced[f]);
+  }
+  coerced['line_items'] = ((o.line_items ?? []) as OrderItem[]).map((item) => ({
+    ...item,
+    quantity: Number(item.quantity),
+    unit_cost: Number(item.unit_cost),
+    line_total: Number(item.line_total),
+  }));
+  if (o.payment_summary) {
+    coerced['payment_summary'] = {
+      ...o.payment_summary,
+      total_due: Number(o.payment_summary.total_due),
+      total_paid: Number(o.payment_summary.total_paid),
+      balance_remaining: Number(o.payment_summary.balance_remaining),
+      payment_count: Number(o.payment_summary.payment_count),
+    };
+  }
+  return coerced as unknown as OrderDetail;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OrdersService {
   private readonly api = inject(ApiService);
@@ -98,18 +140,22 @@ export class OrdersService {
     );
   }
 
-  getById(id: string): Observable<Order> {
-    return this.api.get<Order>(`/orders/${id}`);
+  getById(id: string): Observable<OrderDetail> {
+    return this.api.get<OrderDetail>(`/orders/${id}`).pipe(map(coerceOrderDetail));
+  }
+
+  update(id: string, data: UpdateOrderPayload): Observable<OrderDetail> {
+    return this.api.put<OrderDetail>(`/orders/${id}`, data).pipe(map(coerceOrderDetail));
   }
 
   create(data: CreateOrderPayload): Observable<Order> {
     return this.api.post<Order>('/orders', data);
   }
 
-  updateStatus(id: string, newStatus: string, fxRateAtDelivery?: number): Observable<Order> {
+  updateStatus(id: string, newStatus: string, fxRateAtDelivery?: number): Observable<OrderDetail> {
     const body: Record<string, unknown> = { new_status: newStatus };
     if (fxRateAtDelivery != null) body['fx_rate_at_delivery'] = fxRateAtDelivery;
-    return this.api.put<Order>(`/orders/${id}/status`, body);
+    return this.api.put<OrderDetail>(`/orders/${id}/status`, body).pipe(map(coerceOrderDetail));
   }
 
   convertPoToPurchase(id: string): Observable<Order> {
@@ -190,6 +236,26 @@ export interface ParsedLineItem {
 export interface ParseProductsResult {
   items: ParsedLineItem[];
   errors: ImportRowError[];
+}
+
+export interface UpdateOrderPayload {
+  supplier_name?: string | null;
+  supplier_contact?: string | null;
+  expected_delivery_date?: string | null;
+  notes?: string | null;
+  line_items?: { product_id: string; quantity: number; unit_cost: number }[] | null;
+}
+
+export interface PaymentSummary {
+  total_due: number;
+  total_paid: number;
+  balance_remaining: number;
+  payment_count: number;
+  is_fully_paid: boolean;
+}
+
+export interface OrderDetail extends Order {
+  payment_summary: PaymentSummary | null;
 }
 
 export interface LogisticsEfficiency {

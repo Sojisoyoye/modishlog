@@ -2,6 +2,7 @@ import { Component, ChangeDetectionStrategy, DestroyRef, inject, signal, compute
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
+import { Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
@@ -713,6 +714,7 @@ export class OrdersPageComponent implements OnInit {
   private readonly fxService = inject(FxService);
   private readonly messageService = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly router = inject(Router);
 
   orders = signal<Order[]>([]);
   products = signal<Product[]>([]);
@@ -825,20 +827,7 @@ export class OrdersPageComponent implements OnInit {
   }
 
   viewOrder(order: Order): void {
-    this.selectedOrder.set(order);
-    this.detailVisible = true;
-    this.deliveryFxRate = null;
-
-    // Pre-fill FX rate when order can transition to Delivered
-    if (this.nextStatuses(order.status).includes('Delivered')) {
-      this.fxService.getLatest().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (fx) => {
-          if (fx && fx.rate > 0) {
-            this.deliveryFxRate = fx.rate;
-          }
-        },
-      });
-    }
+    this.router.navigate(['/orders', order.id]);
   }
 
   nextStatuses(status: string): string[] {
