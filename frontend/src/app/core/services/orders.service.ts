@@ -28,6 +28,18 @@ export interface Order {
   tax_amount: number;
   supplier_invoice_number: string | null;
   supplier_invoice_date: string | null;
+  actual_delivery_date: string | null;
+  notes: string | null;
+  currency: string;
+  updated_at: string;
+  additional_expense_key_1: string | null;
+  additional_expense_value_1: number | null;
+  additional_expense_key_2: string | null;
+  additional_expense_value_2: number | null;
+  additional_expense_key_3: string | null;
+  additional_expense_value_3: number | null;
+  additional_expense_key_4: string | null;
+  additional_expense_value_4: number | null;
   line_items: OrderItem[];
 }
 
@@ -98,8 +110,12 @@ export class OrdersService {
     );
   }
 
-  getById(id: string): Observable<Order> {
-    return this.api.get<Order>(`/orders/${id}`);
+  getById(id: string): Observable<OrderDetail> {
+    return this.api.get<OrderDetail>(`/orders/${id}`);
+  }
+
+  update(id: string, data: UpdateOrderPayload): Observable<Order> {
+    return this.api.put<Order>(`/orders/${id}`, data);
   }
 
   create(data: CreateOrderPayload): Observable<Order> {
@@ -190,6 +206,26 @@ export interface ParsedLineItem {
 export interface ParseProductsResult {
   items: ParsedLineItem[];
   errors: ImportRowError[];
+}
+
+export interface UpdateOrderPayload {
+  supplier_name?: string | null;
+  supplier_contact?: string | null;
+  expected_delivery_date?: string | null;
+  notes?: string | null;
+  line_items?: { product_id: string; quantity: number; unit_cost: number }[] | null;
+}
+
+export interface PaymentSummary {
+  total_due: number;
+  total_paid: number;
+  balance_remaining: number;
+  payment_count: number;
+  is_fully_paid: boolean;
+}
+
+export interface OrderDetail extends Order {
+  payment_summary: PaymentSummary | null;
 }
 
 export interface LogisticsEfficiency {
