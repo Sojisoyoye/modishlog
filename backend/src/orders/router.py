@@ -8,7 +8,6 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user
@@ -18,7 +17,6 @@ from src.inventory.exceptions import (
     InvalidStockAdjustmentError,
     ProductStockNotFoundError,
 )
-from src.orders.models import OrderPayment, PaymentStatus
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
     OrderLineItemError,
@@ -58,6 +56,7 @@ from src.orders.service import (
     get_order,
     get_orders_summary,
     get_overdue_orders,
+    get_paid_totals_for_orders,
     get_payment_summary,
     get_status_history,
     import_orders_from_file,
@@ -112,18 +111,7 @@ async def list_orders_endpoint(
         page_size=page_size,
     )
 
-    paid_map: dict = {}
-    if items:
-        pay_result = await db.execute(
-            select(
-                OrderPayment.order_id,
-                func.coalesce(func.sum(OrderPayment.amount), Decimal("0")),
-            )
-            .where(OrderPayment.order_id.in_([o.id for o in items]))
-            .where(OrderPayment.status == PaymentStatus.COMPLETED)
-            .group_by(OrderPayment.order_id)
-        )
-        paid_map = {row[0]: row[1] for row in pay_result.all()}
+    paid_map = await get_paid_totals_for_orders(db, items)
 
     order_reads = []
     for order in items:
@@ -138,7 +126,9 @@ async def list_orders_endpoint(
             r.payment_status = "PARTIAL"
         order_reads.append(r)
 
-    return OrderListResponse(items=order_reads, total=total, page=page, page_size=page_size)
+    return OrderListResponse(
+        items=order_reads, total=total, page=page, page_size=page_size
+    )
 
 
 @router.get("/parse-products/template")

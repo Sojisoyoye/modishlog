@@ -517,11 +517,12 @@ async def get_status_history(
 
 
 async def _sync_payment_status(db: AsyncSession, order: PurchaseOrder) -> None:
-    """Recalculate and persist payment_status based on completed payments."""
+    """Recalculate and persist payment_status based on completed payments in the order currency."""
     result = await db.execute(
         select(func.coalesce(func.sum(OrderPayment.amount), Decimal("0")))
         .where(OrderPayment.order_id == order.id)
         .where(OrderPayment.status == PaymentStatus.COMPLETED)
+        .where(OrderPayment.currency == order.currency)
     )
     total_paid = result.scalar() or Decimal("0")
     balance = order.total_amount - total_paid
@@ -531,6 +532,30 @@ async def _sync_payment_status(db: AsyncSession, order: PurchaseOrder) -> None:
         order.payment_status = OrderPaymentStatus.PAID
     else:
         order.payment_status = OrderPaymentStatus.PARTIAL
+
+
+async def get_paid_totals_for_orders(
+    db: AsyncSession, orders: list[PurchaseOrder]
+) -> dict[uuid.UUID, Decimal]:
+    """Return {order_id: total_paid} in each order's own currency. Used by list endpoint."""
+    if not orders:
+        return {}
+    result = await db.execute(
+        select(
+            OrderPayment.order_id,
+            OrderPayment.currency,
+            func.coalesce(func.sum(OrderPayment.amount), Decimal("0")),
+        )
+        .where(OrderPayment.order_id.in_([o.id for o in orders]))
+        .where(OrderPayment.status == PaymentStatus.COMPLETED)
+        .group_by(OrderPayment.order_id, OrderPayment.currency)
+    )
+    currency_by_order = {o.id: o.currency for o in orders}
+    totals: dict[uuid.UUID, Decimal] = {}
+    for order_id, currency, amount in result.all():
+        if currency == currency_by_order.get(order_id):
+            totals[order_id] = totals.get(order_id, Decimal("0")) + amount
+    return totals
 
 
 async def record_payment(

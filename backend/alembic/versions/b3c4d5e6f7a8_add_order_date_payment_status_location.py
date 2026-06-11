@@ -34,7 +34,7 @@ def upgrade() -> None:
     )
     op.add_column('purchase_orders', sa.Column('location_id', sa.UUID(), nullable=True))
     op.create_foreign_key(
-        None,
+        "fk_purchase_orders_location_id_business_locations",
         'purchase_orders',
         'business_locations',
         ['location_id'],
@@ -47,7 +47,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index('ix_purchase_orders_location_id', table_name='purchase_orders')
     op.drop_constraint(
-        None, 'purchase_orders', type_='foreignkey'
+        "fk_purchase_orders_location_id_business_locations", 'purchase_orders', type_='foreignkey'
     )
     op.drop_column('purchase_orders', 'location_id')
     op.drop_column('purchase_orders', 'payment_status')

@@ -106,7 +106,12 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     # Payment terms (auto-populated from supplier)
     pay_term_number: Mapped[int | None] = mapped_column(Integer, default=None)
     pay_term_type: Mapped[PayTermType | None] = mapped_column(
-        Enum(PayTermType, values_callable=lambda x: [e.value for e in x], name="paytermtype_orders"), default=None
+        Enum(
+            PayTermType,
+            values_callable=lambda x: [e.value for e in x],
+            name="paytermtype_orders",
+        ),
+        default=None,
     )
 
     # Shipping details
@@ -155,7 +160,12 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
 
     # Invoice-level discount
     discount_type: Mapped[DiscountType | None] = mapped_column(
-        Enum(DiscountType, values_callable=lambda x: [e.value for e in x], name="discounttype"), default=None
+        Enum(
+            DiscountType,
+            values_callable=lambda x: [e.value for e in x],
+            name="discounttype",
+        ),
+        default=None,
     )
     discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 6), default=Decimal("0")
@@ -174,11 +184,17 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     # Order date, payment status, and location
     order_date: Mapped[date | None] = mapped_column(Date, default=None)
     payment_status: Mapped[OrderPaymentStatus] = mapped_column(
-        Enum(OrderPaymentStatus, values_callable=lambda x: [e.value for e in x], name="order_payment_status"),
+        Enum(
+            OrderPaymentStatus,
+            values_callable=lambda x: [e.value for e in x],
+            name="order_payment_status",
+        ),
         default=OrderPaymentStatus.UNPAID,
     )
     location_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("business_locations.id", ondelete="SET NULL"), default=None, index=True
+        ForeignKey("business_locations.id", ondelete="SET NULL"),
+        default=None,
+        index=True,
     )
 
     line_items: Mapped[list["OrderLineItem"]] = relationship(
