@@ -55,6 +55,7 @@ export interface OrderItem {
   unit_cost: number;
   unit_cost_ngn: number | null;
   sell_price_ngn: number | null;
+  units_remaining: number | null;
   line_total: number;
 }
 
@@ -124,6 +125,7 @@ function coerceOrderDetail(o: OrderDetail): OrderDetail {
     unit_cost: Number(item.unit_cost),
     unit_cost_ngn: item.unit_cost_ngn != null ? Number(item.unit_cost_ngn) : null,
     sell_price_ngn: item.sell_price_ngn != null ? Number(item.sell_price_ngn) : null,
+    units_remaining: item.units_remaining != null ? Number(item.units_remaining) : null,
     line_total: Number(item.line_total),
   }));
   if (o.payment_summary) {

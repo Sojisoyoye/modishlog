@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.inventory.models import MovementType
 from src.inventory.service import adjust_stock, fifo_deduct
+from src.orders.models import OrderLineItem, PurchaseOrder
 from src.products.models import Product
 from src.sales.exceptions import (
     BulkUploadJobNotFoundError,
@@ -41,6 +42,49 @@ from src.inventory.models import InventoryBatch
 logger = structlog.get_logger()
 
 REQUIRED_CSV_HEADERS = {"product_id", "quantity", "unit_price", "sale_date", "channel"}
+
+
+# ---------------------------------------------------------------------------
+# Lot-level FIFO deduction helper
+# ---------------------------------------------------------------------------
+
+
+async def _deduct_lot_units(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    quantity: Decimal,
+) -> None:
+    """Deduct quantity from active order lots FIFO (oldest order_date first)."""
+    result = await db.execute(
+        select(OrderLineItem)
+        .join(PurchaseOrder, OrderLineItem.order_id == PurchaseOrder.id)
+        .where(
+            OrderLineItem.product_id == product_id,
+            OrderLineItem.units_remaining > 0,
+        )
+        .order_by(PurchaseOrder.order_date.asc(), PurchaseOrder.created_at.asc())
+    )
+    lots = result.scalars().all()
+
+    remaining = quantity
+    deducted_any = False
+    for lot in lots:
+        if remaining <= 0:
+            break
+        deduct = min(lot.units_remaining, remaining)
+        lot.units_remaining -= deduct
+        remaining -= deduct
+        deducted_any = True
+
+    if deducted_any:
+        await db.flush()
+
+    if remaining > 0:
+        await logger.awarning(
+            "lot_units_not_fully_covered",
+            product_id=str(product_id),
+            uncovered_quantity=str(remaining),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +188,9 @@ async def create_sale(
     sale.fifo_cogs = cogs_result
     sale.fifo_gross_profit = sale.total_amount - cogs_result
     await db.flush()
+
+    # Lot-level FIFO deduction: deplete units_remaining on delivered order lots
+    await _deduct_lot_units(db, data.product_id, Decimal(str(data.quantity)))
 
     await logger.ainfo(
         "sale_created",
@@ -613,7 +660,9 @@ def _build_transaction_read(
 
     total_amount = sum((s.total_amount for s in items), Decimal("0"))
     # Credit sales: nothing collected yet — full amount is outstanding
-    is_credit = any(s.payment_status == "credit" for s in items if s.status != SaleStatus.VOIDED)
+    is_credit = any(
+        s.payment_status == "credit" for s in items if s.status != SaleStatus.VOIDED
+    )
     if is_credit:
         total_paid = Decimal("0")
     else:
@@ -628,7 +677,9 @@ def _build_transaction_read(
     )
     currency = items[0].currency if items else "NGN"
     # Use customer/payment info from the first non-voided item (consistent per txn)
-    first = next((s for s in items if s.status != SaleStatus.VOIDED), items[0] if items else None)
+    first = next(
+        (s for s in items if s.status != SaleStatus.VOIDED), items[0] if items else None
+    )
     customer_id = first.customer_id if first else None
     customer_name = first.customer_name if first else None
     contact_number = first.contact_number if first else None

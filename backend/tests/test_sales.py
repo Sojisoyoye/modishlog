@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -30,6 +30,7 @@ from src.sales.service import (
     update_sale,
     void_sale,
 )
+import src.suppliers.models  # noqa: F401 — register Supplier mapper for PurchaseOrder.supplier
 
 VALID_PASSWORD = "Str0ng!Pass#99"
 
@@ -423,14 +424,13 @@ class TestBulkUpload:
             nonlocal call_count
             call_count += 1
             result = MagicMock()
-            # Each create_sale does: 1=product, 2=inventory, 3=fifo batches
-            phase = (call_count - 1) % 3
+            # Each create_sale: 1=product, 2=inventory, 3=fifo batches, 4=lot FIFO
+            phase = (call_count - 1) % 4
             if phase == 0:
                 result.scalar_one_or_none.return_value = product
             elif phase == 1:
                 result.scalar_one_or_none.return_value = inventory
             else:
-                # fifo_deduct batch query (no batches)
                 scalars_mock = MagicMock()
                 scalars_mock.all.return_value = []
                 result.scalars.return_value = scalars_mock
@@ -1057,3 +1057,129 @@ class TestSaleTransactions:
         )
         sale = await create_sale(db, data, uuid.uuid4())
         assert sale.transaction_id == txn_id
+
+
+# ---------------------------------------------------------------------------
+# Tests for lot FIFO deduction (Task #75)
+# ---------------------------------------------------------------------------
+
+
+class TestLotFifoDeduction:
+    """Recording a sale deducts units_remaining from oldest active lot (FIFO)."""
+
+    @pytest.mark.asyncio
+    async def test_sale_deducts_fifo_from_oldest_lot(self):
+        """Selling units deducts from the lot with the oldest order_date first."""
+        from src.orders.models import OrderLineItem, PurchaseOrder, OrderStatus
+        from src.sales.service import create_sale
+
+        product_id = uuid.uuid4()
+        product = _make_product(id=product_id)
+
+        # Older lot — should be deducted first
+        old_order = MagicMock()
+        old_order.order_date = date(2026, 1, 1)
+        old_order.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        old_lot = MagicMock(spec=OrderLineItem)
+        old_lot.product_id = product_id
+        old_lot.units_remaining = Decimal("30")
+        old_lot.order = old_order
+
+        # Newer lot — only deducted if old is exhausted
+        new_order = MagicMock()
+        new_order.order_date = date(2026, 3, 1)
+        new_order.created_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        new_lot = MagicMock(spec=OrderLineItem)
+        new_lot.product_id = product_id
+        new_lot.units_remaining = Decimal("50")
+        new_lot.order = new_order
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:  # product lookup
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:  # lot FIFO query (adjust_stock + fifo_deduct are patched)
+                result.scalars.return_value.all.return_value = [old_lot, new_lot]
+            else:
+                result.scalar_one_or_none.return_value = None
+                result.scalars.return_value.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+
+        with patch("src.sales.service.adjust_stock", new_callable=AsyncMock), \
+             patch("src.sales.service.fifo_deduct", new_callable=AsyncMock, return_value=Decimal("0")):
+            data = SaleCreate(
+                product_id=product_id,
+                quantity=10,
+                unit_price=Decimal("20000"),
+                sale_date=date.today(),
+                channel="retail",
+            )
+            await create_sale(db, data, uuid.uuid4())
+
+        # Oldest lot should be deducted
+        assert old_lot.units_remaining == Decimal("20")
+        assert new_lot.units_remaining == Decimal("50")  # untouched
+
+    @pytest.mark.asyncio
+    async def test_sale_spills_to_next_lot(self):
+        """When a sale quantity exceeds the oldest lot, remainder spills to next lot."""
+        from src.orders.models import OrderLineItem
+        from src.sales.service import create_sale
+
+        product_id = uuid.uuid4()
+        product = _make_product(id=product_id)
+
+        old_order = MagicMock()
+        old_order.order_date = date(2026, 1, 1)
+        old_order.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        old_lot = MagicMock(spec=OrderLineItem)
+        old_lot.product_id = product_id
+        old_lot.units_remaining = Decimal("5")  # only 5 left
+        old_lot.order = old_order
+
+        new_order = MagicMock()
+        new_order.order_date = date(2026, 3, 1)
+        new_order.created_at = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        new_lot = MagicMock(spec=OrderLineItem)
+        new_lot.product_id = product_id
+        new_lot.units_remaining = Decimal("50")
+        new_lot.order = new_order
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:  # product lookup
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:  # lot FIFO query
+                result.scalars.return_value.all.return_value = [old_lot, new_lot]
+            else:
+                result.scalar_one_or_none.return_value = None
+                result.scalars.return_value.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+
+        with patch("src.sales.service.adjust_stock", new_callable=AsyncMock), \
+             patch("src.sales.service.fifo_deduct", new_callable=AsyncMock, return_value=Decimal("0")):
+            data = SaleCreate(
+                product_id=product_id,
+                quantity=12,  # more than old_lot has
+                unit_price=Decimal("20000"),
+                sale_date=date.today(),
+                channel="retail",
+            )
+            await create_sale(db, data, uuid.uuid4())
+
+        assert old_lot.units_remaining == Decimal("0")   # fully consumed
+        assert new_lot.units_remaining == Decimal("43")  # 50 - 7 remainder

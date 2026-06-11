@@ -357,6 +357,11 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                       <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
                         Margin (%)
                       </th>
+                      @if (order()!.status === 'DELIVERED') {
+                        <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                          In Stock
+                        </th>
+                      }
                       @if (editing()) {
                         <th class="px-3 py-2.5 w-8"></th>
                       }
@@ -461,6 +466,12 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                             <span class="text-xs font-normal">N/A</span>
                           }
                         </td>
+                        @if (order()!.status === 'DELIVERED') {
+                          <td class="px-3 py-2.5 text-right text-sm font-semibold"
+                              [class]="item.units_remaining == null ? 'text-muted' : item.units_remaining > 0 ? 'text-success' : 'text-muted'">
+                            {{ item.units_remaining != null ? (item.units_remaining | number: '1.0-0') : '—' }}
+                          </td>
+                        }
                         @if (editing()) {
                           <td class="px-2 py-2.5 text-center">
                             <button
