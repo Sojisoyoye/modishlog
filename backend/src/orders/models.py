@@ -62,6 +62,14 @@ class PaymentStatus(str, enum.Enum):
     VOIDED = "VOIDED"
 
 
+class OrderPaymentStatus(str, enum.Enum):
+    """Payment status of a purchase order."""
+
+    UNPAID = "UNPAID"
+    PARTIAL = "PARTIAL"
+    PAID = "PAID"
+
+
 class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     """Purchase order from a supplier."""
 
@@ -98,7 +106,7 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     # Payment terms (auto-populated from supplier)
     pay_term_number: Mapped[int | None] = mapped_column(Integer, default=None)
     pay_term_type: Mapped[PayTermType | None] = mapped_column(
-        Enum(PayTermType, values_callable=lambda x: [e.value for e in x]), default=None
+        Enum(PayTermType, values_callable=lambda x: [e.value for e in x], name="paytermtype_orders"), default=None
     )
 
     # Shipping details
@@ -147,7 +155,7 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
 
     # Invoice-level discount
     discount_type: Mapped[DiscountType | None] = mapped_column(
-        Enum(DiscountType, values_callable=lambda x: [e.value for e in x]), default=None
+        Enum(DiscountType, values_callable=lambda x: [e.value for e in x], name="discounttype"), default=None
     )
     discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 6), default=Decimal("0")
@@ -162,6 +170,16 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
         String(100), default=None
     )
     supplier_invoice_date: Mapped[date | None] = mapped_column(Date, default=None)
+
+    # Order date, payment status, and location
+    order_date: Mapped[date | None] = mapped_column(Date, default=None)
+    payment_status: Mapped[OrderPaymentStatus] = mapped_column(
+        Enum(OrderPaymentStatus, values_callable=lambda x: [e.value for e in x], name="order_payment_status"),
+        default=OrderPaymentStatus.UNPAID,
+    )
+    location_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("business_locations.id", ondelete="SET NULL"), default=None, index=True
+    )
 
     line_items: Mapped[list["OrderLineItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
@@ -187,6 +205,7 @@ class OrderLineItem(UUIDMixin, Base):
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
     quantity: Mapped[int] = mapped_column(Integer)
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    unit_cost_ngn: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), default=None)
     line_total: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     notes: Mapped[str | None] = mapped_column(Text, default=None)
 
@@ -222,6 +241,7 @@ class OrderPayment(UUIDMixin, Base):
     order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("purchase_orders.id"))
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     currency: Mapped[str] = mapped_column(String(3))
+    fx_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), default=None)
     payment_date: Mapped[date] = mapped_column(Date)
     payment_method: Mapped[PaymentMethod] = mapped_column(
         Enum(PaymentMethod, values_callable=lambda x: [e.value for e in x])

@@ -301,7 +301,10 @@ async def update_order_endpoint(
 ):
     """Update an order (only Pending/In Production)."""
     try:
-        return await update_order(db, order_id, body, current_user.id)
+        await update_order(db, order_id, body, current_user.id)
+        # Expire identity map so the re-fetch loads fresh line_items from DB
+        db.expire_all()
+        return await get_order(db, order_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except OrderNotEditableError as e:

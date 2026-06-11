@@ -381,6 +381,105 @@ class TestUpdateOrder:
         result = await update_order(db, order.id, data, uuid.uuid4())
         assert result.notes == "Corrected after placing"
 
+    @pytest.mark.asyncio
+    async def test_update_order_line_item_stores_unit_cost_ngn(self):
+        """unit_cost_ngn provided on a line item update is stored."""
+        product_id = uuid.uuid4()
+        product = _make_product(id=product_id)
+        order = _make_order(status=OrderStatus.PENDING)
+        order.line_items = []
+        db = _mock_db()
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = product
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderUpdate(
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=product_id,
+                    quantity=5,
+                    unit_cost=Decimal("100"),
+                    unit_cost_ngn=Decimal("162000"),
+                )
+            ]
+        )
+        await update_order(db, order.id, data, uuid.uuid4())
+        new_item = next(
+            (o for o in added_objects if isinstance(o, OrderLineItem)), None
+        )
+        assert new_item is not None
+        assert new_item.unit_cost_ngn == Decimal("162000")
+
+    @pytest.mark.asyncio
+    async def test_update_order_line_item_unit_cost_ngn_optional(self):
+        """unit_cost_ngn is optional — line items without it store None."""
+        product_id = uuid.uuid4()
+        product = _make_product(id=product_id)
+        order = _make_order(status=OrderStatus.PENDING)
+        order.line_items = []
+        db = _mock_db()
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = product
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderUpdate(
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=product_id,
+                    quantity=3,
+                    unit_cost=Decimal("50"),
+                )
+            ]
+        )
+        await update_order(db, order.id, data, uuid.uuid4())
+        new_item = next(
+            (o for o in added_objects if isinstance(o, OrderLineItem)), None
+        )
+        assert new_item is not None
+        assert new_item.unit_cost_ngn is None
+
 
 # ---------------------------------------------------------------------------
 # Service tests - cancel_order
@@ -632,6 +731,73 @@ class TestPayments:
         payment = await record_payment(db, order.id, data, uuid.uuid4())
         assert payment.amount == Decimal("1500")
         assert payment.status == PaymentStatus.COMPLETED
+
+    @pytest.mark.asyncio
+    async def test_record_payment_stores_fx_rate(self):
+        """fx_rate provided at payment time is stored on the payment record."""
+        order = _make_order(total_amount=Decimal("5000"))
+        db = _mock_db()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 3:
+                result.one.return_value = (Decimal("0"), 0)
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = PaymentCreate(
+            amount=Decimal("500"),
+            currency="USD",
+            payment_date=date(2026, 6, 11),
+            payment_method="BANK_TRANSFER",
+            fx_rate=Decimal("1620.00"),
+        )
+        payment = await record_payment(db, order.id, data, uuid.uuid4())
+        assert payment.fx_rate == Decimal("1620.00")
+
+    @pytest.mark.asyncio
+    async def test_record_payment_fx_rate_optional(self):
+        """fx_rate is optional — NGN payments record without it."""
+        order = _make_order(total_amount=Decimal("5000"))
+        db = _mock_db()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 3:
+                result.one.return_value = (Decimal("0"), 0)
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = PaymentCreate(
+            amount=Decimal("500"),
+            currency="NGN",
+            payment_date=date(2026, 6, 11),
+            payment_method="CASH",
+        )
+        payment = await record_payment(db, order.id, data, uuid.uuid4())
+        assert payment.fx_rate is None
 
     @pytest.mark.asyncio
     async def test_overpayment_raises(self):

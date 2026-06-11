@@ -32,6 +32,9 @@ export interface Order {
   notes: string | null;
   currency: string;
   updated_at: string;
+  order_date: string | null;
+  payment_status: string | null;
+  location_id: string | null;
   additional_expense_key_1: string | null;
   additional_expense_value_1: number | null;
   additional_expense_key_2: string | null;
@@ -48,6 +51,7 @@ export interface OrderItem {
   product_id: string;
   quantity: number;
   unit_cost: number;
+  unit_cost_ngn: number | null;
   line_total: number;
 }
 
@@ -115,6 +119,7 @@ function coerceOrderDetail(o: OrderDetail): OrderDetail {
     ...item,
     quantity: Number(item.quantity),
     unit_cost: Number(item.unit_cost),
+    unit_cost_ngn: item.unit_cost_ngn != null ? Number(item.unit_cost_ngn) : null,
     line_total: Number(item.line_total),
   }));
   if (o.payment_summary) {
@@ -212,6 +217,18 @@ export class OrdersService {
       formData,
     );
   }
+
+  listPayments(orderId: string): Observable<OrderPayment[]> {
+    return this.api.get<OrderPayment[]>(`/orders/${orderId}/payments`);
+  }
+
+  recordPayment(orderId: string, data: RecordPaymentPayload): Observable<OrderPayment> {
+    return this.api.post<OrderPayment>(`/orders/${orderId}/payments`, data);
+  }
+
+  voidPayment(orderId: string, paymentId: string): Observable<OrderPayment> {
+    return this.api.delete<OrderPayment>(`/orders/${orderId}/payments/${paymentId}`);
+  }
 }
 
 export interface ImportRowError {
@@ -238,14 +255,47 @@ export interface ParseProductsResult {
   errors: ImportRowError[];
 }
 
+export interface OrderPayment {
+  id: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  fx_rate: number | null;
+  payment_date: string;
+  payment_method: string;
+  reference: string | null;
+  status: string;
+  notes: string | null;
+  recorded_by: string;
+  created_at: string;
+}
+
+export interface RecordPaymentPayload {
+  amount: number;
+  currency: string;
+  fx_rate?: number | null;
+  payment_date: string;
+  payment_method: string;
+  reference?: string | null;
+  notes?: string | null;
+}
+
 export interface UpdateOrderPayload {
   supplier_name?: string | null;
   supplier_contact?: string | null;
   expected_delivery_date?: string | null;
   notes?: string | null;
-  fx_rate_at_creation?: number | null;
   shipping_cost?: number | null;
-  line_items?: { product_id: string; quantity: number; unit_cost: number }[] | null;
+  shipping_details?: string | null;
+  fx_rate_at_creation?: number | null;
+  supplier_invoice_number?: string | null;
+  supplier_invoice_date?: string | null;
+  pay_term_number?: number | null;
+  pay_term_type?: string | null;
+  line_items?: { product_id: string; quantity: number; unit_cost: number; unit_cost_ngn?: number | null }[] | null;
+  order_date?: string | null;
+  payment_status?: string | null;
+  location_id?: string | null;
 }
 
 export interface PaymentSummary {

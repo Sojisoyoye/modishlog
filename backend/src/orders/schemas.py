@@ -18,6 +18,7 @@ class OrderLineItemCreate(BaseModel):
     product_id: uuid.UUID
     quantity: int = Field(..., gt=0)
     unit_cost: Decimal = Field(..., gt=0)
+    unit_cost_ngn: Decimal | None = None
     notes: str | None = None
 
 
@@ -28,6 +29,7 @@ class OrderLineItemRead(BaseModel):
     product_id: uuid.UUID
     quantity: int
     unit_cost: Decimal
+    unit_cost_ngn: Decimal | None = None
     line_total: Decimal
     notes: str | None = None
 
@@ -89,8 +91,16 @@ class OrderUpdate(BaseModel):
     expected_delivery_date: date | None = None
     notes: str | None = None
     shipping_cost: Decimal | None = None
+    shipping_details: str | None = None
     fx_rate_at_creation: Decimal | None = None
+    supplier_invoice_number: str | None = None
+    supplier_invoice_date: date | None = None
+    pay_term_number: int | None = None
+    pay_term_type: PayTermType | None = None
     line_items: list[OrderLineItemCreate] | None = None
+    order_date: date | None = None
+    payment_status: str | None = None
+    location_id: uuid.UUID | None = None
 
 
 class PaymentSummary(BaseModel):
@@ -129,6 +139,9 @@ class OrderRead(BaseModel):
     tax_amount: Decimal = Decimal("0")
     supplier_invoice_number: str | None = None
     supplier_invoice_date: date | None = None
+    order_date: date | None = None
+    payment_status: str | None = "UNPAID"
+    location_id: uuid.UUID | None = None
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
@@ -177,6 +190,7 @@ class StatusHistoryRead(BaseModel):
 class PaymentCreate(BaseModel):
     amount: Decimal = Field(..., gt=0)
     currency: str = "USD"
+    fx_rate: Decimal | None = None
     payment_date: date
     payment_method: str = Field(..., pattern="^(BANK_TRANSFER|LC|CASH)$")
     reference: str | None = None
@@ -190,6 +204,7 @@ class PaymentRead(BaseModel):
     order_id: uuid.UUID
     amount: Decimal
     currency: str
+    fx_rate: Decimal | None = None
     payment_date: date
     payment_method: str
     reference: str | None = None
