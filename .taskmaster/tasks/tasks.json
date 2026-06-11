@@ -3587,13 +3587,25 @@
         "priority": "medium",
         "subtasks": [],
         "updatedAt": "2026-06-05T20:07:10.721Z"
+      },
+      {
+        "id": "72",
+        "title": "Bulk order import via CSV/Excel file upload",
+        "description": "Add the ability to mass-create purchase orders by uploading a CSV or Excel (.xlsx) file from the orders page. Users download a template, fill in one row per line item (same supplier_name groups rows into one order), upload the file, preview the parsed rows, then submit to create all orders at once.\\n\\nRequired template columns: supplier_name, currency, line_item_sku, line_item_quantity, line_item_unit_cost.\\nOptional columns: supplier_contact, is_purchase_order (TRUE/FALSE), pay_term_number, pay_term_type (days/months), shipping_cost, clearing_cost, notes, discount_type (percentage/fixed), discount_amount, tax_rate, supplier_invoice_number, supplier_invoice_date (YYYY-MM-DD).",
+        "details": "Backend (orders domain):\\n1. GET /api/v1/orders/import/template — returns a CSV download with header row + one example data row. Static route; must be registered before /{order_id}.\\n2. POST /api/v1/orders/import — accepts multipart/form-data with a 'file' field (.csv or .xlsx). Parse with Python csv module for CSV and openpyxl for xlsx (no pandas). Group consecutive rows by supplier_name (blank = continue previous order). Validate required columns present; validate each line item SKU exists in products table; resolve product_id from SKU. Collect all errors before responding — never partially commit. On success: { created: N, orders: [OrderRead] }. On any error: { created: 0, errors: [{row: N, message: str}] } with HTTP 422.\\n3. BulkImportResult Pydantic schema: created (int), orders (list[OrderRead]), errors (list[{row: int, message: str}]).\\n4. Add openpyxl to backend requirements.\\n\\nFrontend (orders-page.component.ts):\\n1. Import Orders button next to Add Order button.\\n2. Import dialog with three sections: (a) Download Template anchor that hits GET /orders/import/template, (b) file drop-zone accepting .csv and .xlsx with drag-and-drop support, (c) preview table showing filename + row count after file is selected.\\n3. On upload success: dismiss dialog, show toast X orders created, reload list.\\n4. On error: show scrollable table of row number + error message inside the dialog.\\n5. New OrdersService.importOrders(file: File) — POST multipart FormData.\\n6. New OrdersService.getImportTemplateUrl() — returns the API URL string for the template download anchor.",
+        "testStrategy": "Backend tests (test_orders_import.py):\\n- test_import_template_returns_csv: GET /orders/import/template returns Content-Type: text/csv with correct headers.\\n- test_import_two_orders_happy_path: POST with valid CSV containing 2 suppliers and 3 line items creates 2 orders.\\n- test_import_unknown_sku_returns_errors: POST with unknown SKU returns 422 with row error.\\n- test_import_missing_required_column: POST with CSV missing supplier_name column returns 422.\\n\\nFrontend E2E (orders-import.spec.ts):\\n- Click Import Orders, verify dialog opens with Download Template link.\\n- Upload a valid CSV fixture, verify preview row count, click Submit, verify success toast.\\n- Upload an invalid CSV, verify error table row appears.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-06-10T06:46:47.009Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-06-05T20:07:10.722Z",
-      "taskCount": 71,
-      "completedCount": 71,
+      "lastModified": "2026-06-10T06:46:47.011Z",
+      "taskCount": 72,
+      "completedCount": 72,
       "tags": [
         "master"
       ]

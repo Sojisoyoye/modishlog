@@ -1,7 +1,7 @@
 """add_suppliers_table
 
-Revision ID: a1b2c3d4e5f6
-Revises: f8a9b0c1d2e3
+Revision ID: 4aa5bb6cc7dd
+Revises: a8b9c0d1e2f3
 Create Date: 2026-06-09 20:00:00.000000
 
 """
@@ -10,8 +10,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a1b2c3d4e5f6"
-down_revision: Union[str, None] = "f8a9b0c1d2e3"
+revision: str = "4aa5bb6cc7dd"
+down_revision: Union[str, None] = "a8b9c0d1e2f3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
