@@ -45,6 +45,7 @@ from src.fx.schemas import (
     VolatilityRead,
 )
 from src.fx.service import (
+    get_live_usdngn_rate,
     backfill_historical_data,
     calculate_volatility,
     create_alert,
@@ -76,7 +77,9 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 
-@router.post("/rates/ingest", response_model=FXRateRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/rates/ingest", response_model=FXRateRead, status_code=status.HTTP_201_CREATED
+)
 async def ingest_rate_endpoint(
     body: FXRateIngest,
     db: AsyncSession = Depends(get_db),
@@ -137,6 +140,16 @@ async def export_fx_csv_endpoint(
     )
 
 
+@router.get("/live")
+async def live_rate_endpoint(db: AsyncSession = Depends(get_db)):
+    """Get live USD/NGN rate, served from 4-hour cache or fetched from free API."""
+    try:
+        rate, fetched_at, cached = await get_live_usdngn_rate(db)
+        return {"usd_ngn": rate, "fetched_at": fetched_at.isoformat(), "cached": cached}
+    except ExternalRateSyncError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+
+
 @router.get("/rates/{pair}", response_model=FXRateRead)
 async def get_rate_endpoint(
     pair: str,
@@ -185,9 +198,7 @@ async def sync_rates_endpoint(
     try:
         return await sync_external_rates(db)
     except ExternalRateSyncError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
 
 @router.post("/rates/backfill")
@@ -203,9 +214,7 @@ async def backfill_endpoint(
         count = await backfill_historical_data(db, pair, date_from, date_to)
         return {"pair": pair, "records_inserted": count}
     except ExternalRateSyncError as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
 
 @router.get("/volatility/{pair}", response_model=VolatilityRead)
@@ -239,7 +248,11 @@ async def exposure_detail_endpoint(db: AsyncSession = Depends(get_db)):
     return await get_exposure_detail(db)
 
 
-@router.post("/exposure/lock", response_model=ExposureDetailRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/exposure/lock",
+    response_model=ExposureDetailRead,
+    status_code=status.HTTP_201_CREATED,
+)
 async def lock_exposure_endpoint(
     body: ExposureLockRequest,
     db: AsyncSession = Depends(get_db),
@@ -330,7 +343,9 @@ async def triggered_alerts_endpoint(db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/simulate", response_model=SimulationResult, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/simulate", response_model=SimulationResult, status_code=status.HTTP_201_CREATED
+)
 async def run_simulation_endpoint(
     body: SimulationRequest,
     db: AsyncSession = Depends(get_db),
@@ -373,7 +388,11 @@ async def simulation_distribution_endpoint(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/forecast/generate", response_model=list[ForecastRead], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/forecast/generate",
+    response_model=list[ForecastRead],
+    status_code=status.HTTP_201_CREATED,
+)
 async def generate_forecast_endpoint(
     body: ForecastRequest,
     db: AsyncSession = Depends(get_db),
@@ -384,7 +403,11 @@ async def generate_forecast_endpoint(
 
     try:
         return await train_and_forecast(
-            db, body.pair, current_user.id, body.horizon_days, body.num_simulations,
+            db,
+            body.pair,
+            current_user.id,
+            body.horizon_days,
+            body.num_simulations,
         )
     except (FXPairNotFoundError, InsufficientRateDataError) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -419,7 +442,9 @@ async def get_forecast_range_endpoint(
     model_ver = forecasts[0].model_version if forecasts else ""
     forecast_reads = [ForecastRead.model_validate(f) for f in forecasts]
     return ForecastRangeResponse(
-        pair=pair, forecasts=forecast_reads, model_version=model_ver,
+        pair=pair,
+        forecasts=forecast_reads,
+        model_version=model_ver,
     )
 
 

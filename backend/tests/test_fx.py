@@ -1061,3 +1061,157 @@ class TestFXExportEndpoint:
         assert len(lines) == 2
         # Data row should contain the pair
         assert "USDNGN" in lines[1]
+
+
+# ---------------------------------------------------------------------------
+# Tests for get_live_usdngn_rate (Task #74)
+# ---------------------------------------------------------------------------
+
+
+class TestGetLiveUsdNgnRate:
+    """Tests for the live rate cache with 4-hour TTL and open API fetch."""
+
+    @pytest.mark.asyncio
+    async def test_returns_cached_rate_when_fresh(self):
+        """If a USDNGN rate younger than 4h exists, return it without hitting the API."""
+        from src.fx.service import get_live_usdngn_rate
+
+        fresh_rate = _make_fx_rate(
+            pair="USDNGN",
+            rate=Decimal("1650.000000"),
+            timestamp=datetime.now(timezone.utc),
+        )
+        db = _mock_db()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = fresh_rate
+        db.execute = AsyncMock(return_value=result)
+
+        with patch("src.fx.service.httpx.AsyncClient") as mock_client_cls:
+            rate, fetched_at, cached = await get_live_usdngn_rate(db)
+
+        assert rate == Decimal("1650.000000")
+        assert cached is True
+        mock_client_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fetches_from_api_when_stale(self):
+        """If cached rate is older than 4h, fetch from open API and store."""
+        from src.fx.service import get_live_usdngn_rate
+
+        stale_rate = _make_fx_rate(
+            pair="USDNGN",
+            rate=Decimal("1600.000000"),
+            timestamp=datetime.now(timezone.utc) - timedelta(hours=5),
+        )
+        db = _mock_db()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = stale_rate
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"rates": {"NGN": 1725.5}}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch("src.fx.service.httpx.AsyncClient", return_value=mock_client):
+            rate, fetched_at, cached = await get_live_usdngn_rate(db)
+
+        assert rate == Decimal("1725.5")
+        assert cached is False
+        db.add.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fetches_from_api_when_no_cache(self):
+        """If no cached rate exists at all, fetch from API."""
+        from src.fx.service import get_live_usdngn_rate
+
+        db = _mock_db()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=result)
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"rates": {"NGN": 1700.0}}
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch("src.fx.service.httpx.AsyncClient", return_value=mock_client):
+            rate, fetched_at, cached = await get_live_usdngn_rate(db)
+
+        assert rate == Decimal("1700.0")
+        assert cached is False
+
+    @pytest.mark.asyncio
+    async def test_returns_stale_rate_on_api_failure(self):
+        """If the API fails and a stale cached rate exists, return stale without raising."""
+        from src.fx.service import get_live_usdngn_rate
+        import httpx as httpx_module
+
+        stale_rate = _make_fx_rate(
+            pair="USDNGN",
+            rate=Decimal("1610.000000"),
+            timestamp=datetime.now(timezone.utc) - timedelta(hours=6),
+        )
+        db = _mock_db()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = stale_rate
+        db.execute = AsyncMock(return_value=result)
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = AsyncMock(side_effect=httpx_module.RequestError("timeout"))
+
+        with patch("src.fx.service.httpx.AsyncClient", return_value=mock_client):
+            rate, fetched_at, cached = await get_live_usdngn_rate(db)
+
+        assert rate == Decimal("1610.000000")
+        assert cached is True
+
+    @pytest.mark.asyncio
+    async def test_live_endpoint_returns_rate(self):
+        """GET /fx/live returns usd_ngn, fetched_at, cached fields."""
+        from src.main import app
+        from src.core.database import get_db
+
+        fresh_rate = _make_fx_rate(
+            pair="USDNGN",
+            rate=Decimal("1680.000000"),
+            timestamp=datetime.now(timezone.utc),
+        )
+        db = _mock_db()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = fresh_rate
+        db.execute = AsyncMock(return_value=result)
+
+        app.dependency_overrides[get_db] = lambda: db
+        try:
+            with TestClient(app) as client:
+                resp = client.get("/api/v1/fx/live")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "usd_ngn" in data
+            assert "fetched_at" in data
+            assert "cached" in data
+            assert data["cached"] is True
+        finally:
+            app.dependency_overrides.pop(get_db, None)
