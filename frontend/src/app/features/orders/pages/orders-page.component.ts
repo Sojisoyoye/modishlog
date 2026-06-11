@@ -129,6 +129,15 @@ import { FxService } from '../../../core/services/fx.service';
                 <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
                   Est. Float (70%)
                 </th>
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                  Paid
+                </th>
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                  Balance
+                </th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                  Payment
+                </th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -158,16 +167,33 @@ import { FxService } from '../../../core/services/fx.service';
                         : '--'
                     }}
                   </td>
-                  <td class="px-3 py-2.5 text-right font-medium text-success">
-                    {{ order.total_amount * 0.3 | currency: 'USD' : 'symbol' : '1.0-0' }}
+                  <td class="px-3 py-2.5 text-right font-medium text-muted">
+                    {{ order.total_amount * 0.3 | currency: (order.currency || 'USD') : 'symbol' : '1.0-0' }}
                   </td>
-                  <td class="px-3 py-2.5 text-right font-medium text-warning">
-                    {{ order.total_amount * 0.7 | currency: 'USD' : 'symbol' : '1.0-0' }}
+                  <td class="px-3 py-2.5 text-right font-medium text-muted">
+                    {{ order.total_amount * 0.7 | currency: (order.currency || 'USD') : 'symbol' : '1.0-0' }}
+                  </td>
+                  <td class="px-3 py-2.5 text-right font-medium text-success">
+                    {{ order.total_paid | currency: (order.currency || 'USD') : 'symbol' : '1.0-0' }}
+                  </td>
+                  <td class="px-3 py-2.5 text-right font-medium"
+                    [class.text-warning]="order.balance_remaining > 0"
+                    [class.text-success]="order.balance_remaining <= 0">
+                    {{ order.balance_remaining | currency: (order.currency || 'USD') : 'symbol' : '1.0-0' }}
+                  </td>
+                  <td class="px-3 py-2.5">
+                    <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                      [class]="order.payment_status === 'PAID' ? 'bg-green-100 text-green-700' :
+                               order.payment_status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
+                               'bg-red-100 text-red-700'">
+                      {{ order.payment_status === 'PAID' ? 'Paid' :
+                         order.payment_status === 'PARTIAL' ? 'Partially Paid' : 'Unpaid' }}
+                    </span>
                   </td>
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="8" class="px-3 py-10 text-center text-muted">
+                  <td colspan="11" class="px-3 py-10 text-center text-muted">
                     <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
                     No orders found
                   </td>

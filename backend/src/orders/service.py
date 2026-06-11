@@ -25,6 +25,7 @@ from src.orders.models import (
     DiscountType,
     OrderLineItem,
     OrderPayment,
+    OrderPaymentStatus,
     OrderStatus,
     OrderStatusHistory,
     PaymentMethod,
@@ -193,6 +194,7 @@ async def create_order(
             product_id=item_data.product_id,
             quantity=item_data.quantity,
             unit_cost=item_data.unit_cost,
+            unit_cost_ngn=item_data.unit_cost_ngn,
             line_total=item_data.unit_cost * item_data.quantity,
             notes=item_data.notes,
         )
@@ -346,11 +348,13 @@ async def update_order(
         for item_data in line_items_data:
             line_total = Decimal(str(item_data["unit_cost"])) * item_data["quantity"]
             total += line_total
+            raw_ngn = item_data.get("unit_cost_ngn")
             line_item = OrderLineItem(
                 order_id=order.id,
                 product_id=item_data["product_id"],
                 quantity=item_data["quantity"],
                 unit_cost=Decimal(str(item_data["unit_cost"])),
+                unit_cost_ngn=Decimal(str(raw_ngn)) if raw_ngn is not None else None,
                 line_total=line_total,
                 notes=item_data.get("notes"),
             )
@@ -512,6 +516,48 @@ async def get_status_history(
 # ---------------------------------------------------------------------------
 
 
+async def _sync_payment_status(db: AsyncSession, order: PurchaseOrder) -> None:
+    """Recalculate and persist payment_status based on completed payments in the order currency."""
+    result = await db.execute(
+        select(func.coalesce(func.sum(OrderPayment.amount), Decimal("0")))
+        .where(OrderPayment.order_id == order.id)
+        .where(OrderPayment.status == PaymentStatus.COMPLETED)
+        .where(OrderPayment.currency == order.currency)
+    )
+    total_paid = result.scalar() or Decimal("0")
+    balance = order.total_amount - total_paid
+    if total_paid == 0:
+        order.payment_status = OrderPaymentStatus.UNPAID
+    elif balance <= 0:
+        order.payment_status = OrderPaymentStatus.PAID
+    else:
+        order.payment_status = OrderPaymentStatus.PARTIAL
+
+
+async def get_paid_totals_for_orders(
+    db: AsyncSession, orders: list[PurchaseOrder]
+) -> dict[uuid.UUID, Decimal]:
+    """Return {order_id: total_paid} in each order's own currency. Used by list endpoint."""
+    if not orders:
+        return {}
+    result = await db.execute(
+        select(
+            OrderPayment.order_id,
+            OrderPayment.currency,
+            func.coalesce(func.sum(OrderPayment.amount), Decimal("0")),
+        )
+        .where(OrderPayment.order_id.in_([o.id for o in orders]))
+        .where(OrderPayment.status == PaymentStatus.COMPLETED)
+        .group_by(OrderPayment.order_id, OrderPayment.currency)
+    )
+    currency_by_order = {o.id: o.currency for o in orders}
+    totals: dict[uuid.UUID, Decimal] = {}
+    for order_id, currency, amount in result.all():
+        if currency == currency_by_order.get(order_id):
+            totals[order_id] = totals.get(order_id, Decimal("0")) + amount
+    return totals
+
+
 async def record_payment(
     db: AsyncSession,
     order_id: uuid.UUID,
@@ -533,6 +579,7 @@ async def record_payment(
         order_id=order.id,
         amount=data.amount,
         currency=data.currency,
+        fx_rate=data.fx_rate,
         payment_date=data.payment_date,
         payment_method=PaymentMethod(data.payment_method),
         reference=data.reference,
@@ -543,6 +590,7 @@ async def record_payment(
     )
     db.add(payment)
     await db.flush()
+    await _sync_payment_status(db, order)
 
     await logger.ainfo(
         "payment_recorded",
@@ -601,7 +649,7 @@ async def void_payment(
     user_id: uuid.UUID,
 ) -> OrderPayment:
     """Void a payment record."""
-    await get_order(db, order_id)
+    order = await get_order(db, order_id)
     result = await db.execute(
         select(OrderPayment)
         .where(OrderPayment.id == payment_id)
@@ -613,6 +661,7 @@ async def void_payment(
 
     payment.status = PaymentStatus.VOIDED
     await db.flush()
+    await _sync_payment_status(db, order)
 
     await logger.ainfo(
         "payment_voided",
