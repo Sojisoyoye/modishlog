@@ -19,7 +19,7 @@ class OrderLineItemCreate(BaseModel):
     quantity: int = Field(..., gt=0)
     unit_cost: Decimal = Field(..., gt=0)
     unit_cost_ngn: Decimal | None = None
-    sell_price_ngn: Decimal | None = None
+    sell_price_ngn: Decimal | None = Field(None, ge=0)
     notes: str | None = None
 
 

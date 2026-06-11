@@ -31,11 +31,7 @@ test.describe('Order line item sell price (sell_price_ngn)', () => {
     const order = await goToFirstOrder(page);
     if (!order) { test.skip(); return; }
     await page.getByRole('button', { name: /edit/i }).click();
-    // Sell price inputs should be present (one per line item)
-    const sellInputs = page.locator('input[placeholder]').filter({ hasText: '' });
-    // The sell price column uses number inputs with placeholder from catalog price
-    // Just verify the edit button revealed inputs in the table
-    await expect(page.getByRole('button', { name: /save/i })).toBeVisible();
+    await expect(page.getByTestId('sell-price-input').first()).toBeVisible();
   });
 
   test('entering a sell price saves and displays locked value', async ({ page }) => {
@@ -44,21 +40,14 @@ test.describe('Order line item sell price (sell_price_ngn)', () => {
 
     await page.getByRole('button', { name: /edit/i }).click();
 
-    // Find the sell price inputs (number inputs in the line items table)
-    // They have placeholder equal to the catalog price
-    const sellInputs = page.locator('table input[type="number"]').filter({});
-    const count = await sellInputs.count();
-    if (count === 0) { test.skip(); return; }
+    const sellInput = page.getByTestId('sell-price-input').first();
+    if (!(await sellInput.isVisible())) { test.skip(); return; }
 
-    // Use the last number input in the line-items table row as sell price input
-    // (order: qty, unit_cost, unit_cost_ngn, sell_price_ngn per row)
-    const firstSellInput = sellInputs.last();
-    await firstSellInput.fill('250000');
+    await sellInput.fill('250000');
 
     await page.getByRole('button', { name: /save/i }).click();
     await expect(page.getByRole('button', { name: /edit/i })).toBeVisible({ timeout: 5000 });
 
-    // Locked value should be visible; (catalog) label should be gone for this item
     await expect(page.getByText('250,000').first()).toBeVisible();
   });
 });

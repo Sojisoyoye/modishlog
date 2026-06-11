@@ -437,6 +437,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                               min="0"
                               [placeholder]="productSellingPrice(item.product_id) | number: '1.0-0'"
                               class="w-28 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary"
+                              data-testid="sell-price-input"
                             />
                           } @else if (item.sell_price_ngn != null) {
                             {{ item.sell_price_ngn | number: '1.0-0' }}
@@ -1278,7 +1279,7 @@ export class OrderDetailPageComponent implements OnInit {
         quantity: i.quantity,
         unit_cost: i.unit_cost,
         unit_cost_ngn: i.unit_cost_ngn ?? null,
-        sell_price_ngn: i.sell_price_ngn ?? this.productSellingPrice(i.product_id) ?? null,
+        sell_price_ngn: i.sell_price_ngn != null ? i.sell_price_ngn : (this.productSellingPrice(i.product_id) || null),
       })),
       order_date: this.editForm.order_date || null,
       location_id: this.editForm.location_id || null,

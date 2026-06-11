@@ -1,7 +1,7 @@
 """add sell_price_ngn to order_line_items
 
 Revision ID: f9a0b1c2d3e4
-Revises: f8a9b0c1d2e3
+Revises: e2f3a4b5c6d7
 Create Date: 2026-06-11 19:00:00.000000
 
 """
