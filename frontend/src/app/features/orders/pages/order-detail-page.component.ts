@@ -329,7 +329,7 @@ import { FxService } from '../../../core/services/fx.service';
                 <div class="flex justify-between border-t border-gray-200 pt-2">
                   <dt class="font-bold text-text">Total (USD)</dt>
                   <dd class="font-bold text-text">
-                    {{ order()!.total_amount | currency: 'USD' : 'symbol' : '1.0-0' }}
+                    {{ order()!.total_amount | currency: 'USD' : 'symbol' : '1.2-2' }}
                   </dd>
                 </div>
                 @if (order()!.fx_rate_at_creation) {
