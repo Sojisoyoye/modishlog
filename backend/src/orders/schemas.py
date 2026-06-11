@@ -32,8 +32,20 @@ class OrderLineItemRead(BaseModel):
     unit_cost: Decimal
     unit_cost_ngn: Decimal | None = None
     sell_price_ngn: Decimal | None = None
+    units_remaining: Decimal | None = None
     line_total: Decimal
     notes: str | None = None
+
+
+class LotRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_id: uuid.UUID
+    quantity: int
+    unit_cost_ngn: Decimal | None = None
+    sell_price_ngn: Decimal | None = None
+    units_remaining: Decimal | None = None
 
 
 # ---------------------------------------------------------------------------

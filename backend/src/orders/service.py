@@ -457,6 +457,7 @@ async def transition_status(
         )
 
         for item in order.line_items:
+            item.units_remaining = Decimal(str(item.quantity))
             await adjust_stock(
                 db,
                 product_id=item.product_id,

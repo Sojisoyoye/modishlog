@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1297,3 +1297,82 @@ class TestOrdersExportEndpoint:
         assert len(lines) == 2
         # Data row should contain the order number
         assert "PO-2026-00001" in lines[1]
+
+
+# ---------------------------------------------------------------------------
+# Tests for lot inventory tracking (Task #75)
+# ---------------------------------------------------------------------------
+
+
+class TestLotInventoryTracking:
+    """units_remaining is set on delivery and exposed via /lots endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_order_delivered_sets_units_remaining(self):
+        """Transitioning to DELIVERED sets units_remaining = quantity on each line item."""
+        from src.orders.service import transition_status
+        from src.orders.schemas import StatusTransition
+
+        product_id = uuid.uuid4()
+        item = _make_line_item(product_id=product_id, quantity=50)
+        order = _make_order(status=OrderStatus.CLEARED)
+        order.line_items = [item]
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = order if call_count == 1 else None
+            result.scalars.return_value.all.return_value = []
+            result.scalar.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with patch("src.orders.service.adjust_stock", new_callable=AsyncMock), \
+             patch("src.orders.service.create_batch", new_callable=AsyncMock):
+            await transition_status(
+                db, order.id, StatusTransition(new_status="DELIVERED"), uuid.uuid4()
+            )
+
+        assert item.units_remaining == Decimal(str(item.quantity))
+
+    @pytest.mark.asyncio
+    async def test_units_remaining_null_before_delivery(self):
+        """units_remaining stays None for orders that have not reached DELIVERED."""
+        item = _make_line_item(quantity=10)
+        assert item.units_remaining is None
+
+    @pytest.mark.asyncio
+    async def test_lots_endpoint_returns_line_items(self):
+        """GET /orders/{id}/lots returns line items with units_remaining."""
+        from src.main import app
+        from src.core.database import get_db
+
+        item = _make_line_item(quantity=20)
+        item.units_remaining = Decimal("20")
+        item.unit_cost_ngn = Decimal("14000")
+        item.sell_price_ngn = Decimal("21000")
+        order = _make_order(status=OrderStatus.DELIVERED)
+        order.line_items = [item]
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = order
+        result_mock.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(return_value=result_mock)
+
+        app.dependency_overrides[get_db] = lambda: db
+        try:
+            with TestClient(app) as client:
+                resp = client.get(f"/api/v1/orders/{order.id}/lots")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert isinstance(data, list)
+            assert len(data) == 1
+            assert "units_remaining" in data[0]
+        finally:
+            app.dependency_overrides.pop(get_db, None)

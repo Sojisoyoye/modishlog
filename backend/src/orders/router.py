@@ -30,6 +30,7 @@ from fastapi import File, UploadFile
 from src.orders.schemas import (
     BulkImportResult,
     LogisticsEfficiencyResponse,
+    LotRead,
     ParseProductsResult,
     OrderCreate,
     OrderDetailRead,
@@ -291,6 +292,19 @@ async def create_purchase_return_endpoint(
     """Record a return of goods against a received purchase order."""
     try:
         return await create_purchase_return(db, body, current_user.id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/{order_id}/lots", response_model=list[LotRead])
+async def get_order_lots_endpoint(
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return lot inventory (units_remaining) for each line item in a delivered order."""
+    try:
+        order = await get_order(db, order_id)
+        return [LotRead.model_validate(item) for item in order.line_items]
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
