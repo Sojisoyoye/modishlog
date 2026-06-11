@@ -32,7 +32,8 @@ test('creates a supplier and shows it in the list', async ({ page }) => {
   await page.getByPlaceholder('Contact person').fill('Jane Doe');
   await page.getByPlaceholder('Email address').fill('jane@test.com');
   await page.getByRole('button', { name: 'Save Supplier' }).click();
-  await expect(page.getByText(name)).toBeVisible({ timeout: 5000 });
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await expect(page.getByRole('cell', { name, exact: true })).toBeVisible({ timeout: 5000 });
 });
 
 test('opens supplier detail and shows tabs', async ({ page }) => {
@@ -40,9 +41,10 @@ test('opens supplier detail and shows tabs', async ({ page }) => {
   await page.getByRole('button', { name: 'Add Supplier' }).click();
   await page.getByPlaceholder('Supplier name').fill(name);
   await page.getByRole('button', { name: 'Save Supplier' }).click();
-  await expect(page.getByText(name)).toBeVisible({ timeout: 5000 });
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await expect(page.getByRole('cell', { name, exact: true })).toBeVisible({ timeout: 5000 });
 
-  await page.getByText(name).click();
+  await page.getByRole('cell', { name, exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Purchases' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Stock Report' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Activities' })).toBeVisible();
@@ -54,9 +56,10 @@ test('can switch between supplier detail tabs', async ({ page }) => {
   await page.getByRole('button', { name: 'Add Supplier' }).click();
   await page.getByPlaceholder('Supplier name').fill(name);
   await page.getByRole('button', { name: 'Save Supplier' }).click();
-  await expect(page.getByText(name)).toBeVisible({ timeout: 5000 });
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await expect(page.getByRole('cell', { name, exact: true })).toBeVisible({ timeout: 5000 });
 
-  await page.getByText(name).click();
+  await page.getByRole('cell', { name, exact: true }).click();
   await page.getByRole('tab', { name: 'Ledger' }).click();
   await expect(page.getByRole('table')).toBeVisible();
 
@@ -69,10 +72,11 @@ test('edits a supplier', async ({ page }) => {
   await page.getByRole('button', { name: 'Add Supplier' }).click();
   await page.getByPlaceholder('Supplier name').fill(name);
   await page.getByRole('button', { name: 'Save Supplier' }).click();
-  await expect(page.getByText(name)).toBeVisible({ timeout: 5000 });
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await expect(page.getByRole('cell', { name, exact: true })).toBeVisible({ timeout: 5000 });
 
   await page.getByTestId(`edit-supplier-${name}`).click();
   await page.getByPlaceholder('Contact person').fill('Updated Contact');
   await page.getByRole('button', { name: 'Save Supplier' }).click();
-  await expect(page.getByText('Supplier updated')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText('Supplier updated', { exact: true })).toBeVisible({ timeout: 5000 });
 });

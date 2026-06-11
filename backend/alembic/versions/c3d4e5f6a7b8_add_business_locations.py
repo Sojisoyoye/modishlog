@@ -1,7 +1,7 @@
 """add_business_locations
 
-Revision ID: c3d4e5f6a7b8
-Revises: a8b9c0d1e2f3
+Revision ID: 6cc7dd8ee9ff
+Revises: 5bb6cc7dd8ee
 Create Date: 2026-06-10 10:00:00.000000
 
 """
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "c3d4e5f6a7b8"
-down_revision: Union[str, None] = "a8b9c0d1e2f3"
+revision: str = "6cc7dd8ee9ff"
+down_revision: Union[str, None] = "5bb6cc7dd8ee"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

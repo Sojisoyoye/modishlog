@@ -76,7 +76,9 @@ class OverpaymentError(Exception):
 class OrderLineItemError(Exception):
     """Raised when an order has invalid line items."""
 
-    def __init__(self, order_id: uuid.UUID | None, invalid_product_ids: list[uuid.UUID]) -> None:
+    def __init__(
+        self, order_id: uuid.UUID | None, invalid_product_ids: list[uuid.UUID]
+    ) -> None:
         self.order_id = order_id
         self.invalid_product_ids = invalid_product_ids
         super().__init__(
