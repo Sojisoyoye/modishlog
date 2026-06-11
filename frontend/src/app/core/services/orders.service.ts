@@ -144,18 +144,18 @@ export class OrdersService {
     return this.api.get<OrderDetail>(`/orders/${id}`).pipe(map(coerceOrderDetail));
   }
 
-  update(id: string, data: UpdateOrderPayload): Observable<Order> {
-    return this.api.put<Order>(`/orders/${id}`, data);
+  update(id: string, data: UpdateOrderPayload): Observable<OrderDetail> {
+    return this.api.put<OrderDetail>(`/orders/${id}`, data).pipe(map(coerceOrderDetail));
   }
 
   create(data: CreateOrderPayload): Observable<Order> {
     return this.api.post<Order>('/orders', data);
   }
 
-  updateStatus(id: string, newStatus: string, fxRateAtDelivery?: number): Observable<Order> {
+  updateStatus(id: string, newStatus: string, fxRateAtDelivery?: number): Observable<OrderDetail> {
     const body: Record<string, unknown> = { new_status: newStatus };
     if (fxRateAtDelivery != null) body['fx_rate_at_delivery'] = fxRateAtDelivery;
-    return this.api.put<Order>(`/orders/${id}/status`, body);
+    return this.api.put<OrderDetail>(`/orders/${id}/status`, body).pipe(map(coerceOrderDetail));
   }
 
   convertPoToPurchase(id: string): Observable<Order> {

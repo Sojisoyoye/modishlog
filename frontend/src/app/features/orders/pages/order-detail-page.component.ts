@@ -403,7 +403,7 @@ import { FxService } from '../../../core/services/fx.service';
                 <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">
                   Move Status
                 </p>
-                @if (nextStatuses(order()!.status).includes('Delivered')) {
+                @if (nextStatuses(order()!.status).includes('DELIVERED')) {
                   <div class="mb-3">
                     <label class="mb-1 block text-xs font-medium text-muted">FX Rate at Delivery</label>
                     <input
@@ -466,11 +466,11 @@ export class OrderDetailPageComponent implements OnInit {
   } = { supplier_name: '', expected_delivery_date: '', notes: '' };
 
   private readonly statusTransitions: Record<string, string[]> = {
-    ORDERED: ['Pending'],
-    Pending: ['In Production'],
-    'In Production': ['Shipping'],
-    Shipping: ['Cleared'],
-    Cleared: ['Delivered'],
+    ORDERED: ['PENDING'],
+    PENDING: ['IN_PRODUCTION'],
+    IN_PRODUCTION: ['SHIPPING'],
+    SHIPPING: ['CLEARED'],
+    CLEARED: ['DELIVERED'],
   };
 
   ngOnInit(): void {
@@ -504,9 +504,9 @@ export class OrderDetailPageComponent implements OnInit {
   }
 
   statusColor(status: string): 'info' | 'warning' | 'success' | 'neutral' {
-    if (status === 'Delivered') return 'success';
-    if (status === 'Shipping' || status === 'Cleared') return 'warning';
-    if (status === 'In Production' || status === 'ORDERED') return 'info';
+    if (status === 'DELIVERED') return 'success';
+    if (status === 'SHIPPING' || status === 'CLEARED') return 'warning';
+    if (status === 'IN_PRODUCTION' || status === 'ORDERED' || status === 'PENDING') return 'info';
     return 'neutral';
   }
 
@@ -571,7 +571,7 @@ export class OrderDetailPageComponent implements OnInit {
   transitionStatus(newStatus: string): void {
     const o = this.order();
     if (!o) return;
-    const fxRate = newStatus === 'Delivered' && this.deliveryFxRate ? this.deliveryFxRate : undefined;
+    const fxRate = newStatus === 'DELIVERED' && this.deliveryFxRate ? this.deliveryFxRate : undefined;
     this.ordersService.updateStatus(o.id, newStatus, fxRate)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
