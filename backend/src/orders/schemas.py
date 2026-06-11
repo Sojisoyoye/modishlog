@@ -142,6 +142,8 @@ class OrderRead(BaseModel):
     order_date: date | None = None
     payment_status: str | None = "UNPAID"
     location_id: uuid.UUID | None = None
+    total_paid: Decimal = Decimal("0")
+    balance_remaining: Decimal = Decimal("0")
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime

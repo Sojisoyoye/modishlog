@@ -25,6 +25,7 @@ from src.orders.models import (
     DiscountType,
     OrderLineItem,
     OrderPayment,
+    OrderPaymentStatus,
     OrderStatus,
     OrderStatusHistory,
     PaymentMethod,
@@ -515,6 +516,23 @@ async def get_status_history(
 # ---------------------------------------------------------------------------
 
 
+async def _sync_payment_status(db: AsyncSession, order: PurchaseOrder) -> None:
+    """Recalculate and persist payment_status based on completed payments."""
+    result = await db.execute(
+        select(func.coalesce(func.sum(OrderPayment.amount), Decimal("0")))
+        .where(OrderPayment.order_id == order.id)
+        .where(OrderPayment.status == PaymentStatus.COMPLETED)
+    )
+    total_paid = result.scalar() or Decimal("0")
+    balance = order.total_amount - total_paid
+    if total_paid == 0:
+        order.payment_status = OrderPaymentStatus.UNPAID
+    elif balance <= 0:
+        order.payment_status = OrderPaymentStatus.PAID
+    else:
+        order.payment_status = OrderPaymentStatus.PARTIAL
+
+
 async def record_payment(
     db: AsyncSession,
     order_id: uuid.UUID,
@@ -547,6 +565,7 @@ async def record_payment(
     )
     db.add(payment)
     await db.flush()
+    await _sync_payment_status(db, order)
 
     await logger.ainfo(
         "payment_recorded",
@@ -605,7 +624,7 @@ async def void_payment(
     user_id: uuid.UUID,
 ) -> OrderPayment:
     """Void a payment record."""
-    await get_order(db, order_id)
+    order = await get_order(db, order_id)
     result = await db.execute(
         select(OrderPayment)
         .where(OrderPayment.id == payment_id)
@@ -617,6 +636,7 @@ async def void_payment(
 
     payment.status = PaymentStatus.VOIDED
     await db.flush()
+    await _sync_payment_status(db, order)
 
     await logger.ainfo(
         "payment_voided",

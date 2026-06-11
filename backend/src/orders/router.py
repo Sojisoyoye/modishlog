@@ -4,9 +4,11 @@ import csv
 import io
 import uuid
 from datetime import date
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user
@@ -16,6 +18,7 @@ from src.inventory.exceptions import (
     InvalidStockAdjustmentError,
     ProductStockNotFoundError,
 )
+from src.orders.models import OrderPayment, PaymentStatus
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
     OrderLineItemError,
@@ -108,7 +111,34 @@ async def list_orders_endpoint(
         page=page,
         page_size=page_size,
     )
-    return OrderListResponse(items=items, total=total, page=page, page_size=page_size)
+
+    paid_map: dict = {}
+    if items:
+        pay_result = await db.execute(
+            select(
+                OrderPayment.order_id,
+                func.coalesce(func.sum(OrderPayment.amount), Decimal("0")),
+            )
+            .where(OrderPayment.order_id.in_([o.id for o in items]))
+            .where(OrderPayment.status == PaymentStatus.COMPLETED)
+            .group_by(OrderPayment.order_id)
+        )
+        paid_map = {row[0]: row[1] for row in pay_result.all()}
+
+    order_reads = []
+    for order in items:
+        r = OrderRead.model_validate(order)
+        r.total_paid = paid_map.get(order.id, Decimal("0"))
+        r.balance_remaining = order.total_amount - r.total_paid
+        if r.total_paid == 0:
+            r.payment_status = "UNPAID"
+        elif r.balance_remaining <= 0:
+            r.payment_status = "PAID"
+        else:
+            r.payment_status = "PARTIAL"
+        order_reads.append(r)
+
+    return OrderListResponse(items=order_reads, total=total, page=page, page_size=page_size)
 
 
 @router.get("/parse-products/template")
@@ -284,9 +314,16 @@ async def get_order_endpoint(
     try:
         order = await get_order(db, order_id)
         summary = await get_payment_summary(db, order_id)
-        # Build response with payment summary
         order_data = OrderDetailRead.model_validate(order)
         order_data.payment_summary = summary
+        order_data.total_paid = summary.total_paid
+        order_data.balance_remaining = summary.balance_remaining
+        if summary.total_paid == 0:
+            order_data.payment_status = "UNPAID"
+        elif summary.is_fully_paid:
+            order_data.payment_status = "PAID"
+        else:
+            order_data.payment_status = "PARTIAL"
         return order_data
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

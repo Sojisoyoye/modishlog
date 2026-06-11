@@ -164,25 +164,15 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
           </div>
           <div>
             <p class="text-xs font-medium text-muted">Payment Status</p>
-            @if (editing()) {
-              <select
-                [(ngModel)]="editForm.payment_status"
-                class="mt-0.5 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-              >
-                <option value="UNPAID">UNPAID</option>
-                <option value="PARTIAL">PARTIAL</option>
-                <option value="PAID">PAID</option>
-              </select>
-            } @else {
-              <span
-                class="mt-0.5 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
-                [class]="order()!.payment_status === 'PAID' ? 'bg-green-100 text-green-700' :
-                         order()!.payment_status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
-                         'bg-red-100 text-red-700'"
-              >
-                {{ order()!.payment_status ?? 'UNPAID' }}
-              </span>
-            }
+            <span
+              class="mt-0.5 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+              [class]="order()!.payment_status === 'PAID' ? 'bg-green-100 text-green-700' :
+                       order()!.payment_status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
+                       'bg-red-100 text-red-700'"
+            >
+              {{ order()!.payment_status === 'PAID' ? 'Paid' :
+                 order()!.payment_status === 'PARTIAL' ? 'Partially Paid' : 'Unpaid' }}
+            </span>
           </div>
           <div>
             <p class="text-xs font-medium text-muted">Location</p>
@@ -511,6 +501,10 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
               </p>
               <dl class="space-y-2 text-sm">
                 <div class="flex justify-between">
+                  <dt class="text-muted">Total items</dt>
+                  <dd class="font-semibold text-text">{{ totalItems() | number }}</dd>
+                </div>
+                <div class="flex justify-between">
                   <dt class="text-muted">Goods total</dt>
                   <dd class="font-semibold text-text">
                     @if (order()!.currency === 'NGN') {
@@ -621,6 +615,54 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                       {{ (goodsTotal() * order()!.fx_rate_at_creation! + order()!.shipping_cost) / order()!.fx_rate_at_creation! | currency: 'USD' : 'symbol' : '1.2-2' }}
                     </dd>
                   </div>
+                }
+
+                @if (order()!.payment_summary) {
+                  <!-- Paid -->
+                  <div class="flex justify-between border-t border-gray-200 pt-2">
+                    <dt class="text-muted">Paid</dt>
+                    <dd class="font-semibold text-success">
+                      @if (order()!.currency === 'NGN') {
+                        ₦{{ order()!.payment_summary!.total_paid | number: '1.0-0' }}
+                      } @else if (order()!.fx_rate_at_creation) {
+                        ₦{{ order()!.payment_summary!.total_paid * order()!.fx_rate_at_creation! | number: '1.0-0' }}
+                      } @else {
+                        {{ order()!.payment_summary!.total_paid | currency: order()!.currency : 'symbol' : '1.2-2' }}
+                      }
+                    </dd>
+                  </div>
+                  @if (order()!.currency !== 'NGN') {
+                    <div class="flex justify-between">
+                      <dt class="text-xs text-muted"></dt>
+                      <dd class="text-xs text-success">
+                        {{ order()!.payment_summary!.total_paid | currency: order()!.currency : 'symbol' : '1.2-2' }}
+                      </dd>
+                    </div>
+                  }
+
+                  <!-- Remaining -->
+                  <div class="flex justify-between">
+                    <dt class="font-bold text-text">Remaining</dt>
+                    <dd class="font-bold"
+                      [class]="order()!.payment_summary!.balance_remaining > 0 ? 'text-warning' : 'text-success'">
+                      @if (order()!.currency === 'NGN') {
+                        ₦{{ order()!.payment_summary!.balance_remaining | number: '1.0-0' }}
+                      } @else if (order()!.fx_rate_at_creation) {
+                        ₦{{ order()!.payment_summary!.balance_remaining * order()!.fx_rate_at_creation! | number: '1.0-0' }}
+                      } @else {
+                        {{ order()!.payment_summary!.balance_remaining | currency: order()!.currency : 'symbol' : '1.2-2' }}
+                      }
+                    </dd>
+                  </div>
+                  @if (order()!.currency !== 'NGN') {
+                    <div class="flex justify-between">
+                      <dt class="text-xs text-muted"></dt>
+                      <dd class="text-xs"
+                        [class]="order()!.payment_summary!.balance_remaining > 0 ? 'text-warning' : 'text-success'">
+                        {{ order()!.payment_summary!.balance_remaining | currency: order()!.currency : 'symbol' : '1.2-2' }}
+                      </dd>
+                    </div>
+                  }
                 }
               </dl>
             </div>
@@ -817,6 +859,87 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
               }
             </div>
         </div>
+
+        <!-- Profit Overview (full width) -->
+        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <p class="mb-4 text-xs font-bold uppercase tracking-wider text-muted">Profit Overview</p>
+          @if (!canComputeProfitOverview()) {
+            <p class="text-sm text-muted">
+              @if (!canComputeMargin(order()!)) {
+                Set an FX rate to enable profit calculations.
+              } @else {
+                Set selling prices on products to enable profit calculations.
+              }
+            </p>
+          } @else {
+            <!-- Revenue / Gross Profit / Net Profit figures -->
+            <div class="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div class="rounded-lg bg-blue-50 px-4 py-3">
+                <p class="mb-0.5 text-xs font-medium text-muted">Revenue</p>
+                <p class="text-xl font-bold text-secondary">
+                  ₦{{ totalRevenueNGN() | number: '1.0-0' }}
+                </p>
+                <p class="mt-0.5 text-xs text-muted">Σ sell price × qty</p>
+              </div>
+              <div class="rounded-lg bg-gray-50 px-4 py-3">
+                <p class="mb-0.5 text-xs font-medium text-muted">Gross Profit</p>
+                <p class="text-xl font-bold" [class]="grossProfit() >= 0 ? 'text-success' : 'text-danger'">
+                  ₦{{ grossProfit() | number: '1.0-0' }}
+                </p>
+                <p class="mt-0.5 text-xs text-muted">revenue − purchase cost only</p>
+              </div>
+              <div class="rounded-lg bg-gray-50 px-4 py-3">
+                <p class="mb-0.5 text-xs font-medium text-muted">Net Profit</p>
+                <p class="text-xl font-bold" [class]="netProfit() >= 0 ? 'text-success' : 'text-danger'">
+                  ₦{{ netProfit() | number: '1.0-0' }}
+                </p>
+                <p class="mt-0.5 text-xs text-muted">revenue − all landed costs</p>
+              </div>
+            </div>
+
+            <!-- 4 margin percentages -->
+            <div class="grid grid-cols-2 gap-3 border-t border-gray-100 pt-4 sm:grid-cols-4">
+              <div class="rounded-lg bg-gray-50 px-4 py-3 text-center">
+                <p class="mb-1 text-xs text-muted">GP Margin (Capital)</p>
+                <p class="text-xl font-bold" [class]="grossProfit() >= 0 ? 'text-success' : 'text-danger'">
+                  {{ goodsCostNGN() > 0 ? (grossProfit() / goodsCostNGN() * 100 | number: '1.1-1') : '—' }}%
+                </p>
+                <p class="mt-1 text-xs text-muted">GP ÷ Goods Cost</p>
+                <span class="mt-1.5 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Return on Investment</span>
+              </div>
+              <div class="rounded-lg bg-gray-50 px-4 py-3 text-center">
+                <p class="mb-1 text-xs text-muted">GP Margin (Revenue)</p>
+                <p class="text-xl font-bold" [class]="grossProfit() >= 0 ? 'text-success' : 'text-danger'">
+                  {{ totalRevenueNGN() > 0 ? (grossProfit() / totalRevenueNGN() * 100 | number: '1.1-1') : '—' }}%
+                </p>
+                <p class="mt-1 text-xs text-muted">GP ÷ Revenue</p>
+                <span class="mt-1.5 inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Gross Take-Home</span>
+              </div>
+              <div class="rounded-lg bg-gray-50 px-4 py-3 text-center">
+                <p class="mb-1 text-xs text-muted">NP Margin (Capital)</p>
+                <p class="text-xl font-bold" [class]="netProfit() >= 0 ? 'text-success' : 'text-danger'">
+                  {{ totalLandedNGN() > 0 ? (netProfit() / totalLandedNGN() * 100 | number: '1.1-1') : '—' }}%
+                </p>
+                <p class="mt-1 text-xs text-muted">NP ÷ Total Capital</p>
+                <span class="mt-1.5 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">Net Return on Investment</span>
+              </div>
+              <div class="rounded-lg bg-gray-50 px-4 py-3 text-center">
+                <p class="mb-1 text-xs text-muted">NP Margin (Revenue)</p>
+                <p class="text-xl font-bold" [class]="netProfit() >= 0 ? 'text-success' : 'text-danger'">
+                  {{ totalRevenueNGN() > 0 ? (netProfit() / totalRevenueNGN() * 100 | number: '1.1-1') : '—' }}%
+                </p>
+                <p class="mt-1 text-xs text-muted">NP ÷ Revenue</p>
+                <span class="mt-1.5 inline-block rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Net Take-Home</span>
+              </div>
+            </div>
+
+            <!-- Supporting cost bases -->
+            <div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 border-t border-gray-100 pt-3 text-xs text-muted">
+              <span>Goods cost: <strong class="text-text">₦{{ goodsCostNGN() | number: '1.0-0' }}</strong></span>
+              <span>Total landed (goods + clearing + overhead): <strong class="text-text">₦{{ totalLandedNGN() | number: '1.0-0' }}</strong></span>
+            </div>
+          }
+        </div>
       </div>
     } @else if (!loading()) {
       <div class="flex h-64 flex-col items-center justify-center gap-4">
@@ -1005,8 +1128,60 @@ export class OrderDetailPageComponent implements OnInit {
     this.editDeletedProductIds.update((s) => new Set([...s, productId]));
   }
 
+  totalItems(): number {
+    return (this.order()?.line_items ?? []).reduce((sum, i) => sum + i.quantity, 0);
+  }
+
   goodsTotal(): number {
     return (this.order()?.line_items ?? []).reduce((sum, i) => sum + Number(i.line_total), 0);
+  }
+
+  goodsCostNGN(): number {
+    const o = this.order();
+    if (!o) return 0;
+    return o.line_items.reduce((sum, i) => sum + this.unitCostInNGN(i, o) * i.quantity, 0);
+  }
+
+  private toNGN(foreignAmount: number): number {
+    const o = this.order();
+    if (!o) return 0;
+    if (o.currency === 'NGN') return foreignAmount;
+    return o.fx_rate_at_creation ? foreignAmount * o.fx_rate_at_creation : 0;
+  }
+
+  // Total landed = goods + clearing (USD) + clearing/shipping (NGN) + additional + tax − discount
+  totalLandedNGN(): number {
+    const o = this.order();
+    if (!o) return 0;
+    const additionalNGN = this.toNGN(this.additionalExpensesTotal());
+    const taxNGN        = this.toNGN(Number(o.tax_amount));
+    const discountNGN   = this.toNGN(Number(o.discount_amount));
+    return this.goodsCostNGN()
+      + this.toNGN(o.clearing_cost)
+      + o.shipping_cost
+      + additionalNGN + taxNGN - discountNGN;
+  }
+
+  totalRevenueNGN(): number {
+    const o = this.order();
+    if (!o) return 0;
+    return o.line_items.reduce((sum, i) => sum + this.productSellingPrice(i.product_id) * i.quantity, 0);
+  }
+
+  // Gross Profit = Revenue − Goods cost only (purchase price, no clearing/overhead)
+  grossProfit(): number {
+    return this.totalRevenueNGN() - this.goodsCostNGN();
+  }
+
+  // Net Profit = Revenue − Total Landed (all costs including clearing, shipping, overhead)
+  netProfit(): number {
+    return this.totalRevenueNGN() - this.totalLandedNGN();
+  }
+
+  canComputeProfitOverview(): boolean {
+    const o = this.order();
+    if (!o || !this.canComputeMargin(o)) return false;
+    return o.line_items.some(i => this.productSellingPrice(i.product_id) > 0);
   }
 
   additionalExpensesTotal(): number {
@@ -1076,7 +1251,6 @@ export class OrderDetailPageComponent implements OnInit {
         unit_cost_ngn: i.unit_cost_ngn ?? null,
       })),
       order_date: this.editForm.order_date || null,
-      payment_status: this.editForm.payment_status || null,
       location_id: this.editForm.location_id || null,
     };
     const statusChanged = this.editForm.status !== o.status;

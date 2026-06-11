@@ -20,6 +20,7 @@ from src.orders.exceptions import (
 from src.orders.models import (
     OrderLineItem,
     OrderPayment,
+    OrderPaymentStatus,
     OrderStatus,
     PaymentMethod,
     PaymentStatus,
@@ -701,7 +702,7 @@ class TestPayments:
         order = _make_order(total_amount=Decimal("5000"))
         db = _mock_db()
 
-        # get_order + get_payment_summary calls
+        # get_order + get_payment_summary + _sync_payment_status calls
         call_count = 0
 
         async def mock_execute(stmt):
@@ -717,6 +718,9 @@ class TestPayments:
             elif call_count == 3:
                 # sum/count query in get_payment_summary
                 result.one.return_value = (Decimal("0"), 0)
+            elif call_count == 4:
+                # sum query in _sync_payment_status (1500 now paid)
+                result.scalar.return_value = Decimal("1500")
             else:
                 result.scalar_one_or_none.return_value = None
             return result
@@ -731,6 +735,7 @@ class TestPayments:
         payment = await record_payment(db, order.id, data, uuid.uuid4())
         assert payment.amount == Decimal("1500")
         assert payment.status == PaymentStatus.COMPLETED
+        assert order.payment_status == OrderPaymentStatus.PARTIAL
 
     @pytest.mark.asyncio
     async def test_record_payment_stores_fx_rate(self):
@@ -750,6 +755,8 @@ class TestPayments:
                 result.scalar_one_or_none.return_value = order
             elif call_count == 3:
                 result.one.return_value = (Decimal("0"), 0)
+            elif call_count == 4:
+                result.scalar.return_value = Decimal("500")
             else:
                 result.scalar_one_or_none.return_value = None
             return result
@@ -784,6 +791,8 @@ class TestPayments:
                 result.scalar_one_or_none.return_value = order
             elif call_count == 3:
                 result.one.return_value = (Decimal("0"), 0)
+            elif call_count == 4:
+                result.scalar.return_value = Decimal("500")
             else:
                 result.scalar_one_or_none.return_value = None
             return result
@@ -882,6 +891,9 @@ class TestPayments:
                 result.scalar_one_or_none.return_value = order
             elif call_count == 2:
                 result.scalar_one_or_none.return_value = payment
+            elif call_count == 3:
+                # sum query in _sync_payment_status (no completed payments remain)
+                result.scalar.return_value = Decimal("0")
             else:
                 result.scalar_one_or_none.return_value = None
             return result
@@ -890,6 +902,7 @@ class TestPayments:
 
         result = await void_payment(db, order.id, payment.id, uuid.uuid4())
         assert result.status == PaymentStatus.VOIDED
+        assert order.payment_status == OrderPaymentStatus.UNPAID
 
 
 # ---------------------------------------------------------------------------

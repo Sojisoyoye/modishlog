@@ -35,6 +35,8 @@ export interface Order {
   order_date: string | null;
   payment_status: string | null;
   location_id: string | null;
+  total_paid: number;
+  balance_remaining: number;
   additional_expense_key_1: string | null;
   additional_expense_value_1: number | null;
   additional_expense_key_2: string | null;
@@ -141,7 +143,12 @@ export class OrdersService {
 
   getAll(params?: Record<string, string>): Observable<Order[]> {
     return this.api.get<{ items: Order[]; total: number }>('/orders', params).pipe(
-      map((resp) => resp.items),
+      map((resp) => resp.items.map((o) => ({
+        ...o,
+        total_amount: Number(o.total_amount),
+        total_paid: Number(o.total_paid ?? 0),
+        balance_remaining: Number(o.balance_remaining ?? 0),
+      }))),
     );
   }
 
