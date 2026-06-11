@@ -54,6 +54,7 @@ export interface OrderItem {
   quantity: number;
   unit_cost: number;
   unit_cost_ngn: number | null;
+  sell_price_ngn: number | null;
   line_total: number;
 }
 
@@ -122,6 +123,7 @@ function coerceOrderDetail(o: OrderDetail): OrderDetail {
     quantity: Number(item.quantity),
     unit_cost: Number(item.unit_cost),
     unit_cost_ngn: item.unit_cost_ngn != null ? Number(item.unit_cost_ngn) : null,
+    sell_price_ngn: item.sell_price_ngn != null ? Number(item.sell_price_ngn) : null,
     line_total: Number(item.line_total),
   }));
   if (o.payment_summary) {
@@ -299,7 +301,7 @@ export interface UpdateOrderPayload {
   supplier_invoice_date?: string | null;
   pay_term_number?: number | null;
   pay_term_type?: string | null;
-  line_items?: { product_id: string; quantity: number; unit_cost: number; unit_cost_ngn?: number | null }[] | null;
+  line_items?: { product_id: string; quantity: number; unit_cost: number; unit_cost_ngn?: number | null; sell_price_ngn?: number | null }[] | null;
   order_date?: string | null;
   payment_status?: string | null;
   location_id?: string | null;

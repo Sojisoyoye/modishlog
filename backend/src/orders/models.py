@@ -222,6 +222,7 @@ class OrderLineItem(UUIDMixin, Base):
     quantity: Mapped[int] = mapped_column(Integer)
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     unit_cost_ngn: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), default=None)
+    sell_price_ngn: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), default=None)
     line_total: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     notes: Mapped[str | None] = mapped_column(Text, default=None)
 

@@ -195,6 +195,7 @@ async def create_order(
             quantity=item_data.quantity,
             unit_cost=item_data.unit_cost,
             unit_cost_ngn=item_data.unit_cost_ngn,
+            sell_price_ngn=item_data.sell_price_ngn,
             line_total=item_data.unit_cost * item_data.quantity,
             notes=item_data.notes,
         )
@@ -349,12 +350,14 @@ async def update_order(
             line_total = Decimal(str(item_data["unit_cost"])) * item_data["quantity"]
             total += line_total
             raw_ngn = item_data.get("unit_cost_ngn")
+            raw_sell = item_data.get("sell_price_ngn")
             line_item = OrderLineItem(
                 order_id=order.id,
                 product_id=item_data["product_id"],
                 quantity=item_data["quantity"],
                 unit_cost=Decimal(str(item_data["unit_cost"])),
                 unit_cost_ngn=Decimal(str(raw_ngn)) if raw_ngn is not None else None,
+                sell_price_ngn=Decimal(str(raw_sell)) if raw_sell is not None else None,
                 line_total=line_total,
                 notes=item_data.get("notes"),
             )

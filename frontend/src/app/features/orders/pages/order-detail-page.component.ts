@@ -428,7 +428,23 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                           </td>
                         }
                         <td class="px-3 py-2.5 text-right text-muted">
-                          {{ productSellingPrice(item.product_id) | number: '1.0-0' }}
+                          @if (editing()) {
+                            <input
+                              type="number"
+                              [ngModel]="getEditSellPriceNGN(item.product_id)"
+                              (ngModelChange)="setEditSellPriceNGN(item.product_id, $event)"
+                              step="1"
+                              min="0"
+                              [placeholder]="productSellingPrice(item.product_id) | number: '1.0-0'"
+                              class="w-28 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary"
+                              data-testid="sell-price-input"
+                            />
+                          } @else if (item.sell_price_ngn != null) {
+                            {{ item.sell_price_ngn | number: '1.0-0' }}
+                          } @else {
+                            {{ productSellingPrice(item.product_id) | number: '1.0-0' }}
+                            <span class="block text-xs font-normal opacity-50">(catalog)</span>
+                          }
                         </td>
                         <td class="px-3 py-2.5 text-right font-semibold"
                             [class]="!canComputeMargin(order()!) ? 'text-muted' : marginNGN(item, order()!) >= 0 ? 'text-success' : 'text-danger'">
@@ -973,7 +989,7 @@ export class OrderDetailPageComponent implements OnInit {
   recordingPayment = signal(false);
   deliveryFxRate: number | null = null;
 
-  editLineItems: { product_id: string; quantity: number; unit_cost: number; unit_cost_ngn: number | null }[] = [];
+  editLineItems: { product_id: string; quantity: number; unit_cost: number; unit_cost_ngn: number | null; sell_price_ngn: number | null }[] = [];
   editDeletedProductIds = signal<Set<string>>(new Set());
 
   editForm: {
@@ -1070,6 +1086,15 @@ export class OrderDetailPageComponent implements OnInit {
     if (item) item.unit_cost_ngn = value !== '' && value != null ? Number(value) : null;
   }
 
+  getEditSellPriceNGN(productId: string): number | null {
+    return this.editLineItems.find((i) => i.product_id === productId)?.sell_price_ngn ?? null;
+  }
+
+  setEditSellPriceNGN(productId: string, value: number | string): void {
+    const item = this.editLineItems.find((i) => i.product_id === productId);
+    if (item) item.sell_price_ngn = value !== '' && value != null ? Number(value) : null;
+  }
+
   getEditQty(productId: string): number {
     return this.editLineItems.find((i) => i.product_id === productId)?.quantity ?? 0;
   }
@@ -1083,6 +1108,10 @@ export class OrderDetailPageComponent implements OnInit {
     return this.products().find((p) => p.id === productId)?.selling_price ?? 0;
   }
 
+  effectiveSellPrice(item: { product_id: string; sell_price_ngn?: number | null }): number {
+    return item.sell_price_ngn != null ? item.sell_price_ngn : this.productSellingPrice(item.product_id);
+  }
+
   canComputeMargin(order: OrderDetail): boolean {
     return order.currency === 'NGN' || !!order.fx_rate_at_creation;
   }
@@ -1093,12 +1122,12 @@ export class OrderDetailPageComponent implements OnInit {
     return order.fx_rate_at_creation ? item.unit_cost * order.fx_rate_at_creation : 0;
   }
 
-  marginNGN(item: { product_id: string; unit_cost: number }, order: OrderDetail): number {
-    return this.productSellingPrice(item.product_id) - this.unitCostInNGN(item, order);
+  marginNGN(item: { product_id: string; unit_cost: number; sell_price_ngn?: number | null }, order: OrderDetail): number {
+    return this.effectiveSellPrice(item) - this.unitCostInNGN(item, order);
   }
 
-  marginPct(item: { product_id: string; unit_cost: number }, order: OrderDetail): number {
-    const sell = this.productSellingPrice(item.product_id);
+  marginPct(item: { product_id: string; unit_cost: number; sell_price_ngn?: number | null }, order: OrderDetail): number {
+    const sell = this.effectiveSellPrice(item);
     if (!sell) return 0;
     return (this.marginNGN(item, order) / sell) * 100;
   }
@@ -1165,7 +1194,7 @@ export class OrderDetailPageComponent implements OnInit {
   totalRevenueNGN(): number {
     const o = this.order();
     if (!o) return 0;
-    return o.line_items.reduce((sum, i) => sum + this.productSellingPrice(i.product_id) * i.quantity, 0);
+    return o.line_items.reduce((sum, i) => sum + this.effectiveSellPrice(i) * i.quantity, 0);
   }
 
   // Gross Profit = Revenue − Goods cost only (purchase price, no clearing/overhead)
@@ -1181,7 +1210,7 @@ export class OrderDetailPageComponent implements OnInit {
   canComputeProfitOverview(): boolean {
     const o = this.order();
     if (!o || !this.canComputeMargin(o)) return false;
-    return o.line_items.some(i => this.productSellingPrice(i.product_id) > 0);
+    return o.line_items.some(i => this.effectiveSellPrice(i) > 0);
   }
 
   additionalExpensesTotal(): number {
@@ -1219,6 +1248,7 @@ export class OrderDetailPageComponent implements OnInit {
       quantity: i.quantity,
       unit_cost: i.unit_cost,
       unit_cost_ngn: i.unit_cost_ngn ?? null,
+      sell_price_ngn: i.sell_price_ngn ?? null,
     }));
     this.editDeletedProductIds.set(new Set());
     this.paymentForm = { amount: null, currency: o.currency, fx_rate: null, payment_method: 'BANK_TRANSFER', payment_date: '', reference: '' };
@@ -1249,6 +1279,7 @@ export class OrderDetailPageComponent implements OnInit {
         quantity: i.quantity,
         unit_cost: i.unit_cost,
         unit_cost_ngn: i.unit_cost_ngn ?? null,
+        sell_price_ngn: i.sell_price_ngn != null ? i.sell_price_ngn : (this.productSellingPrice(i.product_id) || null),
       })),
       order_date: this.editForm.order_date || null,
       location_id: this.editForm.location_id || null,
