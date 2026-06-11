@@ -1340,8 +1340,7 @@ class TestLotInventoryTracking:
 
         assert item.units_remaining == Decimal(str(item.quantity))
 
-    @pytest.mark.asyncio
-    async def test_units_remaining_null_before_delivery(self):
+    def test_units_remaining_null_before_delivery(self):
         """units_remaining stays None for orders that have not reached DELIVERED."""
         item = _make_line_item(quantity=10)
         assert item.units_remaining is None

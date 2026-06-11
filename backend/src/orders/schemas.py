@@ -43,6 +43,7 @@ class LotRead(BaseModel):
     id: uuid.UUID
     product_id: uuid.UUID
     quantity: int
+    unit_cost: Decimal
     unit_cost_ngn: Decimal | None = None
     sell_price_ngn: Decimal | None = None
     units_remaining: Decimal | None = None

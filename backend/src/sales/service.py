@@ -67,12 +67,17 @@ async def _deduct_lot_units(
     lots = result.scalars().all()
 
     remaining = quantity
+    deducted_any = False
     for lot in lots:
         if remaining <= 0:
             break
         deduct = min(lot.units_remaining, remaining)
         lot.units_remaining -= deduct
         remaining -= deduct
+        deducted_any = True
+
+    if deducted_any:
+        await db.flush()
 
     if remaining > 0:
         await logger.awarning(
