@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { Observable, forkJoin } from 'rxjs';
+import { map, switchMap } from 'rxjs/operators';
 import { ApiService } from './api.service';
 import { environment } from '../../../environments/environment';
 
@@ -76,8 +76,21 @@ export class ProductsService {
 
   getAll(): Observable<Product[]> {
     return this.api
-      .get<ProductListResponse>('/products', { page_size: '100' })
-      .pipe(map((resp) => resp.items ?? []));
+      .get<ProductListResponse>('/products', { page_size: '100', page: '1' })
+      .pipe(
+        switchMap((first) => {
+          const items = first.items ?? [];
+          const total = first.total ?? items.length;
+          if (total <= 100) return [items];
+          const pageCount = Math.ceil(total / 100);
+          const rest$ = Array.from({ length: pageCount - 1 }, (_, i) =>
+            this.api
+              .get<ProductListResponse>('/products', { page_size: '100', page: String(i + 2) })
+              .pipe(map((r) => r.items ?? [])),
+          );
+          return forkJoin(rest$).pipe(map((pages) => [...items, ...pages.flat()]));
+        }),
+      );
   }
 
   getById(id: string): Observable<Product> {

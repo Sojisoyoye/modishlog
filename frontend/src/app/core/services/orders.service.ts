@@ -99,6 +99,36 @@ export interface ScenarioResult {
   margin_pct: number;
 }
 
+function coerceOrderDetail(o: OrderDetail): OrderDetail {
+  const raw = o as unknown as Record<string, unknown>;
+  const numFields = [
+    'total_amount', 'shipping_cost', 'clearing_cost', 'discount_amount',
+    'tax_amount', 'fx_rate_at_creation', 'fx_rate_at_delivery', 'pay_term_number',
+    'additional_expense_value_1', 'additional_expense_value_2',
+    'additional_expense_value_3', 'additional_expense_value_4',
+  ];
+  const coerced = { ...raw };
+  for (const f of numFields) {
+    if (coerced[f] != null) coerced[f] = Number(coerced[f]);
+  }
+  coerced['line_items'] = ((o.line_items ?? []) as OrderItem[]).map((item) => ({
+    ...item,
+    quantity: Number(item.quantity),
+    unit_cost: Number(item.unit_cost),
+    line_total: Number(item.line_total),
+  }));
+  if (o.payment_summary) {
+    coerced['payment_summary'] = {
+      ...o.payment_summary,
+      total_due: Number(o.payment_summary.total_due),
+      total_paid: Number(o.payment_summary.total_paid),
+      balance_remaining: Number(o.payment_summary.balance_remaining),
+      payment_count: Number(o.payment_summary.payment_count),
+    };
+  }
+  return coerced as unknown as OrderDetail;
+}
+
 @Injectable({ providedIn: 'root' })
 export class OrdersService {
   private readonly api = inject(ApiService);
@@ -111,7 +141,7 @@ export class OrdersService {
   }
 
   getById(id: string): Observable<OrderDetail> {
-    return this.api.get<OrderDetail>(`/orders/${id}`);
+    return this.api.get<OrderDetail>(`/orders/${id}`).pipe(map(coerceOrderDetail));
   }
 
   update(id: string, data: UpdateOrderPayload): Observable<Order> {

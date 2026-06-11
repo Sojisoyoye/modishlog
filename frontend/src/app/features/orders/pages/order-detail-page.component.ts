@@ -505,7 +505,7 @@ export class OrderDetailPageComponent implements OnInit {
   }
 
   goodsTotal(): number {
-    return (this.order()?.line_items ?? []).reduce((sum, i) => sum + i.line_total, 0);
+    return (this.order()?.line_items ?? []).reduce((sum, i) => sum + Number(i.line_total), 0);
   }
 
   additionalExpensesTotal(): number {
@@ -514,7 +514,7 @@ export class OrderDetailPageComponent implements OnInit {
     let total = 0;
     for (let n = 1; n <= 4; n++) {
       const v = o[`additional_expense_value_${n}`];
-      if (typeof v === 'number') total += v;
+      if (v != null) total += Number(v);
     }
     return total;
   }
