@@ -61,9 +61,11 @@ test('can switch between supplier detail tabs', async ({ page }) => {
 
   await page.getByRole('cell', { name, exact: true }).click();
   await page.getByRole('tab', { name: 'Ledger' }).click();
+  await expect(page.locator('.pi-spinner')).toHaveCount(0);
   await expect(page.getByRole('table')).toBeVisible();
 
   await page.getByRole('tab', { name: 'Activities' }).click();
+  await expect(page.locator('.pi-spinner')).toHaveCount(0);
   await expect(page.getByText('No activity yet.')).toBeVisible();
 });
 
