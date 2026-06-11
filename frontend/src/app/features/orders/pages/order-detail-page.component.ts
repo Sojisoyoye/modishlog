@@ -433,9 +433,8 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                               type="number"
                               [ngModel]="getEditSellPriceNGN(item.product_id)"
                               (ngModelChange)="setEditSellPriceNGN(item.product_id, $event)"
-                              step="1"
+                              step="0.01"
                               min="0"
-                              [placeholder]="productSellingPrice(item.product_id) | number: '1.0-0'"
                               class="w-28 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary"
                               data-testid="sell-price-input"
                             />
@@ -1092,7 +1091,12 @@ export class OrderDetailPageComponent implements OnInit {
 
   setEditSellPriceNGN(productId: string, value: number | string): void {
     const item = this.editLineItems.find((i) => i.product_id === productId);
-    if (item) item.sell_price_ngn = value !== '' && value != null ? Number(value) : null;
+    if (item) item.sell_price_ngn = this.normaliseNGN(value !== '' && value != null ? Number(value) : null);
+  }
+
+  private normaliseNGN(value: number | null | undefined): number | null {
+    if (value == null || isNaN(value as number)) return null;
+    return parseFloat((value as number).toFixed(2));
   }
 
   getEditQty(productId: string): number {
@@ -1248,11 +1252,18 @@ export class OrderDetailPageComponent implements OnInit {
       quantity: i.quantity,
       unit_cost: i.unit_cost,
       unit_cost_ngn: i.unit_cost_ngn ?? null,
-      sell_price_ngn: i.sell_price_ngn ?? null,
+      sell_price_ngn: this.normaliseNGN(i.sell_price_ngn ?? (Number(this.productSellingPrice(i.product_id)) || null)),
     }));
     this.editDeletedProductIds.set(new Set());
     this.paymentForm = { amount: null, currency: o.currency, fx_rate: null, payment_method: 'BANK_TRANSFER', payment_date: '', reference: '' };
     this.editing.set(true);
+
+    // Auto-fill FX rate from live API if order is USD and rate not yet set
+    if (o.currency !== 'NGN' && !o.fx_rate_at_creation) {
+      this.fxService.getLiveRate().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { if (!this.editForm.fx_rate_at_creation) this.editForm.fx_rate_at_creation = r.usd_ngn; },
+      });
+    }
   }
 
   cancelEdit(): void {

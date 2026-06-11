@@ -110,9 +110,7 @@ async def get_current_rate(
 async def get_all_current_rates(db: AsyncSession) -> list[FXRate]:
     """Get the latest rate for each tracked pair."""
     # Get distinct pairs
-    pairs_result = await db.execute(
-        select(FXRate.pair).distinct()
-    )
+    pairs_result = await db.execute(select(FXRate.pair).distinct())
     pairs = [row[0] for row in pairs_result.all()]
 
     rates = []
@@ -150,7 +148,9 @@ async def get_rate_history(
 
     first_rate = rate_values[0]
     last_rate = rate_values[-1]
-    pct_change = float((last_rate - first_rate) / first_rate * 100) if first_rate else 0.0
+    pct_change = (
+        float((last_rate - first_rate) / first_rate * 100) if first_rate else 0.0
+    )
 
     rate_reads = [FXRateRead.model_validate(r) for r in rates]
 
@@ -207,6 +207,50 @@ async def get_rate_for_date(
     raise FXPairNotFoundError(pair)
 
 
+async def get_live_usdngn_rate(
+    db: AsyncSession,
+) -> tuple[Decimal, datetime, bool]:
+    """Return (rate, fetched_at, cached). Serves from DB if < FX_CACHE_TTL_HOURS old."""
+    result = await db.execute(
+        select(FXRate)
+        .where(FXRate.pair == "USDNGN")
+        .order_by(FXRate.timestamp.desc())
+        .limit(1)
+    )
+    recent = result.scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+    ttl_seconds = settings.FX_CACHE_TTL_HOURS * 3600
+
+    if recent and (now - recent.timestamp).total_seconds() < ttl_seconds:
+        return recent.rate, recent.timestamp, True
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(settings.FX_LIVE_API_URL, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+
+        ngn_rate = Decimal(str(data["rates"]["NGN"]))
+        now = datetime.now(timezone.utc)
+        fx_rate = FXRate(
+            pair="USDNGN",
+            rate=ngn_rate,
+            source=RateSource.API_PROVIDER,
+            timestamp=now,
+            created_at=now,
+        )
+        db.add(fx_rate)
+        await db.flush()
+        await logger.ainfo("fx_live_rate_fetched", rate=str(ngn_rate))
+        return ngn_rate, now, False
+
+    except (httpx.HTTPStatusError, httpx.RequestError, KeyError, ValueError) as e:
+        await logger.awarning("fx_live_rate_fetch_failed", error=str(e))
+        if recent:
+            return recent.rate, recent.timestamp, True
+        raise ExternalRateSyncError("exchangerate-api", None, str(e))
+
+
 async def sync_external_rates(db: AsyncSession) -> list[FXRate]:
     """Sync rates from external FX API provider."""
     if not settings.FX_API_KEY:
@@ -222,9 +266,7 @@ async def sync_external_rates(db: AsyncSession) -> list[FXRate]:
             response.raise_for_status()
             data = response.json()
     except httpx.HTTPStatusError as e:
-        raise ExternalRateSyncError(
-            "fx_api", e.response.status_code, str(e)
-        )
+        raise ExternalRateSyncError("fx_api", e.response.status_code, str(e))
     except httpx.RequestError as e:
         raise ExternalRateSyncError("fx_api", None, str(e))
 
@@ -283,9 +325,7 @@ async def backfill_historical_data(
             response.raise_for_status()
             data = response.json()
     except httpx.HTTPStatusError as e:
-        raise ExternalRateSyncError(
-            "fx_api", e.response.status_code, str(e)
-        )
+        raise ExternalRateSyncError("fx_api", e.response.status_code, str(e))
     except httpx.RequestError as e:
         raise ExternalRateSyncError("fx_api", None, str(e))
 
@@ -466,22 +506,28 @@ async def get_exposure_summary(
             market_rate = Decimal("0")
 
         # Unrealized P&L on floating portion
-        unrealized = floating * (market_rate - weighted_locked_rate) if weighted_locked_rate else Decimal("0")
+        unrealized = (
+            floating * (market_rate - weighted_locked_rate)
+            if weighted_locked_rate
+            else Decimal("0")
+        )
 
         locked_pct = float(locked / total_exp * 100) if total_exp else 0.0
         floating_pct = float(floating / total_exp * 100) if total_exp else 0.0
 
-        summaries.append({
-            "pair": pair,
-            "total_exposure": total_exp,
-            "locked_amount": locked,
-            "locked_pct": round(locked_pct, 2),
-            "floating_amount": floating,
-            "floating_pct": round(floating_pct, 2),
-            "weighted_locked_rate": weighted_locked_rate,
-            "current_market_rate": market_rate,
-            "unrealized_pnl": unrealized,
-        })
+        summaries.append(
+            {
+                "pair": pair,
+                "total_exposure": total_exp,
+                "locked_amount": locked,
+                "locked_pct": round(locked_pct, 2),
+                "floating_amount": floating,
+                "floating_pct": round(floating_pct, 2),
+                "weighted_locked_rate": weighted_locked_rate,
+                "current_market_rate": market_rate,
+                "unrealized_pnl": unrealized,
+            }
+        )
     return summaries
 
 
@@ -489,9 +535,7 @@ async def get_exposure_detail(
     db: AsyncSession,
 ) -> list[FXExposure]:
     """Return all individual exposure records."""
-    result = await db.execute(
-        select(FXExposure).order_by(FXExposure.pair)
-    )
+    result = await db.execute(select(FXExposure).order_by(FXExposure.pair))
     return list(result.scalars().all())
 
 
@@ -611,17 +655,13 @@ async def create_alert(
 
 async def list_alerts(db: AsyncSession) -> list[FXAlert]:
     """List all FX alerts."""
-    result = await db.execute(
-        select(FXAlert).order_by(FXAlert.created_at.desc())
-    )
+    result = await db.execute(select(FXAlert).order_by(FXAlert.created_at.desc()))
     return list(result.scalars().all())
 
 
 async def get_alert(db: AsyncSession, alert_id: uuid.UUID) -> FXAlert:
     """Get a specific alert by ID."""
-    result = await db.execute(
-        select(FXAlert).where(FXAlert.id == alert_id)
-    )
+    result = await db.execute(select(FXAlert).where(FXAlert.id == alert_id))
     alert = result.scalar_one_or_none()
     if not alert:
         raise FXAlertNotFoundError(alert_id)
@@ -681,9 +721,15 @@ async def check_alerts(
 
     for alert in alerts:
         should_trigger = False
-        if alert.direction == AlertDirection.ABOVE and current_rate >= alert.threshold_rate:
+        if (
+            alert.direction == AlertDirection.ABOVE
+            and current_rate >= alert.threshold_rate
+        ):
             should_trigger = True
-        elif alert.direction == AlertDirection.BELOW and current_rate <= alert.threshold_rate:
+        elif (
+            alert.direction == AlertDirection.BELOW
+            and current_rate <= alert.threshold_rate
+        ):
             should_trigger = True
 
         if should_trigger:
@@ -728,9 +774,7 @@ async def run_simulation(
     rates.reverse()  # Oldest first
 
     if len(rates) < MIN_SIMULATION_DAYS:
-        raise InsufficientRateDataError(
-            data.pair, len(rates), MIN_SIMULATION_DAYS
-        )
+        raise InsufficientRateDataError(data.pair, len(rates), MIN_SIMULATION_DAYS)
 
     # Compute daily log returns
     rate_values = [float(r.rate) for r in rates]
@@ -748,7 +792,7 @@ async def run_simulation(
     for _ in range(data.num_simulations):
         price = current_rate_val
         for _ in range(data.horizon_days):
-            drift = (mu - 0.5 * sigma**2)
+            drift = mu - 0.5 * sigma**2
             shock = sigma * random.gauss(0, 1)
             price *= math.exp(drift + shock)
         final_rates.append(price)
@@ -778,12 +822,14 @@ async def run_simulation(
         end = start + bucket_width
         freq = sum(1 for r in final_rates if start <= r < end)
         cum_prob = sum(1 for r in final_rates if r < end) / n
-        buckets.append({
-            "rate_range_start": round(start, 4),
-            "rate_range_end": round(end, 4),
-            "frequency": freq,
-            "cumulative_probability": round(cum_prob, 4),
-        })
+        buckets.append(
+            {
+                "rate_range_start": round(start, 4),
+                "rate_range_end": round(end, 4),
+                "frequency": freq,
+                "cumulative_probability": round(cum_prob, 4),
+            }
+        )
 
     sim = FXSimulationRun(
         pair=data.pair,

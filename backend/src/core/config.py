@@ -108,6 +108,8 @@ class Settings(BaseSettings):
     # External APIs
     FX_API_KEY: str = ""
     FX_API_URL: str = "https://api.example.com/fx"
+    FX_LIVE_API_URL: str = "https://open.er-api.com/v6/latest/USD"
+    FX_CACHE_TTL_HOURS: int = 4
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_BASE_URL: str = "https://api.anthropic.com"
 

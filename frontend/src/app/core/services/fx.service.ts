@@ -81,10 +81,22 @@ export interface FXAlertUpdate {
   is_enabled?: boolean;
 }
 
+export interface LiveRateResponse {
+  usd_ngn: number;
+  fetched_at: string;
+  cached: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class FxService {
   private readonly api = inject(ApiService);
   private readonly http = inject(HttpClient);
+
+  getLiveRate(): Observable<LiveRateResponse> {
+    return this.api.get<LiveRateResponse>('/fx/live').pipe(
+      map((r) => ({ ...r, usd_ngn: Number(r.usd_ngn) }))
+    );
+  }
 
   getLatest(): Observable<FxRate> {
     return this.api.get<FXRateRead[]>('/fx/rates/current').pipe(
