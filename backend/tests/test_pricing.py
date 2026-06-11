@@ -25,6 +25,7 @@ from src.pricing.models import (
     RecommendationStatus,
 )
 from src.products.models import Product, ProductCategory
+import src.suppliers.models  # noqa: F401 — register Supplier mapper for PurchaseOrder
 
 VALID_PASSWORD = "Str0ng!Pass#99"
 
@@ -865,3 +866,191 @@ class TestMixDriftAlert:
 
         # No alert should be created
         assert not db.add.called
+
+
+# ---------------------------------------------------------------------------
+# Tests for PriceSuggestion engine (Task #76)
+# ---------------------------------------------------------------------------
+
+
+class TestPriceSuggestionEngine:
+    """compute_suggestion uses lot-based weighted avg cost + live FX."""
+
+    def _make_lot(self, product_id, units_remaining, unit_cost=None, unit_cost_ngn=None, fx_rate=None):
+        from src.orders.models import OrderLineItem
+        lot = MagicMock(spec=OrderLineItem)
+        lot.product_id = product_id
+        lot.units_remaining = Decimal(str(units_remaining))
+        lot.unit_cost = Decimal(str(unit_cost or "10"))
+        lot.unit_cost_ngn = Decimal(str(unit_cost_ngn)) if unit_cost_ngn else None
+        return lot
+
+    @pytest.mark.asyncio
+    async def test_compute_suggestion_single_lot(self):
+        """Single lot: suggested_price = unit_cost_ngn / (1 - margin)."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:  # lot query
+                result.scalars.return_value.all.return_value = [lot]
+            elif call_count == 2:  # product catalog price
+                p = MagicMock()
+                p.selling_price = Decimal("20000")
+                result.scalar_one_or_none.return_value = p
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            suggestion = await compute_suggestion(db, product_id, target_margin=Decimal("0.40"))
+
+        # 14000 / (1 - 0.40) = 23333.33
+        expected = Decimal("14000") / Decimal("0.60")
+        assert abs(suggestion.suggested_price_ngn - expected) < Decimal("1")
+        assert suggestion.product_id == product_id
+
+    @pytest.mark.asyncio
+    async def test_compute_suggestion_weighted_average(self):
+        """Two lots: uses weighted average of unit_cost_ngn."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        lot1 = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+        lot2 = self._make_lot(product_id, units_remaining=20, unit_cost_ngn="16000")
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalars.return_value.all.return_value = [lot1, lot2]
+            elif call_count == 2:
+                p = MagicMock()
+                p.selling_price = Decimal("20000")
+                result.scalar_one_or_none.return_value = p
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            suggestion = await compute_suggestion(db, product_id, target_margin=Decimal("0.40"))
+
+        # weighted avg = (14000*10 + 16000*20) / 30 = 460000/30 = 15333.33
+        weighted = (Decimal("14000") * 10 + Decimal("16000") * 20) / 30
+        expected = weighted / Decimal("0.60")
+        assert abs(suggestion.unit_cost_ngn - weighted) < Decimal("1")
+        assert abs(suggestion.suggested_price_ngn - expected) < Decimal("1")
+
+    @pytest.mark.asyncio
+    async def test_compute_suggestion_uses_live_fx_for_usd_lots(self):
+        """Lot with no unit_cost_ngn: uses unit_cost * live FX rate."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=5, unit_cost="10", unit_cost_ngn=None)
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalars.return_value.all.return_value = [lot]
+            elif call_count == 2:
+                p = MagicMock()
+                p.selling_price = Decimal("20000")
+                result.scalar_one_or_none.return_value = p
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        live_fx = Decimal("1750")
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(live_fx, datetime.now(timezone.utc), False)):
+            suggestion = await compute_suggestion(db, product_id, target_margin=Decimal("0.40"))
+
+        # unit_cost_ngn = 10 * 1750 = 17500
+        expected_cost = Decimal("10") * live_fx
+        assert abs(suggestion.unit_cost_ngn - expected_cost) < Decimal("1")
+        assert suggestion.fx_rate_used == live_fx
+
+    @pytest.mark.asyncio
+    async def test_compute_suggestion_no_active_lots_raises(self):
+        """No active lots → PricingError raised."""
+        from src.pricing.service import compute_suggestion
+        from src.pricing.exceptions import PricingSuggestionError
+
+        product_id = uuid.uuid4()
+        db = _mock_db()
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(return_value=result)
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            with pytest.raises(PricingSuggestionError):
+                await compute_suggestion(db, product_id, target_margin=Decimal("0.40"))
+
+    @pytest.mark.asyncio
+    async def test_compute_suggestion_target_margin_override(self):
+        """35% margin override produces a lower suggested price than 40%."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalars.return_value.all.return_value = [lot]
+            elif call_count == 2:
+                p = MagicMock()
+                p.selling_price = Decimal("20000")
+                result.scalar_one_or_none.return_value = p
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            s40 = await compute_suggestion(db, product_id, target_margin=Decimal("0.40"))
+
+        # Reset call count for second call
+        call_count = 0
+        db.execute = mock_execute
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            s35 = await compute_suggestion(db, product_id, target_margin=Decimal("0.35"))
+
+        assert s35.suggested_price_ngn < s40.suggested_price_ngn
+        assert s35.target_margin_pct == Decimal("0.35")
