@@ -88,6 +88,8 @@ class OrderUpdate(BaseModel):
     supplier_contact: str | None = None
     expected_delivery_date: date | None = None
     notes: str | None = None
+    shipping_cost: Decimal | None = None
+    fx_rate_at_creation: Decimal | None = None
     line_items: list[OrderLineItemCreate] | None = None
 
 

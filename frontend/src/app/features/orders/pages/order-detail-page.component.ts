@@ -224,7 +224,18 @@ import { FxService } from '../../../core/services/fx.service';
                         </td>
                         <td class="px-3 py-2.5 text-right text-text">{{ item.quantity }}</td>
                         <td class="px-3 py-2.5 text-right text-text">
-                          {{ item.unit_cost | currency: 'USD' : 'symbol' : '1.2-2' }}
+                          @if (editing()) {
+                            <input
+                              type="number"
+                              [ngModel]="getEditUnitCost(item.product_id)"
+                              (ngModelChange)="setEditUnitCost(item.product_id, $event)"
+                              step="0.01"
+                              min="0"
+                              class="w-24 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary"
+                            />
+                          } @else {
+                            {{ item.unit_cost | currency: 'USD' : 'symbol' : '1.2-2' }}
+                          }
                         </td>
                         @if (order()!.fx_rate_at_creation) {
                           <td class="px-3 py-2.5 text-right text-muted">
@@ -291,11 +302,11 @@ import { FxService } from '../../../core/services/fx.service';
                     {{ goodsTotal() | currency: 'USD' : 'symbol' : '1.2-2' }}
                   </dd>
                 </div>
-                @if (order()!.shipping_cost > 0) {
+                @if (order()!.fx_rate_at_creation) {
                   <div class="flex justify-between">
-                    <dt class="text-muted">Shipping</dt>
-                    <dd class="font-semibold text-text">
-                      {{ order()!.shipping_cost | currency: 'USD' : 'symbol' : '1.2-2' }}
+                    <dt class="text-muted text-xs">≈ at ₦{{ order()!.fx_rate_at_creation | number: '1.0-0' }}/USD</dt>
+                    <dd class="text-muted text-xs">
+                      ₦{{ goodsTotal() * order()!.fx_rate_at_creation! | number: '1.0-0' }}
                     </dd>
                   </div>
                 }
@@ -318,10 +329,7 @@ import { FxService } from '../../../core/services/fx.service';
                 @if (order()!.discount_amount > 0) {
                   <div class="flex justify-between">
                     <dt class="text-muted">
-                      Discount
-                      @if (order()!.discount_type === 'percentage') {
-                        (%)
-                      }
+                      Discount@if (order()!.discount_type === 'percentage') { (%) }
                     </dt>
                     <dd class="font-semibold text-danger">
                       −{{ order()!.discount_amount | currency: 'USD' : 'symbol' : '1.2-2' }}
@@ -336,17 +344,44 @@ import { FxService } from '../../../core/services/fx.service';
                     </dd>
                   </div>
                 }
+
+                <!-- Shipping: always entered and stored in NGN -->
                 <div class="flex justify-between border-t border-gray-200 pt-2">
-                  <dt class="font-bold text-text">Total (USD)</dt>
+                  <dt class="text-muted">
+                    Shipping (₦)
+                    @if (editing()) { <span class="text-xs text-muted">(agent quote)</span> }
+                  </dt>
+                  <dd class="font-semibold text-text">
+                    @if (editing()) {
+                      <input
+                        type="number"
+                        [(ngModel)]="editForm.shipping_cost_ngn"
+                        step="1000"
+                        min="0"
+                        class="w-36 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary"
+                      />
+                    } @else {
+                      ₦{{ order()!.shipping_cost | number: '1.0-0' }}
+                    }
+                  </dd>
+                </div>
+
+                <!-- Total landed cost -->
+                <div class="flex justify-between border-t border-gray-200 pt-2">
+                  <dt class="font-bold text-text">Total landed (₦)</dt>
                   <dd class="font-bold text-text">
-                    {{ order()!.total_amount | currency: 'USD' : 'symbol' : '1.2-2' }}
+                    @if (order()!.fx_rate_at_creation) {
+                      ₦{{ goodsTotal() * order()!.fx_rate_at_creation! + order()!.shipping_cost | number: '1.0-0' }}
+                    } @else {
+                      ₦{{ order()!.shipping_cost | number: '1.0-0' }}
+                    }
                   </dd>
                 </div>
                 @if (order()!.fx_rate_at_creation) {
                   <div class="flex justify-between">
-                    <dt class="text-muted">Total (₦ est.)</dt>
+                    <dt class="text-muted">Total landed (USD est.)</dt>
                     <dd class="font-semibold text-text">
-                      ₦{{ order()!.total_amount * order()!.fx_rate_at_creation! | number: '1.0-0' }}
+                      {{ (goodsTotal() * order()!.fx_rate_at_creation! + order()!.shipping_cost) / order()!.fx_rate_at_creation! | currency: 'USD' : 'symbol' : '1.2-2' }}
                     </dd>
                   </div>
                 }
@@ -459,11 +494,14 @@ export class OrderDetailPageComponent implements OnInit {
   saving = signal(false);
   deliveryFxRate: number | null = null;
 
+  editLineItems: { product_id: string; quantity: number; unit_cost: number }[] = [];
+
   editForm: {
     supplier_name: string;
     expected_delivery_date: string;
     notes: string;
-  } = { supplier_name: '', expected_delivery_date: '', notes: '' };
+    shipping_cost_ngn: number;
+  } = { supplier_name: '', expected_delivery_date: '', notes: '', shipping_cost_ngn: 0 };
 
   private readonly statusTransitions: Record<string, string[]> = {
     ORDERED: ['PENDING'],
@@ -503,6 +541,15 @@ export class OrderDetailPageComponent implements OnInit {
     return this.products().find((p) => p.id === productId)?.name ?? productId;
   }
 
+  getEditUnitCost(productId: string): number {
+    return this.editLineItems.find((i) => i.product_id === productId)?.unit_cost ?? 0;
+  }
+
+  setEditUnitCost(productId: string, value: number): void {
+    const item = this.editLineItems.find((i) => i.product_id === productId);
+    if (item) item.unit_cost = Number(value);
+  }
+
   statusColor(status: string): 'info' | 'warning' | 'success' | 'neutral' {
     if (status === 'DELIVERED') return 'success';
     if (status === 'SHIPPING' || status === 'CLEARED') return 'warning';
@@ -536,7 +583,13 @@ export class OrderDetailPageComponent implements OnInit {
       supplier_name: o.supplier_name,
       expected_delivery_date: o.expected_delivery_date ?? '',
       notes: o.notes ?? '',
+      shipping_cost_ngn: o.shipping_cost,
     };
+    this.editLineItems = o.line_items.map((i) => ({
+      product_id: i.product_id,
+      quantity: i.quantity,
+      unit_cost: i.unit_cost,
+    }));
     this.editing.set(true);
   }
 
@@ -552,6 +605,8 @@ export class OrderDetailPageComponent implements OnInit {
       supplier_name: this.editForm.supplier_name || null,
       expected_delivery_date: this.editForm.expected_delivery_date || null,
       notes: this.editForm.notes || null,
+      shipping_cost: this.editForm.shipping_cost_ngn,
+      line_items: this.editLineItems,
     };
     this.ordersService.update(o.id, payload).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (updated) => {

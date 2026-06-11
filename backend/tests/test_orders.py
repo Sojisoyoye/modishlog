@@ -25,6 +25,7 @@ from src.orders.models import (
     PaymentStatus,
     PurchaseOrder,
 )
+import src.suppliers.models  # noqa: F401 — register Supplier mapper for PurchaseOrder.supplier relationship
 from src.orders.schemas import (
     OrderCreate,
     OrderLineItemCreate,
@@ -355,12 +356,30 @@ class TestUpdateOrder:
 
     @pytest.mark.asyncio
     async def test_update_order_not_editable(self):
-        order = _make_order(status=OrderStatus.SHIPPING)
+        order = _make_order(status=OrderStatus.DELIVERED)
         db = _mock_db_with_execute(scalar_result=order)
 
         data = OrderUpdate(notes="Try to update")
         with pytest.raises(OrderNotEditableError):
             await update_order(db, order.id, data, uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_update_order_shipping_cost(self):
+        order = _make_order(status=OrderStatus.ORDERED)
+        db = _mock_db_with_execute(scalar_result=order)
+
+        data = OrderUpdate(shipping_cost=Decimal("50000"))
+        result = await update_order(db, order.id, data, uuid.uuid4())
+        assert result.shipping_cost == Decimal("50000")
+
+    @pytest.mark.asyncio
+    async def test_update_order_ordered_status_is_editable(self):
+        order = _make_order(status=OrderStatus.ORDERED)
+        db = _mock_db_with_execute(scalar_result=order)
+
+        data = OrderUpdate(notes="Corrected after placing")
+        result = await update_order(db, order.id, data, uuid.uuid4())
+        assert result.notes == "Corrected after placing"
 
 
 # ---------------------------------------------------------------------------

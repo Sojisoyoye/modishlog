@@ -63,7 +63,13 @@ VALID_TRANSITIONS: dict[OrderStatus, list[OrderStatus]] = {
 }
 
 # Statuses that allow order editing
-EDITABLE_STATUSES = {OrderStatus.PENDING, OrderStatus.IN_PRODUCTION}
+EDITABLE_STATUSES = {
+    OrderStatus.ORDERED,
+    OrderStatus.PENDING,
+    OrderStatus.IN_PRODUCTION,
+    OrderStatus.SHIPPING,
+    OrderStatus.CLEARED,
+}
 
 
 # ---------------------------------------------------------------------------
