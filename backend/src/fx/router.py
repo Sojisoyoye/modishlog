@@ -39,6 +39,7 @@ from src.fx.schemas import (
     FXRateHistory,
     FXRateIngest,
     FXRateRead,
+    LiveRateRead,
     SimulationDistribution,
     SimulationRequest,
     SimulationResult,
@@ -140,12 +141,12 @@ async def export_fx_csv_endpoint(
     )
 
 
-@router.get("/live")
+@router.get("/live", response_model=LiveRateRead)
 async def live_rate_endpoint(db: AsyncSession = Depends(get_db)):
     """Get live USD/NGN rate, served from 4-hour cache or fetched from free API."""
     try:
         rate, fetched_at, cached = await get_live_usdngn_rate(db)
-        return {"usd_ngn": rate, "fetched_at": fetched_at.isoformat(), "cached": cached}
+        return LiveRateRead(usd_ngn=rate, fetched_at=fetched_at, cached=cached)
     except ExternalRateSyncError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 

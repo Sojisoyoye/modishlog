@@ -244,7 +244,7 @@ async def get_live_usdngn_rate(
         await logger.ainfo("fx_live_rate_fetched", rate=str(ngn_rate))
         return ngn_rate, now, False
 
-    except Exception as e:
+    except (httpx.HTTPStatusError, httpx.RequestError, KeyError, ValueError) as e:
         await logger.awarning("fx_live_rate_fetch_failed", error=str(e))
         if recent:
             return recent.rate, recent.timestamp, True

@@ -32,6 +32,12 @@ class FXRateRead(BaseModel):
     created_at: datetime
 
 
+class LiveRateRead(BaseModel):
+    usd_ngn: Decimal
+    fetched_at: datetime
+    cached: bool
+
+
 class FXRateHistory(BaseModel):
     pair: str
     rates: list[FXRateRead]

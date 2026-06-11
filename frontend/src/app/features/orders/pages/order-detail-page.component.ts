@@ -1237,7 +1237,7 @@ export class OrderDetailPageComponent implements OnInit {
       notes: o.notes ?? '',
       shipping_cost_ngn: o.shipping_cost,
       shipping_details: o.shipping_details ?? '',
-      fx_rate_at_creation: o.fx_rate_at_creation ?? null,  // auto-filled below if null + USD order
+      fx_rate_at_creation: o.fx_rate_at_creation ?? null,
       supplier_invoice_number: o.supplier_invoice_number ?? '',
       supplier_invoice_date: o.supplier_invoice_date ?? '',
       pay_term_number: o.pay_term_number ?? null,
