@@ -243,6 +243,7 @@ export interface UpdateOrderPayload {
   supplier_contact?: string | null;
   expected_delivery_date?: string | null;
   notes?: string | null;
+  fx_rate_at_creation?: number | null;
   line_items?: { product_id: string; quantity: number; unit_cost: number }[] | null;
 }
 
