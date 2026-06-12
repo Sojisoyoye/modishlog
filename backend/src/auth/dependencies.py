@@ -3,7 +3,7 @@
 import uuid
 
 import structlog
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,14 +12,26 @@ from src.core.database import get_db
 from src.core.security import decode_access_token
 
 logger = structlog.get_logger()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
+    bearer_token: str | None = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Extract and validate JWT, return the corresponding User."""
+    """Extract and validate JWT from HttpOnly cookie or Authorization header.
+
+    Cookie takes precedence; falls back to Bearer token for clients that
+    cannot set cookies (e.g., server-to-server or legacy clients).
+    """
+    token = request.cookies.get("access_token") or bearer_token
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     try:
         payload = decode_access_token(token)
         user_id = payload.get("sub")

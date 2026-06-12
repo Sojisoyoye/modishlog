@@ -241,11 +241,13 @@ async def refresh_access_token(db: AsyncSession, raw_token: str) -> str:
     return new_access_token
 
 
-async def revoke_refresh_token(db: AsyncSession, raw_token: str) -> None:
+async def revoke_refresh_token(db: AsyncSession, raw_token: str | None) -> None:
     """Revoke a refresh token by recording the revocation timestamp.
 
-    This is a no-op if the token does not exist (idempotent logout).
+    This is a no-op if the token does not exist or is None (idempotent logout).
     """
+    if not raw_token:
+        return
     token_hash = _hash_token(raw_token)
     result = await db.execute(
         select(RefreshToken).where(RefreshToken.token_hash == token_hash)

@@ -1,6 +1,6 @@
 import { Injectable, signal, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { Observable, tap } from 'rxjs';
+import { Observable, catchError, map, of, tap } from 'rxjs';
 import { ApiService } from './api.service';
 
 interface AuthTokens {
@@ -14,31 +14,38 @@ interface LoginRequest {
   password: string;
 }
 
+interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string;
+  role: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
-  private readonly TOKEN_KEY = 'modishlog_token';
-  private readonly REFRESH_TOKEN_KEY = 'modishlog_refresh_token';
 
-  private readonly _isAuthenticated = signal<boolean>(this.hasStoredToken());
+  // In-memory only — not persisted to localStorage/sessionStorage.
+  // XSS cannot reach this; the HttpOnly cookie is the durable credential.
+  private _accessToken: string | null = null;
+  private _refreshToken: string | null = null;
 
+  private readonly _isAuthenticated = signal<boolean>(false);
   readonly isAuthenticated = this._isAuthenticated.asReadonly();
 
   login(credentials: LoginRequest): Observable<AuthTokens> {
     return this.api.post<AuthTokens>('/auth/login', credentials).pipe(
       tap((tokens) => {
-        localStorage.setItem(this.TOKEN_KEY, tokens.access_token);
-        if (tokens.refresh_token) {
-          localStorage.setItem(this.REFRESH_TOKEN_KEY, tokens.refresh_token);
-        }
+        this._accessToken = tokens.access_token;
+        this._refreshToken = tokens.refresh_token ?? null;
         this._isAuthenticated.set(true);
       }),
     );
   }
 
   logout(): void {
-    const refreshToken = this.getRefreshToken();
+    const refreshToken = this._refreshToken;
     if (refreshToken) {
       // Best-effort server-side revocation; do not block the UI on this
       this.api.post<{ message: string }>('/auth/logout', { refresh_token: refreshToken }).subscribe({
@@ -46,38 +53,54 @@ export class AuthService {
           // ignore errors -- token will expire naturally
         },
       });
+    } else {
+      // No refresh token in memory; still tell server to clear the cookie
+      this.api.post<{ message: string }>('/auth/logout', {}).subscribe({
+        error: () => {},
+      });
     }
-    localStorage.removeItem(this.TOKEN_KEY);
-    localStorage.removeItem(this.REFRESH_TOKEN_KEY);
+    this._accessToken = null;
+    this._refreshToken = null;
     this._isAuthenticated.set(false);
     this.router.navigate(['/login']);
   }
 
   getToken(): string | null {
-    return localStorage.getItem(this.TOKEN_KEY);
+    return this._accessToken;
   }
 
   getRefreshToken(): string | null {
-    return localStorage.getItem(this.REFRESH_TOKEN_KEY);
+    return this._refreshToken;
   }
 
   setToken(token: string): void {
-    localStorage.setItem(this.TOKEN_KEY, token);
+    this._accessToken = token;
     this._isAuthenticated.set(true);
   }
 
   clearTokens(): void {
-    localStorage.removeItem(this.TOKEN_KEY);
-    localStorage.removeItem(this.REFRESH_TOKEN_KEY);
+    this._accessToken = null;
+    this._refreshToken = null;
     this._isAuthenticated.set(false);
   }
 
   refreshToken(): Observable<AuthTokens> {
-    const refreshToken = this.getRefreshToken();
-    return this.api.post<AuthTokens>('/auth/refresh', { refresh_token: refreshToken }).pipe(
+    return this.api.post<AuthTokens>('/auth/refresh', { refresh_token: this._refreshToken }).pipe(
       tap((tokens) => {
-        localStorage.setItem(this.TOKEN_KEY, tokens.access_token);
+        this._accessToken = tokens.access_token;
       }),
+    );
+  }
+
+  /** Check if the HttpOnly cookie session is still valid by calling /auth/me. */
+  checkSession(): Observable<UserProfile | null> {
+    return this.api.get<UserProfile>('/auth/me').pipe(
+      tap((user) => {
+        if (user) {
+          this._isAuthenticated.set(true);
+        }
+      }),
+      catchError(() => of(null)),
     );
   }
 
@@ -90,9 +113,5 @@ export class AuthService {
       token,
       new_password: newPassword,
     });
-  }
-
-  private hasStoredToken(): boolean {
-    return !!localStorage.getItem(this.TOKEN_KEY);
   }
 }

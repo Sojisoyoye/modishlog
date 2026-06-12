@@ -1324,3 +1324,109 @@ class TestLoginReturnsRefreshToken:
         assert "access_token" in data
         assert "refresh_token" in data
         assert data["token_type"] == "bearer"
+
+
+class TestHttpOnlyCookie:
+    """Login must set an HttpOnly cookie containing the access token."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_login_sets_httponly_access_token_cookie(self):
+        """POST /auth/login must set Set-Cookie: access_token with HttpOnly flag."""
+        user = _make_user()
+        db = _mock_db(user=user)
+        self._override_db(db)
+
+        with TestClient(self.app, follow_redirects=False) as client:
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"email": user.email, "password": VALID_PASSWORD},
+            )
+
+        assert resp.status_code == 200
+        # The cookie must be present
+        assert "access_token" in resp.cookies
+        # The Set-Cookie header must contain HttpOnly
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert "httponly" in set_cookie.lower(), f"Expected HttpOnly in Set-Cookie but got: {set_cookie}"
+
+    def test_login_cookie_samesite_and_path(self):
+        """Set-Cookie header must include SameSite and Path attributes."""
+        user = _make_user()
+        db = _mock_db(user=user)
+        self._override_db(db)
+
+        with TestClient(self.app, follow_redirects=False) as client:
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"email": user.email, "password": VALID_PASSWORD},
+            )
+
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert "samesite" in set_cookie.lower(), f"Expected SameSite in Set-Cookie but got: {set_cookie}"
+        assert "path=/" in set_cookie.lower(), f"Expected Path=/ in Set-Cookie but got: {set_cookie}"
+
+    def test_protected_endpoint_accepts_cookie_auth(self):
+        """GET /auth/me must work when access token is supplied as a cookie."""
+        user = _make_user()
+        db = _mock_db(user=user)
+        self._override_db(db)
+
+        token = build_token(user)
+        db.get = AsyncMock(return_value=user)
+
+        with TestClient(self.app) as client:
+            resp = client.get(
+                "/api/v1/auth/me",
+                cookies={"access_token": token},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["email"] == user.email
+
+    def test_logout_clears_access_token_cookie(self):
+        """POST /auth/logout must clear the access_token cookie."""
+        # Pass no user so scalar_one_or_none() returns None → revoke is a no-op
+        db = _mock_db(user=None)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/logout",
+                json={"refresh_token": "some-refresh-token"},
+            )
+
+        assert resp.status_code == 200
+        # Cookie must be cleared (max-age=0 or expires in the past)
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert set_cookie, "Expected Set-Cookie header on logout to clear access_token"
+        assert "access_token" in set_cookie
+        assert "max-age=0" in set_cookie.lower() or "expires=" in set_cookie.lower()
+
+    def test_logout_without_refresh_token_still_clears_cookie(self):
+        """POST /auth/logout with no refresh_token body must still clear the cookie."""
+        db = _mock_db(user=None)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post("/api/v1/auth/logout", json={})
+
+        assert resp.status_code == 200
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert set_cookie, "Expected Set-Cookie header on logout to clear access_token"
+        assert "access_token" in set_cookie
