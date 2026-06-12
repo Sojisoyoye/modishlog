@@ -51,7 +51,7 @@ import { FxService } from '../../../core/services/fx.service';
         @for (status of pipelineStatuses; track status) {
           <div class="min-w-48 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <div class="mb-3 flex items-center justify-between">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-muted">{{ status }}</h4>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-muted">{{ statusLabel[status] }}</h4>
               <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-text">
                 {{ ordersByStatus(status).length }}
               </span>
@@ -381,7 +381,7 @@ import { FxService } from '../../../core/services/fx.service';
           <!-- Status Transitions -->
           @if (nextStatuses(selectedOrder()!.status).length > 0) {
             <div class="space-y-3">
-              @if (nextStatuses(selectedOrder()!.status).includes('Delivered')) {
+              @if (nextStatuses(selectedOrder()!.status).includes('DELIVERED')) {
                 <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
                   <label for="order-delivery-fx-rate" class="mb-1.5 block text-xs font-medium text-muted">
                     FX Rate at Delivery (USDNGN)
@@ -408,7 +408,7 @@ import { FxService } from '../../../core/services/fx.service';
                     (click)="transitionStatus(selectedOrder()!.id, ns)"
                     class="flex items-center gap-1.5 rounded-lg border border-secondary px-4 py-2 text-sm font-semibold text-secondary transition-all hover:bg-secondary hover:text-white"
                   >
-                    <i class="pi pi-arrow-right text-xs"></i> Move to {{ ns }}
+                    <i class="pi pi-arrow-right text-xs"></i> Move to {{ statusLabel[ns] }}
                   </button>
                 }
               </div>
@@ -818,14 +818,23 @@ export class OrdersPageComponent implements OnInit {
   parseProductsErrors = signal<{ row: number; message: string }[]>([]);
   readonly productsTemplateUrl = this.ordersService.getProductsTemplateUrl();
 
-  readonly pipelineStatuses = ['ORDERED', 'Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];
+  readonly pipelineStatuses = ['ORDERED', 'PENDING', 'IN_PRODUCTION', 'SHIPPING', 'CLEARED', 'DELIVERED'] as const;
+
+  readonly statusLabel: Record<string, string> = {
+    ORDERED: 'Ordered',
+    PENDING: 'Pending',
+    IN_PRODUCTION: 'In Production',
+    SHIPPING: 'Shipping',
+    CLEARED: 'Cleared',
+    DELIVERED: 'Delivered',
+  };
 
   private readonly statusTransitions: Record<string, string[]> = {
-    ORDERED: ['Pending'],
-    Pending: ['In Production'],
-    'In Production': ['Shipping'],
-    Shipping: ['Cleared'],
-    Cleared: ['Delivered'],
+    ORDERED: ['PENDING'],
+    PENDING: ['IN_PRODUCTION'],
+    IN_PRODUCTION: ['SHIPPING'],
+    SHIPPING: ['CLEARED'],
+    CLEARED: ['DELIVERED'],
   };
 
   ngOnInit(): void {
@@ -842,9 +851,9 @@ export class OrdersPageComponent implements OnInit {
   }
 
   orderStatus(status: string): 'info' | 'warning' | 'success' | 'neutral' {
-    if (status === 'Delivered') return 'success';
-    if (status === 'Shipping' || status === 'Cleared') return 'warning';
-    if (status === 'In Production' || status === 'ORDERED') return 'info';
+    if (status === 'DELIVERED') return 'success';
+    if (status === 'SHIPPING' || status === 'CLEARED') return 'warning';
+    if (status === 'IN_PRODUCTION' || status === 'ORDERED') return 'info';
     return 'neutral';
   }
 
@@ -861,7 +870,7 @@ export class OrdersPageComponent implements OnInit {
   }
 
   transitionStatus(id: string, newStatus: string): void {
-    const fxRate = newStatus === 'Delivered' && this.deliveryFxRate
+    const fxRate = newStatus === 'DELIVERED' && this.deliveryFxRate
       ? this.deliveryFxRate
       : undefined;
     this.ordersService.updateStatus(id, newStatus, fxRate).subscribe({
@@ -871,7 +880,7 @@ export class OrdersPageComponent implements OnInit {
         this.messageService.add({
           severity: 'success',
           summary: 'Updated',
-          detail: `Order moved to ${newStatus}`,
+          detail: `Order moved to ${this.statusLabel[newStatus] ?? newStatus}`,
         });
         this.loadOrders();
       },
