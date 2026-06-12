@@ -1,6 +1,15 @@
 """Shared test fixtures for ModishLog backend tests."""
 
+import os
+
 import pytest
+
+# Ensure a valid SECRET_KEY is present for all tests so that Settings()
+# can be instantiated without a .env file in the working directory.
+os.environ.setdefault(
+    "SECRET_KEY",
+    "test-secret-key-that-is-at-least-32-characters-long-for-pytest",
+)
 
 
 @pytest.fixture
