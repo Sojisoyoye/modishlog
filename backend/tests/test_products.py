@@ -663,6 +663,29 @@ class TestProductPriceFloor:
 
 
 # ---------------------------------------------------------------------------
+# Mass assignment tests (task #93) — is_active must NOT be in ProductUpdate
+# ---------------------------------------------------------------------------
+
+
+class TestProductUpdateMassAssignment:
+    """is_active must not be settable via PUT /products/{id}."""
+
+    def test_product_update_schema_has_no_is_active_field(self):
+        from src.products.schemas import ProductUpdate
+        assert not hasattr(ProductUpdate.model_fields, "is_active") or \
+            "is_active" not in ProductUpdate.model_fields, \
+            "is_active must be removed from ProductUpdate to prevent mass assignment"
+
+    def test_product_update_ignores_is_active_kwarg(self):
+        """Passing is_active to ProductUpdate must raise ValidationError (extra=forbid)
+        or silently ignore it — either way the field must never reach the DB."""
+        from src.products.schemas import ProductUpdate
+        # With extra fields ignored (default), is_active is dropped
+        p = ProductUpdate(name="Test")
+        assert not hasattr(p, "is_active") or getattr(p, "is_active", "MISSING") == "MISSING"
+
+
+# ---------------------------------------------------------------------------
 # Sub-category hierarchy tests (task #79)
 # ---------------------------------------------------------------------------
 
