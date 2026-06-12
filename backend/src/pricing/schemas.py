@@ -253,3 +253,21 @@ class ScenarioRead(BaseModel):
     results: dict | None = None
     created_by: uuid.UUID
     created_at: datetime
+
+
+class SuggestRequest(BaseModel):
+    target_margin_pct: Decimal = Field(default=Decimal("0.40"), gt=Decimal("0"), lt=Decimal("1"))
+
+
+class PriceSuggestionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_id: uuid.UUID
+    unit_cost_ngn: Decimal
+    fx_rate_used: Decimal
+    target_margin_pct: Decimal
+    suggested_price_ngn: Decimal
+    current_catalog_price_ngn: Decimal | None = None
+    suggested_at: datetime
+    notes: str | None = None

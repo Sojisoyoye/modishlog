@@ -15,6 +15,7 @@ from src.pricing.exceptions import (
     InsufficientPriceDataError,
     MixTargetSumError,
     OptimizationInfeasibleError,
+    PricingSuggestionError,
     RecommendationExpiredError,
     RecommendationNotFoundError,
 )
@@ -30,6 +31,7 @@ from src.pricing.schemas import (
     MixTargetBulkCreate,
     MixTargetRead,
     PortfolioMarginResponse,
+    PriceSuggestionRead,
     RecommendationRead,
     ScenarioCreate,
     ScenarioRead,
@@ -37,6 +39,7 @@ from src.pricing.schemas import (
     SellingPriceSuggestionResponse,
     SensitivityCalcRequest,
     SensitivityCalcResponse,
+    SuggestRequest,
 )
 from src.pricing.service import (
     analyze_cross_subsidization,
@@ -44,6 +47,7 @@ from src.pricing.service import (
     calculate_demand_forecast,
     calculate_portfolio_margin,
     calculate_price_elasticity_impact,
+    compute_suggestion,
     dismiss_recommendation,
     generate_recommendations,
     get_elasticity,
@@ -51,6 +55,7 @@ from src.pricing.service import (
     get_mix_status,
     get_recommendations,
     get_selling_price_suggestion,
+    get_suggestion_history,
     list_scenarios,
     save_scenario,
     sensitivity_calc,
@@ -363,3 +368,41 @@ async def list_scenarios_endpoint(
 ):
     """List saved pricing scenarios for the current user."""
     return await list_scenarios(db, current_user.id)
+
+
+# ---------------------------------------------------------------------------
+# Lot-based price suggestion (Task #76) — static paths before /{product_id}
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/suggest/{product_id}",
+    response_model=PriceSuggestionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def compute_suggestion_endpoint(
+    product_id: uuid.UUID,
+    body: SuggestRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Compute and persist a sell-price suggestion from active lot cost basis."""
+    try:
+        return await compute_suggestion(
+            db, product_id, target_margin=body.target_margin_pct
+        )
+    except PricingSuggestionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
+
+
+@router.get("/suggest/{product_id}/history", response_model=list[PriceSuggestionRead])
+async def suggestion_history_endpoint(
+    product_id: uuid.UUID,
+    limit: int = 30,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Return the last N price suggestions for a product, newest first."""
+    return await get_suggestion_history(db, product_id, limit=limit)

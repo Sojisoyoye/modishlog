@@ -11,11 +11,14 @@ from scipy.optimize import minimize
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.fx.service import get_live_usdngn_rate
+from src.orders.models import OrderLineItem, PurchaseOrder
 from src.pricing.exceptions import (
     ElasticityNotFoundError,
     InsufficientPriceDataError,
     MixTargetSumError,
     OptimizationInfeasibleError,
+    PricingSuggestionError,
     RecommendationExpiredError,
     RecommendationNotFoundError,
 )
@@ -23,6 +26,7 @@ from src.pricing.models import (
     CrossSubsidyAnalysis,
     DemandElasticity,
     MarginTarget,
+    PriceSuggestion,
     PricingRecommendation,
     PricingScenario,
     ProductMixTarget,
@@ -1066,3 +1070,99 @@ async def get_selling_price_suggestion(
         "min_margin_pct": min_margin_pct,
         "min_selling_price": min_selling_price,
     }
+
+
+# ---------------------------------------------------------------------------
+# Lot-based price suggestion engine (Task #76)
+# ---------------------------------------------------------------------------
+
+
+async def compute_suggestion(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    target_margin: Decimal = Decimal("0.40"),
+) -> "PriceSuggestion":  # noqa: F821 — forward ref resolved at runtime
+    """Compute and persist a sell-price suggestion from active lot cost basis.
+
+    Weighted-average unit_cost_ngn across all lots with units_remaining > 0.
+    Lots without unit_cost_ngn are costed at unit_cost * live FX rate.
+    """
+    # Fetch active lots joined with their parent order's currency
+    lot_result = await db.execute(
+        select(OrderLineItem, PurchaseOrder.currency)
+        .join(PurchaseOrder, OrderLineItem.order_id == PurchaseOrder.id)
+        .where(
+            OrderLineItem.product_id == product_id,
+            OrderLineItem.units_remaining > 0,
+        )
+    )
+    lots_with_currency = lot_result.all()
+
+    if not lots_with_currency:
+        raise PricingSuggestionError(
+            product_id, "no active lots with units_remaining > 0"
+        )
+
+    # Get live FX rate (used as fallback for USD lots without unit_cost_ngn)
+    fx_rate, _, _ = await get_live_usdngn_rate(db)
+
+    # Weighted-average landed cost (currency-aware fallback)
+    total_cost = Decimal("0")
+    total_units = Decimal("0")
+    for lot, order_currency in lots_with_currency:
+        if lot.unit_cost_ngn is not None:
+            cost_ngn = lot.unit_cost_ngn
+        elif order_currency == "USD":
+            cost_ngn = lot.unit_cost * fx_rate
+        else:
+            cost_ngn = lot.unit_cost
+        total_cost += cost_ngn * lot.units_remaining
+        total_units += lot.units_remaining
+
+    avg_cost_ngn = (total_cost / total_units).quantize(Decimal("0.000001"))
+
+    # Suggested price
+    margin_factor = Decimal("1") - target_margin
+    suggested_price = (avg_cost_ngn / margin_factor).quantize(Decimal("0.000001"))
+
+    # Catalog price for context
+    catalog_price: Decimal | None = None
+    prod_result = await db.execute(select(Product).where(Product.id == product_id))
+    product = prod_result.scalar_one_or_none()
+    if product:
+        catalog_price = product.selling_price
+
+    suggestion = PriceSuggestion(
+        product_id=product_id,
+        unit_cost_ngn=avg_cost_ngn,
+        fx_rate_used=fx_rate,
+        target_margin_pct=target_margin,
+        suggested_price_ngn=suggested_price,
+        current_catalog_price_ngn=catalog_price,
+        suggested_at=datetime.now(timezone.utc),
+    )
+    db.add(suggestion)
+    await db.flush()
+
+    await logger.ainfo(
+        "price_suggestion_computed",
+        product_id=str(product_id),
+        suggested_price=str(suggested_price),
+        fx_rate=str(fx_rate),
+        margin=str(target_margin),
+    )
+    return suggestion
+
+
+async def get_suggestion_history(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    limit: int = 30,
+) -> list:
+    result = await db.execute(
+        select(PriceSuggestion)
+        .where(PriceSuggestion.product_id == product_id)
+        .order_by(PriceSuggestion.suggested_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())

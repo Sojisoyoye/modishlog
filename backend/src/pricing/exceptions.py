@@ -73,3 +73,12 @@ class MixTargetSumError(Exception):
     def __init__(self, total):
         self.total = total
         super().__init__(f"Mix target percentages must sum to 100, got {total}")
+
+
+class PricingSuggestionError(Exception):
+    """Raised when a price suggestion cannot be computed (e.g. no active lots)."""
+
+    def __init__(self, product_id, reason: str):
+        self.product_id = product_id
+        self.reason = reason
+        super().__init__(f"Cannot compute price suggestion for {product_id}: {reason}")

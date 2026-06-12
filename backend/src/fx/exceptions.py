@@ -85,7 +85,9 @@ class InsufficientRateDataError(Exception):
 class ExternalRateSyncError(Exception):
     """Raised when the external FX rate provider API call fails."""
 
-    def __init__(self, provider: str, status_code: int | None, error_message: str) -> None:
+    def __init__(
+        self, provider: str, status_code: int | None, error_message: str
+    ) -> None:
         self.provider = provider
         self.status_code = status_code
         self.error_message = error_message

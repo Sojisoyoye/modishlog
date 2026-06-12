@@ -16,6 +16,7 @@ import {
 } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
 import { FxService } from '../../../core/services/fx.service';
+import { ApiService } from '../../../core/services/api.service';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { AlertBannerComponent } from '../../../shared/components/alert-banner/alert-banner.component';
 
@@ -76,6 +77,14 @@ interface ColEntry {
           <i class="pi pi-power-off text-xs text-muted"></i>
           {{ menuProduct()?.is_active ? 'Deactivate' : 'Activate' }}
         </button>
+        <button
+          role="menuitem"
+          title="Suggest sell price"
+          (click)="openSuggestFromMenu()"
+          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-gray-50"
+        >
+          <i class="pi pi-tag text-xs text-primary"></i> Suggest Price
+        </button>
         <div class="my-1 border-t border-gray-100"></div>
         <button
           role="menuitem"
@@ -85,6 +94,56 @@ interface ColEntry {
         >
           <i class="pi pi-trash text-xs"></i> Delete
         </button>
+      </div>
+    }
+
+    <!-- Price Suggestion Panel -->
+    @if (suggestionPanelProductId()) {
+      <div class="fixed inset-0 z-[30] flex items-center justify-center bg-black/40" (click)="closeSuggestPanel()">
+        <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" (click)="$event.stopPropagation()">
+          <div class="mb-4 flex items-center justify-between">
+            <h3 class="font-bold text-text">Suggest Sell Price</h3>
+            <button (click)="closeSuggestPanel()" class="rounded p-1 text-muted hover:bg-gray-100"><i class="pi pi-times text-sm"></i></button>
+          </div>
+          <p class="mb-3 text-sm text-muted">
+            Product: <strong class="text-text">{{ products().find(p => p.id === suggestionPanelProductId())?.name }}</strong>
+          </p>
+          <div class="mb-4">
+            <label class="mb-1 block text-xs font-medium text-muted">Target Margin: {{ (suggestionMargin() * 100 | number: '1.0-0') }}%</label>
+            <input type="range" [(ngModel)]="suggestionMarginPct" min="20" max="70" step="5"
+              (ngModelChange)="suggestionMargin.set($event / 100)"
+              class="w-full accent-primary" />
+            <div class="mt-1 flex justify-between text-xs text-muted"><span>20%</span><span>70%</span></div>
+          </div>
+          <button
+            (click)="runSuggestion()"
+            [disabled]="suggestionLoading()"
+            class="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50"
+          >
+            @if (suggestionLoading()) {
+              <i class="pi pi-spinner pi-spin text-xs"></i> Computing…
+            } @else {
+              <i class="pi pi-sparkles text-xs"></i> Compute Suggestion
+            }
+          </button>
+          @if (latestSuggestion()) {
+            <div class="mt-4 rounded-lg bg-green-50 p-4 text-sm">
+              <p class="mb-1 text-xs font-bold uppercase tracking-wider text-muted">Suggested Price</p>
+              <p class="text-2xl font-bold text-success">₦{{ latestSuggestion()!.suggested_price_ngn | number: '1.0-0' }}</p>
+              <div class="mt-2 space-y-1 text-xs text-muted">
+                <p>Weighted landed cost: ₦{{ latestSuggestion()!.unit_cost_ngn | number: '1.0-0' }}</p>
+                <p>FX rate used: ₦{{ latestSuggestion()!.fx_rate_used | number: '1.0-0' }}/USD</p>
+                <p>Margin: {{ (latestSuggestion()!.target_margin_pct * 100 | number: '1.0-0') }}%</p>
+                @if (latestSuggestion()!.current_catalog_price_ngn) {
+                  <p>Current catalog: ₦{{ latestSuggestion()!.current_catalog_price_ngn | number: '1.0-0' }}</p>
+                }
+              </div>
+            </div>
+          }
+          @if (suggestionError()) {
+            <p class="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-600">{{ suggestionError() }}</p>
+          }
+        </div>
       </div>
     }
 
@@ -1147,6 +1206,7 @@ export class ProductsPageComponent implements OnInit {
   private readonly inventoryService = inject(InventoryService);
   private readonly fxService = inject(FxService);
   private readonly messageService = inject(MessageService);
+  private readonly api = inject(ApiService);
 
   // ── Shared state ──────────────────────────────────────────────────────────
   products = signal<Product[]>([]);
@@ -1189,6 +1249,14 @@ export class ProductsPageComponent implements OnInit {
   openActionId = signal<string | null>(null);
   actionMenuPos = signal<{ top: number; right: number } | null>(null);
   menuProduct = computed(() => this.products().find((p) => p.id === this.openActionId()) ?? null);
+
+  // ── Price suggestion panel ─────────────────────────────────────────────────
+  suggestionPanelProductId = signal<string | null>(null);
+  suggestionMargin = signal<number>(0.40);
+  suggestionMarginPct = 40;
+  suggestionLoading = signal(false);
+  latestSuggestion = signal<{ suggested_price_ngn: number; unit_cost_ngn: number; fx_rate_used: number; target_margin_pct: number; current_catalog_price_ngn: number | null } | null>(null);
+  suggestionError = signal<string | null>(null);
 
   // ── Edit dialog ───────────────────────────────────────────────────────────
   showEdit = false;
@@ -1489,6 +1557,43 @@ export class ProductsPageComponent implements OnInit {
     const product = this.menuProduct();
     if (product) this.openEdit(product);
     else this.closeActionMenu();
+  }
+
+  openSuggestFromMenu(): void {
+    const product = this.menuProduct();
+    if (!product) return;
+    this.closeActionMenu();
+    this.latestSuggestion.set(null);
+    this.suggestionError.set(null);
+    this.suggestionMarginPct = 40;
+    this.suggestionMargin.set(0.40);
+    this.suggestionPanelProductId.set(product.id);
+  }
+
+  closeSuggestPanel(): void {
+    this.suggestionPanelProductId.set(null);
+    this.latestSuggestion.set(null);
+    this.suggestionError.set(null);
+  }
+
+  runSuggestion(): void {
+    const pid = this.suggestionPanelProductId();
+    if (!pid) return;
+    this.suggestionLoading.set(true);
+    this.suggestionError.set(null);
+    this.api.post<{ suggested_price_ngn: number; unit_cost_ngn: number; fx_rate_used: number; target_margin_pct: number; current_catalog_price_ngn: number | null }>(
+      `/pricing/suggest/${pid}`,
+      { target_margin_pct: this.suggestionMargin() }
+    ).subscribe({
+      next: (r) => {
+        this.latestSuggestion.set(r);
+        this.suggestionLoading.set(false);
+      },
+      error: (err) => {
+        this.suggestionError.set(err?.error?.detail ?? 'No active lots found for this product');
+        this.suggestionLoading.set(false);
+      },
+    });
   }
 
   toggleActivateFromMenu(): void {

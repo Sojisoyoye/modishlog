@@ -148,3 +148,25 @@ class PricingScenario(UUIDMixin, Base):
 
     def __repr__(self) -> str:
         return f"<PricingScenario(id={self.id}, name={self.name})>"
+
+
+class PriceSuggestion(UUIDMixin, Base):
+    """Persisted sell-price suggestion based on lot-weighted cost + live FX."""
+
+    __tablename__ = "price_suggestions"
+
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), index=True
+    )
+    unit_cost_ngn: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    fx_rate_used: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    target_margin_pct: Mapped[Decimal] = mapped_column(Numeric(5, 4))
+    suggested_price_ngn: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    current_catalog_price_ngn: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6), default=None
+    )
+    suggested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text, default=None)
+
+    def __repr__(self) -> str:
+        return f"<PriceSuggestion(id={self.id}, product={self.product_id})>"
