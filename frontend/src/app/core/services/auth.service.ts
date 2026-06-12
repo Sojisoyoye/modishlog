@@ -55,7 +55,7 @@ export class AuthService {
       });
     } else {
       // No refresh token in memory; still tell server to clear the cookie
-      this.api.post<{ message: string }>('/auth/logout', { refresh_token: '' }).subscribe({
+      this.api.post<{ message: string }>('/auth/logout', {}).subscribe({
         error: () => {},
       });
     }

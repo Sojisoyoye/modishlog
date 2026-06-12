@@ -36,9 +36,13 @@ class RefreshRequest(BaseModel):
 
 
 class LogoutRequest(BaseModel):
-    """Logout request -- revokes the refresh token."""
+    """Logout request -- revokes the refresh token.
 
-    refresh_token: str
+    refresh_token is optional: callers that only have a cookie-based session
+    (e.g. after a page reload) may omit it; the server still clears the cookie.
+    """
+
+    refresh_token: str | None = None
 
 
 class UserProfile(BaseModel):

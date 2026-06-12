@@ -1417,3 +1417,16 @@ class TestHttpOnlyCookie:
         assert set_cookie, "Expected Set-Cookie header on logout to clear access_token"
         assert "access_token" in set_cookie
         assert "max-age=0" in set_cookie.lower() or "expires=" in set_cookie.lower()
+
+    def test_logout_without_refresh_token_still_clears_cookie(self):
+        """POST /auth/logout with no refresh_token body must still clear the cookie."""
+        db = _mock_db(user=None)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post("/api/v1/auth/logout", json={})
+
+        assert resp.status_code == 200
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert set_cookie, "Expected Set-Cookie header on logout to clear access_token"
+        assert "access_token" in set_cookie

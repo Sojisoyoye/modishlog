@@ -37,21 +37,27 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         req.url.includes('/auth/login') ||
         req.url.includes('/auth/logout');
 
-      if (error.status === 401 && !isAuthEndpoint && authService.getRefreshToken()) {
-        return authService.refreshToken().pipe(
-          switchMap((tokens) => {
-            const retried = req.clone({
-              withCredentials: true,
-              setHeaders: { Authorization: `Bearer ${tokens.access_token}` },
-            });
-            return next(retried);
-          }),
-          catchError((refreshError: HttpErrorResponse) => {
-            authService.clearTokens();
-            router.navigate(['/login']);
-            return throwError(() => refreshError);
-          }),
-        );
+      if (error.status === 401 && !isAuthEndpoint) {
+        if (authService.getRefreshToken()) {
+          return authService.refreshToken().pipe(
+            switchMap((tokens) => {
+              const retried = req.clone({
+                withCredentials: true,
+                setHeaders: { Authorization: `Bearer ${tokens.access_token}` },
+              });
+              return next(retried);
+            }),
+            catchError((refreshError: HttpErrorResponse) => {
+              authService.clearTokens();
+              router.navigate(['/login']);
+              return throwError(() => refreshError);
+            }),
+          );
+        }
+        // No refresh token (e.g. after page reload with an expired cookie) —
+        // session is unrecoverable; send the user to login.
+        authService.clearTokens();
+        router.navigate(['/login']);
       }
 
       return throwError(() => error);

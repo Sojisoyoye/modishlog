@@ -3,7 +3,6 @@ import { Page, request } from '@playwright/test';
 const API = 'http://localhost:8000/api/v1';
 export const E2E_EMAIL = 'e2e-suite@modishlogtest.com';
 export const E2E_PASSWORD = 'E2eTest!1234';
-const TOKEN_KEY = 'modishlog_token';
 
 /**
  * Register the test user (idempotent -- 409 Conflict is expected on re-runs).
@@ -34,26 +33,18 @@ export async function loginViaUI(page: Page): Promise<void> {
 }
 
 /**
- * Log in via API and inject the token into localStorage (faster than UI login).
+ * Log in via the API using the page's browser context so the HttpOnly
+ * access_token cookie is stored in the same context the page uses.
+ * The auth guard then restores the session via /auth/me + cookie on navigation.
  * Use when you need auth but don't need to test the login form itself.
  */
 export async function loginViaAPI(page: Page): Promise<void> {
-  const ctx = await request.newContext();
-  try {
-    const resp = await ctx.post(`${API}/auth/login`, {
-      data: { email: E2E_EMAIL, password: E2E_PASSWORD },
-    });
-    const { access_token } = await resp.json();
-
-    // Inject token into localStorage before navigating
-    await page.goto('/login', { waitUntil: 'domcontentloaded' });
-    await page.evaluate(
-      ([key, token]) => localStorage.setItem(key, token),
-      [TOKEN_KEY, access_token] as const,
-    );
-  } finally {
-    await ctx.dispose();
-  }
+  await page.context().request.post(`${API}/auth/login`, {
+    data: { email: E2E_EMAIL, password: E2E_PASSWORD },
+  });
+  // Navigate directly — the auth guard restores the session via /auth/me + cookie.
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
+  await page.waitForURL('**/dashboard', { timeout: 15_000 });
 }
 
 /**
