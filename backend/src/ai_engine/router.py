@@ -44,7 +44,7 @@ from src.auth.dependencies import get_current_active_user
 from src.auth.models import User
 from src.core.database import get_db
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
 # ---------------------------------------------------------------------------
@@ -126,9 +126,7 @@ async def get_recommendation_endpoint(
     try:
         return await get_recommendation(db, recommendation_id)
     except RecommendationNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.post(
@@ -144,21 +142,13 @@ async def apply_recommendation_endpoint(
     """Apply a recommendation."""
     try:
         notes = body.notes if body else None
-        return await apply_recommendation(
-            db, recommendation_id, current_user.id, notes
-        )
+        return await apply_recommendation(db, recommendation_id, current_user.id, notes)
     except RecommendationNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except RecommendationAlreadyProcessedError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except RecommendationExpiredError as e:
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(e))
 
 
 @router.post(
@@ -177,13 +167,9 @@ async def dismiss_recommendation_endpoint(
             db, recommendation_id, current_user.id, body.reason
         )
     except RecommendationNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except RecommendationAlreadyProcessedError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -204,9 +190,7 @@ async def usd_accumulation_schedule_endpoint(
         data = await generate_usd_accumulation_schedule(db, order_id)
         return USDAccumulationScheduleResponse(**data)
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get(
@@ -220,9 +204,7 @@ async def get_usd_strategy_config_endpoint(
     try:
         return await get_usd_strategy_config(db)
     except USDStrategyConfigNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.post(
@@ -264,7 +246,8 @@ async def list_reorder_suggestions_endpoint(
     """Get all pending reorder suggestions."""
     suggestions = await get_reorder_suggestions(db)
     critical_count = sum(
-        1 for s in suggestions
+        1
+        for s in suggestions
         if s.estimated_stockout_date
         and (s.estimated_stockout_date - s.created_at.date()).days < 14
     )
@@ -287,9 +270,7 @@ async def get_reorder_suggestion_endpoint(
     try:
         return await get_reorder_suggestion(db, product_id)
     except ReorderSuggestionNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.post(
@@ -305,6 +286,4 @@ async def approve_reorder_endpoint(
     try:
         return await approve_reorder(db, product_id)
     except ReorderSuggestionNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

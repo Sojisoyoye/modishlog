@@ -52,7 +52,7 @@ from src.cashflow.service import (
 )
 from src.core.database import get_db
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
 # ---------------------------------------------------------------------------
@@ -85,9 +85,7 @@ async def get_loan_endpoint(
     try:
         return await get_loan(db, loan_id)
     except LoanNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -166,9 +164,7 @@ async def run_scenario_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(InvalidScenarioTypeError(body.scenario_type)),
         )
-    result = await run_stress_scenario(
-        db, current_user.id, body.scenario_type.upper()
-    )
+    result = await run_stress_scenario(db, current_user.id, body.scenario_type.upper())
     return ScenarioComparisonResponse(**result)
 
 

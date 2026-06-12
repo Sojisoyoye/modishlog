@@ -56,7 +56,7 @@ from src.sales.service import (
     void_sale,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
 # ---------------------------------------------------------------------------

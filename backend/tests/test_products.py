@@ -448,6 +448,13 @@ class TestProductEndpoints:
         token = build_token(user)
         return {"Authorization": f"Bearer {token}"}, user
 
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
     def test_list_categories_empty(self):
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
@@ -505,6 +512,7 @@ class TestProductEndpoints:
         assert resp.status_code == 404
 
     def test_low_stock_endpoint(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
         with TestClient(self.app) as client:

@@ -33,7 +33,7 @@ from src.inventory.service import (
     update_threshold,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
 @router.get("", response_model=list[InventoryLevelRead])

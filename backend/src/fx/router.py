@@ -70,7 +70,7 @@ from src.fx.service import (
     update_exposure_config,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
 # ---------------------------------------------------------------------------

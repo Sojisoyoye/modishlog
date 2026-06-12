@@ -595,7 +595,15 @@ class TestCashflowEndpoints:
         token = build_token(user)
         return {"Authorization": f"Bearer {token}"}, user
 
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
     def test_list_loans_empty(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
         with TestClient(self.app) as client:
@@ -621,6 +629,7 @@ class TestCashflowEndpoints:
         assert resp.status_code == 401
 
     def test_get_loan_not_found(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
         fake_id = str(uuid.uuid4())
@@ -629,6 +638,7 @@ class TestCashflowEndpoints:
         assert resp.status_code == 404
 
     def test_list_operating_costs_empty(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
         with TestClient(self.app) as client:
@@ -680,6 +690,7 @@ class TestCashflowEndpoints:
         assert resp.status_code == 401
 
     def test_list_scenarios_empty(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
         with TestClient(self.app) as client:
@@ -688,6 +699,7 @@ class TestCashflowEndpoints:
         assert resp.json() == []
 
     def test_alerts_empty(self):
+        self._override_auth()
         # No projection found -> returns empty alerts
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
@@ -697,6 +709,7 @@ class TestCashflowEndpoints:
         assert resp.json() == []
 
     def test_triage_status_none(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
         with TestClient(self.app) as client:
@@ -706,6 +719,7 @@ class TestCashflowEndpoints:
 
     def test_payment_calendar_empty(self):
         """Payment calendar returns empty when no scheduled payments."""
+        self._override_auth()
         db = _mock_db()
         # Sequential calls: loan schedules, opex, fx_rate, fx_orders, projection
         loan_result = MagicMock()

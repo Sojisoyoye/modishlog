@@ -79,3 +79,54 @@ class TestCorsMiddlewareHeaders:
             )
         allowed = resp.headers.get("Access-Control-Allow-Headers", "")
         assert "authorization" in allowed.lower()
+
+
+class TestDataRouterAuthGates:
+    """Verify every financial data router requires authentication.
+
+    Each test confirms that a representative GET endpoint returns 401
+    when called without a Bearer token.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _client(self):
+        from src.main import app
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def test_sales_list_unauthenticated_returns_401(self):
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/v1/sales")
+        assert resp.status_code == 401
+
+    def test_orders_list_unauthenticated_returns_401(self):
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/v1/orders")
+        assert resp.status_code == 401
+
+    def test_cashflow_loans_unauthenticated_returns_401(self):
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/v1/cashflow/loans")
+        assert resp.status_code == 401
+
+    def test_inventory_list_unauthenticated_returns_401(self):
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/v1/inventory")
+        assert resp.status_code == 401
+
+    def test_pricing_recommendations_unauthenticated_returns_401(self):
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/v1/pricing/recommendations")
+        assert resp.status_code == 401
+
+    def test_fx_rates_unauthenticated_returns_401(self):
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/v1/fx/rates/current")
+        assert resp.status_code == 401
+
+    def test_ai_recommendations_unauthenticated_returns_401(self):
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/v1/ai/recommendations")
+        assert resp.status_code == 401

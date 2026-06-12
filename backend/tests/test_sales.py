@@ -548,6 +548,13 @@ class TestSalesEndpoints:
         token = build_token(user)
         return {"Authorization": f"Bearer {token}"}, user
 
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
     def test_create_sale_requires_auth(self):
         db = _mock_db_with_execute()
         self._override_db(db)
@@ -565,6 +572,7 @@ class TestSalesEndpoints:
         assert resp.status_code == 401
 
     def test_get_sale_not_found(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
         fake_id = str(uuid.uuid4())
@@ -573,6 +581,7 @@ class TestSalesEndpoints:
         assert resp.status_code == 404
 
     def test_list_sales_empty(self):
+        self._override_auth()
         db = _mock_db()
         count_result = MagicMock()
         count_result.scalar.return_value = 0
@@ -609,6 +618,7 @@ class TestSalesEndpoints:
         assert resp.status_code == 401
 
     def test_sales_summary(self):
+        self._override_auth()
         db = _mock_db()
         result_mock = MagicMock()
         result_mock.one.return_value = (Decimal("0"), 0, 0)
@@ -645,6 +655,13 @@ class TestSalesExportEndpoint:
 
         self.app.dependency_overrides[get_db] = _fake_db
 
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
     def _make_execute_side_effects(self, sales: list):
         """Return two execute side effects: count then list."""
         count_result = MagicMock()
@@ -656,6 +673,7 @@ class TestSalesExportEndpoint:
         return [count_result, list_result]
 
     def test_export_sales_csv_returns_csv_content_type(self):
+        self._override_auth()
         db = _mock_db()
         db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
         self._override_db(db)
@@ -667,6 +685,7 @@ class TestSalesExportEndpoint:
         assert "text/csv" in resp.headers["content-type"]
 
     def test_export_sales_csv_has_correct_headers(self):
+        self._override_auth()
         db = _mock_db()
         db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
         self._override_db(db)
@@ -682,6 +701,7 @@ class TestSalesExportEndpoint:
         assert "status" in first_line
 
     def test_export_sales_csv_content_disposition(self):
+        self._override_auth()
         db = _mock_db()
         db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
         self._override_db(db)
@@ -694,6 +714,7 @@ class TestSalesExportEndpoint:
         assert ".csv" in resp.headers.get("content-disposition", "")
 
     def test_export_sales_csv_with_data_row(self):
+        self._override_auth()
         product_id = uuid.uuid4()
         sale = _make_sale(product_id=product_id)
         db = _mock_db()

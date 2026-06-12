@@ -1266,6 +1266,13 @@ class TestOrderEndpoints:
         token = build_token(user)
         return {"Authorization": f"Bearer {token}"}, user
 
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
     def test_create_order_requires_auth(self):
         db = _mock_db_with_execute()
         self._override_db(db)
@@ -1286,6 +1293,7 @@ class TestOrderEndpoints:
         assert resp.status_code == 401
 
     def test_get_order_not_found(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
         fake_id = str(uuid.uuid4())
@@ -1294,6 +1302,7 @@ class TestOrderEndpoints:
         assert resp.status_code == 404
 
     def test_list_orders_empty(self):
+        self._override_auth()
         db = _mock_db()
         count_result = MagicMock()
         count_result.scalar.return_value = 0
@@ -1320,6 +1329,7 @@ class TestOrderEndpoints:
         assert resp.status_code == 401
 
     def test_orders_summary(self):
+        self._override_auth()
         db = _mock_db()
         # Two queries: count/sum + group by
         total_result = MagicMock()
@@ -1359,6 +1369,13 @@ class TestOrdersExportEndpoint:
 
         self.app.dependency_overrides[get_db] = _fake_db
 
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
     def _make_execute_side_effects(self, orders: list):
         """Return two execute side effects: count then list."""
         count_result = MagicMock()
@@ -1370,6 +1387,7 @@ class TestOrdersExportEndpoint:
         return [count_result, list_result]
 
     def test_export_orders_csv_returns_csv_content_type(self):
+        self._override_auth()
         db = _mock_db()
         db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
         self._override_db(db)
@@ -1381,6 +1399,7 @@ class TestOrdersExportEndpoint:
         assert "text/csv" in resp.headers["content-type"]
 
     def test_export_orders_csv_has_correct_headers(self):
+        self._override_auth()
         db = _mock_db()
         db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
         self._override_db(db)
@@ -1396,6 +1415,7 @@ class TestOrdersExportEndpoint:
         assert "status" in first_line
 
     def test_export_orders_csv_content_disposition(self):
+        self._override_auth()
         db = _mock_db()
         db.execute = AsyncMock(side_effect=self._make_execute_side_effects([]))
         self._override_db(db)
@@ -1408,6 +1428,7 @@ class TestOrdersExportEndpoint:
         assert ".csv" in resp.headers.get("content-disposition", "")
 
     def test_export_orders_csv_with_data_row(self):
+        self._override_auth()
         order = _make_order()
         db = _mock_db()
         db.execute = AsyncMock(side_effect=self._make_execute_side_effects([order]))
@@ -1431,6 +1452,13 @@ class TestOrdersExportEndpoint:
 
 class TestLotInventoryTracking:
     """units_remaining is set on delivery and exposed via /lots endpoint."""
+
+    def _override_auth(self, app):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        app.dependency_overrides[get_current_active_user] = _fake_auth
 
     @pytest.mark.asyncio
     async def test_order_delivered_sets_units_remaining(self):
@@ -1489,6 +1517,8 @@ class TestLotInventoryTracking:
         result_mock.scalars.return_value.all.return_value = []
         db.execute = AsyncMock(return_value=result_mock)
 
+        original_overrides = app.dependency_overrides.copy()
+        self._override_auth(app)
         app.dependency_overrides[get_db] = lambda: db
         try:
             with TestClient(app) as client:
@@ -1499,4 +1529,4 @@ class TestLotInventoryTracking:
             assert len(data) == 1
             assert "units_remaining" in data[0]
         finally:
-            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides = original_overrides
