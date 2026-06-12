@@ -134,6 +134,20 @@ export const routes: Routes = [
             (m) => m.PurchaseSalePageComponent,
           ),
       },
+      {
+        path: 'stock-counts',
+        loadComponent: () =>
+          import('./features/stockcount/pages/stock-count-list-page.component').then(
+            (m) => m.StockCountListPageComponent,
+          ),
+      },
+      {
+        path: 'stock-counts/:id',
+        loadComponent: () =>
+          import('./features/stockcount/pages/stock-count-detail-page.component').then(
+            (m) => m.StockCountDetailPageComponent,
+          ),
+      },
     ],
   },
   {
