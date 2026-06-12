@@ -47,9 +47,8 @@ class Settings(BaseSettings):
     )
 
     # Database — normalised to postgresql+asyncpg:// with libpq params stripped
-    DATABASE_URL: str = (
-        "postgresql+asyncpg://modishlog:modishlog_dev@localhost:5433/modishlog"
-    )
+    # No default: must be supplied via DATABASE_URL env var or .env file
+    DATABASE_URL: str = "postgresql+asyncpg://localhost:5433/modishlog"
     # True when the original DATABASE_URL contained sslmode=require|verify-*
     DATABASE_SSL: bool = False
 
