@@ -1,8 +1,10 @@
 """Auth API routes -- thin layer, all logic in service.py."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.config import settings
 
 from src.auth.dependencies import get_current_active_user, require_admin
 from src.auth.exceptions import (
@@ -59,8 +61,15 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: UserLogin, db: AsyncSession = Depends(get_db)):
-    """Authenticate and return a JWT access token and refresh token."""
+async def login(
+    body: UserLogin, response: Response, db: AsyncSession = Depends(get_db)
+):
+    """Authenticate and return a JWT access token and refresh token.
+
+    The access token is also set as an HttpOnly cookie so that XSS cannot
+    read it from JavaScript.  The JSON body is kept for backwards-compat
+    with in-memory token handling on the frontend.
+    """
     try:
         user = await authenticate_user(db, body.email, body.password)
     except InvalidCredentialsError:
@@ -78,6 +87,15 @@ async def login(body: UserLogin, db: AsyncSession = Depends(get_db)):
         )
     access_token = build_token(user)
     raw_refresh_token = await create_refresh_token(db, user)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.ENVIRONMENT != "development",
+        path="/",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
     return TokenResponse(access_token=access_token, refresh_token=raw_refresh_token)
 
 
@@ -95,12 +113,16 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/logout", response_model=MessageResponse)
-async def logout(body: LogoutRequest, db: AsyncSession = Depends(get_db)):
+async def logout(
+    body: LogoutRequest, response: Response, db: AsyncSession = Depends(get_db)
+):
     """Revoke the refresh token (logout).
 
     Always returns 200 -- never reveals whether the token existed.
+    Clears the access_token HttpOnly cookie.
     """
     await revoke_refresh_token(db, body.refresh_token)
+    response.delete_cookie(key="access_token", path="/")
     return MessageResponse(message="Logged out successfully.")
 
 
