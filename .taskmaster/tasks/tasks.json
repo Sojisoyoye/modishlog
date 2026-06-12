@@ -3689,10 +3689,11 @@
         "description": "Allow product categories to have sub-categories via a self-referential parent_id FK. For example, \"Edge Tape\" (parent) → \"Matt\", \"Embossed\", \"Gloss\" (children). Products can be assigned to a sub-category or directly to a top-level category.",
         "details": "## Backend\n\n### Migration\n- Add `parent_id: UUID | None` (FK to `product_categories.id`, ondelete=SET NULL, nullable) to `product_categories` table\n- Add index on `parent_id`\n\n### Model (`backend/src/products/models.py`)\n- Add `parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey(\"product_categories.id\", ondelete=\"SET NULL\"), nullable=True, default=None)`\n- Add relationships: `parent: Mapped[Optional[\"ProductCategory\"]] = relationship(back_populates=\"children\", remote_side=[id], lazy=\"raise\")` and `children: Mapped[list[\"ProductCategory\"]] = relationship(back_populates=\"parent\", lazy=\"raise\")`\n\n### Schemas (`backend/src/products/schemas.py`)\n- Add `parent_id: Optional[uuid.UUID] = None` to `CategoryCreate` and `CategoryRead`\n- Add `CategoryRead` to `CategoryRead` as `children: list[\"CategoryRead\"] = []` (nested read schema for tree display)\n- Add `CategoryTreeRead` schema: full tree including children, used by the GET /products/categories endpoint\n\n### Service\n- `list_categories()`: return categories with `selectinload(ProductCategory.children)` so children are available\n- `create_category()`: accept `parent_id`, validate that parent exists and is itself a top-level category (max 2 levels — no grandchildren)\n- GET `/products/categories` returns full tree (top-level categories with their children nested)\n\n### Rules\n- Maximum 2 levels deep (category → sub-category only, no sub-sub-categories)\n- A sub-category cannot itself be a parent\n\n## Frontend\n\n### Category selector on product create/edit\n- Replace the flat `<select>` with a grouped selector: top-level categories as `<optgroup>`, sub-categories as `<option>` inside\n- If a top-level category has no children, it can be selected directly as a product category\n\n### Category management (Settings or Products page)\n- When creating a category, show an optional \"Parent category\" dropdown to make it a sub-category\n- Display categories as a tree (indented list) in the category list\n\n## Rules\n- `selectinload()` on relationships before returning\n- `values_callable` not needed here (no new Enum columns)\n- Write tests before implementation",
         "testStrategy": "**Backend:**\n1. `test_create_subcategory` — create a child category with parent_id set; verify it appears under the parent in list_categories\n2. `test_create_category_max_depth` — attempt to create a sub-category whose parent is itself a sub-category; expect a validation error (max 2 levels)\n3. `test_list_categories_tree` — verify GET /products/categories returns nested structure with children array\n4. `test_product_assigned_to_subcategory` — create product with a sub-category id; verify it reads back correctly\n\n**Frontend E2E:**\n1. Create a top-level category then a sub-category under it; verify the sub-category appears indented in the list\n2. Create a product and assign it to a sub-category via the grouped selector; verify it displays the sub-category name in the product list",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-06-12T19:13:48.319Z"
       },
       {
         "id": "80",
@@ -3700,12 +3701,13 @@
         "description": "Store a default target margin percentage on each product category (and sub-category). When the price suggestion engine runs for a product, it pre-fills the margin from the product's category (sub-category margin overrides parent margin; both fall back to the system default of 40% if unset). This removes the need for users to manually set the margin each time for products in the same category.",
         "details": "## Context\n\nDepends on task #79 (sub-categories). The price suggestion engine (`POST /api/pricing/suggest/{product_id}`) currently defaults to 40% margin unless the caller overrides it. With category-aware margins, each product carries its category's configured margin automatically.\n\n## Backend\n\n### Migration\n- Add `default_margin_pct: Numeric(5, 4) | None` (nullable) to `product_categories`\n- Null means \"not configured — inherit from parent or use system default\"\n\n### Model (`backend/src/products/models.py`)\n- Add `default_margin_pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 4), nullable=True, default=None)`\n\n### Schemas\n- Add `default_margin_pct: Optional[Decimal] = None` to `CategoryCreate`, `CategoryRead`, `CategoryTreeRead`\n\n### Service (`backend/src/pricing/service.py`) — `compute_suggestion`\n- After fetching active lots, load the product's category (and parent category if sub-category)\n- Resolve effective margin: `sub_category.default_margin_pct ?? parent_category.default_margin_pct ?? Decimal(\"0.40\")`\n- Use resolved margin as the default when `target_margin` is not explicitly passed by the caller\n\n### Router (`backend/src/pricing/router.py`)\n- `SuggestRequest.target_margin_pct` is now optional (omit it → use category default)\n- If provided, the caller's value overrides the category default (existing behaviour)\n\n## Frontend\n\n### Products page — Suggest Price panel\n- After clicking \"Suggest Price\", the margin slider pre-fills with the product's category default margin (fetched as part of the product's category data)\n- If no category margin is configured, defaults to 40% as before\n- User can still move the slider to override\n\n### Category management (Settings or Products page)\n- Add a \"Default margin %\" input field to the category create/edit form (optional, 0–100 %)\n- Display the configured margin next to each category in the list\n\n## Rules\n- Decimal everywhere, no float\n- Margin inheritance: sub-category → parent → system default (40%)\n- Explicit caller override always wins over category default\n- Write tests before implementation",
         "testStrategy": "**Backend:**\n1. `test_compute_suggestion_uses_category_margin` — product with category having default_margin_pct=0.35; call compute_suggestion without explicit margin; verify 35% is used\n2. `test_compute_suggestion_inherits_parent_margin` — product in sub-category with no margin; parent has 0.30; verify 30% is inherited\n3. `test_compute_suggestion_explicit_overrides_category` — product has category margin 0.35; pass target_margin=0.50 explicitly; verify 50% is used\n4. `test_compute_suggestion_falls_back_to_default` — product in category with no margin and no parent; verify 40% system default is used\n\n**Frontend E2E:**\n1. Set a default margin on a category; open Suggest Price for a product in that category; verify the slider pre-fills with that margin\n2. Move the slider after opening; verify the override value is used instead",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "79"
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-06-12T19:13:53.664Z"
       },
       {
         "id": "81",
@@ -3713,7 +3715,7 @@
         "description": "Write and run Playwright E2E tests in Chrome covering the full user journeys for the four features: sell price per line item (#73), lot inventory tracking (#75), price suggestion engine (#76), and stock count (#78). Tests must simulate real user interactions against the running backend — no mocks.",
         "details": "\n## Scope\n\nEach feature gets its own spec file (or extend existing ones if they exist). All tests run in Chrome (`chromium` project in playwright.config.ts) against the local dev stack (`http://localhost:4200` frontend, `http://localhost:8000` backend).\n\n---\n\n### #73 — Sell price per line item (`e2e/order-sell-price.spec.ts`)\n- Create a USD order and add a line item; verify `sell_price_ngn` field is visible and editable\n- Save the order; reload; confirm the stored sell price is shown (not the catalog price)\n- Edit the line item sell price to a different value; save; reload; confirm the new value persists\n- Verify the revenue total on the order detail reflects the stored sell price\n\n### #75 — Lot inventory tracking (`e2e/order-lot-tracking.spec.ts`)\n- Create a USD order, add line items, transition it to DELIVERED\n- On the order detail page verify the \"In Stock\" column appears with the correct `units_remaining` value\n- Navigate to the order lots endpoint (`GET /api/orders/{id}/lots`) via the UI or direct assertion and confirm lot records exist\n- Create a sale for a product with an open lot; verify `units_remaining` decreases (FIFO deduction)\n\n### #76 — Price suggestion engine (`e2e/price-suggestion.spec.ts`)\n- Navigate to the Products page; open the action menu for a product that has delivered lots\n- Click \"Suggest Price\"; verify the margin slider is visible (range 20–70%)\n- Adjust the slider to a specific margin (e.g. 40%); confirm the suggested price, avg cost, FX rate, and margin % are displayed\n- Submit a second suggestion with a different margin; verify both appear in suggestion history\n\n### #78 — Stock count (`e2e/stock-count.spec.ts`)\n- Navigate to `/stock-counts`; create a new stock count\n- Add at least two line items with physical counts that differ from system stock\n- Submit the stock count; verify it transitions to COMPLETED status\n- Confirm the variance values shown match the difference between physical and system counts\n- Verify a completed stock count is read-only (edit controls disabled/hidden)\n\n---\n\n## Acceptance criteria\n- All specs pass with `npx playwright test --project=chromium` against the running local stack\n- No test uses `page.route()` to mock API calls — all hits go to the real backend\n- Each spec cleans up its own test data (delete created orders/products/stock counts after assertions, or use a dedicated test user/business)\n",
         "testStrategy": "Run with `npx playwright test --project=chromium` against local stack. CI: add to existing playwright GitHub Actions workflow.",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [
           "73",
           "75",
@@ -3722,14 +3724,14 @@
         ],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-06-12T11:37:35.479Z"
+        "updatedAt": "2026-06-12T19:16:25.608Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-06-12T11:37:35.481Z",
+      "lastModified": "2026-06-12T19:16:25.608Z",
       "taskCount": 81,
-      "completedCount": 78,
+      "completedCount": 81,
       "tags": [
         "master"
       ]
