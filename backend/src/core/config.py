@@ -113,6 +113,18 @@ class Settings(BaseSettings):
             return [v.strip() for v in value.split(",") if v.strip()]
         return value
 
+    @field_validator("CORS_ORIGINS", mode="after")
+    @classmethod
+    def reject_wildcard_origins(cls, v: list[str]) -> list[str]:
+        if "*" in v:
+            raise ValueError(
+                "CORS_ORIGINS must not contain '*'. "
+                "Using a wildcard origin with allow_credentials=True violates the "
+                "CORS spec and exposes credentials to any origin. "
+                "Specify explicit allowed origins instead."
+            )
+        return v
+
     @field_validator("ALGORITHM")
     @classmethod
     def validate_algorithm(cls, v: str) -> str:
