@@ -218,6 +218,7 @@ export class StockCountDetailPageComponent implements OnInit {
       },
       error: () => {
         this.finalizing.set(false);
+        this.confirmFinalizeVisible.set(false);
         this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to finalise' });
       },
     });
