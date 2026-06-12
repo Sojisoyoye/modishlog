@@ -1,5 +1,7 @@
-import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { test, expect, request } from '@playwright/test';
+import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+
+const API = 'http://localhost:8000/api/v1';
 
 test.beforeAll(async () => {
   await ensureTestUser();
@@ -11,12 +13,21 @@ test.describe('Order line item sell price (sell_price_ngn)', () => {
   });
 
   async function goToFirstOrder(page: import('@playwright/test').Page) {
-    const resp = await page.request.get('/api/orders');
-    const data = await resp.json();
+    const token = await getAPIToken();
+    const ctx = await request.newContext();
+    let data: { items?: { id: string; order_number: string }[] };
+    try {
+      const resp = await ctx.get(`${API}/orders`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      data = await resp.json();
+    } finally {
+      await ctx.dispose();
+    }
     if (!data.items || data.items.length === 0) return null;
     const order = data.items[0];
     await page.goto(`/orders/${order.id}`);
-    await expect(page.getByText(order.order_number)).toBeVisible();
+    await expect(page.getByText(order.order_number).first()).toBeVisible();
     return order;
   }
 
@@ -38,10 +49,15 @@ test.describe('Order line item sell price (sell_price_ngn)', () => {
     const order = await goToFirstOrder(page);
     if (!order) { test.skip(); return; }
 
-    await page.getByRole('button', { name: /edit/i }).click();
+    await page.getByRole('button', { name: /edit/i }).first().click();
 
     const sellInput = page.getByTestId('sell-price-input').first();
-    if (!(await sellInput.isVisible())) { test.skip(); return; }
+    // Wait up to 4s for Angular to enter edit mode; skip if not applicable
+    try {
+      await sellInput.waitFor({ state: 'visible', timeout: 4000 });
+    } catch {
+      test.skip(); return;
+    }
 
     await sellInput.fill('250000');
 

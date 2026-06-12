@@ -592,6 +592,119 @@ class TestUpdateOrder:
         assert new_item.sell_price_ngn is None
 
     @pytest.mark.asyncio
+    async def test_update_order_preserves_units_remaining(self):
+        """units_remaining is carried over when line items are replaced on a DELIVERED order."""
+        product_id = uuid.uuid4()
+        product = _make_product(id=product_id)
+        order = _make_order(status=OrderStatus.DELIVERED)
+        existing_item = _make_line_item(
+            order_id=order.id,
+            product_id=product_id,
+            units_remaining=Decimal("10"),
+        )
+        order.line_items = [existing_item]
+
+        db = _mock_db()
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = product
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderUpdate(
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=product_id,
+                    quantity=10,
+                    unit_cost=Decimal("50"),
+                    sell_price_ngn=Decimal("180000"),
+                )
+            ]
+        )
+        await update_order(db, order.id, data, uuid.uuid4())
+        new_item = next(
+            (o for o in added_objects if isinstance(o, OrderLineItem)), None
+        )
+        assert new_item is not None
+        assert new_item.sell_price_ngn == Decimal("180000")
+        assert new_item.units_remaining == Decimal("10")
+
+    @pytest.mark.asyncio
+    async def test_update_order_units_remaining_stays_none_for_new_products(self):
+        """units_remaining is None for brand-new products not in original line items."""
+        product_id_old = uuid.uuid4()
+        product_id_new = uuid.uuid4()
+        product_new = _make_product(id=product_id_new)
+        order = _make_order(status=OrderStatus.DELIVERED)
+        existing_item = _make_line_item(
+            order_id=order.id,
+            product_id=product_id_old,
+            units_remaining=Decimal("5"),
+        )
+        order.line_items = [existing_item]
+
+        db = _mock_db()
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = product_new
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderUpdate(
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=product_id_new,
+                    quantity=3,
+                    unit_cost=Decimal("80"),
+                )
+            ]
+        )
+        await update_order(db, order.id, data, uuid.uuid4())
+        new_item = next(
+            (o for o in added_objects if isinstance(o, OrderLineItem)), None
+        )
+        assert new_item is not None
+        assert new_item.units_remaining is None
+
+    @pytest.mark.asyncio
     async def test_create_order_stores_sell_price_ngn(self):
         """sell_price_ngn on OrderLineItemCreate is stored in the line item."""
         product_id = uuid.uuid4()
