@@ -1695,16 +1695,17 @@ export class ProductsPageComponent implements OnInit {
     if (!categoryId) return 40;
     const cat = this.findCategoryById(categoryId);
     if (!cat) return 40;
+    let raw = 40;
     if (cat.default_margin_pct != null) {
-      return Math.round(cat.default_margin_pct * 100);
-    }
-    if (cat.parent_id) {
+      raw = cat.default_margin_pct * 100;
+    } else if (cat.parent_id) {
       const parent = this.findCategoryById(cat.parent_id);
       if (parent?.default_margin_pct != null) {
-        return Math.round(parent.default_margin_pct * 100);
+        raw = parent.default_margin_pct * 100;
       }
     }
-    return 40;
+    // Snap to the slider's step of 5 and clamp to its [20, 70] range
+    return Math.min(70, Math.max(20, Math.round(raw / 5) * 5));
   }
 
   private findCategoryById(id: string | null): Category | null {

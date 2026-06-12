@@ -18,7 +18,7 @@ class CategoryCreate(BaseModel):
     description: str | None = None
     parent_id: Optional[uuid.UUID] = None
     default_margin_pct: Optional[Decimal] = Field(
-        default=None, ge=Decimal("0"), lt=Decimal("1")
+        default=None, gt=Decimal("0"), lt=Decimal("1")
     )
 
 
@@ -26,7 +26,7 @@ class CategoryUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     default_margin_pct: Optional[Decimal] = Field(
-        default=None, ge=Decimal("0"), lt=Decimal("1")
+        default=None, gt=Decimal("0"), lt=Decimal("1")
     )
 
 

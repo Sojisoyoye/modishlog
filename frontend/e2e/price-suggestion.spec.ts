@@ -1,6 +1,6 @@
 import { test, expect, request } from '@playwright/test';
 import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
-import { ensureProduct, ensureCategory, ensureProductInCategory } from './helpers/data';
+import { ensureProduct, ensureProductInCategory } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
 
@@ -286,6 +286,25 @@ test.describe('Category-aware price suggestion margin (#80)', () => {
       }
     } finally {
       await ctx.dispose();
+    }
+  });
+
+  test.afterAll(async () => {
+    if (orderId) await deleteOrder(orderId);
+    if (productId) await deleteProduct(productId);
+    // Attempt category cleanup — may fail if soft-deleted product reference remains
+    if (categoryId) {
+      const token = await getAPIToken();
+      const ctx = await request.newContext();
+      try {
+        await ctx.delete(`${API}/products/categories/${categoryId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        // Acceptable: category may still reference the soft-deleted product
+      } finally {
+        await ctx.dispose();
+      }
     }
   });
 
