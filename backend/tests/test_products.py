@@ -619,6 +619,50 @@ class TestProductEndpoints:
 
 
 # ---------------------------------------------------------------------------
+# Price floor validation tests (task #95)
+# ---------------------------------------------------------------------------
+
+
+class TestProductPriceFloor:
+    """ProductCreate and ProductUpdate schemas must reject zero prices."""
+
+    def test_product_create_zero_selling_price_rejected(self):
+        from decimal import Decimal
+        from pydantic import ValidationError
+        from src.products.schemas import ProductCreate
+        with pytest.raises(ValidationError):
+            ProductCreate(name="Bag", unit_cost=Decimal("1.00"), selling_price=Decimal("0"))
+
+    def test_product_create_zero_unit_cost_rejected(self):
+        from decimal import Decimal
+        from pydantic import ValidationError
+        from src.products.schemas import ProductCreate
+        with pytest.raises(ValidationError):
+            ProductCreate(name="Bag", unit_cost=Decimal("0"), selling_price=Decimal("500"))
+
+    def test_product_create_positive_prices_accepted(self):
+        from decimal import Decimal
+        from src.products.schemas import ProductCreate
+        p = ProductCreate(name="Bag", unit_cost=Decimal("100"), selling_price=Decimal("150"))
+        assert p.unit_cost == Decimal("100")
+        assert p.selling_price == Decimal("150")
+
+    def test_product_update_zero_selling_price_rejected(self):
+        from decimal import Decimal
+        from pydantic import ValidationError
+        from src.products.schemas import ProductUpdate
+        with pytest.raises(ValidationError):
+            ProductUpdate(selling_price=Decimal("0"))
+
+    def test_product_update_zero_unit_cost_rejected(self):
+        from decimal import Decimal
+        from pydantic import ValidationError
+        from src.products.schemas import ProductUpdate
+        with pytest.raises(ValidationError):
+            ProductUpdate(unit_cost=Decimal("0"))
+
+
+# ---------------------------------------------------------------------------
 # Sub-category hierarchy tests (task #79)
 # ---------------------------------------------------------------------------
 
