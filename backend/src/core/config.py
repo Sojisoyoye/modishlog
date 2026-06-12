@@ -11,12 +11,25 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # SSL is handled via connect_args={"ssl": True} on the engine instead.
 _LIBPQ_DROP = frozenset(
     {
-        "sslmode", "sslrootcert", "sslcert", "sslkey", "sslpassword",
-        "channel_binding", "gssencmode", "krbsrvname", "gsslib",
-        "target_session_attrs", "connect_timeout", "keepalives",
-        "keepalives_idle", "keepalives_interval", "keepalives_count",
-        "application_name", "fallback_application_name",
-        "load_balance_hosts", "options",
+        "sslmode",
+        "sslrootcert",
+        "sslcert",
+        "sslkey",
+        "sslpassword",
+        "channel_binding",
+        "gssencmode",
+        "krbsrvname",
+        "gsslib",
+        "target_session_attrs",
+        "connect_timeout",
+        "keepalives",
+        "keepalives_idle",
+        "keepalives_interval",
+        "keepalives_count",
+        "application_name",
+        "fallback_application_name",
+        "load_balance_hosts",
+        "options",
     }
 )
 
@@ -34,7 +47,9 @@ class Settings(BaseSettings):
     )
 
     # Database — normalised to postgresql+asyncpg:// with libpq params stripped
-    DATABASE_URL: str = "postgresql+asyncpg://modishlog:modishlog_dev@localhost:5433/modishlog"
+    DATABASE_URL: str = (
+        "postgresql+asyncpg://modishlog:modishlog_dev@localhost:5433/modishlog"
+    )
     # True when the original DATABASE_URL contained sslmode=require|verify-*
     DATABASE_SSL: bool = False
 
@@ -65,7 +80,7 @@ class Settings(BaseSettings):
             return value
         for old in ("postgres://", "postgresql://"):
             if value.startswith(old):
-                value = "postgresql+asyncpg://" + value[len(old):]
+                value = "postgresql+asyncpg://" + value[len(old) :]
                 break
         parsed = urlparse(value)
         if parsed.query:
@@ -77,8 +92,8 @@ class Settings(BaseSettings):
             )
         return value
 
-    # Security
-    SECRET_KEY: str = "dev-secret-change-in-production"
+    # Security — SECRET_KEY has no default; must be set explicitly in every environment
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -97,6 +112,16 @@ class Settings(BaseSettings):
                 return json.loads(value)
             return [v.strip() for v in value.split(",") if v.strip()]
         return value
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        if v == "dev-secret-change-in-production" or len(v) < 32:
+            raise ValueError(
+                "SECRET_KEY must be at least 32 characters and must not be the "
+                "development default. Set a strong random value in your environment."
+            )
+        return v
 
     # File uploads — /app/uploads is writable by appuser in Docker
     UPLOAD_DIR: str = "/app/uploads"

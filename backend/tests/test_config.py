@@ -81,3 +81,28 @@ class TestParseCorsOrigins:
     def test_strips_whitespace(self):
         s = Settings(CORS_ORIGINS=" http://localhost:4200 , https://example.com ")
         assert s.CORS_ORIGINS == ["http://localhost:4200", "https://example.com"]
+
+
+class TestSecretKeyValidation:
+    def _make(self, secret: str) -> Settings:
+        return Settings(SECRET_KEY=secret)
+
+    def test_strong_secret_key_accepted(self):
+        s = self._make("a" * 32)
+        assert s.SECRET_KEY == "a" * 32
+
+    def test_dev_default_secret_key_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="SECRET_KEY"):
+            self._make("dev-secret-change-in-production")
+
+    def test_short_secret_key_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="SECRET_KEY"):
+            self._make("tooshort")
+
+    def test_exactly_32_chars_accepted(self):
+        s = self._make("x" * 32)
+        assert len(s.SECRET_KEY) == 32
