@@ -120,6 +120,13 @@ class _InventoryEndpointBase:
         token = build_token(u)
         return {"Authorization": f"Bearer {token}"}, u
 
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
 
 # ---------------------------------------------------------------------------
 # POST /inventory/{product_id}/adjust
@@ -269,6 +276,7 @@ class TestInventoryAdjustEndpoint(_InventoryEndpointBase):
 class TestListMovementsEndpoint(_InventoryEndpointBase):
     def test_list_all_movements_returns_200(self):
         """GET /inventory/movements returns list of recent movements."""
+        self._override_auth()
         mov1 = _make_movement(quantity_change=10)
         mov2 = _make_movement(movement_type=MovementType.SALE_DEPLETION, quantity_change=-2)
         db = _mock_db(movements=[mov1, mov2])
@@ -287,6 +295,7 @@ class TestListMovementsEndpoint(_InventoryEndpointBase):
 
     def test_list_all_movements_empty(self):
         """GET /inventory/movements with no data → empty list."""
+        self._override_auth()
         db = _mock_db(movements=[])
         self._override_db(db)
 

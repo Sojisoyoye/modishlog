@@ -588,6 +588,13 @@ class TestFXEndpoints:
         token = build_token(user)
         return {"Authorization": f"Bearer {token}"}, user
 
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
     def test_ingest_requires_auth(self):
         db = _mock_db()
         self._override_db(db)
@@ -603,6 +610,7 @@ class TestFXEndpoints:
         assert resp.status_code == 401
 
     def test_get_rate_not_found(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
         with TestClient(self.app) as client:
@@ -610,6 +618,7 @@ class TestFXEndpoints:
         assert resp.status_code == 404
 
     def test_current_rates_empty(self):
+        self._override_auth()
         db = _mock_db()
         # distinct pairs returns empty
         result_mock = MagicMock()
@@ -637,6 +646,7 @@ class TestFXEndpoints:
         assert resp.status_code == 401
 
     def test_list_alerts_empty(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
         with TestClient(self.app) as client:
@@ -659,6 +669,7 @@ class TestFXEndpoints:
         assert resp.status_code == 401
 
     def test_simulation_not_found(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
         fake_id = str(uuid.uuid4())
@@ -687,6 +698,7 @@ class TestFXEndpoints:
         assert resp.status_code == 401
 
     def test_forecast_date_not_found(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
         with TestClient(self.app) as client:
@@ -694,6 +706,7 @@ class TestFXEndpoints:
         assert resp.status_code == 404
 
     def test_forecast_range_empty(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
         with TestClient(self.app) as client:
@@ -1000,6 +1013,13 @@ class TestFXExportEndpoint:
 
         self.app.dependency_overrides[get_db] = _fake_db
 
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
     def _make_execute_for_rates(self, rates: list):
         """Return AsyncMock execute for listing FX rates."""
         result_mock = MagicMock()
@@ -1009,6 +1029,7 @@ class TestFXExportEndpoint:
         return AsyncMock(return_value=result_mock)
 
     def test_export_fx_csv_returns_csv_content_type(self):
+        self._override_auth()
         db = _mock_db()
         db.execute = self._make_execute_for_rates([])
         self._override_db(db)
@@ -1020,6 +1041,7 @@ class TestFXExportEndpoint:
         assert "text/csv" in resp.headers["content-type"]
 
     def test_export_fx_csv_has_correct_headers(self):
+        self._override_auth()
         db = _mock_db()
         db.execute = self._make_execute_for_rates([])
         self._override_db(db)
@@ -1035,6 +1057,7 @@ class TestFXExportEndpoint:
         assert "timestamp" in first_line
 
     def test_export_fx_csv_content_disposition(self):
+        self._override_auth()
         db = _mock_db()
         db.execute = self._make_execute_for_rates([])
         self._override_db(db)
@@ -1047,6 +1070,7 @@ class TestFXExportEndpoint:
         assert ".csv" in resp.headers.get("content-disposition", "")
 
     def test_export_fx_csv_with_data_row(self):
+        self._override_auth()
         rate = _make_fx_rate(pair="USDNGN", rate=Decimal("1650.250000"))
         db = _mock_db()
         db.execute = self._make_execute_for_rates([rate])
@@ -1070,6 +1094,13 @@ class TestFXExportEndpoint:
 
 class TestGetLiveUsdNgnRate:
     """Tests for the live rate cache with 4-hour TTL and open API fetch."""
+
+    def _override_auth(self, app):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        app.dependency_overrides[get_current_active_user] = _fake_auth
 
     @pytest.mark.asyncio
     async def test_returns_cached_rate_when_fresh(self):
@@ -1203,6 +1234,8 @@ class TestGetLiveUsdNgnRate:
         result.scalar_one_or_none.return_value = fresh_rate
         db.execute = AsyncMock(return_value=result)
 
+        original_overrides = app.dependency_overrides.copy()
+        self._override_auth(app)
         app.dependency_overrides[get_db] = lambda: db
         try:
             with TestClient(app) as client:
@@ -1214,4 +1247,4 @@ class TestGetLiveUsdNgnRate:
             assert "cached" in data
             assert data["cached"] is True
         finally:
-            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides = original_overrides

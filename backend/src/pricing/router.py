@@ -64,7 +64,7 @@ from src.pricing.service import (
     upsert_mix_targets,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
 # ---------------------------------------------------------------------------

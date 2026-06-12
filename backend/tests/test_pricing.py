@@ -505,7 +505,15 @@ class TestPricingEndpoints:
         token = build_token(user)
         return {"Authorization": f"Bearer {token}"}, user
 
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake_auth():
+            return u
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
     def test_recommendations_empty(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
         with TestClient(self.app) as client:
@@ -532,6 +540,7 @@ class TestPricingEndpoints:
         assert resp.status_code == 401
 
     def test_elasticity_not_found(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
         fake_id = str(uuid.uuid4())
@@ -551,6 +560,7 @@ class TestPricingEndpoints:
         assert resp.status_code == 401
 
     def test_margin_targets_empty(self):
+        self._override_auth()
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
         with TestClient(self.app) as client:
