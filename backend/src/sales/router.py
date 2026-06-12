@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user, require_any_role
 from src.auth.models import User, UserRole
+from src.core.csv_utils import csv_safe
 from src.core.database import get_db
 from src.inventory.exceptions import (
     InvalidStockAdjustmentError,
@@ -307,7 +308,7 @@ async def export_sales_csv_endpoint(
                 str(sale.discount_amount) if sale.discount_amount is not None else "",
                 sale.channel.value if sale.channel else "",
                 sale.status.value if sale.status else "",
-                sale.currency,
+                csv_safe(sale.currency),
             ]
         )
     output.seek(0)

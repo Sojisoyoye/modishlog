@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user
 from src.auth.models import User, UserRole
+from src.core.csv_utils import csv_safe
 from src.core.database import get_db
 from src.inventory.exceptions import (
     InvalidStockAdjustmentError,
@@ -271,11 +272,11 @@ async def export_orders_csv_endpoint(
         writer.writerow(
             [
                 str(order.id),
-                order.order_number,
-                order.supplier_name,
+                csv_safe(order.order_number),
+                csv_safe(order.supplier_name),
                 order.status.value if order.status else "",
                 str(order.total_amount),
-                order.currency,
+                csv_safe(order.currency),
                 str(order.expected_delivery_date)
                 if order.expected_delivery_date
                 else "",
