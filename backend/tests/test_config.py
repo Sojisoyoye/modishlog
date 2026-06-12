@@ -86,16 +86,19 @@ class TestParseCorsOrigins:
 class TestAlgorithmValidation:
     def test_hs256_accepted(self):
         from src.core.config import Settings
+
         s = Settings(ALGORITHM="HS256")
         assert s.ALGORITHM == "HS256"
 
     def test_hs384_accepted(self):
         from src.core.config import Settings
+
         s = Settings(ALGORITHM="HS384")
         assert s.ALGORITHM == "HS384"
 
     def test_hs512_accepted(self):
         from src.core.config import Settings
+
         s = Settings(ALGORITHM="HS512")
         assert s.ALGORITHM == "HS512"
 
@@ -103,6 +106,7 @@ class TestAlgorithmValidation:
         import pytest
         from pydantic import ValidationError
         from src.core.config import Settings
+
         with pytest.raises(ValidationError, match="ALGORITHM"):
             Settings(ALGORITHM="none")
 
@@ -110,6 +114,7 @@ class TestAlgorithmValidation:
         import pytest
         from pydantic import ValidationError
         from src.core.config import Settings
+
         with pytest.raises(ValidationError, match="ALGORITHM"):
             Settings(ALGORITHM="RS256")
 
@@ -117,6 +122,7 @@ class TestAlgorithmValidation:
         import pytest
         from pydantic import ValidationError
         from src.core.config import Settings
+
         with pytest.raises(ValidationError, match="ALGORITHM"):
             Settings(ALGORITHM="")
 
@@ -132,12 +138,14 @@ class TestSecretKeyValidation:
     def test_dev_default_secret_key_rejected(self):
         import pytest
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError, match="SECRET_KEY"):
             self._make("dev-secret-change-in-production")
 
     def test_short_secret_key_rejected(self):
         import pytest
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError, match="SECRET_KEY"):
             self._make("tooshort")
 
@@ -150,21 +158,46 @@ class TestCorsOriginsWildcardGuard:
     def test_wildcard_origin_rejected(self):
         import pytest
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError, match="CORS_ORIGINS"):
             Settings(CORS_ORIGINS=["*"])
 
     def test_wildcard_as_comma_string_rejected(self):
         import pytest
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError, match="CORS_ORIGINS"):
             Settings(CORS_ORIGINS="*")
 
     def test_wildcard_in_list_with_other_origins_rejected(self):
         import pytest
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError, match="CORS_ORIGINS"):
             Settings(CORS_ORIGINS=["http://localhost:4200", "*"])
 
     def test_specific_origin_accepted(self):
         s = Settings(CORS_ORIGINS=["http://localhost:4200"])
         assert s.CORS_ORIGINS == ["http://localhost:4200"]
+
+
+class TestDatabaseUrlNoHardcodedCredentials:
+    def test_default_url_contains_no_embedded_password(self):
+        """Default DATABASE_URL must not embed a plaintext password."""
+        field = Settings.model_fields["DATABASE_URL"]
+        default = field.default
+        # A URL with embedded credentials has the form user:password@host
+        # No default should contain a colon-separated password before the @ sign
+        if default and hasattr(default, "__str__"):
+            default_str = str(default)
+            if "@" in default_str:
+                userinfo = default_str.split("@")[0].split("//")[-1]
+                assert ":" not in userinfo, (
+                    f"Default DATABASE_URL contains hardcoded credentials: {default_str!r}. "
+                    "Remove the password from the default URL."
+                )
+
+    def test_settings_accepts_url_without_credentials(self):
+        s = Settings(DATABASE_URL="postgresql+asyncpg://localhost:5433/modishlog")
+        assert "modishlog_dev" not in s.DATABASE_URL
+        assert s.DATABASE_URL == "postgresql+asyncpg://localhost:5433/modishlog"
