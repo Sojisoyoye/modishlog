@@ -25,16 +25,21 @@ import { SettingsService } from '../../../core/services/settings.service';
           </div>
           <div class="space-y-4">
             @if (apiKeyConfigured()) {
-              <div class="flex items-center gap-2 rounded-lg bg-green-50 px-4 py-3 text-sm text-success">
-                <i class="pi pi-check-circle text-xs"></i>
-                <span>Configured</span>
-                <button
-                  (click)="apiKeyConfigured.set(false)"
-                  class="ml-auto text-xs text-muted underline hover:text-text"
-                  type="button"
-                >
-                  Update
-                </button>
+              <div class="flex flex-col gap-2 rounded-lg bg-green-50 px-4 py-3 text-sm text-success">
+                <div class="flex items-center gap-2">
+                  <i class="pi pi-check-circle text-xs"></i>
+                  <span>Configured</span>
+                  <button
+                    (click)="apiKeyConfigured.set(false); apiKeyStatus.set(null)"
+                    class="ml-auto text-xs text-muted underline hover:text-text"
+                    type="button"
+                  >
+                    Update
+                  </button>
+                </div>
+                @if (apiKeyStatus() === 'saved') {
+                  <p class="text-xs text-success">API key saved successfully</p>
+                }
               </div>
             } @else {
               <div>

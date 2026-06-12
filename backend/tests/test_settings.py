@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.auth.models import User, UserRole
-from src.auth.service import build_token, get_password_hash
+from src.auth.service import get_password_hash
 
 VALID_PASSWORD = "Str0ng!Pass#99"
 
@@ -194,6 +194,36 @@ class TestApiKeyEndpoints:
             resp = client.get("/api/v1/settings/api-key/anthropic")
 
         assert resp.status_code == 401
+
+    def test_save_api_key_updates_existing_key(self):
+        """POST /settings/api-key with an existing key updates it (upsert path)."""
+        from src.settings.models import UserApiKey
+
+        user = _make_user()
+        existing = UserApiKey()
+        existing.id = uuid.uuid4()
+        existing.user_id = user.id
+        existing.key_name = "anthropic"
+        existing.encrypted_value = "gAAAAA_old_encrypted_value"
+
+        db = _mock_db(existing_key=existing)
+        self._override_db(db)
+        self._override_auth(user)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/settings/api-key",
+                json={"key_name": "anthropic", "key_value": "sk-ant-new-value"},
+            )
+
+        assert resp.status_code == 200
+        # UPDATE path: db.add() must NOT be called (no new row inserted)
+        assert not db.add.called
+        # The existing object's encrypted_value must have been replaced
+        assert existing.encrypted_value != "gAAAAA_old_encrypted_value"
+        assert existing.encrypted_value.startswith("gAAAAA")
+        # db.flush() must have been called to persist the change
+        db.flush.assert_called_once()
 
 
 class TestFernetEncryption:
