@@ -81,11 +81,17 @@ app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
 
 from src.invoice_schemes.router import router as invoice_schemes_router  # noqa: E402
 
-app.include_router(invoice_schemes_router, prefix="/api/v1/invoice-schemes", tags=["invoice-schemes"])
+app.include_router(
+    invoice_schemes_router, prefix="/api/v1/invoice-schemes", tags=["invoice-schemes"]
+)
 
 from src.locations.router import router as locations_router  # noqa: E402
 
 app.include_router(locations_router, prefix="/api/v1/locations", tags=["locations"])
+
+from src.stockcount.router import router as stockcount_router  # noqa: E402
+
+app.include_router(stockcount_router, prefix="/api/v1/stockcount", tags=["stockcount"])
 
 
 @app.get("/health")

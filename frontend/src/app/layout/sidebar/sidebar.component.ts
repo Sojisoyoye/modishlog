@@ -70,6 +70,7 @@ export class SidebarComponent {
     { label: 'Sales', route: '/sales', icon: 'pi-shopping-cart' },
     { label: 'Products', route: '/products', icon: 'pi-barcode' },
     { label: 'Inventory', route: '/inventory', icon: 'pi-box' },
+    { label: 'Stock Counts', route: '/stock-counts', icon: 'pi-clipboard' },
     { label: 'Orders', route: '/orders', icon: 'pi-truck' },
     { label: 'Suppliers', route: '/suppliers', icon: 'pi-users' },
     { label: 'Pricing', route: '/pricing', icon: 'pi-tag' },
