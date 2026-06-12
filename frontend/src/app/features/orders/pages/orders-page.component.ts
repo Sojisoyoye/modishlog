@@ -48,6 +48,18 @@ import { FxService } from '../../../core/services/fx.service';
 
       <!-- Pipeline View -->
       <div class="mb-6 flex gap-4 overflow-x-auto pb-2">
+        <!-- "All" reset card -->
+        <button
+          type="button"
+          (click)="togglePipelineFilter(null)"
+          class="min-w-36 rounded-xl border px-4 py-3 shadow-sm text-left transition-all"
+          [class]="pipelineFilter() === null
+            ? 'border-secondary bg-secondary/10 ring-1 ring-secondary'
+            : 'border-gray-200 bg-white hover:border-secondary/50 hover:shadow-md'"
+        >
+          <h4 class="text-xs font-bold uppercase tracking-wider text-muted">All</h4>
+          <p class="mt-2 text-2xl font-bold text-text">{{ orders().length }}</p>
+        </button>
         @for (status of pipelineStatuses; track status) {
           <button
             type="button"
@@ -70,20 +82,9 @@ import { FxService } from '../../../core/services/fx.service';
             <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
               <i class="pi pi-list text-sm text-secondary"></i>
             </div>
-            @if (pipelineFilter()) {
-              <h3 class="text-base font-semibold text-text">
-                {{ statusLabel[pipelineFilter()!] }} Orders
-              </h3>
-              <button
-                type="button"
-                (click)="togglePipelineFilter(null)"
-                class="ml-1 flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-muted hover:bg-gray-200"
-              >
-                <i class="pi pi-times text-[10px]"></i> Clear filter
-              </button>
-            } @else {
-              <h3 class="text-base font-semibold text-text">All Orders</h3>
-            }
+            <h3 class="text-base font-semibold text-text">
+              {{ pipelineFilter() ? statusLabel[pipelineFilter()!] + ' Orders' : 'All Orders' }}
+            </h3>
           </div>
           <button
             type="button"
