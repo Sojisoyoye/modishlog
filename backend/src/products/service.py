@@ -10,10 +10,12 @@ from sqlalchemy.orm import selectinload
 
 from src.inventory.service import initialize_inventory
 from src.products.exceptions import (
+    CategoryHasChildrenError,
     CategoryInUseError,
     CategoryNotFoundError,
     DuplicateSKUError,
     ProductNotFoundError,
+    SubcategoryDepthError,
 )
 from src.products.models import PriceHistory, Product, ProductCategory
 from src.products.schemas import (
@@ -52,8 +54,19 @@ async def create_category(
     db: AsyncSession,
     data: CategoryCreate,
 ) -> ProductCategory:
-    """Create a product category."""
-    category = ProductCategory(name=data.name, description=data.description)
+    """Create a product category, optionally nested under a parent (max 2 levels)."""
+    if data.parent_id is not None:
+        parent = await db.get(ProductCategory, data.parent_id)
+        if not parent:
+            raise CategoryNotFoundError(data.parent_id)
+        if parent.parent_id is not None:
+            raise SubcategoryDepthError(data.parent_id)
+
+    category = ProductCategory(
+        name=data.name,
+        description=data.description,
+        parent_id=data.parent_id,
+    )
     db.add(category)
     await db.flush()
     await logger.ainfo("category_created", category_id=str(category.id), name=data.name)
@@ -61,8 +74,12 @@ async def create_category(
 
 
 async def list_categories(db: AsyncSession) -> list[ProductCategory]:
-    """List all product categories ordered by name."""
-    result = await db.execute(select(ProductCategory).order_by(ProductCategory.name))
+    """List all product categories ordered by name, with children pre-loaded."""
+    result = await db.execute(
+        select(ProductCategory)
+        .options(selectinload(ProductCategory.children))
+        .order_by(ProductCategory.name)
+    )
     return list(result.scalars().all())
 
 
@@ -75,8 +92,16 @@ async def get_category(db: AsyncSession, category_id: uuid.UUID) -> ProductCateg
 
 
 async def delete_category(db: AsyncSession, category_id: uuid.UUID) -> None:
-    """Delete a category (only if no products are linked)."""
+    """Delete a category (only if no products or sub-categories are linked)."""
     category = await get_category(db, category_id)
+    child_result = await db.execute(
+        select(func.count())
+        .select_from(ProductCategory)
+        .where(ProductCategory.parent_id == category_id)
+    )
+    child_count = child_result.scalar() or 0
+    if child_count > 0:
+        raise CategoryHasChildrenError(category_id, child_count)
     result = await db.execute(
         select(func.count())
         .select_from(Product)

@@ -12,10 +12,12 @@ from src.auth.models import User
 from src.core.config import settings
 from src.core.database import get_db
 from src.products.exceptions import (
+    CategoryHasChildrenError,
     CategoryInUseError,
     CategoryNotFoundError,
     DuplicateSKUError,
     ProductNotFoundError,
+    SubcategoryDepthError,
 )
 from src.products.schemas import (
     BulkProductUploadResponse,
@@ -59,13 +61,19 @@ async def create_category_endpoint(
     _current_user: User = Depends(get_current_active_user),
 ):
     """Create a new product category."""
-    return await create_category(db, body)
+    try:
+        return await create_category(db, body)
+    except CategoryNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except SubcategoryDepthError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("/categories", response_model=list[CategoryRead])
 async def list_categories_endpoint(db: AsyncSession = Depends(get_db)):
-    """List all product categories."""
-    return await list_categories(db)
+    """List top-level categories with their children nested."""
+    all_cats = await list_categories(db)
+    return [c for c in all_cats if c.parent_id is None]
 
 
 @router.patch("/categories/{category_id}", response_model=CategoryRead)
@@ -88,11 +96,13 @@ async def delete_category_endpoint(
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_active_user),
 ):
-    """Delete a category (only if no products linked)."""
+    """Delete a category (only if no products or sub-categories linked)."""
     try:
         await delete_category(db, category_id)
     except CategoryNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except CategoryHasChildrenError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except CategoryInUseError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 

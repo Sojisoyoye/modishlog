@@ -22,11 +22,14 @@ export interface Category {
   id: string;
   name: string;
   description?: string;
+  parent_id?: string | null;
+  children?: Category[];
 }
 
 export interface CategoryCreate {
   name: string;
   description?: string;
+  parent_id?: string | null;
 }
 
 export interface CategoryUpdate {
