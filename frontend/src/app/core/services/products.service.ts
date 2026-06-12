@@ -23,6 +23,7 @@ export interface Category {
   name: string;
   description?: string;
   parent_id?: string | null;
+  default_margin_pct?: number | null;
   children?: Category[];
 }
 
@@ -30,11 +31,13 @@ export interface CategoryCreate {
   name: string;
   description?: string;
   parent_id?: string | null;
+  default_margin_pct?: number | null;
 }
 
 export interface CategoryUpdate {
   name?: string;
   description?: string | null;
+  default_margin_pct?: number | null;
 }
 
 export interface ProductCreate {

@@ -66,6 +66,7 @@ async def create_category(
         name=data.name,
         description=data.description,
         parent_id=data.parent_id,
+        default_margin_pct=data.default_margin_pct,
     )
     db.add(category)
     await db.flush()
@@ -125,6 +126,8 @@ async def update_category(
         category.name = data.name
     if "description" in data.model_fields_set:
         category.description = data.description
+    if "default_margin_pct" in data.model_fields_set:
+        category.default_margin_pct = data.default_margin_pct
     await db.flush()
     await logger.ainfo("category_updated", category_id=str(category_id))
     return category

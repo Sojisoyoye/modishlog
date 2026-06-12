@@ -23,6 +23,9 @@ class ProductCategory(UUIDMixin, TimestampMixin, Base):
         default=None,
         index=True,
     )
+    default_margin_pct: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(5, 4), nullable=True, default=None
+    )
 
     products: Mapped[list["Product"]] = relationship(back_populates="category")
     parent: Mapped[Optional["ProductCategory"]] = relationship(

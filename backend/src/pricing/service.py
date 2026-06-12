@@ -10,6 +10,7 @@ import structlog
 from scipy.optimize import minimize
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.fx.service import get_live_usdngn_rate
 from src.orders.models import OrderLineItem, PurchaseOrder
@@ -1080,12 +1081,13 @@ async def get_selling_price_suggestion(
 async def compute_suggestion(
     db: AsyncSession,
     product_id: uuid.UUID,
-    target_margin: Decimal = Decimal("0.40"),
+    target_margin: Decimal | None = None,
 ) -> "PriceSuggestion":  # noqa: F821 — forward ref resolved at runtime
     """Compute and persist a sell-price suggestion from active lot cost basis.
 
     Weighted-average unit_cost_ngn across all lots with units_remaining > 0.
     Lots without unit_cost_ngn are costed at unit_cost * live FX rate.
+    When target_margin is None, resolves from: sub-category → parent → 40% default.
     """
     # Fetch active lots joined with their parent order's currency
     lot_result = await db.execute(
@@ -1121,14 +1123,33 @@ async def compute_suggestion(
 
     avg_cost_ngn = (total_cost / total_units).quantize(Decimal("0.000001"))
 
+    # Load product with category + parent for margin resolution and catalog price
+    prod_result = await db.execute(
+        select(Product)
+        .options(selectinload(Product.category).selectinload(ProductCategory.parent))
+        .where(Product.id == product_id)
+    )
+    product = prod_result.scalar_one_or_none()
+
+    # Resolve effective margin: caller override → sub-category → parent → system default
+    if target_margin is None:
+        if product and product.category:
+            if product.category.default_margin_pct is not None:
+                target_margin = product.category.default_margin_pct
+            elif (
+                product.category.parent is not None
+                and product.category.parent.default_margin_pct is not None
+            ):
+                target_margin = product.category.parent.default_margin_pct
+        if target_margin is None:
+            target_margin = Decimal("0.40")
+
     # Suggested price
     margin_factor = Decimal("1") - target_margin
     suggested_price = (avg_cost_ngn / margin_factor).quantize(Decimal("0.000001"))
 
     # Catalog price for context
     catalog_price: Decimal | None = None
-    prod_result = await db.execute(select(Product).where(Product.id == product_id))
-    product = prod_result.scalar_one_or_none()
     if product:
         catalog_price = product.selling_price
 
