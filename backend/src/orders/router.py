@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user
-from src.auth.models import User
+from src.auth.models import User, UserRole
 from src.core.database import get_db
 from src.inventory.exceptions import (
     InvalidStockAdjustmentError,
@@ -71,6 +71,15 @@ from src.orders.service import (
 )
 
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
+
+
+def _check_ownership(resource_owner_id: uuid.UUID, current_user: User) -> None:
+    """Raise 403 if non-admin user tries to access a resource they don't own."""
+    if current_user.role != UserRole.ADMIN and resource_owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: you can only access your own resources",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -313,10 +322,12 @@ async def get_order_lots_endpoint(
 async def get_order_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get order details with payment summary."""
     try:
         order = await get_order(db, order_id)
+        _check_ownership(order.created_by, current_user)
         summary = await get_payment_summary(db, order_id)
         order_data = OrderDetailRead.model_validate(order)
         order_data.payment_summary = summary
@@ -342,6 +353,11 @@ async def update_order_endpoint(
 ):
     """Update an order (only Pending/In Production)."""
     try:
+        existing = await get_order(db, order_id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(existing.created_by, current_user)
+    try:
         await update_order(db, order_id, body, current_user.id)
         # Expire identity map so the re-fetch loads fresh line_items from DB
         db.expire_all()
@@ -361,6 +377,11 @@ async def cancel_order_endpoint(
     current_user: User = Depends(get_current_active_user),
 ):
     """Cancel an order (only Pending)."""
+    try:
+        existing = await get_order(db, order_id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(existing.created_by, current_user)
     try:
         return await cancel_order(db, order_id, current_user.id)
     except OrderNotFoundError as e:
@@ -396,9 +417,12 @@ async def transition_status_endpoint(
 async def status_history_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get status transition history."""
     try:
+        order = await get_order(db, order_id)
+        _check_ownership(order.created_by, current_user)
         return await get_status_history(db, order_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -433,9 +457,12 @@ async def record_payment_endpoint(
 async def list_payments_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """List all payments for an order."""
     try:
+        order = await get_order(db, order_id)
+        _check_ownership(order.created_by, current_user)
         return await list_payments(db, order_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -445,9 +472,12 @@ async def list_payments_endpoint(
 async def payment_summary_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get payment summary for an order."""
     try:
+        order = await get_order(db, order_id)
+        _check_ownership(order.created_by, current_user)
         return await get_payment_summary(db, order_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -461,6 +491,11 @@ async def void_payment_endpoint(
     current_user: User = Depends(get_current_active_user),
 ):
     """Void a payment record."""
+    try:
+        order = await get_order(db, order_id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(order.created_by, current_user)
     try:
         return await void_payment(db, order_id, payment_id, current_user.id)
     except OrderNotFoundError as e:

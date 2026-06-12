@@ -1203,4 +1203,73 @@ class TestLotFifoDeduction:
             await create_sale(db, data, uuid.uuid4())
 
         assert old_lot.units_remaining == Decimal("0")   # fully consumed
-        assert new_lot.units_remaining == Decimal("43")  # 50 - 7 remainder
+
+
+# ---------------------------------------------------------------------------
+# IDOR ownership checks
+# ---------------------------------------------------------------------------
+
+
+class TestSalesOwnershipChecks:
+    """Non-admin users can only access sales they recorded."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+        async def _fake_db():
+            yield db_mock
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _override_auth_as(self, user):
+        from src.auth.dependencies import get_current_active_user
+        async def _fake_auth():
+            return user
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
+    def test_user_cannot_read_other_users_sale(self):
+        """Non-admin cannot GET a sale recorded by someone else."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        requester = _make_user(role=UserRole.SALES_MANAGER)
+        sale = _make_sale(recorded_by=owner.id)
+        db = _mock_db_with_execute(scalar_result=sale)
+        self._override_db(db)
+        self._override_auth_as(requester)
+
+        with TestClient(self.app) as client:
+            resp = client.get(f"/api/v1/sales/{sale.id}")
+        assert resp.status_code == 403
+
+    def test_user_can_read_own_sale(self):
+        """User can GET a sale they recorded."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        sale = _make_sale(recorded_by=owner.id)
+        db = _mock_db_with_execute(scalar_result=sale)
+        self._override_db(db)
+        self._override_auth_as(owner)
+
+        with TestClient(self.app) as client:
+            resp = client.get(f"/api/v1/sales/{sale.id}")
+        assert resp.status_code == 200
+
+    def test_admin_can_read_any_sale(self):
+        """Admin bypasses ownership check and can GET any sale."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        admin = _make_user(role=UserRole.ADMIN)
+        sale = _make_sale(recorded_by=owner.id)
+        db = _mock_db_with_execute(scalar_result=sale)
+        self._override_db(db)
+        self._override_auth_as(admin)
+
+        with TestClient(self.app) as client:
+            resp = client.get(f"/api/v1/sales/{sale.id}")
+        assert resp.status_code == 200

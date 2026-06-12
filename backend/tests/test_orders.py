@@ -1530,3 +1530,73 @@ class TestLotInventoryTracking:
             assert "units_remaining" in data[0]
         finally:
             app.dependency_overrides = original_overrides
+
+
+# ---------------------------------------------------------------------------
+# IDOR ownership checks
+# ---------------------------------------------------------------------------
+
+
+class TestOrdersOwnershipChecks:
+    """Non-admin users can only access orders they created."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+        async def _fake_db():
+            yield db_mock
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _override_auth_as(self, user):
+        from src.auth.dependencies import get_current_active_user
+        async def _fake_auth():
+            return user
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
+    def test_user_cannot_delete_other_users_order(self):
+        """Non-admin cannot DELETE (cancel) an order created by someone else."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        requester = _make_user(role=UserRole.SALES_MANAGER)
+        order = _make_order(created_by=owner.id)
+        db = _mock_db_with_execute(scalar_result=order)
+        self._override_db(db)
+        self._override_auth_as(requester)
+
+        with TestClient(self.app) as client:
+            resp = client.delete(f"/api/v1/orders/{order.id}")
+        assert resp.status_code == 403
+
+    def test_user_can_delete_own_order(self):
+        """User can DELETE (cancel) an order they created — ownership check must not block."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        order = _make_order(created_by=owner.id)
+        db = _mock_db_with_execute(scalar_result=order)
+        self._override_db(db)
+        self._override_auth_as(owner)
+
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.delete(f"/api/v1/orders/{order.id}")
+        assert resp.status_code != 403
+
+    def test_admin_can_delete_any_order(self):
+        """Admin bypasses ownership check and can cancel any order."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        admin = _make_user(role=UserRole.ADMIN)
+        order = _make_order(created_by=owner.id)
+        db = _mock_db_with_execute(scalar_result=order)
+        self._override_db(db)
+        self._override_auth_as(admin)
+
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.delete(f"/api/v1/orders/{order.id}")
+        assert resp.status_code != 403
