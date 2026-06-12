@@ -340,6 +340,14 @@ async def update_order(
             if not result.scalar_one_or_none():
                 raise OrderLineItemError(order_id, [item_data["product_id"]])
 
+        # Preserve units_remaining for each product — it's set by the DELIVERED
+        # transition and must survive a sell-price or notes edit on delivered lots.
+        units_remaining_by_product: dict[uuid.UUID, Decimal | None] = {
+            item.product_id: item.units_remaining
+            for item in order.line_items
+            if item.units_remaining is not None
+        }
+
         # Delete existing line items
         for existing in order.line_items:
             await db.delete(existing)
@@ -361,6 +369,7 @@ async def update_order(
                 sell_price_ngn=Decimal(str(raw_sell)) if raw_sell is not None else None,
                 line_total=line_total,
                 notes=item_data.get("notes"),
+                units_remaining=units_remaining_by_product.get(item_data["product_id"]),
             )
             db.add(line_item)
         order.total_amount = total

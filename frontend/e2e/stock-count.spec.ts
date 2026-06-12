@@ -63,7 +63,7 @@ test.describe('Stock count feature', () => {
     // Should navigate to the detail page
     await page.waitForURL(/\/stock-counts\/.+/);
     await expect(page.getByText('DRAFT')).toBeVisible();
-    await expect(page.getByText('PRODUCT')).toBeVisible();
+    await expect(page.getByText('PRODUCT').first()).toBeVisible();
   });
 
   test('detail page shows items with no system quantity until finalized', async ({ page }) => {
