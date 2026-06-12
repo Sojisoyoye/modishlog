@@ -147,9 +147,8 @@ export class SettingsPageComponent {
   globalStockThreshold = 10;
 
   saveApiKey(): void {
+    // API keys are managed server-side only; no client-side persistence.
     if (this.apiKey.trim()) {
-      // Store in localStorage for now (no backend endpoint yet)
-      localStorage.setItem('modishlog_api_key', this.apiKey);
       this.apiKeyStatus.set('saved');
     }
   }
