@@ -238,6 +238,28 @@ class TestInventoryAdjustEndpoint(_InventoryEndpointBase):
 
         assert resp.status_code == 401
 
+    def test_adjust_stock_uses_select_for_update(self):
+        """adjust_stock must issue SELECT ... FOR UPDATE to prevent concurrent oversell."""
+        import asyncio
+        from src.inventory import service as inv_service
+
+        user = _make_user()
+        inv = _make_inventory(quantity_on_hand=5)
+        db = _mock_db(inventory=inv, user=user)
+
+        asyncio.run(
+            inv_service.adjust_stock(db, inv.product_id, -1, "sale_depletion", "Test sale", user.id)
+        )
+
+        # First db.execute call must be the locked SELECT — inspect the query object
+        first_call = db.execute.call_args_list[0]
+        query = first_call[0][0]
+        # with_for_update() sets _for_update_arg on the Select object
+        assert getattr(query, "_for_update_arg", None) is not None, (
+            "adjust_stock must use .with_for_update() on the InventoryLevel SELECT "
+            "to prevent concurrent oversell race conditions"
+        )
+
 
 # ---------------------------------------------------------------------------
 # GET /inventory/movements  (new endpoint — all recent movements)

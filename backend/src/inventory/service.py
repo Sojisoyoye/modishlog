@@ -140,7 +140,14 @@ async def adjust_stock(
     reference_type: str | None = None,
 ) -> InventoryLevel:
     """Adjust stock and create a StockMovement audit record."""
-    inventory = await get_inventory_level(db, product_id)
+    result = await db.execute(
+        select(InventoryLevel)
+        .where(InventoryLevel.product_id == product_id)
+        .with_for_update()
+    )
+    inventory = result.scalar_one_or_none()
+    if not inventory:
+        raise ProductStockNotFoundError(product_id)
     quantity_before = inventory.quantity_on_hand
     new_quantity = quantity_before + quantity_change
 
