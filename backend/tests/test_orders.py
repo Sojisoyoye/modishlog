@@ -366,14 +366,15 @@ class TestUpdateOrder:
             await update_order(db, order.id, data, uuid.uuid4())
 
     @pytest.mark.asyncio
-    async def test_update_order_delivered_is_editable(self):
-        """DELIVERED orders can be edited to correct mistakes."""
+    async def test_update_order_delivered_is_not_editable(self):
+        """DELIVERED orders must NOT be editable — prevents retroactive cost manipulation."""
+        from src.orders.exceptions import OrderNotEditableError
         order = _make_order(status=OrderStatus.DELIVERED)
         db = _mock_db_with_execute(scalar_result=order)
 
-        data = OrderUpdate(notes="Corrected after delivery")
-        result = await update_order(db, order.id, data, uuid.uuid4())
-        assert result.notes == "Corrected after delivery"
+        data = OrderUpdate(notes="Retroactive change")
+        with pytest.raises(OrderNotEditableError):
+            await update_order(db, order.id, data, uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_update_order_shipping_cost(self):
@@ -593,10 +594,10 @@ class TestUpdateOrder:
 
     @pytest.mark.asyncio
     async def test_update_order_preserves_units_remaining(self):
-        """units_remaining is carried over when line items are replaced on a DELIVERED order."""
+        """units_remaining is carried over when line items are replaced on a CLEARED order."""
         product_id = uuid.uuid4()
         product = _make_product(id=product_id)
-        order = _make_order(status=OrderStatus.DELIVERED)
+        order = _make_order(status=OrderStatus.CLEARED)
         existing_item = _make_line_item(
             order_id=order.id,
             product_id=product_id,
@@ -654,7 +655,7 @@ class TestUpdateOrder:
         product_id_old = uuid.uuid4()
         product_id_new = uuid.uuid4()
         product_new = _make_product(id=product_id_new)
-        order = _make_order(status=OrderStatus.DELIVERED)
+        order = _make_order(status=OrderStatus.CLEARED)
         existing_item = _make_line_item(
             order_id=order.id,
             product_id=product_id_old,

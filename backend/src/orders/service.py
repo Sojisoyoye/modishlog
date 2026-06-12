@@ -70,7 +70,8 @@ EDITABLE_STATUSES = {
     OrderStatus.IN_PRODUCTION,
     OrderStatus.SHIPPING,
     OrderStatus.CLEARED,
-    OrderStatus.DELIVERED,
+    # DELIVERED is intentionally excluded: editing a delivered order retroactively
+    # corrupts FIFO cost calculations and makes paid orders appear unpaid.
 }
 
 
