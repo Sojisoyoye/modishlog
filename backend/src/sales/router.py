@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user, require_any_role
-from src.auth.models import User
+from src.auth.models import User, UserRole
 from src.core.database import get_db
 from src.inventory.exceptions import (
     InvalidStockAdjustmentError,
@@ -57,6 +57,15 @@ from src.sales.service import (
 )
 
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
+
+
+def _check_ownership(resource_owner_id: uuid.UUID, current_user: User) -> None:
+    """Raise 403 if non-admin user tries to access a resource they don't own."""
+    if current_user.role != UserRole.ADMIN and resource_owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: you can only access your own resources",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -313,12 +322,15 @@ async def export_sales_csv_endpoint(
 async def get_sale_endpoint(
     sale_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get a single sale by ID."""
     try:
-        return await get_sale(db, sale_id)
+        sale = await get_sale(db, sale_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(sale.recorded_by, current_user)
+    return sale
 
 
 @router.put("/{sale_id}", response_model=SaleRead)
@@ -329,6 +341,11 @@ async def update_sale_endpoint(
     current_user: User = Depends(get_current_active_user),
 ):
     """Update a sale record."""
+    try:
+        existing = await get_sale(db, sale_id)
+    except SaleNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(existing.recorded_by, current_user)
     try:
         return await update_sale(db, sale_id, body, current_user.id)
     except SaleNotFoundError as e:
@@ -348,6 +365,11 @@ async def void_sale_endpoint(
 ):
     """Void a sale (soft-delete with inventory reversal)."""
     try:
+        existing = await get_sale(db, sale_id)
+    except SaleNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(existing.recorded_by, current_user)
+    try:
         return await void_sale(db, sale_id, reason, current_user.id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -359,8 +381,14 @@ async def void_sale_endpoint(
 async def sale_audit_trail_endpoint(
     sale_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get the audit trail for a specific sale."""
+    try:
+        sale = await get_sale(db, sale_id)
+    except SaleNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(sale.recorded_by, current_user)
     try:
         return await get_sale_audit_trail(db, sale_id)
     except SaleNotFoundError as e:
