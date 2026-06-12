@@ -83,6 +83,44 @@ class TestParseCorsOrigins:
         assert s.CORS_ORIGINS == ["http://localhost:4200", "https://example.com"]
 
 
+class TestAlgorithmValidation:
+    def test_hs256_accepted(self):
+        from src.core.config import Settings
+        s = Settings(ALGORITHM="HS256")
+        assert s.ALGORITHM == "HS256"
+
+    def test_hs384_accepted(self):
+        from src.core.config import Settings
+        s = Settings(ALGORITHM="HS384")
+        assert s.ALGORITHM == "HS384"
+
+    def test_hs512_accepted(self):
+        from src.core.config import Settings
+        s = Settings(ALGORITHM="HS512")
+        assert s.ALGORITHM == "HS512"
+
+    def test_none_algorithm_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+        from src.core.config import Settings
+        with pytest.raises(ValidationError, match="ALGORITHM"):
+            Settings(ALGORITHM="none")
+
+    def test_rs256_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+        from src.core.config import Settings
+        with pytest.raises(ValidationError, match="ALGORITHM"):
+            Settings(ALGORITHM="RS256")
+
+    def test_empty_algorithm_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+        from src.core.config import Settings
+        with pytest.raises(ValidationError, match="ALGORITHM"):
+            Settings(ALGORITHM="")
+
+
 class TestSecretKeyValidation:
     def _make(self, secret: str) -> Settings:
         return Settings(SECRET_KEY=secret)
