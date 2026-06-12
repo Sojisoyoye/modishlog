@@ -10,15 +10,23 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 
 ### Core Platform
 - **Authentication** -- JWT-based auth with role-based access (Admin / Sales Manager), account lockout with countdown timer, forgot password flow
-- **Products** -- Full CRUD with categories, SKU auto-generation, image upload, search/filter, grid/list views, CSV export
+- **Products** -- Full CRUD with categories, SKU auto-generation, image upload, search/filter, grid/list views, CSV export. Includes **Price Suggestion** (action menu → Suggest Price): enter a target margin (20–70%), get a recommended sell price based on current landed cost and live FX rate, with suggestion history.
 - **Sales** -- Daily entry with stock validation, CSV bulk upload, edit/delete with audit trail, FIFO cost tracking
 - **Inventory** -- Stock levels, low-stock alerts, batch tracking (FIFO), editable thresholds, depletion forecast with confidence intervals, liquidation candidates
-- **Orders** -- Full lifecycle pipeline (Pending > In Production > Shipping > Clearing > Delivered), FX rate capture at creation and delivery, inline product creation, logistics cost tracking
+- **Stock Counts** (`/stock-counts`) -- Physical inventory counting sessions with variance reporting. Create a full stock take by product (vs system stock) or by lot (vs purchase order units remaining). Enter counted quantities per row; system snapshots live stock at finalisation and shows variance with colour-coded badges (green = surplus, red = shrinkage). Sessions are locked read-only after finalisation to preserve the audit trail.
+- **Orders** -- Full lifecycle pipeline (Ordered → Pending → In Production → Shipping → Cleared → Delivered). Pipeline view at the top of `/orders` acts as a filter — click any status chip to show only those orders in the table; click **All** to reset. All fields (sell price, costs, notes, line items) remain editable even after an order is delivered.
+
+### Order Detail Enhancements
+- **Editable sell price per line item** -- Each line item in edit mode has an NGN sell price field. On first save, the current catalog price is locked in so historical profit figures never drift when the catalog changes.
+- **Live FX auto-fill** -- Opening a USD order in edit mode with no FX rate auto-fetches the current USD/NGN rate (4-hour cached, sourced from ExchangeRate-API) and pre-fills the field.
+- **Lot inventory tracking** -- DELIVERED order detail shows an "In Stock" column per line item — how many units from that purchase lot remain unsold (green if > 0, grey if depleted). Stock deducts FIFO as sales are recorded.
+- **Payment recording** -- Record partial or full payments against any order directly from the detail page.
 
 ### Financial Intelligence
 - **FX Exposure** -- Multi-currency tracking (NGN/USD + EUR/USD), locked/floating exposure per order, cross-rate derivation (EUR/NGN), 180-day forecast with Prophet + Monte Carlo, rate alerts with configurable thresholds
+- **Live FX Rate** (`GET /api/v1/fx/live`) -- Current USD/NGN rate with 4-hour DB cache. Backend-only; frontend never calls external APIs directly. Also used by the price suggestion engine.
 - **Cashflow** -- 6-month rolling projection, DSCR monitoring, cash runway calculation, liquidity alerts, stress scenarios (FX shock, demand drop, combined), payment calendar
-- **Pricing** -- Portfolio margin analysis, per-product margins with target tracking, demand elasticity configuration, cross-subsidisation display, price-FX sensitivity playground with scenario save
+- **Pricing** -- Portfolio margin analysis, per-product margins with target tracking, demand elasticity configuration, cross-subsidisation display, price-FX sensitivity playground with scenario save. Includes **Price Suggestion Engine**: weighted-average lot cost at live FX → minimum viable sell price at a configurable target margin.
 - **Global Exposure** -- Multi-currency debt bridge (EUR/USD/NGN), debt-to-trade ratio, currency toggle across panels
 
 ### AI & Automation
@@ -38,7 +46,7 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 | Frontend | Angular 21 (standalone components, Signals), TailwindCSS v4, PrimeNG v21 |
 | AI/ML | Prophet, NumPy/SciPy (Monte Carlo), scikit-learn |
 | Auth | JWT (python-jose), bcrypt (passlib) |
-| Testing | pytest (416 tests), Playwright (87 E2E tests) |
+| Testing | pytest (543 tests), Playwright E2E tests |
 | Infra | Docker, Docker Compose, Azure Container Apps, Neon PostgreSQL, Vercel, GitHub Actions |
 
 ---
@@ -53,22 +61,23 @@ modishlog/
 │   │   ├── products/      # Product catalog, categories, images
 │   │   ├── sales/         # Daily sales, bulk upload, quick quote
 │   │   ├── inventory/     # Stock levels, batches, FIFO, liquidation
-│   │   ├── orders/        # Purchase orders, pipeline, logistics
-│   │   ├── fx/            # FX rates, exposure, forecasting, simulation
+│   │   ├── orders/        # Purchase orders, pipeline, logistics, lot tracking
+│   │   ├── fx/            # FX rates, exposure, forecasting, live rate cache
 │   │   ├── cashflow/      # Projections, DSCR, triage, global exposure
-│   │   ├── pricing/       # Margins, elasticity, mix targets, sensitivity
+│   │   ├── pricing/       # Margins, elasticity, mix targets, price suggestions
+│   │   ├── stockcount/    # Physical stock count sessions and variance
 │   │   ├── ai_engine/     # Recommendations, USD strategy, reorder
 │   │   └── core/          # Config, database, security, logging
 │   ├── alembic/           # Database migrations
-│   ├── tests/             # 398 pytest tests
+│   ├── tests/             # 543 pytest tests
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/app/
-│   │   ├── features/      # 11 page modules (dashboard, sales, products, etc.)
+│   │   ├── features/      # 12 page modules (dashboard, sales, products, stockcount, etc.)
 │   │   ├── layout/        # Shell, sidebar, topbar
 │   │   ├── shared/        # Reusable components
 │   │   └── core/          # Services, guards, interceptors
-│   ├── e2e/               # 87 Playwright E2E tests
+│   ├── e2e/               # Playwright E2E tests
 │   └── playwright.config.ts
 ├── docker-compose.yml
 ├── CLAUDE.md              # Project rules and conventions
@@ -214,10 +223,11 @@ Interactive API docs are available at:
 | Products | `GET/POST /products`, `PUT/DELETE /products/{id}`, `POST /products/{id}/image`, `GET/POST /products/categories` |
 | Sales | `GET/POST /sales`, `PUT/DELETE /sales/{id}`, `POST /sales/upload`, `POST /sales/quick-quote`, `GET /sales/summary` |
 | Inventory | `GET /inventory`, `POST /inventory/{id}/adjust`, `PUT /inventory/{id}/threshold`, `GET /inventory/batches`, `GET /inventory/batches/liquidation-candidates` |
-| Orders | `GET/POST /orders`, `PUT /orders/{id}/status`, `GET /orders/logistics-efficiency`, `GET /orders/summary` |
-| FX | `POST /fx/rates/ingest`, `GET /fx/rates/current`, `GET /fx/rates/{pair}/history`, `POST /fx/alerts`, `POST /fx/simulate`, `POST /fx/forecast/generate` |
+| Orders | `GET/POST /orders`, `PUT /orders/{id}`, `PUT /orders/{id}/status`, `GET /orders/{id}/lots`, `GET /orders/logistics-efficiency`, `GET /orders/summary` |
+| FX | `POST /fx/rates/ingest`, `GET /fx/rates/current`, `GET /fx/live`, `GET /fx/rates/{pair}/history`, `POST /fx/alerts`, `POST /fx/simulate`, `POST /fx/forecast/generate` |
 | Cashflow | `GET /cashflow/projection`, `GET /cashflow/dscr`, `GET /cashflow/cash-runway`, `GET /cashflow/global-exposure`, `GET /cashflow/payment-calendar`, `GET /cashflow/triage-status`, `POST /cashflow/triage-check` |
-| Pricing | `GET /pricing/portfolio-margin`, `GET /pricing/mix-status`, `POST /pricing/mix-targets`, `POST /pricing/sensitivity-calc`, `GET/POST /pricing/scenarios` |
+| Pricing | `GET /pricing/portfolio-margin`, `GET /pricing/mix-status`, `POST /pricing/mix-targets`, `POST /pricing/sensitivity-calc`, `GET/POST /pricing/scenarios`, `POST /pricing/suggest/{product_id}`, `GET /pricing/suggest/{product_id}/history` |
+| Stock Counts | `GET/POST /stockcount/`, `GET /stockcount/{id}`, `PATCH /stockcount/{id}/items/{item_id}`, `POST /stockcount/{id}/finalize` |
 | AI | `GET /ai/recommendations`, `POST /ai/recommendations/generate`, `POST /ai/recommendations/{id}/apply`, `POST /ai/recommendations/{id}/dismiss` |
 
 ---
@@ -234,8 +244,9 @@ Interactive API docs are available at:
 | `UPLOAD_DIR` | `/uploads` | Directory for uploaded product images |
 | `ENVIRONMENT` | `development` | Runtime environment (`development` / `staging` / `production`) |
 | `LOG_LEVEL` | `info` | Logging level |
-| `FX_API_KEY` | *(empty)* | External FX rate API key |
-| `FX_API_URL` | `https://api.example.com/fx` | External FX rate API URL |
+| `FX_API_KEY` | *(empty)* | Optional paid-tier key for ExchangeRate-API (free tier works without it) |
+| `FX_LIVE_API_URL` | `https://open.er-api.com/v6/latest/USD` | Live USD/NGN rate source (free, no key required) |
+| `FX_CACHE_TTL_HOURS` | `4` | How long to cache the live FX rate before re-fetching |
 | `CORS_ORIGINS` | `["http://localhost:4200"]` | Allowed CORS origins (JSON array or comma-separated string) |
 | `ANTHROPIC_API_KEY` | *(empty)* | Anthropic API key for AI features |
 
@@ -248,7 +259,7 @@ Interactive API docs are available at:
 cd backend
 UPLOAD_DIR=/tmp/modishlog_uploads .venv/bin/pytest tests/ -v
 ```
-416 tests covering all services, endpoints, and business logic.
+543 tests covering all services, endpoints, and business logic.
 
 ### Frontend E2E (Playwright)
 ```bash
