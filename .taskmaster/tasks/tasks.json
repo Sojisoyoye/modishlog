@@ -3706,6 +3706,22 @@
         ],
         "priority": "medium",
         "subtasks": []
+      },
+      {
+        "id": 81,
+        "title": "E2E Chrome tests — tasks #73, #75, #76, #78 user journey validation",
+        "description": "Write and run Playwright E2E tests in Chrome covering the full user journeys for the four features: sell price per line item (#73), lot inventory tracking (#75), price suggestion engine (#76), and stock count (#78). Tests must simulate real user interactions against the running backend — no mocks.",
+        "details": "\n## Scope\n\nEach feature gets its own spec file (or extend existing ones if they exist). All tests run in Chrome (`chromium` project in playwright.config.ts) against the local dev stack (`http://localhost:4200` frontend, `http://localhost:8000` backend).\n\n---\n\n### #73 — Sell price per line item (`e2e/order-sell-price.spec.ts`)\n- Create a USD order and add a line item; verify `sell_price_ngn` field is visible and editable\n- Save the order; reload; confirm the stored sell price is shown (not the catalog price)\n- Edit the line item sell price to a different value; save; reload; confirm the new value persists\n- Verify the revenue total on the order detail reflects the stored sell price\n\n### #75 — Lot inventory tracking (`e2e/order-lot-tracking.spec.ts`)\n- Create a USD order, add line items, transition it to DELIVERED\n- On the order detail page verify the \"In Stock\" column appears with the correct `units_remaining` value\n- Navigate to the order lots endpoint (`GET /api/orders/{id}/lots`) via the UI or direct assertion and confirm lot records exist\n- Create a sale for a product with an open lot; verify `units_remaining` decreases (FIFO deduction)\n\n### #76 — Price suggestion engine (`e2e/price-suggestion.spec.ts`)\n- Navigate to the Products page; open the action menu for a product that has delivered lots\n- Click \"Suggest Price\"; verify the margin slider is visible (range 20–70%)\n- Adjust the slider to a specific margin (e.g. 40%); confirm the suggested price, avg cost, FX rate, and margin % are displayed\n- Submit a second suggestion with a different margin; verify both appear in suggestion history\n\n### #78 — Stock count (`e2e/stock-count.spec.ts`)\n- Navigate to `/stock-counts`; create a new stock count\n- Add at least two line items with physical counts that differ from system stock\n- Submit the stock count; verify it transitions to COMPLETED status\n- Confirm the variance values shown match the difference between physical and system counts\n- Verify a completed stock count is read-only (edit controls disabled/hidden)\n\n---\n\n## Acceptance criteria\n- All specs pass with `npx playwright test --project=chromium` against the running local stack\n- No test uses `page.route()` to mock API calls — all hits go to the real backend\n- Each spec cleans up its own test data (delete created orders/products/stock counts after assertions, or use a dedicated test user/business)\n",
+        "testStrategy": "Run with `npx playwright test --project=chromium` against local stack. CI: add to existing playwright GitHub Actions workflow.",
+        "status": "pending",
+        "dependencies": [
+          73,
+          75,
+          76,
+          78
+        ],
+        "priority": "high",
+        "subtasks": []
       }
     ],
     "metadata": {
@@ -3718,7 +3734,7 @@
       ],
       "created": "2026-06-12T08:11:24.569Z",
       "description": "Tasks for master context",
-      "updated": "2026-06-12T08:11:40.268Z"
+      "updated": "2026-06-12T11:32:15.908Z"
     }
   }
 }
