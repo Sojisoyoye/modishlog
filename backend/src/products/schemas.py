@@ -65,7 +65,6 @@ class ProductUpdate(BaseModel):
     category_id: uuid.UUID | None = None
     unit_cost: Decimal | None = Field(default=None, gt=Decimal("0"))
     selling_price: Decimal | None = Field(default=None, gt=Decimal("0"))
-    is_active: bool | None = None
 
 
 class ProductRead(BaseModel):
