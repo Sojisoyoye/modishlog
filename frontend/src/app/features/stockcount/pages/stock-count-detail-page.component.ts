@@ -75,7 +75,7 @@ import { StockCount, StockCountItem } from '../models/stock-count.model';
             <tbody class="divide-y divide-gray-100">
               @for (item of sc.items; track item.id) {
                 <tr>
-                  <td class="px-3 py-3 font-medium text-text">{{ item.product_id }}</td>
+                  <td class="px-3 py-3 font-medium text-text">{{ item.product_name }}</td>
                   @if (sc.count_type === 'LOT') {
                     <td class="px-3 py-3 text-muted text-xs">{{ item.order_line_item_id ?? '—' }}</td>
                   }

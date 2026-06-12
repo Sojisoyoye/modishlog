@@ -3,19 +3,19 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class StockCountCreate(BaseModel):
     count_date: date
-    count_type: str  # "PRODUCT" or "LOT"
+    count_type: Literal["PRODUCT", "LOT"]
     notes: Optional[str] = None
 
 
 class StockCountItemUpdate(BaseModel):
-    counted_quantity: Decimal
+    counted_quantity: Decimal = Field(ge=Decimal("0"))
 
 
 class StockCountItemRead(BaseModel):
@@ -24,6 +24,7 @@ class StockCountItemRead(BaseModel):
     id: uuid.UUID
     stock_count_id: uuid.UUID
     product_id: uuid.UUID
+    product_name: str = ""
     order_line_item_id: Optional[uuid.UUID] = None
     system_quantity_at_count: Optional[Decimal] = None
     counted_quantity: Optional[Decimal] = None

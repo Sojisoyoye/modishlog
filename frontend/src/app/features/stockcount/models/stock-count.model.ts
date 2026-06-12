@@ -2,6 +2,7 @@ export interface StockCountItem {
   id: string;
   stock_count_id: string;
   product_id: string;
+  product_name: string;
   order_line_item_id: string | null;
   system_quantity_at_count: number | null;
   counted_quantity: number | null;

@@ -8,8 +8,12 @@ from typing import Optional
 
 from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from typing import TYPE_CHECKING
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from src.products.models import Product
 
 
 class StockCountStatus(str, enum.Enum):
@@ -87,6 +91,13 @@ class StockCountItem(UUIDMixin, Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, default=None)
 
     stock_count: Mapped["StockCount"] = relationship(back_populates="items")
+    product: Mapped["Product"] = relationship(  # type: ignore[name-defined]
+        "Product", foreign_keys=[product_id], lazy="raise", viewonly=True
+    )
+
+    @property
+    def product_name(self) -> str:
+        return self.product.name  # accessed only when selectinloaded
 
     def __repr__(self) -> str:
         return f"<StockCountItem(id={self.id}, product={self.product_id})>"

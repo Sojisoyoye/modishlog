@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from src.inventory.models import InventoryLevel
 from src.orders.models import OrderLineItem
+from src.products.models import Product  # noqa: F401 — ensure mapper registration
 from src.stockcount.exceptions import StockCountFinalizedError, StockCountNotFoundError
 from src.stockcount.models import (
     StockCount,
@@ -92,7 +93,10 @@ async def update_count_item(
         raise StockCountFinalizedError(stock_count_id)
 
     item_result = await db.execute(
-        select(StockCountItem).where(StockCountItem.id == item_id)
+        select(StockCountItem).where(
+            StockCountItem.id == item_id,
+            StockCountItem.stock_count_id == stock_count_id,
+        )
     )
     item = item_result.scalar_one_or_none()
     if item is None:
@@ -110,7 +114,7 @@ async def finalize_stock_count(
     result = await db.execute(
         select(StockCount)
         .where(StockCount.id == stock_count_id)
-        .options(selectinload(StockCount.items))
+        .options(selectinload(StockCount.items).selectinload(StockCountItem.product))
     )
     sc = result.scalar_one_or_none()
     if sc is None:
@@ -134,7 +138,11 @@ async def finalize_stock_count(
                 select(OrderLineItem).where(OrderLineItem.id == item.order_line_item_id)
             )
             lot = lot_result.scalar_one_or_none()
-            item.system_quantity_at_count = lot.units_remaining if lot else Decimal("0")
+            item.system_quantity_at_count = (
+                lot.units_remaining
+                if (lot and lot.units_remaining is not None)
+                else Decimal("0")
+            )
 
     sc.status = StockCountStatus.FINALIZED
     sc.finalized_at = datetime.now(timezone.utc)
@@ -149,7 +157,7 @@ async def get_stock_count(db: AsyncSession, stock_count_id: uuid.UUID) -> StockC
     result = await db.execute(
         select(StockCount)
         .where(StockCount.id == stock_count_id)
-        .options(selectinload(StockCount.items))
+        .options(selectinload(StockCount.items).selectinload(StockCountItem.product))
     )
     sc = result.scalar_one_or_none()
     if sc is None:
