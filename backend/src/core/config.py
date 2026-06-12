@@ -113,6 +113,17 @@ class Settings(BaseSettings):
             return [v.strip() for v in value.split(",") if v.strip()]
         return value
 
+    @field_validator("ALGORITHM")
+    @classmethod
+    def validate_algorithm(cls, v: str) -> str:
+        allowed = {"HS256", "HS384", "HS512"}
+        if v not in allowed:
+            raise ValueError(
+                f"ALGORITHM must be one of {sorted(allowed)} to prevent algorithm "
+                f"confusion attacks. Got: {v!r}"
+            )
+        return v
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
