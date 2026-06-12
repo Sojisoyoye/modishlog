@@ -1044,3 +1044,127 @@ class TestPriceSuggestionEngine:
 
         with pytest.raises(ValidationError):
             SuggestRequest(target_margin_pct=Decimal("-0.1"))
+
+
+# ---------------------------------------------------------------------------
+# Tests for category-aware price suggestion margin (Task #80)
+# ---------------------------------------------------------------------------
+
+
+class TestCategoryAwarePriceSuggestion:
+    """compute_suggestion resolves target_margin from product's category hierarchy."""
+
+    def _make_lot(self, product_id, units_remaining, unit_cost_ngn="10000"):
+        from src.orders.models import OrderLineItem
+        lot = MagicMock(spec=OrderLineItem)
+        lot.product_id = product_id
+        lot.units_remaining = Decimal(str(units_remaining))
+        lot.unit_cost = Decimal("10")
+        lot.unit_cost_ngn = Decimal(str(unit_cost_ngn))
+        return lot
+
+    def _make_product_mock(self, cat_margin=None, parent_margin=None):
+        """Build a mock Product with category and optional parent populated."""
+        parent = None
+        if parent_margin is not None:
+            parent = MagicMock()
+            parent.default_margin_pct = Decimal(str(parent_margin))
+
+        cat = MagicMock()
+        cat.default_margin_pct = Decimal(str(cat_margin)) if cat_margin is not None else None
+        cat.parent = parent
+
+        product = MagicMock()
+        product.selling_price = Decimal("20000")
+        product.category = cat
+        return product
+
+    def _make_db(self, lots_with_currency, product):
+        """Two-query mock: call 1 → lots, call 2 → product with category."""
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.all.return_value = lots_with_currency
+            else:
+                result.scalar_one_or_none.return_value = product
+            return result
+
+        db = _mock_db()
+        db.execute = mock_execute
+        return db
+
+    @pytest.mark.asyncio
+    async def test_compute_suggestion_uses_category_margin(self):
+        """When no explicit margin is given, the category default (0.35) is used."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="10000")
+        product = self._make_product_mock(cat_margin="0.35")
+        db = self._make_db([(lot, "USD")], product)
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            suggestion = await compute_suggestion(db, product_id)
+
+        expected = Decimal("10000") / Decimal("0.65")
+        assert abs(suggestion.suggested_price_ngn - expected) < Decimal("1")
+        assert suggestion.target_margin_pct == Decimal("0.35")
+
+    @pytest.mark.asyncio
+    async def test_compute_suggestion_inherits_parent_margin(self):
+        """Sub-category with no margin inherits parent's default_margin_pct (0.30)."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="10000")
+        product = self._make_product_mock(cat_margin=None, parent_margin="0.30")
+        db = self._make_db([(lot, "USD")], product)
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            suggestion = await compute_suggestion(db, product_id)
+
+        expected = Decimal("10000") / Decimal("0.70")
+        assert abs(suggestion.suggested_price_ngn - expected) < Decimal("1")
+        assert suggestion.target_margin_pct == Decimal("0.30")
+
+    @pytest.mark.asyncio
+    async def test_compute_suggestion_explicit_overrides_category(self):
+        """Explicit target_margin=0.50 wins over category default (0.35)."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="10000")
+        product = self._make_product_mock(cat_margin="0.35")
+        db = self._make_db([(lot, "USD")], product)
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            suggestion = await compute_suggestion(db, product_id, target_margin=Decimal("0.50"))
+
+        expected = Decimal("10000") / Decimal("0.50")
+        assert abs(suggestion.suggested_price_ngn - expected) < Decimal("1")
+        assert suggestion.target_margin_pct == Decimal("0.50")
+
+    @pytest.mark.asyncio
+    async def test_compute_suggestion_falls_back_to_default(self):
+        """No category margin and no parent: falls back to system default 40%."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="10000")
+        product = self._make_product_mock(cat_margin=None, parent_margin=None)
+        db = self._make_db([(lot, "USD")], product)
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            suggestion = await compute_suggestion(db, product_id)
+
+        expected = Decimal("10000") / Decimal("0.60")
+        assert abs(suggestion.suggested_price_ngn - expected) < Decimal("1")
+        assert suggestion.target_margin_pct == Decimal("0.40")

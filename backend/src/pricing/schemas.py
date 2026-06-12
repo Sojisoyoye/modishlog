@@ -3,6 +3,7 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -256,7 +257,9 @@ class ScenarioRead(BaseModel):
 
 
 class SuggestRequest(BaseModel):
-    target_margin_pct: Decimal = Field(default=Decimal("0.40"), gt=Decimal("0"), lt=Decimal("1"))
+    target_margin_pct: Optional[Decimal] = Field(
+        default=None, gt=Decimal("0"), lt=Decimal("1")
+    )
 
 
 class PriceSuggestionRead(BaseModel):

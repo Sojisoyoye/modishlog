@@ -1,6 +1,6 @@
 import { test, expect, request } from '@playwright/test';
 import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
-import { ensureProduct } from './helpers/data';
+import { ensureProduct, ensureProductInCategory } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
 
@@ -227,5 +227,126 @@ test.describe('Price suggestion engine (#76)', () => {
     const panel = page.locator('div').filter({ has: page.getByRole('heading', { name: /suggest sell price/i }) }).last();
     await panel.getByRole('button').filter({ has: page.locator('.pi-times') }).click();
     await expect(page.getByRole('heading', { name: /suggest sell price/i })).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Category-aware default margin pre-fill (Task #80)
+// ---------------------------------------------------------------------------
+
+test.describe('Category-aware price suggestion margin (#80)', () => {
+  let categoryId: string;
+  let productId: string;
+  let productName: string;
+  let orderId: string;
+
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeAll(async () => {
+    await ensureTestUser();
+
+    // Create a category with a 35% default margin
+    const token = await getAPIToken();
+    const ctx = await request.newContext();
+    try {
+      const catName = `E2E Margin Cat ${Date.now()}`;
+      const catResp = await ctx.post(`${API}/products/categories`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { name: catName, description: 'category with default margin', default_margin_pct: 0.35 },
+      });
+      if (!catResp.ok()) throw new Error(`Create category failed: ${catResp.status()} ${await catResp.text()}`);
+      categoryId = (await catResp.json()).id;
+
+      // Create a product in that category
+      const p = await ensureProductInCategory(categoryId, `E2E Cat Margin Product ${Date.now()}`);
+      productId = p.id;
+      productName = p.name;
+
+      // Seed delivered order so compute_suggestion can run
+      const orderResp = await ctx.post(`${API}/orders`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: {
+          supplier_name: 'E2E Cat Margin Supplier',
+          currency: 'USD',
+          fx_rate_at_creation: 1600,
+          order_date: new Date().toISOString().split('T')[0],
+          line_items: [{ product_id: productId, quantity: 10, unit_cost: '50.00' }],
+        },
+      });
+      if (!orderResp.ok()) throw new Error(`Create order failed: ${orderResp.status()} ${await orderResp.text()}`);
+      const order = await orderResp.json();
+      orderId = order.id;
+
+      for (const status of ['IN_PRODUCTION', 'SHIPPING', 'CLEARED', 'DELIVERED']) {
+        const tr = await ctx.put(`${API}/orders/${order.id}/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: { new_status: status },
+        });
+        if (!tr.ok()) throw new Error(`Transition to ${status} failed`);
+      }
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  test.afterAll(async () => {
+    if (orderId) await deleteOrder(orderId);
+    if (productId) await deleteProduct(productId);
+    // Attempt category cleanup — may fail if soft-deleted product reference remains
+    if (categoryId) {
+      const token = await getAPIToken();
+      const ctx = await request.newContext();
+      try {
+        await ctx.delete(`${API}/products/categories/${categoryId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        // Acceptable: category may still reference the soft-deleted product
+      } finally {
+        await ctx.dispose();
+      }
+    }
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await loginViaUI(page);
+  });
+
+  async function findProductRow(page: import('@playwright/test').Page) {
+    await page.goto('/products');
+    await page.waitForLoadState('networkidle');
+    await page.getByPlaceholder('Search products...').fill(productName);
+    await page.waitForTimeout(400);
+    await expect(page.getByText(productName).first()).toBeVisible({ timeout: 8_000 });
+    return page.locator('tr').filter({ hasText: productName });
+  }
+
+  test('slider pre-fills with category default margin (35%) on panel open', async ({ page }) => {
+    const row = await findProductRow(page);
+    await row.getByRole('button', { name: /product actions/i }).click();
+    await page.getByRole('menuitem', { name: /suggest price/i }).click();
+
+    await expect(page.getByRole('heading', { name: /suggest sell price/i })).toBeVisible();
+
+    // Slider should be pre-filled to 35 (category default)
+    const slider = page.locator('input[type="range"]');
+    await expect(slider).toHaveValue('35');
+    await expect(page.getByText(/target margin.*35%/i)).toBeVisible();
+  });
+
+  test('moving slider to 55% and computing uses 55%, not category default', async ({ page }) => {
+    const row = await findProductRow(page);
+    await row.getByRole('button', { name: /product actions/i }).click();
+    await page.getByRole('menuitem', { name: /suggest price/i }).click();
+
+    const slider = page.locator('input[type="range"]');
+    await slider.fill('55');
+    await slider.dispatchEvent('input');
+    await slider.dispatchEvent('change');
+    await expect(page.getByText(/target margin.*55%/i)).toBeVisible();
+
+    await page.getByRole('button', { name: /compute suggestion/i }).click();
+    await expect(page.locator('p').filter({ hasText: /₦[\d,]+/ }).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Margin: 55%', { exact: true })).toBeVisible();
   });
 });

@@ -960,6 +960,19 @@ interface ColEntry {
                 <option [value]="cat.id">{{ cat.name }}</option>
               }
             </select>
+            <div class="flex items-center gap-1">
+              <input
+                type="number"
+                [(ngModel)]="newCategoryDefaultMarginPct"
+                placeholder="Default margin % (optional)"
+                min="0"
+                max="99"
+                step="1"
+                aria-label="Default margin %"
+                class="w-44 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <span class="text-xs text-muted">%</span>
+            </div>
             <button
               (click)="submitCreateCategory()"
               [disabled]="savingCategory() || !newCategoryName.trim()"
@@ -982,6 +995,7 @@ interface ColEntry {
               <tr class="border-b border-gray-200 bg-gray-50">
                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Name</th>
                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Description</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Default Margin</th>
                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Products</th>
                 <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Actions</th>
               </tr>
@@ -991,6 +1005,13 @@ interface ColEntry {
                 <tr class="transition-colors hover:bg-gray-50">
                   <td class="px-4 py-3 font-medium text-text">{{ cat.name }}</td>
                   <td class="px-4 py-3 text-muted">{{ cat.description || '—' }}</td>
+                  <td class="px-4 py-3 text-muted">
+                    @if (cat.default_margin_pct != null) {
+                      <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">{{ (cat.default_margin_pct * 100 | number: '1.0-0') }}%</span>
+                    } @else {
+                      <span class="text-xs text-muted">—</span>
+                    }
+                  </td>
                   <td class="px-4 py-3 text-muted">{{ productCountForCategory(cat.id) }}</td>
                   <td class="px-4 py-3 text-right">
                     <button (click)="openEditCategory(cat)" class="rounded-lg p-1.5 text-muted hover:bg-gray-100 mr-1" title="Edit category">
@@ -1008,6 +1029,13 @@ interface ColEntry {
                       <span class="ml-1 font-medium">{{ child.name }}</span>
                     </td>
                     <td class="px-4 py-2 text-sm text-muted">{{ child.description || '—' }}</td>
+                    <td class="px-4 py-2 text-sm text-muted">
+                      @if (child.default_margin_pct != null) {
+                        <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">{{ (child.default_margin_pct * 100 | number: '1.0-0') }}%</span>
+                      } @else {
+                        <span class="text-xs text-muted">—</span>
+                      }
+                    </td>
                     <td class="px-4 py-2 text-sm text-muted">{{ productCountForCategory(child.id) }}</td>
                     <td class="px-4 py-2 text-right">
                       <button (click)="openEditCategory(child)" class="rounded-lg p-1.5 text-muted hover:bg-gray-100 mr-1" title="Edit sub-category">
@@ -1021,7 +1049,7 @@ interface ColEntry {
                 }
               } @empty {
                 <tr>
-                  <td colspan="4" class="py-12 text-center text-muted">No categories yet. Add your first category above.</td>
+                  <td colspan="5" class="py-12 text-center text-muted">No categories yet. Add your first category above.</td>
                 </tr>
               }
             </tbody>
@@ -1058,6 +1086,23 @@ interface ColEntry {
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               placeholder="Description (optional)"
             />
+          </div>
+          <div>
+            <label for="cat-edit-margin" class="mb-1.5 block text-xs font-medium text-muted">Default Margin %</label>
+            <div class="flex items-center gap-2">
+              <input
+                id="cat-edit-margin"
+                type="number"
+                [(ngModel)]="categoryEditForm.defaultMarginPct"
+                min="0"
+                max="99"
+                step="1"
+                placeholder="e.g. 35 (optional)"
+                class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <span class="text-xs text-muted">%</span>
+            </div>
+            <p class="mt-1 text-xs text-muted">Leave blank to inherit from parent or use system default (40%).</p>
           </div>
           <button
             (click)="saveEditCategory()"
@@ -1322,7 +1367,7 @@ export class ProductsPageComponent implements OnInit {
 
   // ── Edit category dialog ──────────────────────────────────────────────────
   editingCategory = signal<Category | null>(null);
-  categoryEditForm: { name: string; description: string } = { name: '', description: '' };
+  categoryEditForm: { name: string; description: string; defaultMarginPct: number | null } = { name: '', description: '', defaultMarginPct: null };
   editForm: ProductUpdate & { category_id: string; is_active: boolean } = {
     name: '', category_id: '', unit_cost: 0, selling_price: 0, description: '', is_active: true,
   };
@@ -1356,6 +1401,7 @@ export class ProductsPageComponent implements OnInit {
   newCategoryName = '';
   newCategoryDescription = '';
   newCategoryParentId = '';
+  newCategoryDefaultMarginPct: number | null = null;
   savingCategory = signal(false);
 
   // ── FX-aware selling price suggestion ────────────────────────────────────
@@ -1637,9 +1683,40 @@ export class ProductsPageComponent implements OnInit {
     this.closeActionMenu();
     this.latestSuggestion.set(null);
     this.suggestionError.set(null);
-    this.suggestionMarginPct = 40;
-    this.suggestionMargin.set(0.40);
+
+    // Pre-fill margin from category hierarchy: sub-category → parent → system default 40%
+    const defaultMarginPct = this.resolveDefaultMarginPct(product.category_id);
+    this.suggestionMarginPct = defaultMarginPct;
+    this.suggestionMargin.set(defaultMarginPct / 100);
     this.suggestionPanelProductId.set(product.id);
+  }
+
+  private resolveDefaultMarginPct(categoryId: string | null): number {
+    if (!categoryId) return 40;
+    const cat = this.findCategoryById(categoryId);
+    if (!cat) return 40;
+    let raw = 40;
+    if (cat.default_margin_pct != null) {
+      raw = cat.default_margin_pct * 100;
+    } else if (cat.parent_id) {
+      const parent = this.findCategoryById(cat.parent_id);
+      if (parent?.default_margin_pct != null) {
+        raw = parent.default_margin_pct * 100;
+      }
+    }
+    // Snap to the slider's step of 5 and clamp to its [20, 70] range
+    return Math.min(70, Math.max(20, Math.round(raw / 5) * 5));
+  }
+
+  private findCategoryById(id: string | null): Category | null {
+    if (!id) return null;
+    for (const cat of this.categoryTree()) {
+      if (cat.id === id) return cat;
+      for (const child of cat.children ?? []) {
+        if (child.id === id) return child;
+      }
+    }
+    return null;
   }
 
   closeSuggestPanel(): void {
@@ -1944,6 +2021,7 @@ export class ProductsPageComponent implements OnInit {
       name,
       description: this.newCategoryDescription.trim() || undefined,
       parent_id: this.newCategoryParentId || undefined,
+      default_margin_pct: this.newCategoryDefaultMarginPct != null ? this.newCategoryDefaultMarginPct / 100 : undefined,
     };
     this.productsService.createCategory(body).subscribe({
       next: (created) => {
@@ -1951,6 +2029,7 @@ export class ProductsPageComponent implements OnInit {
         this.newCategoryName = '';
         this.newCategoryDescription = '';
         this.newCategoryParentId = '';
+        this.newCategoryDefaultMarginPct = null;
         this.loadCategories();
         this.messageService.add({ severity: 'success', summary: 'Created', detail: `Category "${created.name}" added` });
       },
@@ -1963,7 +2042,11 @@ export class ProductsPageComponent implements OnInit {
   }
 
   openEditCategory(cat: Category): void {
-    this.categoryEditForm = { name: cat.name, description: cat.description ?? '' };
+    this.categoryEditForm = {
+      name: cat.name,
+      description: cat.description ?? '',
+      defaultMarginPct: cat.default_margin_pct != null ? Math.round(cat.default_margin_pct * 100) : null,
+    };
     this.editingCategory.set(cat);
   }
 
@@ -1973,6 +2056,7 @@ export class ProductsPageComponent implements OnInit {
     const payload: CategoryUpdate = {
       name: this.categoryEditForm.name.trim(),
       description: this.categoryEditForm.description.trim() || null,
+      default_margin_pct: this.categoryEditForm.defaultMarginPct != null ? this.categoryEditForm.defaultMarginPct / 100 : null,
     };
     this.productsService.updateCategory(cat.id, payload).subscribe({
       next: () => {
