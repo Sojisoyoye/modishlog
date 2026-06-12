@@ -356,13 +356,24 @@ class TestUpdateOrder:
         assert result.notes == "Updated notes"
 
     @pytest.mark.asyncio
-    async def test_update_order_not_editable(self):
-        order = _make_order(status=OrderStatus.DELIVERED)
+    async def test_update_order_cancelled_not_editable(self):
+        """CANCELLED orders cannot be edited."""
+        order = _make_order(status=OrderStatus.CANCELLED)
         db = _mock_db_with_execute(scalar_result=order)
 
         data = OrderUpdate(notes="Try to update")
         with pytest.raises(OrderNotEditableError):
             await update_order(db, order.id, data, uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_update_order_delivered_is_editable(self):
+        """DELIVERED orders can be edited to correct mistakes."""
+        order = _make_order(status=OrderStatus.DELIVERED)
+        db = _mock_db_with_execute(scalar_result=order)
+
+        data = OrderUpdate(notes="Corrected after delivery")
+        result = await update_order(db, order.id, data, uuid.uuid4())
+        assert result.notes == "Corrected after delivery"
 
     @pytest.mark.asyncio
     async def test_update_order_shipping_cost(self):

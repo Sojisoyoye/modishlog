@@ -70,6 +70,7 @@ EDITABLE_STATUSES = {
     OrderStatus.IN_PRODUCTION,
     OrderStatus.SHIPPING,
     OrderStatus.CLEARED,
+    OrderStatus.DELIVERED,
 }
 
 
