@@ -54,8 +54,8 @@ class ProductCreate(BaseModel):
     sku: str | None = None
     description: str | None = None
     category_id: uuid.UUID | None = None
-    unit_cost: Decimal = Field(..., ge=0)
-    selling_price: Decimal = Field(..., ge=0)
+    unit_cost: Decimal = Field(..., gt=Decimal("0"))
+    selling_price: Decimal = Field(..., gt=Decimal("0"))
     currency: str = "NGN"
 
 
@@ -63,8 +63,8 @@ class ProductUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     category_id: uuid.UUID | None = None
-    unit_cost: Decimal | None = Field(default=None, ge=0)
-    selling_price: Decimal | None = Field(default=None, ge=0)
+    unit_cost: Decimal | None = Field(default=None, gt=Decimal("0"))
+    selling_price: Decimal | None = Field(default=None, gt=Decimal("0"))
     is_active: bool | None = None
 
 
