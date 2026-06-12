@@ -3,6 +3,7 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -15,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class CategoryCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
+    parent_id: Optional[uuid.UUID] = None
 
 
 class CategoryUpdate(BaseModel):
@@ -28,6 +30,11 @@ class CategoryRead(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None = None
+    parent_id: Optional[uuid.UUID] = None
+    children: list["CategoryRead"] = []
+
+
+CategoryRead.model_rebuild()
 
 
 # ---------------------------------------------------------------------------

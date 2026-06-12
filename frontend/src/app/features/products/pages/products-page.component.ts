@@ -233,8 +233,16 @@ interface ColEntry {
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="">All categories</option>
-                @for (cat of categories(); track cat.id) {
-                  <option [value]="cat.id">{{ cat.name }}</option>
+                @for (cat of categoryTree(); track cat.id) {
+                  @if ((cat.children ?? []).length > 0) {
+                    <optgroup [label]="cat.name">
+                      @for (child of cat.children!; track child.id) {
+                        <option [value]="child.id">{{ child.name }}</option>
+                      }
+                    </optgroup>
+                  } @else {
+                    <option [value]="cat.id">{{ cat.name }}</option>
+                  }
                 }
               </select>
             </div>
@@ -660,8 +668,16 @@ interface ColEntry {
                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="">-- None --</option>
-                @for (cat of categories(); track cat.id) {
-                  <option [value]="cat.id">{{ cat.name }}</option>
+                @for (cat of categoryTree(); track cat.id) {
+                  @if ((cat.children ?? []).length > 0) {
+                    <optgroup [label]="cat.name">
+                      @for (child of cat.children!; track child.id) {
+                        <option [value]="child.id">{{ child.name }}</option>
+                      }
+                    </optgroup>
+                  } @else {
+                    <option [value]="cat.id">{{ cat.name }}</option>
+                  }
                 }
               </select>
             }
@@ -920,7 +936,7 @@ interface ColEntry {
       <div class="space-y-6">
         <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <h3 class="mb-4 text-sm font-semibold text-text">Add New Category</h3>
-          <div class="flex gap-3">
+          <div class="flex flex-wrap gap-3">
             <input
               [(ngModel)]="newCategoryName"
               placeholder="Category name"
@@ -933,6 +949,17 @@ interface ColEntry {
               class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               (keydown.enter)="submitCreateCategory()"
             />
+            <select
+              [(ngModel)]="newCategoryParentId"
+              data-testid="new-cat-parent-select"
+              aria-label="Parent category"
+              class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="">None (top-level)</option>
+              @for (cat of categoryTree(); track cat.id) {
+                <option [value]="cat.id">{{ cat.name }}</option>
+              }
+            </select>
             <button
               (click)="submitCreateCategory()"
               [disabled]="savingCategory() || !newCategoryName.trim()"
@@ -960,7 +987,7 @@ interface ColEntry {
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-              @for (cat of categories(); track cat.id) {
+              @for (cat of categoryTree(); track cat.id) {
                 <tr class="transition-colors hover:bg-gray-50">
                   <td class="px-4 py-3 font-medium text-text">{{ cat.name }}</td>
                   <td class="px-4 py-3 text-muted">{{ cat.description || '—' }}</td>
@@ -974,6 +1001,24 @@ interface ColEntry {
                     </button>
                   </td>
                 </tr>
+                @for (child of (cat.children ?? []); track child.id) {
+                  <tr class="bg-gray-50/50 transition-colors hover:bg-gray-100/50">
+                    <td class="px-4 py-2 text-text">
+                      <span class="pl-5 text-muted">↳</span>
+                      <span class="ml-1 font-medium">{{ child.name }}</span>
+                    </td>
+                    <td class="px-4 py-2 text-sm text-muted">{{ child.description || '—' }}</td>
+                    <td class="px-4 py-2 text-sm text-muted">{{ productCountForCategory(child.id) }}</td>
+                    <td class="px-4 py-2 text-right">
+                      <button (click)="openEditCategory(child)" class="rounded-lg p-1.5 text-muted hover:bg-gray-100 mr-1" title="Edit sub-category">
+                        <i class="pi pi-pencil text-xs"></i>
+                      </button>
+                      <button (click)="confirmDeleteCategory(child)" class="rounded-lg p-1.5 text-red-400 hover:bg-red-50" title="Delete sub-category">
+                        <i class="pi pi-trash text-xs"></i>
+                      </button>
+                    </td>
+                  </tr>
+                }
               } @empty {
                 <tr>
                   <td colspan="4" class="py-12 text-center text-muted">No categories yet. Add your first category above.</td>
@@ -1049,8 +1094,16 @@ interface ColEntry {
             class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           >
             <option value="">-- None --</option>
-            @for (cat of categories(); track cat.id) {
-              <option [value]="cat.id">{{ cat.name }}</option>
+            @for (cat of categoryTree(); track cat.id) {
+              @if ((cat.children ?? []).length > 0) {
+                <optgroup [label]="cat.name">
+                  @for (child of cat.children!; track child.id) {
+                    <option [value]="child.id">{{ child.name }}</option>
+                  }
+                </optgroup>
+              } @else {
+                <option [value]="cat.id">{{ cat.name }}</option>
+              }
             }
           </select>
         </div>
@@ -1210,7 +1263,8 @@ export class ProductsPageComponent implements OnInit {
 
   // ── Shared state ──────────────────────────────────────────────────────────
   products = signal<Product[]>([]);
-  categories = signal<Category[]>([]);
+  categories = signal<Category[]>([]);   // flat list: all top-level + sub-categories
+  categoryTree = signal<Category[]>([]); // tree: top-level with children nested
   saving = signal(false);
   savingAdd = signal(false);
 
@@ -1301,6 +1355,7 @@ export class ProductsPageComponent implements OnInit {
   // ── Categories tab ────────────────────────────────────────────────────────
   newCategoryName = '';
   newCategoryDescription = '';
+  newCategoryParentId = '';
   savingCategory = signal(false);
 
   // ── FX-aware selling price suggestion ────────────────────────────────────
@@ -1374,7 +1429,7 @@ export class ProductsPageComponent implements OnInit {
   // ── Lifecycle ─────────────────────────────────────────────────────────────
   ngOnInit(): void {
     this.loadProducts();
-    this.productsService.getCategories().subscribe({ next: (cats) => this.categories.set(cats) });
+    this.loadCategories();
     this.loadStock();
     this.fxService.getLatest().subscribe({
       next: (rate) => this.currentFxRate.set(rate.rate),
@@ -1384,6 +1439,23 @@ export class ProductsPageComponent implements OnInit {
 
   private loadProducts(): void {
     this.productsService.getAll().subscribe({ next: (p) => this.products.set(p) });
+  }
+
+  private loadCategories(): void {
+    this.productsService.getCategories().subscribe({
+      next: (tree) => {
+        this.categoryTree.set(tree);
+        // Build flat list so existing lookups by ID (categoryName, etc.) still work
+        const flat: Category[] = [];
+        for (const cat of tree) {
+          flat.push(cat);
+          for (const child of (cat.children ?? [])) {
+            flat.push(child);
+          }
+        }
+        this.categories.set(flat);
+      },
+    });
   }
 
   private loadStock(): void {
@@ -1850,10 +1922,10 @@ export class ProductsPageComponent implements OnInit {
     this.productsService.createCategory({ name }).subscribe({
       next: (created) => {
         this.savingInlineCategory.set(false);
-        this.categories.update((list) => [...list, created]);
         this.addForm.category_id = created.id;
         this.showInlineCategoryForm = false;
         this.inlineCategoryName = '';
+        this.loadCategories();
         this.messageService.add({ severity: 'success', summary: 'Category created', detail: `"${created.name}" added and selected` });
       },
       error: () => {
@@ -1868,18 +1940,24 @@ export class ProductsPageComponent implements OnInit {
     const name = this.newCategoryName.trim();
     if (!name) return;
     this.savingCategory.set(true);
-    const body: CategoryCreate = { name, description: this.newCategoryDescription.trim() || undefined };
+    const body: CategoryCreate = {
+      name,
+      description: this.newCategoryDescription.trim() || undefined,
+      parent_id: this.newCategoryParentId || undefined,
+    };
     this.productsService.createCategory(body).subscribe({
       next: (created) => {
         this.savingCategory.set(false);
         this.newCategoryName = '';
         this.newCategoryDescription = '';
-        this.categories.update((list) => [...list, created]);
+        this.newCategoryParentId = '';
+        this.loadCategories();
         this.messageService.add({ severity: 'success', summary: 'Created', detail: `Category "${created.name}" added` });
       },
-      error: () => {
+      error: (err) => {
         this.savingCategory.set(false);
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to create category' });
+        const detail = err?.error?.detail ?? 'Failed to create category';
+        this.messageService.add({ severity: 'error', summary: 'Error', detail });
       },
     });
   }
@@ -1897,9 +1975,9 @@ export class ProductsPageComponent implements OnInit {
       description: this.categoryEditForm.description.trim() || null,
     };
     this.productsService.updateCategory(cat.id, payload).subscribe({
-      next: (updated) => {
-        this.categories.update((list) => list.map((c) => (c.id === updated.id ? updated : c)));
+      next: () => {
         this.editingCategory.set(null);
+        this.loadCategories();
         this.messageService.add({ severity: 'success', summary: 'Updated', detail: 'Category updated' });
       },
       error: () => {
@@ -1918,7 +1996,7 @@ export class ProductsPageComponent implements OnInit {
     this.categoryPendingDelete.set(null);
     this.productsService.deleteCategory(cat.id).subscribe({
       next: () => {
-        this.categories.update((list) => list.filter((c) => c.id !== cat.id));
+        this.loadCategories();
         this.products.update((list) => list.map((p) => (p.category_id === cat.id ? { ...p, category_id: null } : p)));
         this.messageService.add({ severity: 'success', summary: 'Deleted', detail: `Category "${cat.name}" deleted` });
       },

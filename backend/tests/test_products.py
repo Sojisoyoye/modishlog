@@ -32,6 +32,7 @@ from src.products.service import (
     create_product,
     deactivate_product,
     get_product,
+    list_categories,
     update_category,
     update_product,
 )
@@ -615,3 +616,90 @@ class TestProductEndpoints:
                 json={"name": "X"},
             )
         assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Sub-category hierarchy tests (task #79)
+# ---------------------------------------------------------------------------
+
+
+class TestSubcategoryHierarchy:
+    @pytest.mark.asyncio
+    async def test_create_subcategory(self):
+        """create_category with parent_id sets parent_id on the created category."""
+        parent = _make_category(name="Edge Tape")
+        parent.parent_id = None
+        parent.children = []
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=parent)
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        data = CategoryCreate(name="Matt", parent_id=parent.id)
+        cat = await create_category(db, data)
+        assert cat.parent_id == parent.id
+        db.add.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_create_category_max_depth(self):
+        """Cannot create a sub-sub-category (max 2 levels deep)."""
+        from src.products.exceptions import SubcategoryDepthError
+
+        grandparent_id = uuid.uuid4()
+        parent = _make_category(name="Mid Level")
+        parent.parent_id = grandparent_id  # parent is itself a sub-category
+        parent.children = []
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=parent)
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        data = CategoryCreate(name="Deep Level", parent_id=parent.id)
+        with pytest.raises(SubcategoryDepthError):
+            await create_category(db, data)
+
+    @pytest.mark.asyncio
+    async def test_list_categories_tree(self):
+        """list_categories returns categories with children attribute populated."""
+        parent = _make_category(name="Edge Tape")
+        parent.parent_id = None
+        child = _make_category(name="Matt")
+        child.parent_id = parent.id
+        child.children = []
+        parent.children = [child]
+
+        db = _mock_db_with_execute(scalars_result=[parent])
+        cats = await list_categories(db)
+        assert len(cats) == 1
+        assert cats[0].name == "Edge Tape"
+        assert cats[0].children[0].name == "Matt"
+
+    @pytest.mark.asyncio
+    async def test_product_assigned_to_subcategory(self):
+        """Products can be assigned to a sub-category (any valid category UUID)."""
+        grandparent_id = uuid.uuid4()
+        subcat = _make_category(name="Matt")
+        subcat.parent_id = grandparent_id
+        subcat.children = []
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=subcat)
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
+        result_mock.scalar.return_value = 0
+        db.execute = AsyncMock(return_value=result_mock)
+
+        user_id = uuid.uuid4()
+        data = ProductCreate(
+            name="Edge Tape Matt",
+            unit_cost=Decimal("200.00"),
+            selling_price=Decimal("350.00"),
+            category_id=subcat.id,
+        )
+        product = await create_product(db, data, user_id)
+        assert product.category_id == subcat.id

@@ -3,6 +3,7 @@
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import Optional
 
 from sqlalchemy import Date, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -17,8 +18,27 @@ class ProductCategory(UUIDMixin, TimestampMixin, Base):
 
     name: Mapped[str] = mapped_column(String(255), unique=True)
     description: Mapped[str | None] = mapped_column(Text, default=None)
+    parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("product_categories.id", ondelete="SET NULL"),
+        nullable=True,
+        default=None,
+        index=True,
+    )
 
     products: Mapped[list["Product"]] = relationship(back_populates="category")
+    parent: Mapped[Optional["ProductCategory"]] = relationship(
+        "ProductCategory",
+        foreign_keys="[ProductCategory.parent_id]",
+        back_populates="children",
+        remote_side="ProductCategory.id",
+        lazy="raise",
+    )
+    children: Mapped[list["ProductCategory"]] = relationship(
+        "ProductCategory",
+        foreign_keys="[ProductCategory.parent_id]",
+        back_populates="parent",
+        lazy="raise",
+    )
 
     def __repr__(self) -> str:
         return f"<ProductCategory(id={self.id}, name={self.name})>"

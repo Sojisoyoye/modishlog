@@ -33,8 +33,16 @@ class CategoryInUseError(Exception):
     def __init__(self, category_id, product_count: int):
         self.category_id = category_id
         self.product_count = product_count
+        super().__init__(f"Category {category_id} has {product_count} linked products")
+
+
+class SubcategoryDepthError(Exception):
+    """Raised when creating a sub-category under an existing sub-category (max 2 levels)."""
+
+    def __init__(self, parent_id):
+        self.parent_id = parent_id
         super().__init__(
-            f"Category {category_id} has {product_count} linked products"
+            f"Category {parent_id} is already a sub-category; cannot nest further (max 2 levels)"
         )
 
 
