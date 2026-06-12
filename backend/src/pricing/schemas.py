@@ -256,7 +256,7 @@ class ScenarioRead(BaseModel):
 
 
 class SuggestRequest(BaseModel):
-    target_margin_pct: Decimal = Decimal("0.40")
+    target_margin_pct: Decimal = Field(default=Decimal("0.40"), gt=Decimal("0"), lt=Decimal("1"))
 
 
 class PriceSuggestionRead(BaseModel):

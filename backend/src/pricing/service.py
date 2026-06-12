@@ -11,11 +11,14 @@ from scipy.optimize import minimize
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.fx.service import get_live_usdngn_rate
+from src.orders.models import OrderLineItem, PurchaseOrder
 from src.pricing.exceptions import (
     ElasticityNotFoundError,
     InsufficientPriceDataError,
     MixTargetSumError,
     OptimizationInfeasibleError,
+    PricingSuggestionError,
     RecommendationExpiredError,
     RecommendationNotFoundError,
 )
@@ -23,15 +26,12 @@ from src.pricing.models import (
     CrossSubsidyAnalysis,
     DemandElasticity,
     MarginTarget,
+    PriceSuggestion,
     PricingRecommendation,
     PricingScenario,
     ProductMixTarget,
     RecommendationStatus,
 )
-from src.fx.service import get_live_usdngn_rate
-from src.orders.models import OrderLineItem
-from src.pricing.exceptions import PricingSuggestionError
-from src.pricing.models import PriceSuggestion
 from src.products.models import PriceHistory, Product, ProductCategory
 from src.sales.models import Sale, SaleStatus
 
@@ -1087,32 +1087,35 @@ async def compute_suggestion(
     Weighted-average unit_cost_ngn across all lots with units_remaining > 0.
     Lots without unit_cost_ngn are costed at unit_cost * live FX rate.
     """
-    # Fetch active lots
+    # Fetch active lots joined with their parent order's currency
     lot_result = await db.execute(
-        select(OrderLineItem).where(
+        select(OrderLineItem, PurchaseOrder.currency)
+        .join(PurchaseOrder, OrderLineItem.order_id == PurchaseOrder.id)
+        .where(
             OrderLineItem.product_id == product_id,
             OrderLineItem.units_remaining > 0,
         )
     )
-    lots = lot_result.scalars().all()
+    lots_with_currency = lot_result.all()
 
-    if not lots:
+    if not lots_with_currency:
         raise PricingSuggestionError(
             product_id, "no active lots with units_remaining > 0"
         )
 
-    # Get live FX rate (used as fallback for lots without unit_cost_ngn)
+    # Get live FX rate (used as fallback for USD lots without unit_cost_ngn)
     fx_rate, _, _ = await get_live_usdngn_rate(db)
 
-    # Weighted-average landed cost
+    # Weighted-average landed cost (currency-aware fallback)
     total_cost = Decimal("0")
     total_units = Decimal("0")
-    for lot in lots:
-        cost_ngn = (
-            lot.unit_cost_ngn
-            if lot.unit_cost_ngn is not None
-            else lot.unit_cost * fx_rate
-        )
+    for lot, order_currency in lots_with_currency:
+        if lot.unit_cost_ngn is not None:
+            cost_ngn = lot.unit_cost_ngn
+        elif order_currency == "USD":
+            cost_ngn = lot.unit_cost * fx_rate
+        else:
+            cost_ngn = lot.unit_cost
         total_cost += cost_ngn * lot.units_remaining
         total_units += lot.units_remaining
 

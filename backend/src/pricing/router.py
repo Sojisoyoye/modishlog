@@ -15,10 +15,10 @@ from src.pricing.exceptions import (
     InsufficientPriceDataError,
     MixTargetSumError,
     OptimizationInfeasibleError,
+    PricingSuggestionError,
     RecommendationExpiredError,
     RecommendationNotFoundError,
 )
-from src.pricing.exceptions import PricingSuggestionError
 from src.pricing.schemas import (
     CrossSubsidyRead,
     DemandForecastResponse,
@@ -384,6 +384,7 @@ async def compute_suggestion_endpoint(
     product_id: uuid.UUID,
     body: SuggestRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Compute and persist a sell-price suggestion from active lot cost basis."""
     try:
@@ -401,6 +402,7 @@ async def suggestion_history_endpoint(
     product_id: uuid.UUID,
     limit: int = 30,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Return the last N price suggestions for a product, newest first."""
     return await get_suggestion_history(db, product_id, limit=limit)
