@@ -1238,7 +1238,7 @@ interface ColEntry {
     <app-confirm-dialog
       [visible]="!!categoryPendingDelete()"
       header="Delete Category"
-      [message]="'Delete category &quot;' + (categoryPendingDelete()?.name ?? '') + '&quot;? Products will become uncategorised.'"
+      [message]="'Delete category &quot;' + (categoryPendingDelete()?.name ?? '') + '&quot;? Direct products will become uncategorised. This will fail if the category has sub-categories.'"
       (confirmed)="executeDeleteCategory()"
       (cancelled)="categoryPendingDelete.set(null)"
     />
@@ -2002,8 +2002,16 @@ export class ProductsPageComponent implements OnInit {
       },
       error: (err) => {
         if (err.status === 409) {
-          // Extract product count from backend detail: "Category X has N linked products"
-          const count = /has (\d+) linked/.exec(err.error?.detail ?? '')?.[1];
+          const backendDetail: string = err.error?.detail ?? '';
+          // Sub-categories blocking deletion
+          const childMatch = /has (\d+) sub-categor/.exec(backendDetail);
+          if (childMatch) {
+            const n = childMatch[1];
+            this.messageService.add({ severity: 'warn', summary: 'Cannot Delete', detail: `"${cat.name}" has ${n} sub-categor${n === '1' ? 'y' : 'ies'}. Delete them first.` });
+            return;
+          }
+          // Products blocking deletion
+          const count = /has (\d+) linked/.exec(backendDetail)?.[1];
           const noun = count === '1' ? 'product' : 'products';
           const detail = count
             ? `"${cat.name}" still has ${count} ${noun}. Move or delete them before removing the category.`

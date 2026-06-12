@@ -20,7 +20,6 @@ class ProductCategory(UUIDMixin, TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, default=None)
     parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("product_categories.id", ondelete="SET NULL"),
-        nullable=True,
         default=None,
         index=True,
     )

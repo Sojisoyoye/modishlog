@@ -7,6 +7,15 @@ async function createTopLevelCategory(name: string): Promise<string> {
   const token = await getAPIToken();
   const ctx = await pwRequest.newContext();
   try {
+    // Check existence first to avoid unique-constraint errors on retry
+    const listResp = await ctx.get(`${API}/products/categories`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (listResp.ok()) {
+      const cats: { id: string; name: string; children?: { id: string; name: string }[] }[] = await listResp.json();
+      const found = cats.find((c) => c.name === name);
+      if (found) return found.id;
+    }
     const resp = await ctx.post(`${API}/products/categories`, {
       headers: { Authorization: `Bearer ${token}` },
       data: { name },

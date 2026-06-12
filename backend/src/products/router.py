@@ -12,6 +12,7 @@ from src.auth.models import User
 from src.core.config import settings
 from src.core.database import get_db
 from src.products.exceptions import (
+    CategoryHasChildrenError,
     CategoryInUseError,
     CategoryNotFoundError,
     DuplicateSKUError,
@@ -95,11 +96,13 @@ async def delete_category_endpoint(
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_active_user),
 ):
-    """Delete a category (only if no products linked)."""
+    """Delete a category (only if no products or sub-categories linked)."""
     try:
         await delete_category(db, category_id)
     except CategoryNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except CategoryHasChildrenError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except CategoryInUseError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 

@@ -662,7 +662,7 @@ class TestSubcategoryHierarchy:
 
     @pytest.mark.asyncio
     async def test_list_categories_tree(self):
-        """list_categories returns categories with children attribute populated."""
+        """list_categories calls db.execute (uses selectinload) and returns categories."""
         parent = _make_category(name="Edge Tape")
         parent.parent_id = None
         child = _make_category(name="Matt")
@@ -672,9 +672,40 @@ class TestSubcategoryHierarchy:
 
         db = _mock_db_with_execute(scalars_result=[parent])
         cats = await list_categories(db)
+        db.execute.assert_called_once()
         assert len(cats) == 1
         assert cats[0].name == "Edge Tape"
         assert cats[0].children[0].name == "Matt"
+
+    @pytest.mark.asyncio
+    async def test_delete_category_with_children_raises(self):
+        """Cannot delete a category that has sub-categories."""
+        from src.products.exceptions import CategoryHasChildrenError
+
+        parent = _make_category(name="Edge Tape")
+        parent.parent_id = None
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=parent)
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+        db.delete = AsyncMock()
+
+        # First execute call returns child_count=1, second returns product_count=0
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            result.scalar.return_value = 1 if call_count == 1 else 0
+            return result
+
+        db.execute = mock_execute
+
+        from src.products.service import delete_category
+        with pytest.raises(CategoryHasChildrenError):
+            await delete_category(db, parent.id)
 
     @pytest.mark.asyncio
     async def test_product_assigned_to_subcategory(self):

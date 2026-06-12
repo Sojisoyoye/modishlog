@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from src.inventory.service import initialize_inventory
 from src.products.exceptions import (
+    CategoryHasChildrenError,
     CategoryInUseError,
     CategoryNotFoundError,
     DuplicateSKUError,
@@ -91,8 +92,16 @@ async def get_category(db: AsyncSession, category_id: uuid.UUID) -> ProductCateg
 
 
 async def delete_category(db: AsyncSession, category_id: uuid.UUID) -> None:
-    """Delete a category (only if no products are linked)."""
+    """Delete a category (only if no products or sub-categories are linked)."""
     category = await get_category(db, category_id)
+    child_result = await db.execute(
+        select(func.count())
+        .select_from(ProductCategory)
+        .where(ProductCategory.parent_id == category_id)
+    )
+    child_count = child_result.scalar() or 0
+    if child_count > 0:
+        raise CategoryHasChildrenError(category_id, child_count)
     result = await db.execute(
         select(func.count())
         .select_from(Product)
