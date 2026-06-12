@@ -48,10 +48,9 @@ async def _fetch_historical_rates(
     if len(rates) < MIN_TRAINING_DAYS:
         raise InsufficientRateDataError(pair, len(rates), MIN_TRAINING_DAYS)
 
-    df = pd.DataFrame([
-        {"ds": r.timestamp.replace(tzinfo=None), "y": float(r.rate)}
-        for r in rates
-    ])
+    df = pd.DataFrame(
+        [{"ds": r.timestamp.replace(tzinfo=None), "y": float(r.rate)} for r in rates]
+    )
     return df
 
 
@@ -116,14 +115,16 @@ def _monte_carlo_scenarios(
         if len(simulated) < 100:
             simulated = np.array([base])
 
-        scenarios.append({
-            "date": row["ds"],
-            "base_rate": round(float(np.percentile(simulated, 50)), 6),
-            "best_case_rate": round(float(np.percentile(simulated, 5)), 6),
-            "worst_case_rate": round(float(np.percentile(simulated, 95)), 6),
-            "prophet_lower": round(float(row["yhat_lower"]), 6),
-            "prophet_upper": round(float(row["yhat_upper"]), 6),
-        })
+        scenarios.append(
+            {
+                "date": row["ds"],
+                "base_rate": round(float(np.percentile(simulated, 50)), 6),
+                "best_case_rate": round(float(np.percentile(simulated, 5)), 6),
+                "worst_case_rate": round(float(np.percentile(simulated, 95)), 6),
+                "prophet_lower": round(float(row["yhat_lower"]), 6),
+                "prophet_upper": round(float(row["yhat_upper"]), 6),
+            }
+        )
 
     return scenarios
 
@@ -188,7 +189,9 @@ async def train_and_forecast(
     if common_dates:
         val_df = validation[validation["ds"].dt.date.isin(common_dates)]
         pred_df = pred_val[pred_val["ds"].dt.date.isin(common_dates)]
-        mae_val = float(np.mean(np.abs(val_df["y"].values - pred_df["yhat"].values[:len(val_df)])))
+        mae_val = float(
+            np.mean(np.abs(val_df["y"].values - pred_df["yhat"].values[: len(val_df)]))
+        )
     else:
         mae_val = None
 
@@ -298,15 +301,21 @@ async def update_forecast_accuracy(
 
     if not forecasts:
         return ForecastAccuracy(
-            pair=pair, total_evaluated=0,
-            mean_mae=Decimal("0"), mean_mape=Decimal("0"),
+            pair=pair,
+            total_evaluated=0,
+            mean_mae=Decimal("0"),
+            mean_mape=Decimal("0"),
         )
 
     errors: list[float] = []
     pct_errors: list[float] = []
 
     for fc in forecasts:
-        fc_date = fc.forecast_date.date() if isinstance(fc.forecast_date, datetime) else fc.forecast_date
+        fc_date = (
+            fc.forecast_date.date()
+            if isinstance(fc.forecast_date, datetime)
+            else fc.forecast_date
+        )
         # Find actual rate for this date
         actual_result = await db.execute(
             select(FXRate)
@@ -337,7 +346,9 @@ async def update_forecast_accuracy(
         await db.flush()
 
     mean_mae = Decimal(str(round(np.mean(errors), 6))) if errors else Decimal("0")
-    mean_mape = Decimal(str(round(np.mean(pct_errors), 6))) if pct_errors else Decimal("0")
+    mean_mape = (
+        Decimal(str(round(np.mean(pct_errors), 6))) if pct_errors else Decimal("0")
+    )
 
     await logger.ainfo(
         "fx_forecast_accuracy_updated",

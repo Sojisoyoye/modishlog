@@ -273,7 +273,18 @@ async def export_sales_csv_endpoint(
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(
-        ["id", "sale_date", "product_id", "quantity", "unit_price", "total_amount", "discount_amount", "channel", "status", "currency"]
+        [
+            "id",
+            "sale_date",
+            "product_id",
+            "quantity",
+            "unit_price",
+            "total_amount",
+            "discount_amount",
+            "channel",
+            "status",
+            "currency",
+        ]
     )
     for sale in items:
         writer.writerow(

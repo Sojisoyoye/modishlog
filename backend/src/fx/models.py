@@ -5,7 +5,16 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, String
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -65,7 +74,9 @@ class FXExposureConfig(UUIDMixin, Base):
     __tablename__ = "fx_exposure_configs"
 
     locked_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("30.00"))
-    floating_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("70.00"))
+    floating_pct: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), default=Decimal("70.00")
+    )
     updated_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
