@@ -109,6 +109,10 @@ from src.stockcount.router import router as stockcount_router  # noqa: E402
 
 app.include_router(stockcount_router, prefix="/api/v1/stockcount", tags=["stockcount"])
 
+from src.settings.router import router as settings_router  # noqa: E402
+
+app.include_router(settings_router, prefix="/api/v1", tags=["settings"])
+
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:

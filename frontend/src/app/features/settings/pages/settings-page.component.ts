@@ -1,6 +1,7 @@
-import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { SettingsService } from '../../../core/services/settings.service';
 
 @Component({
   selector: 'app-settings-page',
@@ -23,46 +24,66 @@ import { RouterLink } from '@angular/router';
             <h3 class="text-base font-semibold text-text">API Key</h3>
           </div>
           <div class="space-y-4">
-            <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">API Key</label>
-              <div class="relative">
-                <input
-                  [type]="apiKeyVisible() ? 'text' : 'password'"
-                  [(ngModel)]="apiKey"
-                  placeholder="Enter your API key"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 pr-10 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                />
+            @if (apiKeyConfigured()) {
+              <div class="flex flex-col gap-2 rounded-lg bg-green-50 px-4 py-3 text-sm text-success">
+                <div class="flex items-center gap-2">
+                  <i class="pi pi-check-circle text-xs"></i>
+                  <span>Configured</span>
+                  <button
+                    (click)="apiKeyConfigured.set(false); apiKeyStatus.set(null)"
+                    class="ml-auto text-xs text-muted underline hover:text-text"
+                    type="button"
+                  >
+                    Update
+                  </button>
+                </div>
+                @if (apiKeyStatus() === 'saved') {
+                  <p class="text-xs text-success">API key saved successfully</p>
+                }
+              </div>
+            } @else {
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted">API Key</label>
+                <div class="relative">
+                  <input
+                    [type]="apiKeyVisible() ? 'text' : 'password'"
+                    [(ngModel)]="apiKey"
+                    placeholder="Enter your API key"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 pr-10 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  />
+                  <button
+                    (click)="apiKeyVisible.set(!apiKeyVisible())"
+                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-text"
+                    type="button"
+                  >
+                    <i class="pi text-sm" [class]="apiKeyVisible() ? 'pi-eye-slash' : 'pi-eye'"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="flex gap-2">
                 <button
-                  (click)="apiKeyVisible.set(!apiKeyVisible())"
-                  class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-text"
-                  type="button"
+                  (click)="saveApiKey()"
+                  [disabled]="saving()"
+                  class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
                 >
-                  <i class="pi text-sm" [class]="apiKeyVisible() ? 'pi-eye-slash' : 'pi-eye'"></i>
+                  <i class="pi pi-save text-sm"></i> Save
+                </button>
+                <button
+                  (click)="testApiKey()"
+                  class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+                >
+                  <i class="pi pi-play text-sm"></i> Test Connection
                 </button>
               </div>
-            </div>
-            <div class="flex gap-2">
-              <button
-                (click)="saveApiKey()"
-                class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
-              >
-                <i class="pi pi-save text-sm"></i> Save
-              </button>
-              <button
-                (click)="testApiKey()"
-                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
-              >
-                <i class="pi pi-play text-sm"></i> Test Connection
-              </button>
-            </div>
-            @if (apiKeyStatus()) {
-              <div
-                class="rounded-lg p-3 text-sm"
-                [class]="apiKeyStatus() === 'saved' ? 'bg-green-50 text-success' : 'bg-gray-50 text-muted'"
-              >
-                <i class="pi mr-1 text-xs" [class]="apiKeyStatus() === 'saved' ? 'pi-check-circle' : 'pi-info-circle'"></i>
-                {{ apiKeyStatus() === 'saved' ? 'API key saved successfully' : 'Test connection feature coming soon' }}
-              </div>
+              @if (apiKeyStatus()) {
+                <div
+                  class="rounded-lg p-3 text-sm"
+                  [class]="apiKeyStatus() === 'saved' ? 'bg-green-50 text-success' : 'bg-gray-50 text-muted'"
+                >
+                  <i class="pi mr-1 text-xs" [class]="apiKeyStatus() === 'saved' ? 'pi-check-circle' : 'pi-info-circle'"></i>
+                  {{ apiKeyStatus() === 'saved' ? 'API key saved successfully' : 'Test connection feature coming soon' }}
+                </div>
+              }
             }
           </div>
         </div>
@@ -139,19 +160,38 @@ import { RouterLink } from '@angular/router';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class SettingsPageComponent {
+export class SettingsPageComponent implements OnInit {
+  private readonly settingsService = inject(SettingsService);
+
   apiKey = '';
   apiKeyVisible = signal(false);
   apiKeyStatus = signal<'saved' | 'testing' | null>(null);
+  apiKeyConfigured = signal(false);
+  saving = signal(false);
   defaultPair = 'USDNGN';
   globalStockThreshold = 10;
 
+  ngOnInit(): void {
+    this.settingsService.getApiKeyStatus('anthropic').subscribe({
+      next: (status) => this.apiKeyConfigured.set(status.is_configured),
+      error: () => {},
+    });
+  }
+
   saveApiKey(): void {
-    if (this.apiKey.trim()) {
-      // Store in localStorage for now (no backend endpoint yet)
-      localStorage.setItem('modishlog_api_key', this.apiKey);
-      this.apiKeyStatus.set('saved');
-    }
+    if (!this.apiKey.trim()) return;
+    this.saving.set(true);
+    this.settingsService.saveApiKey('anthropic', this.apiKey).subscribe({
+      next: () => {
+        this.apiKey = '';
+        this.apiKeyConfigured.set(true);
+        this.apiKeyStatus.set('saved');
+        this.saving.set(false);
+      },
+      error: () => {
+        this.saving.set(false);
+      },
+    });
   }
 
   testApiKey(): void {
