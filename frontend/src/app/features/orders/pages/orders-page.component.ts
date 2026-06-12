@@ -47,30 +47,30 @@ import { FxService } from '../../../core/services/fx.service';
       </div>
 
       <!-- Pipeline View -->
-      <div class="mb-6 flex gap-4 overflow-x-auto pb-2">
-        <!-- "All" reset card -->
+      <div class="mb-4 flex flex-wrap gap-2">
+        <!-- "All" reset chip -->
         <button
           type="button"
           (click)="togglePipelineFilter(null)"
-          class="min-w-36 rounded-xl border px-4 py-3 shadow-sm text-left transition-all"
+          class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-all"
           [class]="pipelineFilter() === null
-            ? 'border-secondary bg-secondary/10 ring-1 ring-secondary'
-            : 'border-gray-200 bg-white hover:border-secondary/50 hover:shadow-md'"
+            ? 'border-secondary bg-secondary/10 text-secondary ring-1 ring-secondary'
+            : 'border-gray-200 bg-white text-muted hover:border-secondary/50 hover:text-text'"
         >
-          <h4 class="text-xs font-bold uppercase tracking-wider text-muted">All</h4>
-          <p class="mt-2 text-2xl font-bold text-text">{{ orders().length }}</p>
+          All
+          <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-bold text-text">{{ orders().length }}</span>
         </button>
         @for (status of pipelineStatuses; track status) {
           <button
             type="button"
             (click)="togglePipelineFilter(status)"
-            class="min-w-36 rounded-xl border px-4 py-3 shadow-sm text-left transition-all"
+            class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-all"
             [class]="pipelineFilter() === status
-              ? 'border-secondary bg-secondary/10 ring-1 ring-secondary'
-              : 'border-gray-200 bg-white hover:border-secondary/50 hover:shadow-md'"
+              ? 'border-secondary bg-secondary/10 text-secondary ring-1 ring-secondary'
+              : 'border-gray-200 bg-white text-muted hover:border-secondary/50 hover:text-text'"
           >
-            <h4 class="text-xs font-bold uppercase tracking-wider text-muted">{{ statusLabel[status] }}</h4>
-            <p class="mt-2 text-2xl font-bold text-text">{{ ordersByStatus(status).length }}</p>
+            {{ statusLabel[status] }}
+            <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-bold text-text">{{ ordersByStatus(status).length }}</span>
           </button>
         }
       </div>
