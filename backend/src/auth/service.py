@@ -58,7 +58,7 @@ async def create_user(
         hashed_password=get_password_hash(password),
         full_name=full_name,
         is_active=True,
-        role=UserRole.ADMIN,
+        role=UserRole.SALES_MANAGER,
         failed_login_attempts=0,
     )
     db.add(user)

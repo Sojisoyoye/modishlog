@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, require_admin
 from src.auth.exceptions import (
     AccountLockedError,
     InvalidCredentialsError,
@@ -40,9 +40,15 @@ from src.core.database import get_db
 router = APIRouter()
 
 
-@router.post("/register", response_model=UserProfile, status_code=status.HTTP_201_CREATED)
-async def register(body: UserRegister, db: AsyncSession = Depends(get_db)):
-    """Create a new user account."""
+@router.post(
+    "/register", response_model=UserProfile, status_code=status.HTTP_201_CREATED
+)
+async def register(
+    body: UserRegister,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Create a new user account. Requires an existing admin to be authenticated."""
     try:
         user = await create_user(db, body.email, body.password, body.full_name)
     except WeakPasswordError as e:
@@ -99,18 +105,24 @@ async def logout(body: LogoutRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-async def forgot_password(body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+async def forgot_password(
+    body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)
+):
     """Request a password-reset token.
 
     Always returns 200 regardless of whether the email exists --
     we never reveal account existence.
     """
     await generate_password_reset_token(db, body.email)
-    return MessageResponse(message="If an account with that email exists, a reset link has been sent.")
+    return MessageResponse(
+        message="If an account with that email exists, a reset link has been sent."
+    )
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-async def do_reset_password(body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+async def do_reset_password(
+    body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)
+):
     """Reset a user's password using a valid reset token."""
     try:
         await reset_password(db, body.token, body.new_password)

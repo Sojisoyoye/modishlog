@@ -171,6 +171,25 @@ class TestCreateUser:
         with pytest.raises(WeakPasswordError):
             await create_user(db, "a@b.com", "weak", "Name")
 
+    @pytest.mark.asyncio
+    async def test_new_user_does_not_default_to_admin_role(self):
+        """create_user must not grant ADMIN role by default — privilege escalation risk."""
+        from src.auth.models import UserRole
+
+        db = _mock_db(user=None)
+        user = await create_user(db, "role@example.com", VALID_PASSWORD, "Role Test")
+        assert user.role != UserRole.ADMIN, (
+            "New users must not be created with ADMIN role by default"
+        )
+
+    @pytest.mark.asyncio
+    async def test_new_user_has_sales_manager_role(self):
+        from src.auth.models import UserRole
+
+        db = _mock_db(user=None)
+        user = await create_user(db, "sm@example.com", VALID_PASSWORD, "SM Test")
+        assert user.role == UserRole.SALES_MANAGER
+
 
 # ---------------------------------------------------------------------------
 # authenticate_user service
@@ -286,6 +305,18 @@ class TestAuthEndpoints:
 
         self.app.dependency_overrides[get_db] = _fake_db
 
+    def _override_require_admin(self, admin_user=None):
+        """Bypass the require_admin dependency, returning a pre-built admin user."""
+        from src.auth.dependencies import require_admin
+
+        if admin_user is None:
+            admin_user = _make_user()
+
+        async def _fake_admin():
+            return admin_user
+
+        self.app.dependency_overrides[require_admin] = _fake_admin
+
     # -- Register --------------------------------------------------------
 
     def test_register_success(self):
@@ -302,6 +333,7 @@ class TestAuthEndpoints:
 
         db.add = _add_and_patch
         self._override_db(db)
+        self._override_require_admin()
         with TestClient(self.app) as client:
             resp = client.post(
                 "/api/v1/auth/register",
@@ -319,6 +351,7 @@ class TestAuthEndpoints:
     def test_register_weak_password_400(self):
         db = _mock_db(user=None)
         self._override_db(db)
+        self._override_require_admin()
         with TestClient(self.app) as client:
             resp = client.post(
                 "/api/v1/auth/register",
@@ -334,6 +367,7 @@ class TestAuthEndpoints:
         existing = _make_user(email="dup@example.com")
         db = _mock_db(user=existing)
         self._override_db(db)
+        self._override_require_admin()
         with TestClient(self.app) as client:
             resp = client.post(
                 "/api/v1/auth/register",
@@ -454,6 +488,112 @@ class TestAuthEndpoints:
             resp = client.get(
                 "/api/v1/auth/me",
                 headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Register endpoint — admin auth gate
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterAdminAuth:
+    """Verify that /register is gated behind the admin auth requirement."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _override_require_admin(self, admin_user=None):
+        from src.auth.dependencies import require_admin
+
+        if admin_user is None:
+            admin_user = _make_user()
+
+        async def _fake_admin():
+            return admin_user
+
+        self.app.dependency_overrides[require_admin] = _fake_admin
+
+    def test_unauthenticated_register_returns_401(self):
+        """POST /register without any token must be rejected with 401."""
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/register",
+                json={
+                    "email": "anon@example.com",
+                    "password": VALID_PASSWORD,
+                    "full_name": "Anonymous",
+                },
+            )
+        assert resp.status_code == 401
+
+    def test_admin_can_register_new_user(self):
+        """An authenticated admin must be able to register a new user."""
+        from src.auth.models import UserRole
+
+        admin = _make_user(role=UserRole.ADMIN)
+        db = _mock_db(user=None)
+        original_add = db.add
+
+        def _add_and_patch(user):
+            user.id = uuid.uuid4()
+            user.created_at = datetime.now(timezone.utc)
+            user.updated_at = datetime.now(timezone.utc)
+            return original_add(user)
+
+        db.add = _add_and_patch
+        self._override_db(db)
+        self._override_require_admin(admin)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/register",
+                json={
+                    "email": "newuser@example.com",
+                    "password": VALID_PASSWORD,
+                    "full_name": "New User",
+                },
+            )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["email"] == "newuser@example.com"
+
+    def test_non_admin_register_returns_403(self):
+        """A non-admin authenticated user must be refused with 403."""
+        from src.auth.models import UserRole
+        from src.auth.dependencies import require_admin
+
+        non_admin = _make_user(role=UserRole.SALES_MANAGER)
+
+        # Do NOT override require_admin — let the real one run, but give it a real token
+        token = build_token(non_admin)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=non_admin)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/register",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "email": "noadmin@example.com",
+                    "password": VALID_PASSWORD,
+                    "full_name": "No Admin",
+                },
             )
         assert resp.status_code == 403
 
