@@ -1,4 +1,4 @@
-import { test, expect, request } from '@playwright/test';
+import { test, expect, request, type Page } from '@playwright/test';
 import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
 import { ensureProduct } from './helpers/data';
 
@@ -33,7 +33,7 @@ async function createOrder(
 }
 
 /** Locate a pipeline card by its human-readable heading text. */
-function pipelineCard(page: Parameters<typeof test>[1] extends (args: { page: infer P }) => unknown ? P : never, label: string) {
+function pipelineCard(page: Page, label: string) {
   // The h4 heading is two levels below the card div: card > header-div > h4
   return page.locator('h4').filter({ hasText: new RegExp(`^${label}$`, 'i') }).locator('../..');
 }
