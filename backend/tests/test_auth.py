@@ -535,6 +535,26 @@ class TestForgotPasswordEndpoint:
         # No token should be created
         db.add.assert_not_called()
 
+    def test_forgot_password_stores_hashed_token_not_raw(self):
+        """create_reset_token must store SHA-256 hash in DB, not the raw token."""
+        import asyncio
+        import hashlib
+        from src.auth import service as auth_service
+
+        user = _make_user(email="hash@example.com")
+        db = _mock_db(user=user)
+
+        raw_token = asyncio.run(auth_service.generate_password_reset_token(db, "hash@example.com"))
+
+        assert raw_token is not None
+        # The PasswordResetToken added to the session must have the hashed value
+        added_obj = db.add.call_args[0][0]
+        expected_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        assert added_obj.token == expected_hash, (
+            "reset token stored in DB must be SHA-256 hash, not the raw token"
+        )
+        assert added_obj.token != raw_token, "raw token must never be stored in DB"
+
 
 class TestResetPasswordEndpoint:
     """POST /auth/reset-password endpoint tests."""
@@ -676,7 +696,7 @@ class TestGeneratePasswordResetToken:
         db = _mock_db(user=user)
         token_str = await generate_password_reset_token(db, "tokenuser@example.com")
         assert token_str is not None
-        assert len(token_str) == 32  # uuid4 hex
+        assert len(token_str) > 32  # secrets.token_urlsafe(32) produces ~43 chars
         db.add.assert_called_once()
         db.flush.assert_awaited_once()
 

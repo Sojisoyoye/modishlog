@@ -3,7 +3,6 @@
 import hashlib
 import re
 import secrets
-import uuid as _uuid
 from datetime import datetime, timedelta, timezone
 
 import structlog
@@ -83,7 +82,9 @@ async def authenticate_user(
     # Check lockout
     now = datetime.now(timezone.utc)
     if user.locked_until and user.locked_until > now:
-        await logger.awarn("login_locked", email=email, locked_until=str(user.locked_until))
+        await logger.awarn(
+            "login_locked", email=email, locked_until=str(user.locked_until)
+        )
         raise AccountLockedError(user.locked_until)
 
     if not verify_password(password, user.hashed_password):
@@ -126,10 +127,10 @@ async def generate_password_reset_token(
         await logger.ainfo("password_reset_requested_unknown_email", email=email)
         return None
 
-    token_str = _uuid.uuid4().hex  # 32-char hex string
+    raw_token = secrets.token_urlsafe(32)
     reset_token = PasswordResetToken(
         user_id=user.id,
-        token=token_str,
+        token=_hash_token(raw_token),
         expires_at=datetime.now(timezone.utc)
         + timedelta(hours=RESET_TOKEN_EXPIRE_HOURS),
         used=False,
@@ -137,7 +138,7 @@ async def generate_password_reset_token(
     db.add(reset_token)
     await db.flush()
     await logger.ainfo("password_reset_token_created", user_id=str(user.id))
-    return token_str
+    return raw_token
 
 
 async def reset_password(
@@ -152,7 +153,7 @@ async def reset_password(
     doesn't meet complexity requirements.
     """
     result = await db.execute(
-        select(PasswordResetToken).where(PasswordResetToken.token == token)
+        select(PasswordResetToken).where(PasswordResetToken.token == _hash_token(token))
     )
     token_obj = result.scalar_one_or_none()
 
@@ -194,7 +195,9 @@ async def create_refresh_token(db: AsyncSession, user: User) -> str:
     """
     raw_token = secrets.token_urlsafe(64)
     token_hash = _hash_token(raw_token)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+    )
 
     refresh_token = RefreshToken(
         user_id=user.id,
