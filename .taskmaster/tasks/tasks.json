@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": "1",
+        "id": 1,
         "title": "Database schema design and SQLAlchemy models implementation",
         "description": "Design and implement complete SQLAlchemy 2.0 models for all domain entities using mapped_column() and async patterns",
         "details": "Implement SQLAlchemy models for all core entities:\n\n**Auth domain (src/auth/models.py):**\n- User model with email (unique, indexed), hashed_password, full_name, is_active, failed_login_attempts, locked_until, created_at, updated_at\n- Use bcrypt for password hashing via passlib\n\n**Products domain (src/products/models.py):**\n- Product: id (UUID), name, sku (unique, indexed), description, category_id (FK), unit_cost (Decimal), selling_price (Decimal), currency (default NGN), price_elasticity_coefficient (Decimal, default -1.0), fx_sensitivity_coefficient (Decimal, default 0.5), is_active, created_at, updated_at\n- ProductCategory: id (UUID), name (unique), description, created_at, updated_at\n- PriceHistory: id (UUID), product_id (FK), old_unit_cost, new_unit_cost, old_selling_price, new_selling_price, reason, effective_date, changed_by (FK -> User), created_at\n\n**Inventory domain (src/inventory/models.py):**\n- InventoryLevel: id (UUID), product_id (FK, unique), current_stock (Decimal), low_stock_threshold (Integer), low_stock_threshold_days (Integer), last_stock_update, created_at, updated_at\n- StockMovement: id (UUID), product_id (FK), movement_type (enum: SALE, PURCHASE, ADJUSTMENT), quantity (Decimal), reference_id (UUID, nullable), reason, created_at\n\n**Sales domain (src/sales/models.py):**\n- DailySales: id (UUID), product_id (FK), sale_date (Date, indexed), quantity_sold (Decimal), selling_price_at_sale (Decimal), total_amount (Decimal), notes, submitted_by (FK -> User), submitted_at, created_at, updated_at\n- Index on (product_id, sale_date) for fast queries\n\n**Orders domain (src/orders/models.py):**\n- Order: id (UUID), order_number (unique, indexed), supplier_name, order_date (Date, indexed), production_days (Integer), shipping_days (Integer), clearing_days (Integer), estimated_arrival_date (Date, computed), actual_arrival_date (Date, nullable), status (enum: PENDING, IN_PRODUCTION, SHIPPING, CLEARED, DELIVERED), total_order_value_usd (Decimal), notes, created_by (FK -> User), created_at, updated_at\n- OrderItem: id (UUID), order_id (FK), product_id (FK), quantity (Decimal), unit_cost_usd (Decimal), total_cost_usd (Decimal), created_at\n- OrderPayment: id (UUID), order_id (FK), payment_type (enum: DEPOSIT_30, BALANCE_70), payment_date (Date), amount_usd (Decimal), fx_rate_ngn_usd (Decimal), amount_ngn (Decimal), is_forecasted (Boolean, default False), created_at\n\n**FX domain (src/fx/models.py):**\n- FXRate: id (UUID), currency_pair (String, default NGNGSD, indexed), rate_type (enum: PARALLEL_MARKET, OFFICIAL_CBN), rate (Decimal), rate_date (Date, indexed), source (String), created_at\n- FXForecast: id (UUID), currency_pair (String, indexed), forecast_date (Date, indexed), target_date (Date, indexed), base_forecast (Decimal), best_case (Decimal), worst_case (Decimal), confidence_level (Decimal), model_version (String), mae (Decimal, nullable), mape (Decimal, nullable), created_at\n- Unique constraint on (currency_pair, rate_type, rate_date) for FXRate\n- Unique constraint on (currency_pair, forecast_date, target_date) for FXForecast\n\n**Cashflow domain (src/cashflow/models.py):**\n- LoanObligation: id (UUID), loan_name, monthly_repayment_amount (Decimal), monthly_salary_offset (Decimal), net_monthly_burden (Decimal, computed), start_date (Date), end_date (Date, nullable), is_active (Boolean), created_at, updated_at\n- OperatingCost: id (UUID), cost_category (String), amount (Decimal), frequency (enum: MONTHLY, QUARTERLY, ANNUAL), effective_date (Date), notes, created_at, updated_at\n- CashflowProjection: id (UUID), projection_month (Date, indexed), scenario_type (enum: BASE, FX_SHOCK, DEMAND_DROP, COMBINED_STRESS), projected_revenue (Decimal), projected_loan_payment (Decimal), projected_operating_costs (Decimal), projected_fx_obligations (Decimal), net_cashflow (Decimal), cumulative_cashflow (Decimal), cash_runway_months (Decimal), dscr (Decimal), risk_rating (enum: LOW, MEDIUM, HIGH), generated_at, created_at\n\n**Pricing domain (src/pricing/models.py):**\n- PricingRecommendation: id (UUID), product_id (FK), current_price (Decimal), recommended_price (Decimal), current_margin (Decimal), projected_margin (Decimal), reasoning (Text), priority (enum: HIGH, MEDIUM, LOW), status (enum: PENDING, APPLIED, DISMISSED), created_at, applied_at, dismissed_at\n- PortfolioMargin: id (UUID), calculation_date (Date, indexed), total_revenue (Decimal), total_cogs (Decimal), blended_margin (Decimal), target_margin (Decimal, default 0.35), margin_gap (Decimal), created_at\n\n**AI Engine domain (src/ai_engine/models.py):**\n- Recommendation: id (UUID), recommendation_type (enum: PRICE, ORDER_TIMING, USD_HEDGE, INVENTORY, LIQUIDITY), title (String), description (Text), expected_impact (String), priority_score (Integer), status (enum: PENDING, APPLIED, DISMISSED), related_entity_type (String, nullable), related_entity_id (UUID, nullable), created_at, applied_at, dismissed_at\n- ScenarioSimulation: id (UUID), simulation_name, scenario_type (enum: BASE, FX_SHOCK_10, FX_SHOCK_20, DEMAND_DROP_10, DEMAND_DROP_20, COMBINED_STRESS), fx_shock_pct (Decimal), demand_drop_pct (Decimal), projected_cash_runway (Decimal), projected_dscr (Decimal), projected_margin (Decimal), simulated_at, created_at\n\n**Implementation requirements:**\n- Use SQLAlchemy 2.0 Mapped[] type annotations and mapped_column()\n- All timestamps use DateTime with timezone=True\n- All currency amounts use Decimal type (never float)\n- Set up proper relationships between models\n- Add __repr__ methods for debugging\n- Inherit all models from src.core.database.Base",
@@ -141,7 +141,7 @@
         "updatedAt": "2026-03-30T19:41:33.934Z"
       },
       {
-        "id": "2",
+        "id": 2,
         "title": "Alembic migrations for complete database schema",
         "description": "Create and test Alembic migrations for all SQLAlchemy models with proper indexing and constraints",
         "details": "Generate initial Alembic migration for the complete database schema:\n\n1. **Configure Alembic** (backend/alembic/env.py):\n   - Import all models to ensure Alembic detects them\n   - Set target_metadata = Base.metadata\n   - Configure async engine for PostgreSQL with asyncpg\n\n2. **Generate initial migration:**\n   ```bash\n   cd backend\n   alembic revision --autogenerate -m \"initial_schema\"\n   ```\n\n3. **Review and enhance generated migration:**\n   - Verify all tables, columns, and relationships are included\n   - Add explicit indexes on frequently queried columns:\n     - User.email\n     - Product.sku, Product.name\n     - DailySales.sale_date, DailySales.product_id\n     - Order.order_date, Order.status\n     - FXRate.rate_date, FXRate.currency_pair\n     - FXForecast.target_date, FXForecast.currency_pair\n   - Verify unique constraints are in place\n   - Add check constraints where appropriate (e.g., quantity_sold >= 0)\n\n4. **Apply migration to development database:**\n   ```bash\n   alembic upgrade head\n   ```\n\n5. **Test migration reversibility:**\n   ```bash\n   alembic downgrade -1\n   alembic upgrade head\n   ```\n\n6. **Document migration in backend/alembic/README.md** with common commands and troubleshooting tips\n\n**Key considerations:**\n- Use async engine configuration in env.py\n- Ensure migration is idempotent and can be safely re-run\n- Add explicit create_index() calls for composite indexes\n- Verify foreign key constraints have proper ON DELETE behavior",
@@ -229,7 +229,7 @@
         "updatedAt": "2026-03-30T19:48:02.746Z"
       },
       {
-        "id": "3",
+        "id": 3,
         "title": "Complete authentication system with JWT and security features",
         "description": "Implement user registration, login, JWT token management, password hashing, and rate limiting per PRD security requirements",
         "details": "Build complete authentication system in src/auth/:\n\n**Service layer (service.py):**\n- `create_user(email, password, full_name)`: hash password with bcrypt, create user record\n- `authenticate_user(email, password)`: verify credentials, handle failed login attempts (lock after 3 failures for 15 minutes)\n- `create_access_token(user_id)`: generate JWT with 24-hour expiration using python-jose\n- `verify_token(token)`: decode and validate JWT\n- `reset_password(user_id, new_password)`: hash and update password\n\n**Router (router.py):**\n- POST /register: create new user account\n- POST /login: authenticate and return JWT token\n- POST /logout: invalidate token (store in Redis blacklist)\n- GET /me: get current user profile (protected)\n- POST /forgot-password: send password reset email (stubbed for Stage A)\n- POST /reset-password: reset password with token\n\n**Security implementation:**\n- Password requirements: min 12 chars, uppercase, lowercase, number, special char\n- Rate limiting: 100 requests/minute per session using Redis\n- Failed login tracking: increment failed_login_attempts, set locked_until after 3 failures\n- Token blacklist in Redis for logout\n- CORS configuration already in main.py\n\n**Dependencies (dependencies.py):**\n- `get_current_user`: dependency that extracts JWT from Authorization header, validates, and returns User object\n- `get_current_active_user`: extends get_current_user, verifies is_active=True\n\n**Schemas (schemas.py):**\n- UserRegister: email, password, full_name\n- UserLogin: email, password\n- TokenResponse: access_token, token_type\n- UserProfile: id, email, full_name, is_active, created_at\n\n**Implementation notes:**\n- Use passlib with bcrypt for password hashing\n- JWT secret from settings.SECRET_KEY\n- Token expiration from settings.ACCESS_TOKEN_EXPIRE_MINUTES (default 1440 = 24 hours)\n- All operations are async\n- Use structlog for audit logging of auth events",
@@ -343,7 +343,7 @@
         "updatedAt": "2026-03-30T19:55:55.554Z"
       },
       {
-        "id": "4",
+        "id": 4,
         "title": "Products and inventory management CRUD operations",
         "description": "Implement product catalog management with categories, CRUD operations, and inventory level tracking",
         "details": "Implement products and inventory modules:\n\n**Products service (src/products/service.py):**\n- `create_product(data, user_id)`: create product with auto-generated SKU if not provided\n- `get_product_by_id(product_id)`: retrieve single product\n- `list_products(filters, pagination)`: list products with filtering by category, is_active\n- `update_product(product_id, data, user_id)`: update product, create PriceHistory record if prices change\n- `deactivate_product(product_id)`: soft-delete by setting is_active=False\n- `create_category(name, description)`: create product category\n- `list_categories()`: list all categories\n\n**Products router (src/products/router.py):**\n- POST /products: create new product (protected)\n- GET /products: list products with filters and pagination\n- GET /products/{id}: get single product\n- PUT /products/{id}: update product (protected)\n- DELETE /products/{id}: deactivate product (protected)\n- POST /categories: create category (protected)\n- GET /categories: list categories\n- GET /products/{id}/price-history: get price change history\n\n**Inventory service (src/inventory/service.py):**\n- `initialize_inventory(product_id, initial_stock)`: create InventoryLevel record when product is created\n- `get_inventory_level(product_id)`: get current stock level\n- `update_stock(product_id, quantity_delta, movement_type, reference_id)`: adjust stock and create StockMovement record\n- `get_low_stock_products()`: query products where current_stock <= low_stock_threshold\n- `calculate_depletion_date(product_id)`: compute predicted stock-out date based on 30-day rolling average sales velocity\n- `get_stock_movements(product_id, date_range)`: get movement history\n\n**Inventory router (src/inventory/router.py):**\n- GET /inventory: list all inventory levels\n- GET /inventory/{product_id}: get inventory for specific product\n- POST /inventory/{product_id}/adjust: manual stock adjustment (protected)\n- GET /inventory/low-stock: list products at or below threshold\n- GET /inventory/{product_id}/movements: get stock movement history\n- GET /inventory/{product_id}/depletion-forecast: get predicted stock-out date\n\n**Implementation notes:**\n- Use SQLAlchemy async queries with proper error handling\n- Price changes trigger PriceHistory records automatically\n- Inventory adjustments always create StockMovement audit records\n- Depletion forecast requires sales data (gracefully handle products with no sales history)\n- Use Pydantic models for request/response validation\n- Include user_id from JWT token for audit trails",
@@ -473,7 +473,7 @@
         "updatedAt": "2026-03-30T20:05:46.088Z"
       },
       {
-        "id": "5",
+        "id": 5,
         "title": "Daily sales entry with automatic inventory updates",
         "description": "Implement sales data entry system that automatically updates inventory levels and tracks sales history for demand forecasting",
         "details": "Implement sales module with automatic inventory synchronization:\n\n**Sales service (src/sales/service.py):**\n- `create_daily_sales_entry(entries, user_id)`: \n  - Accept list of {product_id, quantity_sold, sale_date} entries\n  - Validate product exists and has sufficient stock\n  - Create DailySales records\n  - Call inventory.update_stock() to reduce inventory by quantity_sold\n  - Create StockMovement with type=SALE\n  - Calculate total_amount using current product selling_price\n  - Transaction rollback on any failure\n- `get_sales_by_date_range(start_date, end_date, product_id?)`: retrieve sales data\n- `get_sales_velocity(product_id, days=30)`: calculate rolling average daily sales\n- `get_sales_summary(date_range)`: aggregate revenue, units sold, by product and date\n- `update_sales_entry(entry_id, data, user_id)`: edit previous entry, adjust inventory delta\n- `delete_sales_entry(entry_id, user_id)`: delete entry, reverse inventory adjustment, audit log\n- `bulk_upload_sales_csv(file, user_id)`: parse CSV, validate, create entries in bulk transaction\n\n**Sales router (src/sales/router.py):**\n- POST /sales/daily-entry: submit daily sales (single or multiple products)\n- POST /sales/bulk-upload: upload CSV file with sales data\n- GET /sales: list sales entries with filters (date range, product)\n- GET /sales/{id}: get single sales entry\n- PUT /sales/{id}: edit sales entry (with audit trail)\n- DELETE /sales/{id}: delete sales entry (with audit trail)\n- GET /sales/summary: aggregate sales metrics by product/date\n- GET /sales/velocity/{product_id}: get sales velocity for demand forecasting\n- GET /sales/export: download sales data as CSV\n\n**CSV upload format:**\n```csv\ndate,product_sku,quantity_sold\n2026-03-28,SKU-001,15\n2026-03-28,SKU-002,8\n```\n\n**Implementation requirements:**\n- Sales entry and inventory update must be atomic (within single DB transaction)\n- Prevent overselling: validate quantity_sold <= current_stock before commit\n- Handle concurrent sales entries safely (use SELECT FOR UPDATE on inventory)\n- CSV validation: check date format, SKU exists, quantity is positive number\n- Sales velocity calculation uses SQLAlchemy window functions for efficiency\n- Low stock alerts triggered automatically after inventory update\n- All operations use async/await\n- Log all sales operations with structlog\n\n**Error handling:**\n- Return 400 if product not found or insufficient stock\n- Return 422 for CSV validation errors with line-by-line report\n- Use database transactions to ensure consistency",
@@ -605,7 +605,7 @@
         "updatedAt": "2026-03-30T20:13:43.950Z"
       },
       {
-        "id": "6",
+        "id": 6,
         "title": "Order and purchase management with FX exposure tracking",
         "description": "Implement purchase order lifecycle management with 30/70 payment structure and FX exposure calculation",
         "details": "Implement orders module with FX exposure tracking:\n\n**Orders service (src/orders/service.py):**\n- `create_order(supplier_name, items, lead_times, user_id)`:\n  - Create Order record with auto-generated order_number (format: ORD-YYYY-NNNN)\n  - Create OrderItem records for each product\n  - Calculate estimated_arrival_date = order_date + production_days + shipping_days + clearing_days\n  - Create 30% deposit OrderPayment with current FX rate (from fx.get_latest_rate())\n  - Return order with locked FX exposure calculated\n- `update_order_status(order_id, new_status, user_id)`:\n  - Update status with validation of allowed transitions\n  - If status = DELIVERED, prompt for actual_arrival_date and actual FX rate for 70% payment\n  - Create 70% balance OrderPayment record with actual FX rate\n  - Trigger inventory.update_stock() to add received quantity\n  - Create StockMovement with type=PURCHASE\n- `get_order_by_id(order_id)`: retrieve order with items and payments\n- `list_orders(filters)`: filter by status, date range, supplier\n- `calculate_fx_exposure(order_id)`: compute locked (30% deposit) and floating (70% forecasted) exposure\n- `get_orders_by_arrival_window(days=180)`: get orders arriving in next N days for cashflow projection\n- `get_profit_projection(order_id, fx_scenario='base')`: calculate expected profit using FX forecast\n\n**Orders router (src/orders/router.py):**\n- POST /orders: create new purchase order\n- GET /orders: list orders with filters (status, date range, supplier)\n- GET /orders/{id}: get order details with FX exposure breakdown\n- PUT /orders/{id}/status: update order status\n- GET /orders/{id}/fx-exposure: get detailed FX exposure (locked 30%, floating 70%)\n- GET /orders/{id}/profit-projection: get profit projection with FX scenarios\n- GET /orders/pipeline: get orders grouped by status for pipeline view\n- GET /orders/arriving-soon: get orders arriving in next 30 days\n\n**FX exposure calculation:**\n```python\ndef calculate_fx_exposure(order):\n    # 30% locked at deposit FX rate\n    deposit_payment = order.payments.filter(payment_type='DEPOSIT_30').first()\n    locked_exposure_usd = order.total_order_value_usd * 0.30\n    locked_fx_rate = deposit_payment.fx_rate_ngn_usd\n    locked_exposure_ngn = locked_exposure_usd * locked_fx_rate\n    \n    # 70% floating - use forecast FX rate at arrival date\n    balance_exposure_usd = order.total_order_value_usd * 0.70\n    forecast = fx_service.get_forecast_for_date(order.estimated_arrival_date)\n    floating_fx_rate = forecast.base_forecast\n    floating_exposure_ngn = balance_exposure_usd * floating_fx_rate\n    \n    return {\n        'locked': {'usd': locked_exposure_usd, 'ngn': locked_exposure_ngn, 'fx_rate': locked_fx_rate},\n        'floating': {'usd': balance_exposure_usd, 'ngn': floating_exposure_ngn, 'fx_rate': floating_fx_rate},\n        'total_ngn': locked_exposure_ngn + floating_exposure_ngn\n    }\n```\n\n**Implementation notes:**\n- Use Decimal type for all currency calculations\n- FX rates fetched from fx module (integrates with task 7)\n- Order status transitions enforced: PENDING -> IN_PRODUCTION -> SHIPPING -> CLEARED -> DELIVERED\n- Profit projection compares total cost (in NGN) vs. revenue from selling at current prices\n- Use async transactions for order creation (order + items + payment + inventory)",
@@ -749,7 +749,7 @@
         "updatedAt": "2026-03-30T20:18:07.782Z"
       },
       {
-        "id": "7",
+        "id": 7,
         "title": "FX data ingestion and historical rate storage",
         "description": "Implement FX market data ingestion from external API, manual entry, and historical rate storage for model training",
         "details": "Implement FX data management in src/fx/:\n\n**FX service (service.py):**\n- `fetch_latest_fx_rate(currency_pair='NGNGSD', rate_type='PARALLEL_MARKET')`:\n  - Call external FX API (URL from settings.FX_API_URL, key from settings.FX_API_KEY)\n  - Parse response and store in FXRate table\n  - Handle API errors gracefully, log failures\n  - Use httpx for async HTTP requests\n- `manual_fx_entry(currency_pair, rate, rate_date, rate_type, source, user_id)`:\n  - Allow manual entry of FX rates when API unavailable\n  - Validate rate is positive, date not in future\n  - Create FXRate record\n- `get_latest_rate(currency_pair='NGNGSD', rate_type='PARALLEL_MARKET')`:\n  - Retrieve most recent rate from database\n  - Cache in Redis for 5 minutes to reduce DB load\n- `get_rate_for_date(currency_pair, rate_date, rate_type='PARALLEL_MARKET')`:\n  - Get specific historical rate\n  - If exact date not found, use nearest previous date\n- `get_historical_rates(currency_pair, start_date, end_date, rate_type='PARALLEL_MARKET')`:\n  - Retrieve time series of rates for model training\n  - Return as list of {rate_date, rate} dicts\n- `backfill_historical_data(currency_pair, start_date, end_date)`:\n  - Fetch historical data from API for model training (180 days required)\n  - Batch insert into database\n- `calculate_volatility(currency_pair, days=30)`:\n  - Calculate 30-day rolling standard deviation of daily rate changes\n  - Used for Monte Carlo simulation inputs\n\n**FX router (router.py):**\n- POST /fx/fetch-latest: trigger API fetch of latest rate (protected, admin)\n- POST /fx/manual-entry: manually enter FX rate (protected)\n- GET /fx/latest: get current FX rate\n- GET /fx/rates: get historical rates with date range filter\n- GET /fx/rate-for-date: get rate for specific date\n- POST /fx/backfill: backfill historical data from API (protected, admin)\n- GET /fx/volatility: get volatility metric for risk modeling\n\n**API integration example (using public FX API):**\n```python\nasync def fetch_fx_from_api():\n    async with httpx.AsyncClient() as client:\n        response = await client.get(\n            settings.FX_API_URL,\n            headers={'Authorization': f'Bearer {settings.FX_API_KEY}'},\n            timeout=10.0\n        )\n        response.raise_for_status()\n        data = response.json()\n        rate = Decimal(str(data['rates']['NGN']))  # Example structure\n        return rate\n```\n\n**Scheduled tasks (optional for Stage A):**\n- Set up background task to fetch FX rate daily at market close\n- Use APScheduler or Celery for scheduling (can be manual for Stage A)\n\n**Implementation notes:**\n- Store rates with 4 decimal precision (e.g., 1650.2500)\n- Handle API rate limits and failures gracefully\n- Cache latest rate in Redis with 5-minute TTL\n- Log all FX data operations for audit\n- Support multiple currency pairs (extensible for future)\n- Validate rate_type enum values",
@@ -859,7 +859,7 @@
         "updatedAt": "2026-03-31T01:56:29.939Z"
       },
       {
-        "id": "8",
+        "id": 8,
         "title": "FX forecasting engine with Prophet and Monte Carlo simulation",
         "description": "Implement AI-driven FX rate forecasting using Facebook Prophet with Monte Carlo simulation for scenario modeling",
         "details": "Implement FX forecasting in src/fx/:\n\n**FX forecasting service additions to service.py:**\n- `train_fx_forecast_model(currency_pair='NGNGSD')`:\n  - Fetch 180 days of historical rates from database\n  - Prepare data in Prophet format: {ds: date, y: rate}\n  - Initialize Prophet model with multiplicative seasonality\n  - Fit model on historical data\n  - Store model to disk (pickle) with version identifier\n  - Log training metrics (MAE on validation set)\n- `generate_fx_forecast(currency_pair='NGNGSD', forecast_horizon_days=180)`:\n  - Load trained Prophet model from disk\n  - Generate point forecasts for next 180 days\n  - Extract confidence intervals from Prophet output (80% and 95%)\n  - For each forecast date, run Monte Carlo simulation (10,000 runs) to generate distribution:\n    - Use Prophet trend + seasonality as mean\n    - Use historical 30-day volatility as standard deviation\n    - Generate random samples from normal distribution\n    - Calculate percentiles: 5th (best-case), 50th (base), 95th (worst-case)\n  - Store forecasts in FXForecast table\n  - Return forecast DataFrame\n- `get_forecast_for_date(currency_pair, target_date)`:\n  - Retrieve forecast from FXForecast table\n  - If forecast doesn't exist or is stale (>7 days old), regenerate\n  - Return base, best_case, worst_case rates\n- `get_forecast_range(currency_pair, start_date, end_date)`:\n  - Return forecast time series for date range\n- `update_forecast_accuracy()`:\n  - Compare past forecasts to actual rates\n  - Calculate MAE and MAPE\n  - Update FXForecast records with error metrics\n  - Log accuracy for model improvement tracking\n- `monte_carlo_fx_simulation(base_rate, volatility, days_ahead, num_simulations=10000)`:\n  - Geometric Brownian Motion simulation\n  - Returns distribution of possible rates\n\n**Prophet model configuration:**\n```python\nfrom prophet import Prophet\nimport numpy as np\n\ndef train_model(historical_data: pd.DataFrame):\n    model = Prophet(\n        yearly_seasonality=True,\n        weekly_seasonality=False,\n        daily_seasonality=False,\n        seasonality_mode='multiplicative',\n        interval_width=0.95\n    )\n    model.fit(historical_data)\n    return model\n\ndef forecast_with_scenarios(model, periods=180):\n    future = model.make_future_dataframe(periods=periods)\n    forecast = model.predict(future)\n    \n    # Extract Prophet forecast\n    base_forecast = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']]\n    \n    # Monte Carlo for scenario generation\n    volatility = calculate_volatility()  # From historical data\n    scenarios = []\n    for _, row in base_forecast.iterrows():\n        simulated_rates = np.random.normal(\n            loc=row['yhat'],\n            scale=volatility * row['yhat'],\n            size=10000\n        )\n        scenarios.append({\n            'date': row['ds'],\n            'base': row['yhat'],\n            'best_case': np.percentile(simulated_rates, 5),\n            'worst_case': np.percentile(simulated_rates, 95)\n        })\n    \n    return scenarios\n```\n\n**Router additions:**\n- POST /fx/train-model: trigger model training (protected, admin)\n- POST /fx/generate-forecast: generate new forecast for horizon (protected)\n- GET /fx/forecast/{target_date}: get forecast for specific date\n- GET /fx/forecast-range: get forecast time series\n- GET /fx/forecast-accuracy: get model performance metrics\n\n**Implementation notes:**\n- Model training should run weekly or when significant drift detected\n- Forecasts regenerated daily\n- Store model version with each forecast for traceability\n- Use NumPy/SciPy for Monte Carlo simulation performance\n- Prophet model files stored in backend/models/ directory\n- Async wrappers around Prophet (CPU-intensive, run in thread pool)\n- Error bounds widen for longer forecast horizons",
@@ -995,7 +995,7 @@
         "updatedAt": "2026-03-31T02:12:32.812Z"
       },
       {
-        "id": "9",
+        "id": 9,
         "title": "Demand forecasting and pricing optimization engine",
         "description": "Implement demand elasticity modeling, sales forecasting, and portfolio margin optimization to maintain 35% target margin",
         "details": "Implement demand and pricing modules:\n\n**Demand forecasting (src/pricing/service.py - demand functions):**\n- `calculate_demand_forecast(product_id, forecast_horizon_days=90)`:\n  - Fetch historical sales data from sales module\n  - Prepare time series: {ds: sale_date, y: quantity_sold}\n  - Train Prophet model with seasonality for demand\n  - Generate 90-day forward demand forecast\n  - Apply price elasticity adjustment: `demand_adjusted = base_demand * (1 + elasticity * price_change_pct)`\n  - Apply FX sensitivity adjustment: `demand_adjusted *= (1 + fx_sensitivity * fx_change_pct)`\n  - Return forecast with confidence intervals\n- `calculate_price_elasticity_impact(product_id, proposed_price)`:\n  - Current price = product.selling_price\n  - Price change % = (proposed_price - current_price) / current_price\n  - Elasticity coefficient = product.price_elasticity_coefficient (default -1.0)\n  - Demand impact % = elasticity * price_change_%\n  - Return projected demand change\n\n**Portfolio margin optimization (src/pricing/service.py):**\n- `calculate_portfolio_margin()`:\n  - Query all active products with recent sales data\n  - For each product:\n    - Revenue = sum(daily_sales.total_amount) over last 30 days\n    - COGS = sum(daily_sales.quantity_sold * product.unit_cost)\n    - Margin = (Revenue - COGS) / Revenue\n  - Blended margin = total_margin / total_revenue across all products\n  - Store in PortfolioMargin table\n  - Return {blended_margin, target_margin=0.35, margin_gap, per_product_margins[]}\n- `generate_pricing_recommendations(target_margin=0.35)`:\n  - Calculate current portfolio margin\n  - If blended_margin < target_margin:\n    - Identify products with margin < 35%\n    - Use optimization algorithm (SciPy minimize) to find price adjustments:\n      - Objective: maximize blended margin\n      - Constraints: maintain total revenue within 5% of current\n      - Consider elasticity: high-elasticity products get smaller increases\n    - Generate PricingRecommendation for each product needing adjustment\n    - Include cross-subsidization logic: allow high-margin products (>40%) to offset lower-margin volume drivers (28-34%)\n  - Prioritize recommendations by impact (HIGH: margin gap >5%, MEDIUM: 2-5%, LOW: <2%)\n  - Return sorted list of recommendations\n- `apply_pricing_recommendation(recommendation_id, user_id)`:\n  - Retrieve recommendation\n  - Update product.selling_price to recommended_price\n  - Create PriceHistory record with reason='AI recommendation'\n  - Mark recommendation status=APPLIED\n  - Recalculate portfolio margin\n\n**Pricing router (src/pricing/router.py):**\n- GET /pricing/portfolio-margin: get current blended margin and per-product breakdown\n- GET /pricing/recommendations: get active pricing recommendations\n- POST /pricing/recommendations/generate: trigger recommendation generation\n- POST /pricing/recommendations/{id}/apply: apply a recommendation\n- POST /pricing/recommendations/{id}/dismiss: dismiss a recommendation\n- GET /pricing/demand-forecast/{product_id}: get demand forecast for product\n- POST /pricing/configure-elasticity/{product_id}: update elasticity coefficients\n\n**Optimization algorithm (simplified):**\n```python\nfrom scipy.optimize import minimize\n\ndef optimize_prices(products, target_margin=0.35):\n    # Initial prices\n    x0 = [p.selling_price for p in products]\n    \n    def objective(prices):\n        # Calculate blended margin with new prices\n        total_revenue = 0\n        total_cogs = 0\n        for i, product in enumerate(products):\n            new_price = prices[i]\n            price_change = (new_price - product.selling_price) / product.selling_price\n            demand_multiplier = 1 + product.price_elasticity_coefficient * price_change\n            projected_quantity = product.avg_daily_sales * 30 * demand_multiplier\n            revenue = projected_quantity * new_price\n            cogs = projected_quantity * product.unit_cost\n            total_revenue += revenue\n            total_cogs += cogs\n        \n        margin = (total_revenue - total_cogs) / total_revenue\n        # Minimize negative margin (maximize margin)\n        return -(margin - target_margin)\n    \n    # Constraints: prices must be > unit_cost * 1.10 (minimum 10% margin)\n    bounds = [(p.unit_cost * 1.10, p.unit_cost * 3.0) for p in products]\n    \n    result = minimize(objective, x0, bounds=bounds, method='SLSQP')\n    return result.x  # Optimized prices\n```\n\n**Implementation notes:**\n- Use Decimal for all price/margin calculations\n- Portfolio margin calculated daily via scheduled task\n- Recommendations generated when margin falls below threshold\n- Cross-subsidization explicitly shown in recommendation reasoning\n- Support manual override of elasticity coefficients per product",
@@ -1146,7 +1146,7 @@
         "updatedAt": "2026-03-31T05:20:47.101Z"
       },
       {
-        "id": "10",
+        "id": 10,
         "title": "Cashflow projection and DSCR monitoring system",
         "description": "Implement 6-month rolling cashflow projection, DSCR calculation, cash runway monitoring, and stress scenario simulation",
         "details": "Implement cashflow module in src/cashflow/:\n\n**Cashflow service (service.py):**\n- `create_loan_obligation(data, user_id)`:\n  - Create LoanObligation record\n  - Calculate net_monthly_burden = monthly_repayment - salary_offset\n- `create_operating_cost(data, user_id)`:\n  - Create OperatingCost record\n  - Normalize frequency to monthly equivalent\n- `generate_cashflow_projection(months=6, scenario_type='BASE')`:\n  - For each of next 6 months:\n    1. **Projected Revenue:**\n       - Sum demand forecasts for all products * selling_price\n       - If scenario_type='DEMAND_DROP_10', reduce by 10%\n       - If scenario_type='DEMAND_DROP_20', reduce by 20%\n    2. **Projected Loan Payment:**\n       - Sum net_monthly_burden for all active loans\n    3. **Projected Operating Costs:**\n       - Sum monthly operating costs\n    4. **Projected FX Obligations (70% balance payments):**\n       - Query orders with estimated_arrival_date in this month\n       - Calculate 70% * total_order_value_usd * forecasted_fx_rate\n       - If scenario_type='FX_SHOCK_10', increase FX rate by 10%\n       - If scenario_type='FX_SHOCK_20', increase FX rate by 20%\n    5. **Net Cashflow:**\n       - net = revenue - loan_payment - operating_costs - fx_obligations\n    6. **Cumulative Cashflow:**\n       - cumulative = previous_cumulative + net\n    7. **Cash Runway:**\n       - If net < 0: runway = cumulative / abs(average_monthly_burn)\n    8. **DSCR (Debt Service Coverage Ratio):**\n       - DSCR = net_operating_income / total_debt_service\n       - net_operating_income = revenue - operating_costs\n       - total_debt_service = loan_payment\n    9. **Risk Rating:**\n       - LOW: DSCR >= 1.5 AND runway > 6 months\n       - MEDIUM: DSCR 1.0-1.49 OR runway 3-6 months\n       - HIGH: DSCR < 1.0 OR runway < 3 months\n  - Store projection in CashflowProjection table\n  - Return list of 6 monthly projections\n- `run_stress_scenario(scenario_type)`:\n  - scenario_type in ['BASE', 'FX_SHOCK_10', 'FX_SHOCK_20', 'DEMAND_DROP_10', 'DEMAND_DROP_20', 'COMBINED_STRESS']\n  - COMBINED_STRESS = FX_SHOCK_20 + DEMAND_DROP_20\n  - Generate cashflow projection with scenario parameters\n  - Store in ScenarioSimulation table\n  - Return comparative results (base vs. stress)\n- `calculate_cash_runway()`:\n  - Query latest cumulative_cashflow\n  - Calculate average monthly burn from last 3 months\n  - runway_months = cumulative_cashflow / average_burn\n  - Return runway_months\n- `calculate_dscr(month_projection)`:\n  - DSCR = net_operating_income / total_debt_service\n  - Return ratio and color code (green/amber/red)\n- `check_liquidity_alerts()`:\n  - Query next 6 months of projections\n  - Flag months with negative net_cashflow\n  - Flag if DSCR < 1.0 in any month\n  - Return list of alerts with severity\n\n**Cashflow router (router.py):**\n- POST /cashflow/loans: create loan obligation\n- GET /cashflow/loans: list active loans\n- POST /cashflow/operating-costs: create operating cost\n- GET /cashflow/operating-costs: list operating costs\n- GET /cashflow/projection: get 6-month cashflow projection (defaults to BASE scenario)\n- GET /cashflow/projection/{scenario}: get projection for specific scenario\n- POST /cashflow/run-scenario: run stress scenario simulation\n- GET /cashflow/scenarios: list saved scenario simulations\n- GET /cashflow/cash-runway: get current cash runway in months\n- GET /cashflow/dscr: get current DSCR\n- GET /cashflow/alerts: get liquidity shortage alerts\n\n**Scenario comparison output:**\n```json\n{\n  \"base\": {\"cash_runway\": 8.5, \"avg_dscr\": 1.8, \"risk_rating\": \"LOW\"},\n  \"fx_shock_20\": {\"cash_runway\": 4.2, \"avg_dscr\": 1.1, \"risk_rating\": \"MEDIUM\"},\n  \"demand_drop_20\": {\"cash_runway\": 5.1, \"avg_dscr\": 1.3, \"risk_rating\": \"MEDIUM\"},\n  \"combined_stress\": {\"cash_runway\": 2.8, \"avg_dscr\": 0.8, \"risk_rating\": \"HIGH\"}\n}\n```\n\n**Implementation notes:**\n- Use Decimal for all financial calculations\n- Projections regenerated daily\n- Scenario simulations run on-demand\n- Alerts generated proactively when DSCR < 1.5 or runway < 4 months\n- Integrate with FX forecast (task 8), demand forecast (task 9), and orders (task 6)",
@@ -1287,7 +1287,7 @@
         "updatedAt": "2026-03-31T05:28:41.243Z"
       },
       {
-        "id": "11",
+        "id": 11,
         "title": "AI optimization engine with unified recommendations",
         "description": "Implement unified recommendation engine that prioritizes actions across pricing, ordering, hedging, and liquidity management",
         "details": "Implement AI engine in src/ai_engine/:\n\n**AI Engine service (service.py):**\n- `generate_unified_recommendations()`:\n  - **Price adjustments:**\n    - Call pricing.generate_pricing_recommendations()\n    - Convert to Recommendation objects with type=PRICE\n    - Priority based on margin gap and revenue impact\n  - **Order timing and sizing:**\n    - For each product with inventory depletion within lead time:\n      - Calculate optimal order date considering FX forecast (lowest predicted rate in next 60 days)\n      - Calculate optimal quantity based on demand forecast * lead_time_days * 1.2 (20% buffer)\n      - Estimate FX-adjusted cost = (0.3 * current_fx + 0.7 * forecast_fx) * order_value_usd\n      - Create Recommendation with type=ORDER_TIMING\n    - Priority: HIGH if stock-out within 14 days, MEDIUM within 30 days, LOW beyond\n  - **USD accumulation (hedging) strategy:**\n    - Query orders with 70% payment due in next 180 days\n    - For each order:\n      - Total USD needed = 0.7 * order_value_usd\n      - Days until arrival = arrival_date - today\n      - Weekly purchase amount = USD_needed / (days / 7)\n      - Suggest weekly USD purchases at forecasted favorable rates\n    - Create Recommendation with type=USD_HEDGE\n    - Priority based on amount at risk and FX volatility\n  - **Inventory allocation:**\n    - If cashflow tight (runway < 4 months):\n      - Rank products by margin * turnover_velocity\n      - Recommend prioritizing high-margin, fast-moving products for restocking\n      - Create Recommendation with type=INVENTORY\n  - **Liquidity and DSCR alerts:**\n    - If DSCR < 1.5 or cash_runway < 4 months:\n      - Recommend corrective actions:\n        - Delay non-critical orders\n        - Increase prices on low-elasticity products\n        - Negotiate loan payment deferral\n      - Create Recommendation with type=LIQUIDITY\n    - Priority: HIGH if DSCR < 1.0, MEDIUM if DSCR 1.0-1.49\n  - **Prioritization algorithm:**\n    - Score = financial_impact * urgency * confidence\n    - financial_impact = estimated NGN benefit\n    - urgency = 1.0 for <7 days, 0.7 for 7-30 days, 0.4 for >30 days\n    - confidence = forecast confidence interval width (narrower = higher confidence)\n  - Store all recommendations in Recommendation table\n  - Return sorted list by priority_score (descending)\n- `apply_recommendation(recommendation_id, user_id)`:\n  - Route to appropriate service based on recommendation_type:\n    - PRICE -> pricing.apply_pricing_recommendation()\n    - ORDER_TIMING -> create draft order\n    - USD_HEDGE -> create accumulation schedule (manual execution)\n    - INVENTORY -> flag in system (manual decision)\n    - LIQUIDITY -> flag for user action\n  - Mark recommendation status=APPLIED\n  - Log application in audit trail\n- `dismiss_recommendation(recommendation_id, user_id, reason)`:\n  - Mark recommendation status=DISMISSED\n  - Store dismissal reason for future model improvement\n- `get_active_recommendations()`:\n  - Return recommendations with status=PENDING\n  - Sorted by priority_score\n  - Limit to top 10 for dashboard display\n\n**USD accumulation schedule generation:**\n```python\ndef generate_usd_accumulation_schedule(order):\n    usd_needed = Decimal('0.7') * order.total_order_value_usd\n    days_until_arrival = (order.estimated_arrival_date - date.today()).days\n    weeks = max(1, days_until_arrival // 7)\n    \n    weekly_amount = usd_needed / weeks\n    \n    schedule = []\n    for week in range(weeks):\n        purchase_date = date.today() + timedelta(days=week * 7)\n        forecast = fx_service.get_forecast_for_date('NGNGSD', purchase_date)\n        schedule.append({\n            'week': week + 1,\n            'purchase_date': purchase_date,\n            'usd_amount': weekly_amount,\n            'forecasted_fx_rate': forecast.base_forecast,\n            'ngn_amount': weekly_amount * forecast.base_forecast\n        })\n    \n    return schedule\n```\n\n**AI Engine router (router.py):**\n- POST /ai/generate-recommendations: trigger recommendation generation\n- GET /ai/recommendations: get active recommendations (top N)\n- GET /ai/recommendations/all: get all recommendations with status filter\n- POST /ai/recommendations/{id}/apply: apply a recommendation\n- POST /ai/recommendations/{id}/dismiss: dismiss a recommendation\n- GET /ai/recommendations/history: get applied/dismissed recommendation history\n- GET /ai/usd-accumulation/{order_id}: get USD accumulation schedule for order\n\n**Implementation notes:**\n- Recommendations regenerated daily via scheduled task\n- Priority scoring uses multi-criteria decision analysis\n- Recommendations include clear reasoning and expected impact\n- Integration with all other modules (pricing, orders, inventory, cashflow, fx)\n- Use async operations for parallel data fetching",
@@ -1453,7 +1453,7 @@
         "updatedAt": "2026-03-31T06:37:03.140Z"
       },
       {
-        "id": "12",
+        "id": 12,
         "title": "Frontend authentication, dashboards, and complete UI implementation",
         "description": "Build Angular frontend with authentication, responsive dashboards, sales entry forms, order management, and data visualization using PrimeNG and TailwindCSS",
         "details": "Implement complete Angular frontend in frontend/src/app/:\n\n**Core infrastructure:**\n- **Auth service (core/services/auth.service.ts):**\n  - login(email, password): call POST /api/v1/auth/login, store JWT in localStorage\n  - logout(): clear JWT, navigate to login\n  - getCurrentUser(): call GET /api/v1/auth/me\n  - isAuthenticated(): check JWT exists and not expired\n- **HTTP interceptor (core/interceptors/auth.interceptor.ts):**\n  - Add Authorization: Bearer {token} to all requests\n  - Handle 401 responses by redirecting to login\n- **Auth guard (core/guards/auth.guard.ts):**\n  - Protect routes, redirect unauthenticated users to login\n\n**Feature modules (standalone components):**\n\n**1. Auth feature (features/auth/):**\n- LoginComponent: login form with email/password, error handling for lockout\n- RegisterComponent: registration form (if multi-user in future)\n- Layout: centered card on gradient background\n\n**2. Dashboard feature (features/dashboard/):**\n- **HomeComponent** (main dashboard):\n  - LiquidityRiskCard: Cash Runway, DSCR, risk rating badge\n  - FXExposureSummaryCard: total locked, total floating, aggregate risk\n  - PortfolioMarginMeter: circular progress showing margin vs. 35% target\n  - PendingOrdersPipeline: count by status with horizontal pipeline visual\n  - InventoryAlertsCard: list of low-stock products with depletion dates\n  - TopRecommendationsCard: top 3 AI recommendations with apply/dismiss buttons\n  - ActivityTimeline: scrollable timeline of recent events (sales, orders, alerts)\n  - Layout: responsive grid using TailwindCSS (3-4 columns desktop, 2 tablet, 1 mobile)\n\n**3. Sales feature (features/sales/):**\n- **SalesEntryComponent:**\n  - Quick-entry form: product dropdown (PrimeNG p-dropdown), quantity input, date picker\n  - Multi-product entry: add multiple rows dynamically\n  - Submit button calls POST /api/v1/sales/daily-entry\n  - Success message on submission, inventory updates reflected immediately\n- **SalesHistoryComponent:**\n  - PrimeNG p-table with filters (date range, product), pagination, sorting\n  - Edit/delete actions with confirmation dialogs\n  - Export to CSV button\n- **SalesVelocityChartComponent:**\n  - Line chart showing 30-day sales velocity per product (Chart.js or PrimeNG p-chart)\n\n**4. Inventory feature (features/inventory/):**\n- **InventoryListComponent:**\n  - PrimeNG p-table: product, current stock, low stock threshold, depletion date\n  - Color-coded rows: green (safe), amber (low), red (critical)\n  - Manual adjustment button opens dialog\n- **StockMovementHistoryComponent:**\n  - Table of stock movements with type, quantity, date, reference\n\n**5. Orders feature (features/orders/):**\n- **OrderListComponent:**\n  - PrimeNG p-table with filters (status, supplier, date range)\n  - Pipeline view: horizontal cards grouped by status\n  - Order detail dialog shows FX exposure breakdown\n- **CreateOrderComponent:**\n  - Form: supplier, products (multi-select), quantities, lead time breakdown\n  - FX exposure preview calculated in real-time\n  - Submit calls POST /api/v1/orders\n- **OrderDetailComponent:**\n  - Order info, items table, FX exposure card (locked 30%, floating 70%)\n  - Status update buttons (transition workflow)\n  - Profit projection section with base/best/worst scenarios\n\n**6. FX feature (features/fx/):**\n- **FXRatesComponent:**\n  - Current rate display (large, prominent)\n  - Historical rate chart (line chart, last 90 days)\n  - Manual entry form (admin only)\n- **FXForecastComponent:**\n  - Line chart with confidence bands (base, best-case, worst-case)\n  - Table view: date, base forecast, scenarios\n  - Forecast accuracy metrics display\n\n**7. Cashflow feature (features/cashflow/):**\n- **CashflowProjectionComponent:**\n  - Bar chart: 6-month projection (positive green, negative red)\n  - Line overlay: cumulative cashflow\n  - Month-by-month table: inflows, outflows, net, DSCR\n  - Scenario toggle: base vs. stress scenarios\n- **LiquidityDashboardComponent:**\n  - Cash Runway meter (circular gauge)\n  - DSCR display with color coding\n  - Risk rating badge (LOW/MEDIUM/HIGH)\n  - Alerts list with severity indicators\n- **ScenarioSimulatorComponent:**\n  - Input form: FX shock %, demand drop %\n  - Pre-set scenario buttons (FX +10%, FX +20%, etc.)\n  - Results table: side-by-side comparison of scenarios\n\n**8. Pricing feature (features/pricing/):**\n- **PortfolioMarginComponent:**\n  - Blended margin display with target comparison\n  - Per-product margin table with color coding\n  - Chart: margin distribution across products\n- **PricingRecommendationsComponent:**\n  - Card-based layout: one card per recommendation\n  - Each card shows: product, current price, recommended price, margin impact, reasoning\n  - Apply/Dismiss buttons with confirmation\n\n**9. AI Recommendations feature (features/recommendations/):**\n- **RecommendationsListComponent:**\n  - Unified feed of all recommendation types\n  - Priority-sorted list with category icons (price, order, hedge, inventory, liquidity)\n  - Expandable cards showing detail and expected impact\n  - One-click action buttons\n  - History view (applied/dismissed)\n\n**UI/UX implementation:**\n- **Layout (core/layout/):**\n  - AppLayoutComponent: persistent navbar, sidebar, main content area\n  - Sidebar: navigation links to all features (collapsible on mobile)\n  - Navbar: user profile, logout button, notification bell (future)\n- **Responsive design:**\n  - TailwindCSS breakpoints: sm, md, lg, xl\n  - Mobile: hamburger menu, bottom tab bar for primary views\n  - Tablet: 2-column dashboard grid\n  - Desktop: 3-4 column dashboard grid\n- **PrimeNG components:**\n  - p-table for all data tables\n  - p-chart for visualizations\n  - p-card for dashboard panels\n  - p-button for actions\n  - p-dialog for modals\n  - p-dropdown, p-calendar for forms\n  - p-badge for status indicators\n  - p-toast for notifications\n- **Color system:**\n  - Tailwind config: custom colors matching PRD (green, amber, red, blue, gray)\n  - Semantic classes: text-success, bg-warning, border-danger\n\n**State management:**\n- Use Angular Signals (Angular 17 feature) for reactive state\n- Services with BehaviorSubject for shared state (e.g., current user, dashboard data)\n- No NgRx needed for Stage A (single user)\n\n**Error handling:**\n- Global error interceptor catches HTTP errors\n- Display user-friendly messages via PrimeNG p-toast\n- Retry logic for failed API calls",
@@ -1660,7 +1660,7 @@
         "updatedAt": "2026-03-31T06:09:44.808Z"
       },
       {
-        "id": "13",
+        "id": 13,
         "title": "Frontend UI/UX design and styling overhaul",
         "description": "The frontend currently lacks CSS styling — pages render with no visual design. This task covers a complete UI/UX styling overhaul using TailwindCSS v4 and PrimeNG v21 theming to create a polished, professional look for the ModishLog platform.\n\nScope:\n1. **Global theme and design system** — Configure PrimeNG theme (colors, typography, spacing), define CSS custom properties for brand palette, set up consistent spacing/sizing tokens\n2. **Login page** — Centered card layout with gradient/branded background, styled form inputs, loading states, error message styling\n3. **Shell layout** — Proper sidebar styling (brand logo, active nav highlights, hover states, icons), topbar design (user menu, mobile hamburger), content area padding/max-width\n4. **Dashboard page** — Metric cards with proper shadows/borders/colors, grid layout, status badges, alert banners, trend indicators\n5. **Data-heavy pages (Sales, Inventory, Orders)** — Table styling (striped rows, hover, responsive), form dialogs, action buttons, status pills, empty states\n6. **Chart pages (FX, Cashflow, Pricing)** — Chart container styling, legend positioning, metric cards alongside charts, responsive chart sizing\n7. **Recommendations page** — Card-based feed layout, priority color coding, category filter pills, expand/collapse animations\n8. **Responsive design** — Mobile sidebar overlay, stacked layouts on small screens, touch-friendly targets, proper breakpoints\n9. **Shared components** — Polish metric-card, data-table, alert-banner, status-badge with consistent design language\n10. **Micro-interactions** — Button hover/active states, loading spinners, toast notifications, smooth transitions",
         "details": "",
@@ -1739,7 +1739,7 @@
         "updatedAt": "2026-04-10T17:15:28.541Z"
       },
       {
-        "id": "14",
+        "id": 14,
         "title": "Products management page with image upload",
         "description": "Add a full Products management section where users can add, edit, and delete products. Products should also support image upload (stored as static files served by FastAPI).",
         "details": "\nBackend:\n- Add `image_url: str | None` field to Product model\n- Create Alembic migration for `image_url` column\n- Add `POST /products/{product_id}/image` endpoint accepting multipart UploadFile\n- Store uploaded images in /uploads/products/ directory, serve via FastAPI StaticFiles\n- Return updated ProductRead with image_url populated\n\nFrontend:\n- Update ProductsService: fix interface (unit_cost not cost_price, no current_stock/low_stock_threshold), add create/update/delete methods, add uploadImage method\n- Add `products` route to app.routes.ts\n- Add \"Products\" nav item to sidebar component\n- Create frontend/src/app/features/products/pages/products-page.component.ts with:\n  - Table listing all products (name, SKU, category, unit_cost, selling_price, status, image thumbnail)\n  - Add Product dialog: name, SKU (optional, auto-gen), description, category (select or create), unit_cost, selling_price, currency, image upload\n  - Edit Product dialog (same fields, pre-populated)\n  - Delete confirmation + soft-delete\n  - Search/filter by name\n  - Image thumbnail display in table and dialogs\n",
@@ -1814,7 +1814,7 @@
         "updatedAt": "2026-04-10T17:32:37.432Z"
       },
       {
-        "id": "15",
+        "id": 15,
         "title": "Inline product creation in New Order dialog",
         "description": "Enhance the New Order creation dialog so each line item's product dropdown includes a \"Create new product\" option that opens an inline mini-form to create a product on the fly, then auto-selects it.",
         "details": "\nFrontend only change (backend already supports product creation):\n- In orders-page.component.ts create order dialog, for each line item row:\n  - The product select dropdown gets a \"+ Create new product\" option at the top\n  - When selected, show a small inline expansion (or nested dialog) with: name, unit_cost (pre-fill cost from the row's unit_cost_usd), category select\n  - On \"Add Product\" click: call ProductsService.create(), on success auto-select new product in that row\n  - The new product appears immediately in the dropdown for future rows too\n- This requires ProductsService to have a create() method\n",
@@ -1892,7 +1892,7 @@
         "updatedAt": "2026-04-11T06:00:19.676Z"
       },
       {
-        "id": "16",
+        "id": 16,
         "title": "Multi-Currency Debt Bridge (EUR/USD/NGN)",
         "description": "Add EUR/USD rate tracking alongside NGN/USD, extend LoanObligation with EUR denomination and current balance, compute a Global Exposure value in NGN, and expose it on a new dashboard panel.",
         "details": "Backend:\n- Add `EUR/USD` as a second supported currency_pair in FXRate model (existing RateType enum applies)\n- Add migration: new columns on loan_obligations table: `currency` (String, default='EUR'), `current_balance` (Numeric, nullable), `current_balance_currency` (String, default='EUR')\n- Add GET /cashflow/global-exposure endpoint that returns:\n  - eur_loan_balance_eur, eur_usd_rate, eur_ngn_derived_rate\n  - open_order_usd_obligations, ngn_usd_rate\n  - total_global_exposure_ngn = (usd_obligations × ngn_usd_rate) + (eur_balance × eur_usd_rate × ngn_usd_rate)\n  - debt_to_trade_ratio = eur_balance_usd_equivalent / trailing_30d_avg_monthly_revenue_usd\n- Add POST /fx/rates to accept EUR/USD pair entries (manual or API)\n- Alert logic: if (new_eur_usd / prev_eur_usd - 1) × 100 > threshold → create Recommendation of type LIQUIDITY\n\nFrontend:\n- New GlobalExposureCard component on the home dashboard\n- Currency toggle (EUR / USD / NGN) on all financial summary panels\n- EUR/USD rate input on the FX Rates page\n- Debt-to-Trade ratio widget with trend arrow and alert badge",
@@ -1990,7 +1990,7 @@
         "updatedAt": "2026-04-11T06:12:00.621Z"
       },
       {
-        "id": "17",
+        "id": 17,
         "title": "Logistics Efficiency Tracker",
         "description": "Calculate and surface Logistics % (shipping + clearing as % of COGS) per order and as a 90-day rolling KPI, with threshold alerts and volume/mix suggestions.",
         "details": "Backend:\n- Add `logistics_pct` computed field on OrderItem or Order: logistics_pct = (shipping_cost + clearing_cost) / total_cogs × 100\n- Store shipping_cost and clearing_cost on Order (new columns via migration if not already present)\n- Add GET /orders/logistics-efficiency endpoint returning:\n  - per_order: [{order_id, logistics_pct, logistics_ngn, total_cogs_ngn}]\n  - rolling_90d_avg_pct\n  - min_quantity_to_reach_target: calculated as (fixed_logistics_cost / (target_lp_pct × unit_cost_ngn))\n- Alert logic: if rolling_90d_avg_pct > amber_threshold (15%) → Recommendation type INVENTORY; if > red_threshold (20%) → HIGH priority\n- Mix suggestion: compare logistics_pct per product_category; if one category is materially below threshold, generate INVENTORY recommendation to shift mix\n\nFrontend:\n- LogisticsEfficiencyCard on the dashboard (Logistics % gauge, amber/red colouring)\n- Logistics Efficiency Report page: per-order table + 12-order trend line chart\n- Volume suggestion banner when threshold breached",
@@ -2087,7 +2087,7 @@
         "updatedAt": "2026-04-11T11:26:37.931Z"
       },
       {
-        "id": "18",
+        "id": 18,
         "title": "Batch FIFO Inventory Tracking",
         "description": "Create InventoryBatch records when orders arrive, compute landed cost per batch, apply FIFO cost matching on sales, and expose batch data in the inventory dashboard and triage liquidation advisor.",
         "details": "Backend:\n- New model InventoryBatch (backend/src/inventory/models.py):\n  - id (UUID), product_id (FK), order_id (FK), quantity_received (Decimal), quantity_remaining (Decimal), unit_cost_usd (Decimal), fx_rate_at_arrival (Decimal), logistics_allocation_per_unit (Decimal), landed_cost_per_unit (Decimal, computed), received_at (Date), created_at\n  - landed_cost_per_unit = (unit_cost_usd × fx_rate_at_arrival) + logistics_allocation_per_unit\n- Alembic migration for inventory_batches table\n- When Order status → DELIVERED: auto-create InventoryBatch record\n- Modify DailySales service: on sale, match against oldest batch first (FIFO); deduct quantity_remaining; compute fifo_cogs = Σ(batch_units_consumed × batch_landed_cost)\n- Add fifo_cogs and fifo_gross_profit fields to DailySales model (or computed on read)\n- GET /inventory/batches?product_id=X — list batches with quantity_remaining and landed_cost_per_unit\n- GET /inventory/batches/liquidation-candidates — returns cheapest batches (by landed cost) with estimated discount to generate a target NGN amount\n\nFrontend:\n- Batch breakdown table in inventory detail view per product\n- FIFO gross profit column in sales history table\n- Liquidation candidates panel (used by Triage Mode task 21)",
@@ -2199,7 +2199,7 @@
         "updatedAt": "2026-04-11T12:17:48.695Z"
       },
       {
-        "id": "19",
+        "id": 19,
         "title": "Strategic Target Mix Planner",
         "description": "Allow the user to configure a target revenue split across product lines, display current mix vs. target, alert on drift, and suggest order quantities in the New PO form to steer toward the target.",
         "details": "Backend:\n- New model ProductMixTarget (backend/src/pricing/models.py):\n  - id (UUID), category_id (FK), target_pct (Decimal), created_at, updated_at\n  - sum-to-100 constraint enforced at service layer\n- GET /pricing/mix-status, POST /pricing/mix-targets, POST /orders/suggest-quantities",
@@ -2297,7 +2297,7 @@
         "updatedAt": "2026-04-11T16:54:27.613Z"
       },
       {
-        "id": "20",
+        "id": 20,
         "title": "Price-FX Sensitivity Playground",
         "description": "Build an interactive what-if tool with FX and price sliders that recalculates landed cost, margin, DSCR, and cash runway in real time — with a breakeven finder and scenario save.",
         "details": "Backend:\n- POST /pricing/sensitivity-calc (stateless)\n- POST/GET /pricing/scenarios (max 10, oldest archived)\nFrontend: Playground page with sliders, debounced results panel, breakeven button, save dialog.",
@@ -2398,7 +2398,7 @@
         "updatedAt": "2026-04-11T17:04:56.083Z"
       },
       {
-        "id": "21",
+        "id": 21,
         "title": "Liquidity Squeeze Alert (Triage Mode)",
         "description": "Build a 90-day payment deadline calendar, detect shortfalls, activate Triage Mode with a countdown widget, and generate ranked corrective actions (liquidate, pre-order, delay).",
         "details": "Backend:\n- GET /cashflow/payment-calendar?horizon_days=90\n- POST /cashflow/triage-recommendations\n- TriageRecord model for active/resolved state\nFrontend: Payment Calendar, Triage banner, countdown widget, ranked recommendations panel.",
@@ -2514,7 +2514,7 @@
         "updatedAt": "2026-04-11T12:31:20.891Z"
       },
       {
-        "id": "22",
+        "id": 22,
         "title": "Sales Manager role and Quick Quote tool",
         "description": "Add a SALES_MANAGER role with restricted access, and build a Quick Quote tool that calculates the minimum sell price from the current FIFO batch landed cost.",
         "details": "Backend: UserRole enum, require_admin dependency, Quick Quote endpoint. Frontend: role guard, restricted sidebar, Quick Quote page.",
@@ -2611,7 +2611,7 @@
         "updatedAt": "2026-04-11T16:46:19.835Z"
       },
       {
-        "id": "23",
+        "id": 23,
         "title": "Forgot Password flow",
         "description": "Add a \"Forgot password\" link on the login page that sends a reset link to the registered email. Backend: POST /auth/forgot-password (generates token, sends email), POST /auth/reset-password (validates token, resets password). Frontend: forgot password link on login page, reset password form.",
         "details": "",
@@ -2626,7 +2626,7 @@
         "updatedAt": "2026-04-12T11:55:40.933Z"
       },
       {
-        "id": "24",
+        "id": 24,
         "title": "Login lockout countdown timer",
         "description": "Replace the static \"Account locked for 15 minutes\" message with a live countdown timer showing minutes:seconds remaining. Backend: return locked_until timestamp in 429 response. Frontend: parse timestamp and render decrementing countdown.",
         "details": "",
@@ -2641,7 +2641,7 @@
         "updatedAt": "2026-04-12T12:01:33.229Z"
       },
       {
-        "id": "25",
+        "id": 25,
         "title": "Stock-level validation on sales entry",
         "description": "Add frontend validation on the sales entry form to prevent submitting quantities greater than current stock. Fetch inventory levels when the form loads, display available stock next to each product dropdown, show error if quantity exceeds stock.",
         "details": "",
@@ -2656,7 +2656,7 @@
         "updatedAt": "2026-04-12T12:05:54.326Z"
       },
       {
-        "id": "26",
+        "id": 26,
         "title": "Sales history edit/delete with audit trail",
         "description": "Add Edit and Delete buttons to each row in the sales history table. Editing creates an audit record with original/new values. Deleting reverses the inventory adjustment and logs the deletion. PRD ST-303.",
         "details": "",
@@ -2750,7 +2750,7 @@
         "updatedAt": "2026-04-12T12:15:47.749Z"
       },
       {
-        "id": "27",
+        "id": 27,
         "title": "CSV bulk upload for sales",
         "description": "Add CSV bulk upload UI to the sales page. Downloadable template, file validation, error report for invalid rows, progress indicator. Backend endpoint already exists (POST /sales/upload). Frontend: upload button, file picker, validation display, results summary. PRD ST-302.",
         "details": "",
@@ -2842,7 +2842,7 @@
         "updatedAt": "2026-04-12T12:22:43.845Z"
       },
       {
-        "id": "28",
+        "id": 28,
         "title": "FX rate prompt on order delivery",
         "description": "When transitioning an order to DELIVERED status, prompt the user to enter the actual FX rate at delivery. Store it on the order. Display predicted vs actual FX comparison in order detail. PRD ST-502.",
         "details": "",
@@ -2857,7 +2857,7 @@
         "updatedAt": "2026-04-12T12:38:32.879Z"
       },
       {
-        "id": "29",
+        "id": 29,
         "title": "Order date and 30% deposit recording",
         "description": "Add order_date field to order create form. Record 30% deposit amount and FX rate at creation time. Display deposit info in order detail. PRD ST-501.",
         "details": "",
@@ -2872,7 +2872,7 @@
         "updatedAt": "2026-04-12T12:38:34.088Z"
       },
       {
-        "id": "30",
+        "id": 30,
         "title": "FX alert threshold configuration UI",
         "description": "Build a Settings/Configuration page with FX alert threshold inputs. Allow users to set rate thresholds for USDNGN and EURUSD pairs (above/below direction). Integrate with existing FXAlert backend. PRD ST-603.",
         "details": "",
@@ -2887,7 +2887,7 @@
         "updatedAt": "2026-04-12T12:46:21.425Z"
       },
       {
-        "id": "31",
+        "id": 31,
         "title": "Demand elasticity configuration UI",
         "description": "Add demand elasticity coefficient fields to the Pricing page. Per-product elasticity and FX sensitivity inputs with tooltips explaining each parameter. Integrate with existing backend demand elasticity model. PRD ST-802.",
         "details": "",
@@ -2902,7 +2902,7 @@
         "updatedAt": "2026-04-12T12:46:21.676Z"
       },
       {
-        "id": "32",
+        "id": 32,
         "title": "Cross-subsidisation display on Pricing page",
         "description": "Show how high-margin products offset low-margin ones on the Pricing page. Display a cross-subsidy breakdown: 'Product A margin (42%) offsets Product B margin (28%)' with visual indicator. PRD ST-801.",
         "details": "",
@@ -2917,7 +2917,7 @@
         "updatedAt": "2026-04-12T12:46:21.861Z"
       },
       {
-        "id": "33",
+        "id": 33,
         "title": "CSV export buttons on Sales and FX pages",
         "description": "Add Export CSV buttons to Sales history table and FX rates history. Generate client-side CSV with column headers matching displayed table. PRD ST-202.",
         "details": "",
@@ -2932,7 +2932,7 @@
         "updatedAt": "2026-04-12T12:55:12.404Z"
       },
       {
-        "id": "34",
+        "id": 34,
         "title": "Missing cashflow scenario presets and save/compare",
         "description": "Add Demand -10% and Combined Stress preset buttons to the Cashflow scenario simulator. Add ability to save scenarios and compare side-by-side (base vs stressed). PRD ST-703.",
         "details": "",
@@ -3009,7 +3009,7 @@
         "updatedAt": "2026-04-12T12:55:12.728Z"
       },
       {
-        "id": "35",
+        "id": 35,
         "title": "Trend arrows on liquidity metrics (7-day delta)",
         "description": "Add 7-day trend arrows to Cash Runway and DSCR on both the Dashboard and Cashflow pages. Show up/down arrow with percentage change vs 7 days ago. PRD ST-702.",
         "details": "",
@@ -3024,7 +3024,7 @@
         "updatedAt": "2026-04-12T12:55:12.797Z"
       },
       {
-        "id": "36",
+        "id": 36,
         "title": "Cash Runway display in months (not days)",
         "description": "Change Cash Runway display from days to months on the Dashboard and Cashflow pages per PRD ST-702. Backend already returns runway_months. Frontend converts to days unnecessarily.",
         "details": "",
@@ -3039,7 +3039,7 @@
         "updatedAt": "2026-04-12T12:55:14.891Z"
       },
       {
-        "id": "37",
+        "id": 37,
         "title": "Portfolio margin impact in scenario results",
         "description": "Add portfolio margin impact to cashflow scenario simulation results. Show how FX shock / demand drop affects blended margin alongside DSCR and runway. PRD ST-703.",
         "details": "",
@@ -3054,7 +3054,7 @@
         "updatedAt": "2026-04-12T12:55:15.842Z"
       },
       {
-        "id": "38",
+        "id": 38,
         "title": "Per-order FX scenario view (best/base/worst)",
         "description": "Add per-order FX scenario breakdown in order detail view. Show projected cost at best-case, base, and worst-case FX rates. PRD ST-602.",
         "details": "",
@@ -3069,7 +3069,7 @@
         "updatedAt": "2026-04-12T13:07:55.015Z"
       },
       {
-        "id": "39",
+        "id": 39,
         "title": "Extend FX forecast horizon to 180 days",
         "description": "Change FX forecast from 30-day to 180-day horizon per PRD Section 7.2.1. Update frontend FxService.getForecast() default and chart display. Add date range toggle (30/90/180 days).",
         "details": "",
@@ -3084,7 +3084,7 @@
         "updatedAt": "2026-04-12T13:07:55.319Z"
       },
       {
-        "id": "40",
+        "id": 40,
         "title": "Depletion forecast confidence interval display",
         "description": "Show depletion forecast with confidence interval on the Inventory page: 'Expected stock-out: 15 Mar 2026 +/- 5 days'. Backend already computes depletion date. Add confidence range calculation and display. PRD ST-402.",
         "details": "",
@@ -3099,7 +3099,7 @@
         "updatedAt": "2026-04-12T13:07:55.534Z"
       },
       {
-        "id": "41",
+        "id": 41,
         "title": "Editable low-stock threshold per product",
         "description": "Allow users to edit the low_stock_threshold for each product directly from the Inventory page. Add an inline edit or dialog to change the threshold value. PRD ST-401.",
         "details": "",
@@ -3114,7 +3114,7 @@
         "updatedAt": "2026-04-12T13:07:55.796Z"
       },
       {
-        "id": "42",
+        "id": 42,
         "title": "Settings page (API key + alert thresholds)",
         "description": "Build a Settings page accessible from the sidebar. Include: API key configuration with masked input and test connection button, FX alert thresholds, notification preferences. PRD ST-102, ST-603.",
         "details": "",
@@ -3129,7 +3129,7 @@
         "updatedAt": "2026-04-12T13:07:56.077Z"
       },
       {
-        "id": "43",
+        "id": 43,
         "title": "WCAG accessibility audit and remediation",
         "description": "Add ARIA attributes across all Angular components for WCAG 2.1 AA compliance. Includes: aria-label on nav/forms/buttons, role=alert on error banners, aria-live regions for dynamic content, for/id linkage on all form labels, role=button+tabindex on interactive divs, caption on data tables, text alternatives for Chart.js canvas, skip-to-content link, aria-sort on sortable columns, keyboard navigation for custom dropdowns.",
         "details": "",
@@ -3247,7 +3247,7 @@
         "updatedAt": "2026-04-12T13:18:10.915Z"
       },
       {
-        "id": "44",
+        "id": 44,
         "title": "Set up Neon PostgreSQL staging database",
         "description": "Create modishlog project on Neon and configure staging database branch. Neon free tier provides 0.5 GB storage, branching, and serverless PostgreSQL compatible with asyncpg.",
         "details": "Steps:\n1. Create \"modishlog\" project on neon.tech (region: aws-eu-central-1 or germanywestcentral nearest equivalent)\n2. Create \"staging\" branch from main in the modishlog project\n3. Get the connection string for staging branch (pooled endpoint for asyncpg)\n4. Add DATABASE_URL to GitHub repo secrets as STAGING_DATABASE_URL\n5. Create .env.staging.example documenting all required environment variables\n6. Verify asyncpg connection string format: postgresql+asyncpg://user:pass@ep-xxx-pooler.region.neon.tech/neondb?sslmode=require",
@@ -3259,7 +3259,7 @@
         "updatedAt": "2026-05-03T07:13:09.108Z"
       },
       {
-        "id": "45",
+        "id": 45,
         "title": "Build production Docker images and push to GHCR",
         "description": "Create production-ready Dockerfiles for backend and frontend, and set up GitHub Actions workflow to build and push images to GitHub Container Registry (ghcr.io/sojisoyoye/modishlog).",
         "details": "1. Update backend/Dockerfile to production-ready (no --reload, non-root user)\n2. Create frontend/Dockerfile.prod: multi-stage build (Node 22 build + nginx:alpine serve)\n3. Create frontend/nginx.conf: serve Angular SPA, proxy /api to backend\n4. Create .github/workflows/build-images.yml: triggers on push to main, builds both images, pushes to ghcr.io/sojisoyoye/modishlog/backend:staging and ghcr.io/sojisoyoye/modishlog/frontend:staging\n5. Set GHCR_TOKEN GitHub secret (use existing GitHub PAT from heimpath)",
@@ -3273,7 +3273,7 @@
         "updatedAt": "2026-05-03T07:13:12.024Z"
       },
       {
-        "id": "46",
+        "id": 46,
         "title": "Deploy backend staging to Azure Container Apps",
         "description": "Deploy ModishLog backend to Azure Container Apps using docker-compose.staging.yml on the student Azure subscription. Keep within free tier: 180,000 vCPU-seconds/month, 360,000 GiB-seconds/month. Use region germanywestcentral.",
         "details": "1. Create docker-compose.staging.yml (backend + redis only; DB is on Neon)\n2. Create infra/azure/setup-staging.sh: az CLI script to create resource group rg-modishlog-staging, Container App Environment cae-modishlog, deploy via az containerapp compose create\n3. Configure Container App: 0.25 CPU / 0.5Gi memory, min_replicas=0 max_replicas=1 (scale to zero saves cost)\n4. Set environment variables via --env-vars: DATABASE_URL, SECRET_KEY, REDIS_URL, ENVIRONMENT=staging, CORS_ORIGINS\n5. Create GitHub Actions deploy step in deploy-staging.yml: login to Azure with AZURE_CREDENTIALS secret (same service principal as heimpath), update container image\n6. Run alembic upgrade head as a Container App Job post-deploy\n7. Output backend URL from Container App (https://modishlog-backend-staging.{env}.germanywestcentral.azurecontainerapps.io)",
@@ -3287,7 +3287,7 @@
         "updatedAt": "2026-05-03T07:13:15.456Z"
       },
       {
-        "id": "47",
+        "id": 47,
         "title": "Deploy frontend staging to Vercel",
         "description": "Deploy Angular frontend to Vercel free tier. Configure Angular staging environment to point to Azure backend URL. Set up GitHub integration for automatic deploys on push to main.",
         "details": "1. Create vercel.json: configure build command (npm run build:staging), output dir (dist/modishlog/browser), rewrites for SPA routing\n2. Create frontend/src/environments/environment.staging.ts with STAGING_API_URL pointing to Azure Container Apps backend\n3. Update frontend/package.json: add build:staging script using --configuration staging\n4. Update angular.json: add staging build configuration with fileReplacements for environment.staging.ts\n5. Add Vercel environment variable STAGING_API_URL in Vercel project settings\n6. Create .github/workflows/deploy-staging.yml step: deploy to Vercel using vercel CLI with --prod flag for staging project\n7. Set GitHub secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID",
@@ -3301,7 +3301,7 @@
         "updatedAt": "2026-05-03T07:13:18.407Z"
       },
       {
-        "id": "48",
+        "id": 48,
         "title": "Fix critical: image tag mismatch in deploy-staging.yml",
         "description": "The build job uses docker/metadata-action with format=short (7-char SHA, e.g. staging-abc1234) but the deploy job references staging-${{ github.sha }} (full 40-char SHA). The Container App update will try to pull a tag that does not exist and fail. Fix: use needs.build-backend.outputs.image_tag in the deploy step.",
         "details": "In .github/workflows/deploy-staging.yml, change the deploy-backend job step:\n  --image ${{ env.BACKEND_IMAGE }}:staging-${{ github.sha }}\nto:\n  --image ${{ env.BACKEND_IMAGE }}:${{ needs.build-backend.outputs.image_tag }}\nAlso add build-backend to the needs list of deploy-backend job so the output is accessible.",
@@ -3313,7 +3313,7 @@
         "updatedAt": "2026-05-03T07:13:21.438Z"
       },
       {
-        "id": "49",
+        "id": 49,
         "title": "Fix critical: Vercel re-build discards sed substitution for STAGING_API_URL",
         "description": "The deploy-frontend job runs sed on environment.staging.ts locally, then amondnet/vercel-action triggers Vercel to re-build from source. Vercel's machines never see the sed output — __STAGING_API_URL__ remains in the deployed build. Fix: move sed into vercel.json buildCommand so Vercel substitutes it using STAGING_API_URL set as a Vercel project environment variable.",
         "details": "1. Update frontend/vercel.json buildCommand to:\n   \"sed -i \\\"s|__STAGING_API_URL__|$STAGING_API_URL|g\\\" src/environments/environment.staging.ts && npm run build:staging\"\n2. Remove the sed + local build steps from deploy-staging.yml deploy-frontend job (let Vercel handle the build)\n3. Document in .env.staging.example that STAGING_API_URL must also be set as a Vercel project environment variable (not just a GitHub secret)",
@@ -3325,7 +3325,7 @@
         "updatedAt": "2026-05-03T07:13:24.389Z"
       },
       {
-        "id": "50",
+        "id": 50,
         "title": "Fix: az containerapp job --args format and missing --subscription flags",
         "description": "Two issues in infra/azure/setup-staging.sh: (1) az containerapp job create uses --args \"upgrade,head\" with comma separation but Azure CLI expects space-separated args — migration job will fail to run alembic correctly. (2) Individual az containerapp commands do not pass --subscription, risking targeting the wrong subscription if CLI context changes.",
         "details": "1. Fix migration job command in setup-staging.sh: replace --command \"alembic\" --args \"upgrade,head\" with a JSON-array entrypoint or use correct space-separated format per az CLI docs.\n2. Add --subscription \"$SUBSCRIPTION_ID\" to every az containerapp and az containerapp job command in the script.\n3. Apply same --subscription flag to az containerapp commands in deploy-staging.yml workflow.",
@@ -3337,7 +3337,7 @@
         "updatedAt": "2026-05-03T07:13:27.193Z"
       },
       {
-        "id": "51",
+        "id": 51,
         "title": "Fix: reduce uvicorn workers to 1 and simplify Vercel SPA rewrite",
         "description": "Two medium/low issues: (1) backend/Dockerfile uses --workers 2 on a 0.25 CPU container — doubles memory and connection pool count against Neon free tier for no benefit at staging scale. Should be 1 worker. (2) frontend/vercel.json uses an overly complex negative-lookahead regex for SPA routing when a simple wildcard is sufficient.",
         "details": "1. In backend/Dockerfile change --workers 2 to --workers 1\n2. In frontend/vercel.json simplify the rewrite: { \"source\": \"/(.*)\", \"destination\": \"/index.html\" }",
@@ -3349,7 +3349,7 @@
         "updatedAt": "2026-05-03T07:13:30.206Z"
       },
       {
-        "id": "52",
+        "id": 52,
         "title": "Add confirm/cancel buttons to AlertBannerComponent and wire to delete category",
         "description": "The existing AlertBannerComponent has no confirm/cancel actions. Add optional confirm and cancel button outputs to the component. Apply this pattern to the delete category modal so users get a branded in-component confirmation rather than relying solely on the ConfirmDialogComponent flow.",
         "details": "1. Write Playwright E2E test first (TDD) covering confirm and cancel interactions on the alert modal.\n2. Add optional `confirmLabel` input and `confirmed`/`cancelled` outputs to AlertBannerComponent (keep backwards-compatible — buttons only render when confirmLabel is provided).\n3. Update delete category flow in products page to use AlertBannerComponent confirm/cancel where appropriate, or ensure ConfirmDialogComponent is the single source of truth — clarify with design.\n4. Run ng build and confirm compilation.",
@@ -3361,7 +3361,7 @@
         "updatedAt": "2026-05-02T18:20:02.921Z"
       },
       {
-        "id": "53",
+        "id": 53,
         "title": "Fix sidebar background not extending to bottom of viewport",
         "description": "The sidebar background colour stops short of the bottom of the page when content is short. The sidebar should always fill the full viewport height regardless of content length.",
         "details": "1. Locate the sidebar layout component/template.\n2. Ensure the sidebar container uses `min-h-screen` or `h-full` with the parent using `flex flex-col` or `min-h-screen` so the background fills to the bottom.\n3. Verify fix across short-content pages (e.g. empty states) and long-content pages (no overflow clipping).\n4. Run ng build to confirm.",
@@ -3373,7 +3373,7 @@
         "updatedAt": "2026-05-02T18:56:09.598Z"
       },
       {
-        "id": "54",
+        "id": 54,
         "title": "Fix \"Failed to adjust stock\" error on Save Adjustment",
         "description": "Clicking \"Save Adjustment\" on the stock adjustment form returns an error: \"Failed to adjust stock\". Investigate whether the failure is in the frontend request payload, the backend endpoint, or validation logic and fix the root cause.",
         "details": "1. Write a backend pytest test first (TDD) covering the stock adjustment happy path and the error case.\n2. Reproduce the error by inspecting the network request — check payload shape, auth headers, and API route.\n3. Check backend inventory router and service for validation errors, missing fields, or ORM issues (ensure selectinload on relationships).\n4. Fix the root cause (frontend payload or backend handler).\n5. Run pytest backend/tests/ and ng build before committing.",
@@ -3385,7 +3385,7 @@
         "updatedAt": "2026-05-03T10:12:01.593Z"
       },
       {
-        "id": "55",
+        "id": 55,
         "title": "Fix product action menu not visible on products table",
         "description": "The action dropdown menu on the product table's Actions column is not visible when triggered. Likely a z-index, overflow:hidden, or positioning issue caused by the table or a parent container clipping the menu.",
         "details": "1. Write a Playwright E2E test first confirming the action menu appears after clicking the ellipsis button.\n2. Inspect the table container for `overflow: hidden` or `overflow: auto` that would clip absolutely-positioned children.\n3. Fix by either removing the clipping overflow, using a portal/appendTo strategy for the menu, or switching to a CSS position that escapes the clip context.\n4. Test with 1, 2, and many rows to confirm menu is visible in all cases.\n5. Run ng build to confirm.",
@@ -3397,7 +3397,7 @@
         "updatedAt": "2026-05-03T10:12:59.039Z"
       },
       {
-        "id": "56",
+        "id": 56,
         "title": "Format product cost/price as currency with 2 decimal places (e.g. 10,200.00)",
         "description": "Cost and selling price values on the products table should be displayed rounded to 2 decimal places and formatted as currency values (e.g. 10,200.00, 14,500.00). Input fields for cost/price should also accept and display money-formatted values.",
         "details": "1. Write Playwright E2E tests first covering: (a) product table displays prices formatted to 2dp with thousands separator, (b) add/edit form accepts comma-formatted input and submits the correct numeric value.\n2. Update the product table to use Angular's DecimalPipe with '1.2-2' format (or currency pipe) for unit_cost and selling_price columns — backend stores as Decimal so precision is already correct.\n3. Update the add/edit product form inputs to show formatted placeholder (e.g. \"0.00\") and format on blur using a currency mask or a simple formatter directive.\n4. Ensure the submitted value strips formatting characters (commas) before sending to the API as a number.\n5. All financial values must use Decimal, never float — verify backend schemas are unchanged.\n6. Run ng build and pytest backend/tests/ to confirm.",
@@ -3409,7 +3409,7 @@
         "updatedAt": "2026-05-03T11:56:15.226Z"
       },
       {
-        "id": "57",
+        "id": 57,
         "title": "Show profit margin percentage on add/edit product form",
         "description": "When a user enters or edits a product's unit cost and selling price, display the calculated profit margin percentage in real time so they can make informed pricing decisions without leaving the form.",
         "details": "1. Write a Playwright E2E test first: fill in cost and selling price on the Add Product form and assert the profit % indicator appears with the correct value.\n2. Add a computed signal to the products page: `profitMargin = computed(() => { const cost = addForm.unit_cost; const price = addForm.selling_price; if (!cost || !price) return null; return ((price - cost) / cost * 100).toFixed(1); })` — use separate computeds for add and edit forms.\n3. Render the percentage below or beside the selling price field: green text for positive margin, red for negative (selling below cost).\n4. Apply the same display to the Edit Product dialog.\n5. Run ng build to confirm.",
@@ -3421,7 +3421,7 @@
         "updatedAt": "2026-05-03T11:56:37.265Z"
       },
       {
-        "id": "58",
+        "id": 58,
         "title": "Fix \"New Order\" button on Orders page — wire up full create-order flow",
         "description": "The \"New Order\" button on the Orders page does not work. Clicking it should open a form or dialog to create a new order. The full create-order flow (form, validation, API call, success/error feedback) must be implemented and functional.",
         "details": "1. Write Playwright E2E tests first: (a) clicking \"New Order\" opens the order creation form/dialog, (b) submitting a valid order creates it and it appears in the orders list, (c) submitting with missing required fields shows validation errors.\n2. Investigate the Orders page component — check if the button has a click handler and whether the order creation endpoint exists on the backend.\n3. If backend endpoint is missing: write pytest tests first, then implement POST /orders route, service, schema, and model following domain module structure (router.py, service.py, models.py, schemas.py). Use async/await, selectinload for relationships, Decimal for financial values.\n4. If frontend handler is missing: implement the create-order form/dialog, wire the submit to the orders service, and show p-toast feedback on success/error.\n5. Run pytest backend/tests/ and ng build before committing.",
@@ -3433,7 +3433,7 @@
         "updatedAt": "2026-05-03T10:14:23.935Z"
       },
       {
-        "id": "59",
+        "id": 59,
         "title": "Fix price decimal display in Edit Product and Edit Sale modals",
         "description": "The backend serialises Decimal fields (unit_cost, selling_price, unit_price) as strings with 6 decimal places (e.g. '10500.000000') from Numeric(18,6). When bound to type=number inputs via ngModel the browser renders all 6 dp. Fix: coerce to JS Number with parseFloat() when populating editForm in openEdit() (products-page.component.ts) and when populating the sale edit dialog (sales-page.component.ts). Frontend-only change — no backend work needed. Also ensure unit_cost input in Edit Product uses type=text with number formatting so the readonly display matches '10,500.00' style, or simply parseFloat the bound value so the browser renders '10500' not '10500.000000'. TDD: add E2E test that opens Edit Product dialog and asserts the price inputs do NOT contain more than 2 decimal places.",
         "details": "",
@@ -3445,7 +3445,7 @@
         "updatedAt": "2026-05-03T08:44:41.373Z"
       },
       {
-        "id": "60",
+        "id": 60,
         "title": "Show friendly error when deleting a category that has products",
         "description": "Backend already raises CategoryInUseError (HTTP 409) with the product count when a category has products. The frontend executeDeleteCategory() in products-page.component.ts currently catches all errors with a generic 'Failed to delete category' toast. Fix: check error.status === 409 and read error.error.detail (which includes the count) to display a user-friendly message such as 'This category still has N products. Move or delete them before removing the category.' Use the existing p-toast with severity=warn. TDD: E2E test that creates a category, adds a product to it, attempts to delete the category, and asserts the friendly warning toast appears (not the generic error toast).",
         "details": "",
@@ -3457,7 +3457,7 @@
         "updatedAt": "2026-05-03T09:14:11.900Z"
       },
       {
-        "id": "61",
+        "id": 61,
         "title": "Make categories editable (name and description)",
         "description": "Categories currently support only create and delete. Add full edit capability for name and description.\n\nBackend changes:\n- Add CategoryUpdate schema (name: str | None, description: str | None) to backend/src/products/schemas.py\n- Add update_category(db, category_id, data) async service method to backend/src/products/service.py\n- Add PATCH /categories/{category_id} route to backend/src/products/router.py (static routes first — place before /{id} delete if needed)\n- Add CategoryNotFoundError handling\n- Tests: test_update_category_success, test_update_category_not_found (write first)\n\nFrontend changes (products-page.component.ts):\n- Add editingCategory signal<Category | null>(null)\n- Add categoryEditForm = { name: '', description: '' }\n- Add pencil icon button to each category row alongside the existing delete button\n- Add edit category p-dialog (similar pattern to edit product dialog)\n- Add saveEditCategory() method calling productsService.updateCategory()\n- Add updateCategory() method to ProductsService (products.service.ts)\n- E2E test: open category edit, change name, save, assert updated name in list",
         "details": "",
@@ -3469,7 +3469,7 @@
         "updatedAt": "2026-05-03T10:33:27.302Z"
       },
       {
-        "id": "62",
+        "id": 62,
         "title": "Show per-product stock history when clicking a product row in Inventory",
         "description": "Inventory table rows are not currently clickable. The backend already has GET /inventory/{product_id}/movements returning StockMovementRead list (movement_type, quantity_change, notes, created_at). Add a product detail side-panel or dialog that opens on row click.\n\nFrontend changes (inventory-page.component.ts):\n- Add selectedInventoryItem signal<InventoryItem | null>(null)\n- Add productMovements signal<StockMovement[]>([])\n- Add productMovementsVisible = false\n- Make table rows clickable: (click)='viewProductHistory(item)'\n- viewProductHistory(): set selectedInventoryItem, call inventoryService.getMovements(productId), set productMovementsVisible = true\n- Add p-dialog 'Stock History — {product.name}' with a table showing:\n    Date | Movement Type (badge) | Qty Change (+N / -N coloured) | Notes\n- Movement types to show with labels: sale (red -), order_received (green +), manual_add (green +), manual_remove (red -), damaged (amber -), return (blue +)\n- Add getMovements(productId: string) method to InventoryService if not already available\n\nBackend: endpoint already exists at GET /inventory/{product_id}/movements — no backend changes needed unless return also needs to include sales context.\n\nTDD: E2E test — click inventory row, assert history dialog opens and shows movement type labels.",
         "details": "",
@@ -3481,7 +3481,7 @@
         "updatedAt": "2026-05-03T12:01:09.836Z"
       },
       {
-        "id": "63",
+        "id": 63,
         "title": "Show unit price and line total in Record Sales form; add optional discount field",
         "description": "The current daily sales entry form shows product, quantity, and date but not the unit price or calculated line total, making it impossible to confirm what the sale value will be before submitting. Add price display and a discount field.\n\nBackend changes:\n- Add discount_amount: Decimal | None = Field(None, ge=0) to DailyEntryItem schema (sales/schemas.py)\n- Add discount_amount: Decimal | None to SaleCreate schema\n- Add discount_amount column to Sale model (Nullable Numeric(18,6), default 0) + Alembic migration\n- Update daily_entry service to store discount_amount and adjust net amount if applicable\n- Tests: test_daily_entry_with_discount, test_daily_entry_without_discount (write first)\n\nFrontend changes (sales-page.component.ts):\n- When a product is selected in an entry row, auto-populate and display its unit price (from products signal)\n- Show calculated line total: qty × (unit_price - discount_amount) in real time\n- Add optional discount input per row (placeholder '0.00', type=number, min=0)\n- Row shape: { product_id, quantity, unit_price (auto), discount_amount, line_total (computed) }\n- Display: 'Unit Price: ₦10,500.00 | Discount: [____] | Total: ₦X'\n- TDD: E2E test selects product, sets qty=3, asserts line total = qty × price; sets discount, asserts total decreases",
         "details": "",
@@ -3493,7 +3493,7 @@
         "updatedAt": "2026-05-03T11:03:50.989Z"
       },
       {
-        "id": "64",
+        "id": 64,
         "title": "Group multi-product sales into a single transaction; show detail on click",
         "description": "Currently each product entry in a daily sale is stored as an independent Sale record. When a user records 3 products in one session they appear as 3 unrelated rows. Add sale transaction grouping so multiple items submitted together are linked and displayed as one collapsible group.\n\nBackend changes:\n- Add transaction_id: UUID column to Sale model (nullable, indexed) + Alembic migration\n- Update daily_entry service: generate one UUID per DailyEntryRequest and stamp all Sale records with it\n- Add GET /sales/transactions endpoint returning grouped sales: [{transaction_id, sale_date, item_count, total_amount, status, items:[...]}]\n- Add GET /sales/transactions/{transaction_id} endpoint returning all Sale records for that transaction\n- Add SaleTransactionRead schema and SaleTransactionListResponse schema\n- Route ordering: /transactions static routes before /{id} parameterized routes\n- Tests: test_daily_entry_creates_shared_transaction_id, test_list_transactions, test_get_transaction_detail (write first)\n\nFrontend changes (sales-page.component.ts):\n- Change sales list to fetch GET /sales/transactions and display one row per transaction\n- Transaction row: Date | # Items | Total | Status | Actions (view)\n- Click row or View button → transaction detail dialog showing:\n    Table of items: Product | Qty | Unit Price | Discount | Line Total\n    Summary footer: Grand Total\n- Add SalesService.getTransactions() and SalesService.getTransaction(id) methods\n- TDD: E2E test — record 2-product sale, assert single grouped row appears in list; click to open detail; assert both products visible with correct totals\n\nDependencies: task 63 (discount field) should be done first as transaction grouping builds on the same daily-entry flow.",
         "details": "",
@@ -3505,7 +3505,7 @@
         "updatedAt": "2026-05-03T11:42:42.211Z"
       },
       {
-        "id": "65",
+        "id": 65,
         "title": "Password visibility toggle on login page",
         "description": "Add a show/hide password toggle button inside the password input field on the login page. Clicking the eye icon switches the input type between password and text, allowing users to verify what they typed.",
         "details": "Frontend only. On the login page component, add a toggle button (eye / eye-slash icon using PrimeIcons: pi-eye / pi-eye-slash) positioned absolutely inside the password input field on the right side. Use a boolean Signal `showPassword` to track state. Bind `[type]=\"showPassword() ? 'text' : 'password'\"` on the input. Button must not submit the form (type=\"button\"). No backend changes needed.",
@@ -3517,7 +3517,7 @@
         "updatedAt": "2026-06-05T19:40:59.808Z"
       },
       {
-        "id": "66",
+        "id": 66,
         "title": "Forgot password / password reset flow",
         "description": "Implement a complete forgot-password and password-reset flow. User enters their email on a forgot-password page, receives a reset link via email, clicks the link to land on a reset-password page, enters and confirms a new password.",
         "details": "Backend (auth domain): 1) POST /api/v1/auth/forgot-password — accepts email, generates a secure random token (secrets.token_urlsafe(32)), stores hashed token + expiry (1 hour) in a new PasswordResetToken table (id, user_id FK, token_hash, expires_at, used_at), sends email via SMTP or a transactional email provider (use SMTP env vars: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, FROM_EMAIL). 2) POST /api/v1/auth/reset-password — accepts token + new_password, validates token not expired/used, hashes new password with bcrypt, marks token used. Add Alembic migration. Frontend: add ForgotPasswordPage (/forgot-password) with email input + submit; add ResetPasswordPage (/reset-password?token=xxx) with new-password + confirm inputs. Route both as public (no auth guard). All financial values rule does not apply here. Token must be stored as bcrypt hash, never plaintext.",
@@ -3529,7 +3529,7 @@
         "updatedAt": "2026-06-05T19:45:00.688Z"
       },
       {
-        "id": "67",
+        "id": 67,
         "title": "JWT refresh token",
         "description": "Implement a refresh-token mechanism so users are not logged out when their access token expires. Login returns both a short-lived access token (15 min) and a long-lived refresh token (7 days). A POST /api/v1/auth/refresh endpoint issues a new access token given a valid refresh token.",
         "details": "Backend: 1) Add RefreshToken table (id, user_id FK, token_hash, expires_at, revoked_at, created_at) with Alembic migration. 2) Update POST /api/v1/auth/login to also generate and return a refresh_token (opaque random token via secrets.token_urlsafe(64), stored hashed). 3) Add POST /api/v1/auth/refresh — accepts {refresh_token}, validates not expired/revoked, issues new access_token (and optionally rotates the refresh token). 4) Add POST /api/v1/auth/logout — revokes the refresh token. Update ACCESS_TOKEN_EXPIRE_MINUTES default to 15. Add REFRESH_TOKEN_EXPIRE_DAYS=7 config setting. Frontend: store refresh_token in localStorage alongside access_token. In the HTTP interceptor, on 401 response, attempt one silent refresh via POST /auth/refresh; if refresh succeeds, retry the original request; if refresh fails, redirect to /login. Update AuthService to handle token rotation.",
@@ -3541,7 +3541,7 @@
         "updatedAt": "2026-06-05T19:55:27.974Z"
       },
       {
-        "id": "68",
+        "id": 68,
         "title": "Password visibility toggle on login page",
         "description": "Add a show/hide password toggle button inside the password input field on the login page so users can reveal their password while typing.",
         "details": "Frontend only. In the login page component, add a toggle button (eye / eye-slash icon using PrimeIcons pi-eye / pi-eye-slash) positioned inside the password input on the right side. Clicking it switches the input type between 'password' and 'text'. Use a Signal (showPassword = signal(false)) to track state. No backend changes needed. Write a Playwright E2E test that: clicks the toggle, asserts the input type becomes 'text', clicks again, asserts it returns to 'password'.",
@@ -3553,7 +3553,7 @@
         "updatedAt": "2026-06-05T19:56:58.811Z"
       },
       {
-        "id": "69",
+        "id": 69,
         "title": "Forgot password / password reset flow",
         "description": "Implement a full forgot-password and password-reset flow: user enters email to request a reset link, backend sends a time-limited token via email, user clicks link and sets a new password.",
         "details": "Backend (src/auth/): Add POST /api/v1/auth/forgot-password (accepts email, generates a secure token stored in a new PasswordResetToken table with expiry, sends email via SMTP or a simple email service). Add POST /api/v1/auth/reset-password (accepts token + new_password, validates token not expired/used, hashes new password, marks token used). New DB model: PasswordResetToken(id UUID PK, user_id FK, token str unique, expires_at datetime, used_at datetime nullable). Use python-jose or secrets.token_urlsafe for token generation. Token expiry: 1 hour. Frontend: Add \"Forgot password?\" link on login page → /forgot-password page (email input form). Add /reset-password?token=... page (new password + confirm fields). Both pages are standalone Angular components with OnPush + Signals. Write backend tests: happy path request + reset, expired token error, already-used token error. Write Playwright E2E for the UI flows.",
@@ -3565,7 +3565,7 @@
         "updatedAt": "2026-06-05T19:57:18.020Z"
       },
       {
-        "id": "70",
+        "id": 70,
         "title": "JWT refresh token",
         "description": "Implement JWT refresh tokens so users stay logged in without re-authenticating after the access token expires. Access token: 15 min. Refresh token: 30 days, stored httpOnly cookie or localStorage.",
         "details": "Backend (src/auth/): Shorten ACCESS_TOKEN_EXPIRE_MINUTES to 15. Add a RefreshToken model (id UUID PK, user_id FK, token str unique, expires_at datetime, revoked bool default false). On login, issue both access_token and refresh_token. Add POST /api/v1/auth/refresh (accepts refresh token in request body or cookie, validates not expired/revoked, returns new access_token and rotates refresh_token — revoke old, issue new). Add POST /api/v1/auth/logout (revokes the refresh token). Frontend (auth service): Intercept 401 responses in the HTTP interceptor — attempt a silent refresh via POST /auth/refresh, retry the original request with the new access token, redirect to login if refresh also fails. Store refresh token in localStorage alongside the access token. Write backend tests: refresh issues new token + revokes old, expired refresh token returns 401, revoked token returns 401. Write Playwright E2E: after token expires (mock), app auto-refreshes and stays logged in.",
@@ -3577,7 +3577,7 @@
         "updatedAt": "2026-06-05T19:57:28.752Z"
       },
       {
-        "id": "71",
+        "id": 71,
         "title": "CSV export for Sales, Orders, and FX pages",
         "description": "Add a CSV download button to the Sales, Orders, and FX Rate pages so users can export the currently visible data as a CSV file.",
         "details": "Backend: Add GET /api/v1/sales/export.csv, GET /api/v1/orders/export.csv, GET /api/v1/fx/export.csv endpoints. Each returns a StreamingResponse with Content-Type: text/csv and Content-Disposition: attachment; filename=\"...\". Accept the same filter query params as the list endpoints (date range, status, etc.) so the export matches what the user sees. Use Python csv module with io.StringIO. Frontend: Add an \"Export CSV\" button (pi-download icon) to the toolbar of each page. On click, call the export endpoint with current filter params and trigger a browser file download using a temporary anchor element. No new page needed — purely a button + download. Write backend tests for each export: correct headers, correct row count for a known fixture, correct column names. Write Playwright E2E: click Export CSV, assert a file download is initiated.",
@@ -3589,7 +3589,7 @@
         "updatedAt": "2026-06-05T20:07:10.721Z"
       },
       {
-        "id": "72",
+        "id": 72,
         "title": "Bulk order import via CSV/Excel file upload",
         "description": "Add the ability to mass-create purchase orders by uploading a CSV or Excel (.xlsx) file from the orders page. Users download a template, fill in one row per line item (same supplier_name groups rows into one order), upload the file, preview the parsed rows, then submit to create all orders at once.\\n\\nRequired template columns: supplier_name, currency, line_item_sku, line_item_quantity, line_item_unit_cost.\\nOptional columns: supplier_contact, is_purchase_order (TRUE/FALSE), pay_term_number, pay_term_type (days/months), shipping_cost, clearing_cost, notes, discount_type (percentage/fixed), discount_amount, tax_rate, supplier_invoice_number, supplier_invoice_date (YYYY-MM-DD).",
         "details": "Backend (orders domain):\\n1. GET /api/v1/orders/import/template — returns a CSV download with header row + one example data row. Static route; must be registered before /{order_id}.\\n2. POST /api/v1/orders/import — accepts multipart/form-data with a 'file' field (.csv or .xlsx). Parse with Python csv module for CSV and openpyxl for xlsx (no pandas). Group consecutive rows by supplier_name (blank = continue previous order). Validate required columns present; validate each line item SKU exists in products table; resolve product_id from SKU. Collect all errors before responding — never partially commit. On success: { created: N, orders: [OrderRead] }. On any error: { created: 0, errors: [{row: N, message: str}] } with HTTP 422.\\n3. BulkImportResult Pydantic schema: created (int), orders (list[OrderRead]), errors (list[{row: int, message: str}]).\\n4. Add openpyxl to backend requirements.\\n\\nFrontend (orders-page.component.ts):\\n1. Import Orders button next to Add Order button.\\n2. Import dialog with three sections: (a) Download Template anchor that hits GET /orders/import/template, (b) file drop-zone accepting .csv and .xlsx with drag-and-drop support, (c) preview table showing filename + row count after file is selected.\\n3. On upload success: dismiss dialog, show toast X orders created, reload list.\\n4. On error: show scrollable table of row number + error message inside the dialog.\\n5. New OrdersService.importOrders(file: File) — POST multipart FormData.\\n6. New OrdersService.getImportTemplateUrl() — returns the API URL string for the template download anchor.",
@@ -3601,7 +3601,7 @@
         "updatedAt": "2026-06-10T06:46:47.009Z"
       },
       {
-        "id": "73",
+        "id": 73,
         "title": "Add sell_price_ngn per order line item to seal revenue history",
         "description": "Record the actual selling price charged at order time on each line item, so historical profit calculations remain accurate even after the product's catalog price changes.",
         "details": "## Context\nCurrently `productSellingPrice()` on the order detail page reads the live catalog price from the products list. This means if the product price is updated, every historical order's gross profit figure changes retroactively — which is wrong. The unit cost side is already frozen via `unit_cost_ngn` on `OrderLineItem`; the revenue side needs the same treatment.\n\n## Backend\n\n**Migration** (`backend/alembic/versions/`):\n- Add column `sell_price_ngn: Numeric(18, 6), nullable=True` to `order_line_items` table\n- Check existing migration IDs before choosing a new revision ID (avoid collision — see memory note about `d5e6f7a8b9c0` collision in prior session)\n\n**Model** (`backend/src/orders/models.py`):\n- Add `sell_price_ngn: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)` to `OrderLineItem`\n\n**Schemas** (`backend/src/orders/schemas.py`):\n- Add `sell_price_ngn: Optional[Decimal] = None` to `OrderLineItemCreate` and `OrderLineItemRead`\n\n**Service** (`backend/src/orders/service.py`):\n- Pass `sell_price_ngn` through in `create_order` and `update_order` — same pattern as `unit_cost_ngn`\n\n## Frontend (`frontend/src/app/features/orders/pages/order-detail-page.component.ts`)\n\n**Edit mode**: Add an editable NGN sell price input per line item row, shown next to the existing NGN unit cost input. Only visible for edit mode. Placeholder should show the current catalog sell price as a fallback.\n\n**View mode**: Show the stored `sell_price_ngn` if set; otherwise show catalog price with \"(catalog)\" label to indicate it's not locked.\n\n**Profit calculations**: Update `productSellingPrice(productId, item)` to prefer `item.sell_price_ngn` over the catalog price. Update `totalRevenueNGN()`, `marginNGN()`, `marginPct()` accordingly.\n\n**`canComputeProfitOverview()`**: Should be satisfied if any line item has either `sell_price_ngn` set or a catalog price > 0.\n\n## Seeding existing orders\n- When the user first opens an existing order in edit mode and saves, `sell_price_ngn` will be null for old line items — the frontend should auto-populate `sell_price_ngn` from the current catalog price on save if the field is still null, so the price gets locked from that point forward.\n\n## Rules\n- All financial values: Python Decimal, never float\n- Static routes before parameterized routes\n- Use `selectinload()` before returning ORM objects\n- Run `pytest backend/tests/` before committing\n- Run `ng build` before committing",
@@ -3613,7 +3613,7 @@
         "updatedAt": "2026-06-11T18:59:37.329Z"
       },
       {
-        "id": "74",
+        "id": 74,
         "title": "FX rate service — fetch live USD/NGN rate from free API with caching",
         "description": "Build a backend FX rate service that fetches the current USD/NGN exchange rate from a free public API, caches it (4-hour TTL) in the database, and exposes a /api/fx/rates endpoint. The frontend uses this to auto-populate the FX rate on order creation and to power the price suggestion engine.",
         "details": "## Context\nCurrently users must type the exchange rate manually when creating an order. The rate also needs to be available to the price suggestion engine (Task 4). The FX rate fluctuates daily; we need a live source with caching to avoid hammering the API.\n\n## External API\nUse the ExchangeRate-API free open endpoint — no API key required, updated every 24 hours. Supports NGN. Endpoint pattern: `https://open.er-api.com/v6/latest/USD`.\n\nOptionally support a paid-tier API key via env var `FX_API_KEY` in `.env` — if set, use the authenticated endpoint for higher request limits.\n\n## Backend\n\n**New domain** (`backend/src/fx/`):\n- `models.py`: `FxRateCache` model — `id`, `currency_pair` (String, e.g. \"USD/NGN\"), `rate` (Numeric 18,6), `fetched_at` (DateTime timezone=True), `source` (String). Unique constraint on `currency_pair`.\n- `service.py`: \n  - `get_current_rate(currency_pair=\"USD/NGN\") -> Decimal` — check DB cache first; if `fetched_at` < 4 hours ago return cached rate; otherwise fetch from API, store/update, return rate.\n  - `fetch_from_api(currency_pair) -> Decimal` — async HTTP call using `httpx.AsyncClient` (add `httpx` to requirements if not present). Parse the JSON response. Log on fetch and on cache hit via structlog.\n  - Handle API errors gracefully: if fetch fails and cache is stale, return the stale cached rate with a warning log rather than raising.\n- `router.py`: `GET /api/fx/rates` — returns `{ \"USD_NGN\": rate, \"fetched_at\": iso_string, \"cached\": bool }`. Register in `main.py`.\n- `schemas.py`: `FxRateResponse` Pydantic schema.\n- Alembic migration for `fx_rate_cache` table.\n\n**Config** (`backend/src/core/config.py`):\n- Add `FX_API_KEY: Optional[str] = None` and `FX_CACHE_TTL_HOURS: int = 4`.\n\n## Frontend\n\n**Service** (`frontend/src/app/core/services/fx.service.ts`):\n- `getCurrentRate(): Observable<FxRateResponse>` — calls `GET /api/fx/rates`.\n- `FxRateResponse` model: `{ usd_ngn: number; fetched_at: string; cached: boolean }`.\n\n**Order create form** (`frontend/src/app/features/orders/pages/create-order-page.component.ts`):\n- On page load (for USD orders), auto-call `FxService.getCurrentRate()` and pre-fill the FX rate field. Show a small \"Live rate\" chip next to the field. User can still override manually.\n\n**Order detail edit mode** (`order-detail-page.component.ts`):\n- When user clicks into edit mode, if `fx_rate_at_creation` is null, auto-fetch and fill it.\n\n## Rules\n- Never call the external API from the frontend (CORS / key exposure)\n- Use `structlog` logger, never `print()`\n- All rate values: Python Decimal\n- Write tests before implementation",
@@ -3627,7 +3627,7 @@
         "updatedAt": "2026-06-11T20:02:28.558Z"
       },
       {
-        "id": "75",
+        "id": 75,
         "title": "Lot inventory tracking — link delivered order line items to stock with units_remaining",
         "description": "When an order transitions to DELIVERED, each line item becomes a stock lot. Track how many units from each lot remain in stock as sales are recorded, so the order detail page can show live lot inventory and product history page can show cost-basis per lot.",
         "details": "## Context\nCurrently inventory is tracked globally per product (`InventoryLevel.current_stock`). There is no linkage between \"which order did this stock come from\" and \"how many of those units are still unsold.\" We need lot-level tracking to:\n1. Show on the order detail page: \"50 units received — 30 remaining in stock from this lot\"\n2. Power the price suggestion engine (Task 4): weighted-average landed cost across active lots\n3. Enable a product history page showing all lots with their cost basis\n\n## Backend\n\n**Model** (`backend/src/orders/models.py`):\n- Add `units_remaining: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 6), nullable=True)` to `OrderLineItem`.\n- `units_remaining` starts as `null` (pre-delivery). On DELIVERED transition it is set to `quantity`.\n\n**Service** (`backend/src/orders/service.py`):\n- In the status-update logic (wherever `status` is written), detect transition TO `DELIVERED`:\n  - For each line item in the order, set `item.units_remaining = item.quantity`.\n  - Create a `StockMovement` record (type=PURCHASE) for each line item and update `InventoryLevel.current_stock` — this replaces/enhances whatever the existing delivery handler does.\n\n**Lot deduction on sale** (`backend/src/sales/service.py`):\n- When a `DailySales` record is created for a product, find the oldest active lot for that product (lowest `order.order_date`, `units_remaining > 0`) and deduct the sold quantity from it (FIFO). If the lot runs out, spill over to the next lot.\n- If no active lot covers the quantity (e.g. older manual stock), deduct from `InventoryLevel` only and log a warning.\n\n**New endpoint** (`backend/src/orders/router.py`):\n- `GET /api/orders/{order_id}/lots` — returns each line item with `units_remaining`, `quantity`, `unit_cost_ngn`, `sell_price_ngn`, `product_id`, product name.\n\n**Migration**: Add `units_remaining` column to `order_line_items`. Check for existing revision IDs before creating.\n\n## Frontend\n\n**Order detail page** (`order-detail-page.component.ts`):\n- In the line items table, add a \"In Stock\" column showing `units_remaining` if the order is DELIVERED and `units_remaining` is not null. Show \"—\" for non-delivered orders.\n- Color-code: green if `units_remaining > 0`, grey if `0`.\n\n**Product detail page** (future page — at minimum, expose the lot data via the endpoint for later use).\n\n## Rules\n- FIFO deduction: always deduct from the oldest lot first\n- Use `selectinload()` before returning ORM objects\n- Decimal everywhere, never float\n- Write tests before implementation",
@@ -3642,12 +3642,12 @@
         "updatedAt": "2026-06-11T20:20:26.555Z"
       },
       {
-        "id": "76",
+        "id": 76,
         "title": "Price suggestion engine — compute and track sell price recommendations from lot cost + live FX + target margin",
         "description": "Build a pricing engine that computes recommended selling prices for each product based on its lot cost basis, the current live FX rate, and a configurable target margin. Store a history of suggestions so users can see how the recommended price has evolved as the exchange rate changes.",
         "details": "## Context\nWhen the NGN/USD rate moves, the cost to restock imported goods changes — and therefore the minimum viable selling price changes too. This engine answers: \"Given my landed cost and today's FX rate, what should I charge per unit to hit my target margin?\" It also stores a history so the user can see the trend over time.\n\nThis builds on:\n- Task 73 (`sell_price_ngn`) — locked historical sell prices per lot\n- Task 74 (FX rate service) — live rate from API\n- Task 75 (lot tracking) — `units_remaining` and cost basis per lot\n\n## Backend\n\n**New model** (`backend/src/pricing/models.py` — extend existing file):\n- `PriceSuggestion`: `id` (UUID), `product_id` (FK), `source_order_id` (FK, nullable — null means blended/average), `unit_cost_ngn` (Numeric 18,6 — landed cost at time of suggestion), `fx_rate_used` (Numeric 18,6), `target_margin_pct` (Numeric 5,4, default 0.40), `suggested_price_ngn` (Numeric 18,6), `current_catalog_price_ngn` (Numeric 18,6), `suggested_at` (DateTime timezone=True), `notes` (Text, nullable).\n- Formula: `suggested_price_ngn = unit_cost_ngn / (1 - target_margin_pct)` where `unit_cost_ngn` = weighted-average landed cost of active lots at the given FX rate.\n\n**Service** (`backend/src/pricing/service.py`):\n- `compute_suggestion(product_id, target_margin=0.40) -> PriceSuggestion`:\n  1. Fetch all active lots for the product (from `order_line_items` where `units_remaining > 0`)\n  2. Get current FX rate via `FxRateService.get_current_rate()`\n  3. Compute weighted-average `unit_cost_ngn`:\n     - For each lot: `cost_ngn = (item.unit_cost_ngn or (item.unit_cost * fx_rate)) * item.units_remaining`\n     - Weighted avg = sum(cost_ngn) / sum(units_remaining)\n  4. Apply formula: `suggested_price = weighted_avg_cost / (1 - target_margin)`\n  5. Persist `PriceSuggestion` record and return it\n- `get_suggestion_history(product_id, limit=30) -> list[PriceSuggestion]`\n\n**Router** (`backend/src/pricing/router.py`):\n- `POST /api/pricing/suggest/{product_id}` — body: `{ target_margin_pct?: float }` — runs `compute_suggestion`, returns result\n- `GET /api/pricing/suggest/{product_id}/history` — returns last 30 suggestions for the product\n\n**Migration**: Add `price_suggestions` table.\n\n## Frontend\n\n**Product detail page** (or a dedicated \"Pricing\" tab):\n- \"Suggest Price\" button that calls `POST /api/pricing/suggest/{product_id}`\n- Shows result: \"Suggested ₦X at ₦Y/$ (40% margin)\" with target margin slider (30%–60%)\n- Suggestion history table: date | FX rate | landed cost | suggested price | catalog price at time\n\n**Order detail page — Profit Overview card**:\n- Add a \"Restock Cost Today\" row showing what the same goods would cost at the current FX rate (fetched via `/api/fx/rates`). This makes the historical-vs-today delta visible.\n\n## Rules\n- Weighted average across active lots only (`units_remaining > 0`)\n- Never float for financial calculations — Python Decimal throughout\n- `structlog` logger for suggestion events\n- Write tests before implementation\n- Alembic migration for new table",
         "testStrategy": "**Backend (write BEFORE implementation):**\n1. `test_compute_suggestion_single_lot` — one active lot, verify formula: `cost / (1 - margin)`\n2. `test_compute_suggestion_weighted_average` — two active lots with different costs and quantities, verify weighted average is used\n3. `test_compute_suggestion_uses_live_fx` — mock FX service, verify returned suggestion uses mocked rate\n4. `test_compute_suggestion_no_active_lots` — verify raises a clear `PricingError` (not a 500) when no lots with `units_remaining > 0` exist\n5. `test_suggestion_history_endpoint` — POST suggest twice, GET history, verify both records returned newest-first\n6. `test_target_margin_override` — pass 0.35 as target margin, verify suggested price uses 35% not default 40%\n\n**Frontend E2E:**\n1. On product detail, click \"Suggest Price\", verify suggestion appears with correct FX rate and margin displayed\n2. Move the margin slider, verify suggested price updates live\n3. After two suggestions, verify history table shows both entries",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [
           "73",
           "74",
@@ -3655,17 +3655,70 @@
         ],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-06-11T20:20:32.101Z"
+        "updatedAt": "2026-06-12T01:46:06.793Z"
+      },
+      {
+        "id": 77,
+        "title": "Fix orders list pipeline status cards showing wrong counts",
+        "description": "The summary cards on the orders list page (Pending, In Production, Shipping, Cleared, Delivered) always show 0 orders because the pipelineStatuses array uses display-cased strings that don't match the uppercase enum values returned by the API.",
+        "details": "## Root cause\n\n`orders-page.component.ts` line 821:\n```typescript\nreadonly pipelineStatuses = ['ORDERED', 'Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];\n```\n\nThe backend `OrderStatus` enum returns: `ORDERED`, `PENDING`, `IN_PRODUCTION`, `SHIPPING`, `CLEARED`, `DELIVERED`, `CANCELLED`.\n\n`ordersByStatus(status)` does a strict equality filter (`o.status === status`), so only `'ORDERED'` ever matches. The other 5 cards always show 0 even when orders exist in those states.\n\n## Fix\n\n1. Change `pipelineStatuses` to the correct uppercase API values:\n```typescript\nreadonly pipelineStatuses = ['ORDERED', 'PENDING', 'IN_PRODUCTION', 'SHIPPING', 'CLEARED', 'DELIVERED'] as const;\n```\n\n2. Add a display-label mapping so the card headings stay human-readable (the template currently uses the `uppercase` CSS class but the label text still shows the raw value):\n```typescript\nreadonly statusLabel: Record<string, string> = {\n  ORDERED: 'Ordered',\n  PENDING: 'Pending',\n  IN_PRODUCTION: 'In Production',\n  SHIPPING: 'Shipping',\n  CLEARED: 'Cleared',\n  DELIVERED: 'Delivered',\n};\n```\n\n3. Update the card heading in the template from `{{ status }}` to `{{ statusLabel[status] }}`.\n\n## Rules\n- No float, no raw SQL — frontend only change\n- Run `ng build` before committing",
+        "testStrategy": "**Frontend E2E (Playwright, `frontend/e2e/orders-pipeline-cards.spec.ts`):**\n1. Seed orders in several different statuses via the API; load the orders list page; verify each pipeline card shows the correct non-zero count matching the number of seeded orders for that status.\n2. Transition an order to a new status, reload the page, verify the source and destination card counts update correctly.\n3. Verify the card heading displays the human-readable label (e.g. \"In Production\") not the raw enum string (e.g. \"IN_PRODUCTION\").",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-06-12T02:32:04.444Z"
+      },
+      {
+        "id": 78,
+        "title": "Stock count — log physical inventory counts and calculate variance against system stock",
+        "description": "Allow users to conduct a full stock take, recording physically-counted quantities per product or per lot (purchase order line item) on a chosen date. The system calculates variance (counted minus system snapshot) so shortages and surpluses are immediately visible. Counts are read-only after finalisation to preserve the audit trail.",
+        "details": "## Context\n\nStock is tracked at two levels already:\n- **Product level**: `InventoryLevel.current_stock` (total units on hand)\n- **Lot level**: `OrderLineItem.units_remaining` (units left in each delivered purchase order, from Task #75)\n\nA stock count session lets the user say \"on this date I physically counted X units\" and see where the system disagrees.\n\n## Count types\n\n- **PRODUCT** — one row per product; system quantity from `InventoryLevel.current_stock`\n- **LOT** — one row per active lot (`units_remaining > 0`); system quantity from `OrderLineItem.units_remaining`\n\nThe type is chosen when creating the session and is immutable.\n\n## Backend\n\n### Models (`backend/src/inventory/models.py` or new `backend/src/stockcount/` domain)\n\n```python\nclass StockCountStatus(str, enum.Enum):\n    DRAFT = \"DRAFT\"\n    FINALIZED = \"FINALIZED\"\n\nclass StockCountType(str, enum.Enum):\n    PRODUCT = \"PRODUCT\"\n    LOT = \"LOT\"\n\nclass StockCount(UUIDMixin, TimestampMixin, Base):\n    __tablename__ = \"stock_counts\"\n    count_date: date\n    count_type: StockCountType  # PRODUCT | LOT\n    status: StockCountStatus    # DRAFT | FINALIZED\n    notes: str | None\n    created_by: UUID (FK users.id)\n    finalized_at: datetime | None\n\nclass StockCountItem(UUIDMixin, Base):\n    __tablename__ = \"stock_count_items\"\n    stock_count_id: UUID (FK stock_counts.id, ondelete=CASCADE)\n    product_id: UUID (FK products.id)\n    order_line_item_id: UUID | None (FK order_line_items.id) — set for LOT type, null for PRODUCT\n    system_quantity_at_count: Decimal(18,6) | None  # null until finalization; snapshotted from live stock at finalize time\n    counted_quantity: Decimal(18,6) | None  # null until entered\n    variance: Decimal computed on read: counted_quantity - system_quantity_at_count (null until finalized)\n    notes: str | None\n```\n\n### Service (`backend/src/stockcount/service.py`)\n\n- `create_stock_count(db, count_date, count_type, notes, user_id) -> StockCount`:\n  - Creates the header\n  - For PRODUCT: queries all products, creates one `StockCountItem` per product with `system_quantity_at_count = null` (snapshot deferred to finalization)\n  - For LOT: queries all `OrderLineItem` where `units_remaining > 0`, creates one item per lot with `system_quantity_at_count = null`\n- `update_count_item(db, item_id, counted_quantity) -> StockCountItem`: updates counted_quantity; only allowed in DRAFT\n- `finalize_stock_count(db, stock_count_id) -> StockCount`: snapshots live system stock into `system_quantity_at_count` for every item (PRODUCT: reads `InventoryLevel.current_stock`; LOT: reads `OrderLineItem.units_remaining`), then sets status=FINALIZED, finalized_at=now(). Stock that moved between session creation and finalization is correctly captured — the variance reflects system state at the moment you committed the count, not when you started it.\n- `get_stock_count(db, stock_count_id) -> StockCount` with items selectinloaded\n- `list_stock_counts(db) -> list[StockCount]` newest-first\n\n### Schemas\n- `StockCountCreate`: count_date, count_type, notes\n- `StockCountRead`: header fields + items list\n- `StockCountItemRead`: product_id, product_name, order_line_item_id, system_quantity_at_count, counted_quantity, variance (counted_quantity - system_quantity_at_count; null until finalized)\n- `StockCountItemUpdate`: counted_quantity\n\n### Router (`backend/src/stockcount/router.py`)\n- `POST /api/stockcount/` — create session (requires auth)\n- `GET /api/stockcount/` — list all (requires auth)\n- `GET /api/stockcount/{id}` — detail with items (requires auth)\n- `PATCH /api/stockcount/{id}/items/{item_id}` — update counted_quantity (DRAFT only)\n- `POST /api/stockcount/{id}/finalize` — finalize (DRAFT only)\n\nRegister in `main.py`.\n\n### Migration\nNew tables: `stock_counts`, `stock_count_items`. Use `values_callable` on Enum columns.\n\n## Frontend\n\n### New page: `frontend/src/app/features/stockcount/pages/`\n\n**Stock count list page** (`/stock-counts`):\n- Table of past stock count sessions: date | type | status | items counted | created by\n- \"New Stock Count\" button → opens creation dialog\n\n**Creation dialog**:\n- Date picker (count_date)\n- Radio: Product-level / Lot-level\n- Optional notes\n- On confirm → POST, navigate to detail page\n\n**Stock count detail page** (`/stock-counts/:id`):\n- Header: date, type, status, notes, \"Finalise\" button (only in DRAFT)\n- Table of items:\n  - For PRODUCT: Product name | System qty | Counted qty (editable input in DRAFT) | Variance (colour-coded: red=negative, green=positive, grey=zero/null)\n  - For LOT: Product name | Order # | System qty | Counted qty | Variance\n- Variance column: negative = red badge, positive = green badge, zero = grey, null = \"—\"\n- \"Finalise\" button: confirms via dialog, then POST /finalize\n\nAdd route and nav link in the sidebar (under Inventory section).\n\n## Rules\n- Python Decimal, never float\n- `structlog` logger, never print()\n- `selectinload()` on all relationships before returning\n- Static routes before parameterised routes\n- `values_callable` on all new Enum columns\n- Write tests before implementation\n- `ng build` before committing",
+        "testStrategy": "**Backend (write BEFORE implementation):**\n1. `test_create_product_stock_count` — create a PRODUCT-type session; verify one StockCountItem is created per product with correct system_quantity snapshot\n2. `test_create_lot_stock_count` — create a LOT-type session; verify one item per active lot (units_remaining > 0) with system_quantity = units_remaining\n3. `test_update_counted_quantity` — PATCH an item in DRAFT; verify counted_quantity and variance are updated\n4. `test_update_rejected_when_finalized` — attempt PATCH after finalise; expect 422\n5. `test_finalize_stock_count` — finalize a DRAFT; verify status=FINALIZED, finalized_at is set\n6. `test_variance_calculation` — counted_quantity=80, system_quantity=100 → variance=-20; counted=110 → variance=+10\n7. `test_system_quantity_snapshotted_at_finalization` — create session; change InventoryLevel.current_stock after creation but before finalization; finalize; verify StockCountItem.system_quantity_at_count matches the stock level AT finalization time, not at creation time\n\n**Frontend E2E (Playwright, `frontend/e2e/stock-count.spec.ts`):**\n1. Create a PRODUCT-type stock count; verify all products appear in the detail page with system quantities\n2. Enter counted quantities for each product; verify variance column updates with correct colour coding\n3. Create a LOT-type stock count; verify active lots appear with correct order numbers\n4. Finalise a count; verify inputs become read-only and status shows FINALIZED\n5. Verify a finalised count appears in the stock counts list with correct date and type",
+        "status": "done",
+        "dependencies": [
+          "75"
+        ],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-06-12T05:04:00.794Z"
+      },
+      {
+        "id": 79,
+        "title": "Add sub-categories to product categories (parent/child hierarchy)",
+        "description": "Allow product categories to have sub-categories via a self-referential parent_id FK. For example, \"Edge Tape\" (parent) → \"Matt\", \"Embossed\", \"Gloss\" (children). Products can be assigned to a sub-category or directly to a top-level category.",
+        "details": "## Backend\n\n### Migration\n- Add `parent_id: UUID | None` (FK to `product_categories.id`, ondelete=SET NULL, nullable) to `product_categories` table\n- Add index on `parent_id`\n\n### Model (`backend/src/products/models.py`)\n- Add `parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey(\"product_categories.id\", ondelete=\"SET NULL\"), nullable=True, default=None)`\n- Add relationships: `parent: Mapped[Optional[\"ProductCategory\"]] = relationship(back_populates=\"children\", remote_side=[id], lazy=\"raise\")` and `children: Mapped[list[\"ProductCategory\"]] = relationship(back_populates=\"parent\", lazy=\"raise\")`\n\n### Schemas (`backend/src/products/schemas.py`)\n- Add `parent_id: Optional[uuid.UUID] = None` to `CategoryCreate` and `CategoryRead`\n- Add `CategoryRead` to `CategoryRead` as `children: list[\"CategoryRead\"] = []` (nested read schema for tree display)\n- Add `CategoryTreeRead` schema: full tree including children, used by the GET /products/categories endpoint\n\n### Service\n- `list_categories()`: return categories with `selectinload(ProductCategory.children)` so children are available\n- `create_category()`: accept `parent_id`, validate that parent exists and is itself a top-level category (max 2 levels — no grandchildren)\n- GET `/products/categories` returns full tree (top-level categories with their children nested)\n\n### Rules\n- Maximum 2 levels deep (category → sub-category only, no sub-sub-categories)\n- A sub-category cannot itself be a parent\n\n## Frontend\n\n### Category selector on product create/edit\n- Replace the flat `<select>` with a grouped selector: top-level categories as `<optgroup>`, sub-categories as `<option>` inside\n- If a top-level category has no children, it can be selected directly as a product category\n\n### Category management (Settings or Products page)\n- When creating a category, show an optional \"Parent category\" dropdown to make it a sub-category\n- Display categories as a tree (indented list) in the category list\n\n## Rules\n- `selectinload()` on relationships before returning\n- `values_callable` not needed here (no new Enum columns)\n- Write tests before implementation",
+        "testStrategy": "**Backend:**\n1. `test_create_subcategory` — create a child category with parent_id set; verify it appears under the parent in list_categories\n2. `test_create_category_max_depth` — attempt to create a sub-category whose parent is itself a sub-category; expect a validation error (max 2 levels)\n3. `test_list_categories_tree` — verify GET /products/categories returns nested structure with children array\n4. `test_product_assigned_to_subcategory` — create product with a sub-category id; verify it reads back correctly\n\n**Frontend E2E:**\n1. Create a top-level category then a sub-category under it; verify the sub-category appears indented in the list\n2. Create a product and assign it to a sub-category via the grouped selector; verify it displays the sub-category name in the product list",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 80,
+        "title": "Category-aware price suggestions — default margin per category/sub-category",
+        "description": "Store a default target margin percentage on each product category (and sub-category). When the price suggestion engine runs for a product, it pre-fills the margin from the product's category (sub-category margin overrides parent margin; both fall back to the system default of 40% if unset). This removes the need for users to manually set the margin each time for products in the same category.",
+        "details": "## Context\n\nDepends on task #79 (sub-categories). The price suggestion engine (`POST /api/pricing/suggest/{product_id}`) currently defaults to 40% margin unless the caller overrides it. With category-aware margins, each product carries its category's configured margin automatically.\n\n## Backend\n\n### Migration\n- Add `default_margin_pct: Numeric(5, 4) | None` (nullable) to `product_categories`\n- Null means \"not configured — inherit from parent or use system default\"\n\n### Model (`backend/src/products/models.py`)\n- Add `default_margin_pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 4), nullable=True, default=None)`\n\n### Schemas\n- Add `default_margin_pct: Optional[Decimal] = None` to `CategoryCreate`, `CategoryRead`, `CategoryTreeRead`\n\n### Service (`backend/src/pricing/service.py`) — `compute_suggestion`\n- After fetching active lots, load the product's category (and parent category if sub-category)\n- Resolve effective margin: `sub_category.default_margin_pct ?? parent_category.default_margin_pct ?? Decimal(\"0.40\")`\n- Use resolved margin as the default when `target_margin` is not explicitly passed by the caller\n\n### Router (`backend/src/pricing/router.py`)\n- `SuggestRequest.target_margin_pct` is now optional (omit it → use category default)\n- If provided, the caller's value overrides the category default (existing behaviour)\n\n## Frontend\n\n### Products page — Suggest Price panel\n- After clicking \"Suggest Price\", the margin slider pre-fills with the product's category default margin (fetched as part of the product's category data)\n- If no category margin is configured, defaults to 40% as before\n- User can still move the slider to override\n\n### Category management (Settings or Products page)\n- Add a \"Default margin %\" input field to the category create/edit form (optional, 0–100 %)\n- Display the configured margin next to each category in the list\n\n## Rules\n- Decimal everywhere, no float\n- Margin inheritance: sub-category → parent → system default (40%)\n- Explicit caller override always wins over category default\n- Write tests before implementation",
+        "testStrategy": "**Backend:**\n1. `test_compute_suggestion_uses_category_margin` — product with category having default_margin_pct=0.35; call compute_suggestion without explicit margin; verify 35% is used\n2. `test_compute_suggestion_inherits_parent_margin` — product in sub-category with no margin; parent has 0.30; verify 30% is inherited\n3. `test_compute_suggestion_explicit_overrides_category` — product has category margin 0.35; pass target_margin=0.50 explicitly; verify 50% is used\n4. `test_compute_suggestion_falls_back_to_default` — product in category with no margin and no parent; verify 40% system default is used\n\n**Frontend E2E:**\n1. Set a default margin on a category; open Suggest Price for a product in that category; verify the slider pre-fills with that margin\n2. Move the slider after opening; verify the override value is used instead",
+        "status": "pending",
+        "dependencies": [
+          79
+        ],
+        "priority": "medium",
+        "subtasks": []
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-06-11T20:20:32.101Z",
-      "taskCount": 76,
-      "completedCount": 75,
+      "lastModified": "2026-06-12T05:04:00.796Z",
+      "taskCount": 78,
+      "completedCount": 78,
       "tags": [
         "master"
-      ]
+      ],
+      "created": "2026-06-12T08:11:24.569Z",
+      "description": "Tasks for master context",
+      "updated": "2026-06-12T08:11:40.268Z"
     }
   }
 }

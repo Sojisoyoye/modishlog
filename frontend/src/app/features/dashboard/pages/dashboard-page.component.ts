@@ -5,6 +5,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
 import { DashboardService, DashboardData } from '../../../core/services/dashboard.service';
 import { CashflowService, GlobalExposure, TriageStatusResponse } from '../../../core/services/cashflow.service';
 import { OrdersService, LogisticsEfficiency } from '../../../core/services/orders.service';
+import { FxService } from '../../../core/services/fx.service';
 
 @Component({
   selector: 'app-dashboard-page',
@@ -12,9 +13,36 @@ import { OrdersService, LogisticsEfficiency } from '../../../core/services/order
   imports: [DecimalPipe, CurrencyPipe, UpperCasePipe, RouterLink, StatusBadgeComponent],
   template: `
     <div>
-      <div class="mb-6">
-        <h2 class="text-2xl font-bold text-text">Dashboard</h2>
-        <p class="mt-1 text-sm text-muted">Business overview at a glance</p>
+      <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 class="text-2xl font-bold text-text">Dashboard</h2>
+          <p class="mt-1 text-sm text-muted">Business overview at a glance</p>
+        </div>
+
+        <!-- Live FX Rate strip -->
+        <div class="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-2.5 shadow-sm">
+          <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-green-50">
+            <i class="pi pi-money-bill text-xs text-success"></i>
+          </div>
+          @if (liveRates()) {
+            <div class="flex items-center gap-4">
+              <div class="text-center">
+                <p class="text-[10px] font-semibold uppercase tracking-wider text-muted">USD / NGN</p>
+                <p class="text-base font-bold text-text">₦{{ liveRates()!.usd_ngn | number: '1.0-0' }}</p>
+              </div>
+              @if (liveRates()!.eur_ngn) {
+                <div class="h-6 w-px bg-gray-200"></div>
+                <div class="text-center">
+                  <p class="text-[10px] font-semibold uppercase tracking-wider text-muted">EUR / NGN</p>
+                  <p class="text-base font-bold text-text">₦{{ liveRates()!.eur_ngn! | number: '1.0-0' }}</p>
+                </div>
+              }
+              <span class="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-success">LIVE</span>
+            </div>
+          } @else {
+            <p class="text-xs text-muted">Loading rates…</p>
+          }
+        </div>
       </div>
 
       @if (triageStatus()) {
@@ -338,8 +366,10 @@ export class DashboardPageComponent implements OnInit {
   private readonly dashboardService = inject(DashboardService);
   private readonly cashflowService = inject(CashflowService);
   private readonly ordersService = inject(OrdersService);
+  private readonly fxService = inject(FxService);
 
   loading = signal(true);
+  liveRates = signal<{ usd_ngn: number; eur_ngn: number | null } | null>(null);
   triageStatus = signal<TriageStatusResponse | null>(null);
   globalExposure = signal<GlobalExposure | null>(null);
   exposureCurrency = signal<'NGN' | 'USD' | 'EUR'>('NGN');
@@ -388,6 +418,18 @@ export class DashboardPageComponent implements OnInit {
     });
     this.ordersService.getLogisticsEfficiency().subscribe({
       next: (l) => this.logistics.set(l),
+    });
+    this.fxService.getLiveRate().subscribe({
+      next: (live) => {
+        this.fxService.getLatestEurUsd().subscribe({
+          next: (eur) => {
+            const eurNgn = eur ? Math.round(eur.rate * live.usd_ngn) : null;
+            this.liveRates.set({ usd_ngn: live.usd_ngn, eur_ngn: eurNgn });
+          },
+          error: () => this.liveRates.set({ usd_ngn: live.usd_ngn, eur_ngn: null }),
+        });
+      },
+      error: () => this.liveRates.set(null),
     });
   }
 

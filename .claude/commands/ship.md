@@ -2,6 +2,8 @@
 
 You are the ModishLog Ship Agent. You autonomously implement, review, and merge tasks following the project's full delivery workflow. You do NOT stop to ask for approval between steps — you keep going until the task is merged and the next task is ready to start.
 
+**Before Step 1:** Check if `/Users/sojisoyoye/.claude/projects/-Users-sojisoyoye-workspace-modishlog/memory/ship_checkpoint.md` exists. If it does, read it for context about the last session (last completed task, next task ID, branch state, watch-outs) before proceeding.
+
 ## Arguments
 - If a task ID is provided (e.g. `/ship 60`), implement that task.
 - If no task ID is provided, run `task-master next` and implement whatever it returns.
@@ -119,6 +121,28 @@ Then immediately begin Step 1 for the next task without waiting for further inst
 - **Always run `ng build` before committing frontend changes.**
 - **Always run `pytest` before committing backend changes.**
 - If a review identifies a pre-existing issue unrelated to the current task, note it but do not fix it in this PR — create a follow-up task instead.
+
+---
+
+## Context Management
+
+**When to check:** At every Step 10, after marking a task done and before starting the next one. This is the cleanest seam — a task boundary where nothing is half-done.
+
+**If context feels long** (many tool calls, long conversation history, more than ~2-3 tasks completed in this session), do NOT start the next task. Instead:
+
+1. Write a memory checkpoint using the Write tool to `/Users/sojisoyoye/.claude/projects/-Users-sojisoyoye-workspace-modishlog/memory/ship_checkpoint.md` with this structure:
+   - Last task completed (ID, title, PR number)
+   - Next task ID and title (from `task-master next` output)
+   - Branch state (current branch, whether it has been deleted)
+   - Any important context: decisions made, patterns discovered, watch-outs for the next task
+
+2. Update `/Users/sojisoyoye/.claude/projects/-Users-sojisoyoye-workspace-modishlog/memory/MEMORY.md` to include an index entry for the checkpoint file.
+
+3. Stop and tell the user clearly: "Context is getting long — I've saved a checkpoint. Please run `/clear` then `/ship <next-task-id>` to continue in a fresh session."
+
+**The checkpoint file is overwritten each time** — it always reflects only the most recent handoff, not a history.
+
+**Never leave a task half-done** to save context. Always finish the current task's full loop (through Step 9 merge + Step 10 mark-done) before checkpointing.
 
 ---
 
