@@ -49,35 +49,9 @@ import { FxService } from '../../../core/services/fx.service';
       <!-- Pipeline View -->
       <div class="mb-6 flex gap-4 overflow-x-auto pb-2">
         @for (status of pipelineStatuses; track status) {
-          @let statusOrders = ordersByStatus(status);
-          <div class="min-w-48 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-            <div class="mb-3 flex items-center justify-between">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-muted">{{ statusLabel[status] }}</h4>
-              <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-text">
-                {{ statusOrders.length }}
-              </span>
-            </div>
-            <div class="space-y-2">
-              @for (order of statusOrders; track order.id) {
-                <div
-                  role="button"
-                  tabindex="0"
-                  (click)="viewOrder(order)"
-                  (keydown.enter)="viewOrder(order)"
-                  (keydown.space)="viewOrder(order)"
-                  class="cursor-pointer rounded-lg border border-gray-100 p-3 transition-all hover:border-secondary hover:shadow-sm"
-                >
-                  <p class="text-sm font-semibold text-text">{{ order.order_number }}</p>
-                  <p class="mt-0.5 text-xs text-muted">{{ order.supplier_name }}</p>
-                  <p class="mt-1.5 text-sm font-bold text-text">
-                    {{ order.total_amount | currency: 'USD' : 'symbol' : '1.0-0' }}
-                  </p>
-                </div>
-              }
-              @if (statusOrders.length === 0) {
-                <p class="py-2 text-center text-xs text-muted">No orders</p>
-              }
-            </div>
+          <div class="min-w-36 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-muted">{{ statusLabel[status] }}</h4>
+            <p class="mt-2 text-2xl font-bold text-text">{{ ordersByStatus(status).length }}</p>
           </div>
         }
       </div>
