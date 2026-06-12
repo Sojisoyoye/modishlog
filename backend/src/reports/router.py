@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user
 from src.auth.models import User
+from src.core.csv_utils import csv_safe
 from src.core.database import get_db
 from src.reports.schemas import ProfitLossReport, PurchaseSaleReport, StockReport
 from src.reports.service import (
@@ -65,9 +66,9 @@ async def export_stock_csv(
         writer.writerow(
             [
                 str(item.product_id),
-                item.sku,
-                item.product_name,
-                item.category or "",
+                csv_safe(item.sku),
+                csv_safe(item.product_name),
+                csv_safe(item.category or ""),
                 str(item.unit_cost),
                 str(item.selling_price),
                 item.quantity_on_hand,

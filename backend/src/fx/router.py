@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user
 from src.auth.models import User
+from src.core.csv_utils import csv_safe
 from src.core.database import get_db
 from src.fx.exceptions import (
     ExposureConfigError,
@@ -127,9 +128,9 @@ async def export_fx_csv_endpoint(
         writer.writerow(
             [
                 str(rate.id),
-                rate.pair,
+                csv_safe(rate.pair),
                 str(rate.rate),
-                rate.source.value if rate.source else "",
+                csv_safe(rate.source.value if rate.source else ""),
                 rate.timestamp.isoformat() if rate.timestamp else "",
             ]
         )
