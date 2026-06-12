@@ -110,7 +110,7 @@ interface ColEntry {
           </p>
           <div class="mb-4">
             <label class="mb-1 block text-xs font-medium text-muted">Target Margin: {{ (suggestionMargin() * 100 | number: '1.0-0') }}%</label>
-            <input type="range" [(ngModel)]="suggestionMarginPct" min="20" max="70" step="5"
+            <input type="range" [(ngModel)]="suggestionMarginPct" min="20" max="70" step="1"
               (ngModelChange)="suggestionMargin.set($event / 100)"
               class="w-full accent-primary" />
             <div class="mt-1 flex justify-between text-xs text-muted"><span>20%</span><span>70%</span></div>
@@ -1704,8 +1704,8 @@ export class ProductsPageComponent implements OnInit {
         raw = parent.default_margin_pct * 100;
       }
     }
-    // Snap to the slider's step of 5 and clamp to its [20, 70] range
-    return Math.min(70, Math.max(20, Math.round(raw / 5) * 5));
+    // Clamp to slider range [20, 70]; step is now 1 so any integer value is valid
+    return Math.min(70, Math.max(20, Math.round(raw)));
   }
 
   private findCategoryById(id: string | null): Category | null {
