@@ -144,3 +144,27 @@ class TestSecretKeyValidation:
     def test_exactly_32_chars_accepted(self):
         s = self._make("x" * 32)
         assert len(s.SECRET_KEY) == 32
+
+
+class TestCorsOriginsWildcardGuard:
+    def test_wildcard_origin_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="CORS_ORIGINS"):
+            Settings(CORS_ORIGINS=["*"])
+
+    def test_wildcard_as_comma_string_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="CORS_ORIGINS"):
+            Settings(CORS_ORIGINS="*")
+
+    def test_wildcard_in_list_with_other_origins_rejected(self):
+        import pytest
+        from pydantic import ValidationError
+        with pytest.raises(ValidationError, match="CORS_ORIGINS"):
+            Settings(CORS_ORIGINS=["http://localhost:4200", "*"])
+
+    def test_specific_origin_accepted(self):
+        s = Settings(CORS_ORIGINS=["http://localhost:4200"])
+        assert s.CORS_ORIGINS == ["http://localhost:4200"]

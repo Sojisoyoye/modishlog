@@ -45,3 +45,37 @@ class TestUnhandledExceptionHandler:
             assert resp.json()["detail"] == "not found"
         finally:
             app.routes[:] = [r for r in app.routes if getattr(r, "path", "") != "/test-404-route"]
+
+
+class TestCorsMiddlewareHeaders:
+    def test_preflight_does_not_expose_wildcard_allow_headers(self):
+        """CORS preflight must never advertise Access-Control-Allow-Headers: * —
+        that combination with credentials is undefined per spec."""
+        from src.main import app
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.options(
+                "/health",
+                headers={
+                    "Origin": "http://localhost:4200",
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "Authorization",
+                },
+            )
+        assert resp.headers.get("Access-Control-Allow-Headers") != "*"
+
+    def test_preflight_allows_authorization_header(self):
+        """Preflight must explicitly list Authorization so Bearer token requests pass."""
+        from src.main import app
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.options(
+                "/health",
+                headers={
+                    "Origin": "http://localhost:4200",
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "Authorization",
+                },
+            )
+        allowed = resp.headers.get("Access-Control-Allow-Headers", "")
+        assert "authorization" in allowed.lower()
