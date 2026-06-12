@@ -49,7 +49,7 @@ import { StockCount, StockCountItem } from '../models/stock-count.model';
           </div>
           @if (sc.status === 'DRAFT') {
             <button
-              (click)="confirmFinalizeVisible = true"
+              (click)="confirmFinalizeVisible.set(true)"
               class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90"
             >
               <i class="pi pi-check text-sm"></i> Finalise
@@ -127,6 +127,8 @@ import { StockCount, StockCountItem } from '../models/stock-count.model';
             </tbody>
           </table>
         </div>
+      } @else if (loadError()) {
+        <p class="mt-8 text-center text-sm text-red-600">Failed to load. Please refresh.</p>
       } @else {
         <p class="text-muted">Loading...</p>
       }
@@ -135,7 +137,8 @@ import { StockCount, StockCountItem } from '../models/stock-count.model';
     <!-- Finalise confirmation dialog -->
     <p-dialog
       header="Finalise Stock Count"
-      [(visible)]="confirmFinalizeVisible"
+      [visible]="confirmFinalizeVisible()"
+      (visibleChange)="confirmFinalizeVisible.set($event)"
       [modal]="true"
       [style]="{ width: '400px' }"
     >
@@ -145,7 +148,7 @@ import { StockCount, StockCountItem } from '../models/stock-count.model';
       </p>
       <ng-template pTemplate="footer">
         <button
-          (click)="confirmFinalizeVisible = false"
+          (click)="confirmFinalizeVisible.set(false)"
           class="mr-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted hover:bg-gray-50"
         >Cancel</button>
         <button
@@ -167,7 +170,8 @@ export class StockCountDetailPageComponent implements OnInit {
 
   stockCount = signal<StockCount | null>(null);
   finalizing = signal(false);
-  confirmFinalizeVisible = false;
+  loadError = signal(false);
+  confirmFinalizeVisible = signal(false);
 
   private get id(): string {
     return this.route.snapshot.paramMap.get('id')!;
@@ -178,7 +182,10 @@ export class StockCountDetailPageComponent implements OnInit {
   }
 
   private load(): void {
-    this.service.get(this.id).subscribe({ next: (sc) => this.stockCount.set(sc) });
+    this.service.get(this.id).subscribe({
+      next: (sc) => this.stockCount.set(sc),
+      error: () => this.loadError.set(true),
+    });
   }
 
   updateItem(stockCountId: string, itemId: string, event: Event): void {
@@ -205,7 +212,7 @@ export class StockCountDetailPageComponent implements OnInit {
     this.service.finalize(this.id).subscribe({
       next: (sc) => {
         this.finalizing.set(false);
-        this.confirmFinalizeVisible = false;
+        this.confirmFinalizeVisible.set(false);
         this.stockCount.set(sc);
         this.messageService.add({ severity: 'success', summary: 'Finalised', detail: 'Stock count is now locked' });
       },

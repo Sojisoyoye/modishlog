@@ -93,10 +93,12 @@ async def update_count_item(
         raise StockCountFinalizedError(stock_count_id)
 
     item_result = await db.execute(
-        select(StockCountItem).where(
+        select(StockCountItem)
+        .where(
             StockCountItem.id == item_id,
             StockCountItem.stock_count_id == stock_count_id,
         )
+        .options(selectinload(StockCountItem.product))
     )
     item = item_result.scalar_one_or_none()
     if item is None:
@@ -122,22 +124,28 @@ async def finalize_stock_count(
     if sc.status == StockCountStatus.FINALIZED:
         raise StockCountFinalizedError(stock_count_id)
 
-    for item in sc.items:
-        if sc.count_type == StockCountType.PRODUCT:
-            inv_result = await db.execute(
-                select(InventoryLevel).where(
-                    InventoryLevel.product_id == item.product_id
-                )
-            )
-            inv = inv_result.scalar_one_or_none()
+    # Batch-fetch system quantities — one query regardless of item count
+    if sc.count_type == StockCountType.PRODUCT:
+        product_ids = [item.product_id for item in sc.items]
+        inv_result = await db.execute(
+            select(InventoryLevel).where(InventoryLevel.product_id.in_(product_ids))
+        )
+        inv_by_product = {inv.product_id: inv for inv in inv_result.scalars().all()}
+        for item in sc.items:
+            inv = inv_by_product.get(item.product_id)
             item.system_quantity_at_count = (
                 Decimal(str(inv.quantity_on_hand)) if inv else Decimal("0")
             )
-        else:
-            lot_result = await db.execute(
-                select(OrderLineItem).where(OrderLineItem.id == item.order_line_item_id)
-            )
-            lot = lot_result.scalar_one_or_none()
+    else:
+        lot_ids = [
+            item.order_line_item_id for item in sc.items if item.order_line_item_id
+        ]
+        lot_result = await db.execute(
+            select(OrderLineItem).where(OrderLineItem.id.in_(lot_ids))
+        )
+        lot_by_id = {lot.id: lot for lot in lot_result.scalars().all()}
+        for item in sc.items:
+            lot = lot_by_id.get(item.order_line_item_id)
             item.system_quantity_at_count = (
                 lot.units_remaining
                 if (lot and lot.units_remaining is not None)

@@ -229,8 +229,9 @@ class TestFinalizeStockCount:
             if call_count == 1:
                 result.scalar_one_or_none.return_value = sc
             else:
-                inv = MagicMock(quantity_on_hand=100)
-                result.scalar_one_or_none.return_value = inv
+                # Batch InventoryLevel query returns a list
+                inv = MagicMock(product_id=product_id, quantity_on_hand=100)
+                result.scalars.return_value.all.return_value = [inv]
             return result
 
         db.execute = mock_execute
@@ -316,9 +317,9 @@ class TestSystemQuantitySnapshotTiming:
             if call_count == 1:
                 result.scalar_one_or_none.return_value = sc
             else:
-                # Stock changed between creation and finalization: was 100, now 75
-                inv = MagicMock(quantity_on_hand=75)
-                result.scalar_one_or_none.return_value = inv
+                # Batch InventoryLevel query — stock was 100 at create time, 75 at finalize
+                inv = MagicMock(product_id=product_id, quantity_on_hand=75)
+                result.scalars.return_value.all.return_value = [inv]
             return result
 
         db.execute = mock_execute
