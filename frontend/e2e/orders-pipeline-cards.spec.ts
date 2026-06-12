@@ -32,6 +32,12 @@ async function createOrder(
   }
 }
 
+/** Locate a pipeline card by its human-readable heading text. */
+function pipelineCard(page: Parameters<typeof test>[1] extends (args: { page: infer P }) => unknown ? P : never, label: string) {
+  // The h4 heading is two levels below the card div: card > header-div > h4
+  return page.locator('h4').filter({ hasText: new RegExp(`^${label}$`, 'i') }).locator('../..');
+}
+
 test.describe('Orders pipeline status cards', () => {
   let productId: string;
 
@@ -45,8 +51,25 @@ test.describe('Orders pipeline status cards', () => {
     await loginViaUI(page);
   });
 
-  test('pipeline cards show correct counts matching the table', async ({ page }) => {
-    // Create one order in each status
+  test('pipeline card headings show human-readable labels', async ({ page }) => {
+    await page.goto('/orders');
+    await page.waitForLoadState('networkidle');
+
+    // Each card h4 must show the friendly label (CSS text-transform:uppercase renders it visually
+    // all-caps, but the DOM value is the mapped string from statusLabel).
+    const expectedLabels = ['Ordered', 'Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];
+    for (const label of expectedLabels) {
+      await expect(page.locator('h4').filter({ hasText: new RegExp(`^${label}$`, 'i') })).toBeVisible();
+    }
+
+    // The raw underscore enum values must NOT appear as h4 headings
+    const rawValues = ['PENDING', 'IN_PRODUCTION', 'SHIPPING', 'CLEARED', 'DELIVERED'];
+    for (const raw of rawValues) {
+      await expect(page.locator('h4').filter({ hasText: new RegExp(`^${raw}$`) })).toHaveCount(0);
+    }
+  });
+
+  test('orders appear in the correct pipeline card for their status', async ({ page }) => {
     const pending = await createOrder(productId, 'PENDING');
     const shipping = await createOrder(productId, 'SHIPPING');
     const delivered = await createOrder(productId, 'DELIVERED');
@@ -54,36 +77,10 @@ test.describe('Orders pipeline status cards', () => {
     await page.goto('/orders');
     await page.waitForLoadState('networkidle');
 
-    // The table shows all orders — get counts per status from it
-    const tableRows = page.locator('table tbody tr');
-    await expect(tableRows.first()).toBeVisible();
-
-    // Cards must show human-readable labels (not raw enum strings)
-    await expect(page.getByText('Pending').first()).toBeVisible();
-    await expect(page.getByText('Shipping').first()).toBeVisible();
-    await expect(page.getByText('Delivered').first()).toBeVisible();
-    await expect(page.getByText('In Production').first()).toBeVisible();
-    await expect(page.getByText('Cleared').first()).toBeVisible();
-
-    // Raw enum strings must NOT appear as card headings
-    await expect(page.getByText('PENDING')).not.toBeVisible();
-    await expect(page.getByText('IN_PRODUCTION')).not.toBeVisible();
-    await expect(page.getByText('SHIPPING')).not.toBeVisible();
-    await expect(page.getByText('CLEARED')).not.toBeVisible();
-    await expect(page.getByText('DELIVERED')).not.toBeVisible();
-
-    // The order numbers we created must appear inside their respective pipeline cards.
-    // Pending card contains the pending order number.
-    const pendingCard = page.locator('.pipeline-card', { hasText: 'Pending' }).first();
-    await expect(pendingCard.getByText(pending.order_number)).toBeVisible();
-
-    // Shipping card contains the shipping order number.
-    const shippingCard = page.locator('.pipeline-card', { hasText: 'Shipping' }).first();
-    await expect(shippingCard.getByText(shipping.order_number)).toBeVisible();
-
-    // Delivered card contains the delivered order number.
-    const deliveredCard = page.locator('.pipeline-card', { hasText: 'Delivered' }).first();
-    await expect(deliveredCard.getByText(delivered.order_number)).toBeVisible();
+    // Each created order number must appear inside its correct status card
+    await expect(pipelineCard(page, 'Pending').getByText(pending.order_number)).toBeVisible();
+    await expect(pipelineCard(page, 'Shipping').getByText(shipping.order_number)).toBeVisible();
+    await expect(pipelineCard(page, 'Delivered').getByText(delivered.order_number)).toBeVisible();
   });
 
   test('pipeline card count is non-zero when orders exist in that status', async ({ page }) => {
@@ -92,25 +89,26 @@ test.describe('Orders pipeline status cards', () => {
     await page.goto('/orders');
     await page.waitForLoadState('networkidle');
 
-    // Find the "In Production" pipeline card and check its badge count is > 0
-    const inProdCard = page.locator('div').filter({ hasText: /^In Production$/ }).first()
-      .locator('..');
-    const badge = inProdCard.locator('span.rounded-full');
+    const card = pipelineCard(page, 'In Production');
+    const badge = card.locator('span.rounded-full');
     const countText = await badge.textContent();
     expect(parseInt(countText?.trim() ?? '0')).toBeGreaterThan(0);
   });
 
-  test('card count matches table row count for same status', async ({ page }) => {
+  test('pipeline card badge count matches number of that-status orders in the table', async ({ page }) => {
+    await createOrder(productId, 'PENDING');
+
     await page.goto('/orders');
     await page.waitForLoadState('networkidle');
 
-    // Count PENDING rows in the table
-    const pendingTableRows = page.locator('table tbody tr').filter({ hasText: 'PENDING' });
-    const tableCount = await pendingTableRows.count();
+    // Count rows in the table whose status badge text is exactly 'PENDING'
+    const pendingRows = page.locator('table tbody tr').filter({
+      has: page.locator('app-status-badge', { hasText: /^PENDING$/ }),
+    });
+    const tableCount = await pendingRows.count();
 
-    // Pending pipeline card badge should match
-    const pendingCard = page.locator('h4').filter({ hasText: /^Pending$/i }).locator('../..');
-    const badge = pendingCard.locator('span.rounded-full');
+    // The Pending pipeline card badge must show the same count
+    const badge = pipelineCard(page, 'Pending').locator('span.rounded-full');
     const cardCount = parseInt((await badge.textContent())?.trim() ?? '0');
 
     expect(cardCount).toBe(tableCount);

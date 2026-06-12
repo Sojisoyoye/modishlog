@@ -49,15 +49,16 @@ import { FxService } from '../../../core/services/fx.service';
       <!-- Pipeline View -->
       <div class="mb-6 flex gap-4 overflow-x-auto pb-2">
         @for (status of pipelineStatuses; track status) {
+          @let statusOrders = ordersByStatus(status);
           <div class="min-w-48 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <div class="mb-3 flex items-center justify-between">
               <h4 class="text-xs font-bold uppercase tracking-wider text-muted">{{ statusLabel[status] }}</h4>
               <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-text">
-                {{ ordersByStatus(status).length }}
+                {{ statusOrders.length }}
               </span>
             </div>
             <div class="space-y-2">
-              @for (order of ordersByStatus(status); track order.id) {
+              @for (order of statusOrders; track order.id) {
                 <div
                   role="button"
                   tabindex="0"
@@ -73,7 +74,7 @@ import { FxService } from '../../../core/services/fx.service';
                   </p>
                 </div>
               }
-              @if (ordersByStatus(status).length === 0) {
+              @if (statusOrders.length === 0) {
                 <p class="py-2 text-center text-xs text-muted">No orders</p>
               }
             </div>
@@ -853,7 +854,7 @@ export class OrdersPageComponent implements OnInit {
   orderStatus(status: string): 'info' | 'warning' | 'success' | 'neutral' {
     if (status === 'DELIVERED') return 'success';
     if (status === 'SHIPPING' || status === 'CLEARED') return 'warning';
-    if (status === 'IN_PRODUCTION' || status === 'ORDERED') return 'info';
+    if (status === 'IN_PRODUCTION' || status === 'ORDERED' || status === 'PENDING') return 'info';
     return 'neutral';
   }
 
