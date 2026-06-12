@@ -86,16 +86,19 @@ class TestParseCorsOrigins:
 class TestAlgorithmValidation:
     def test_hs256_accepted(self):
         from src.core.config import Settings
+
         s = Settings(ALGORITHM="HS256")
         assert s.ALGORITHM == "HS256"
 
     def test_hs384_accepted(self):
         from src.core.config import Settings
+
         s = Settings(ALGORITHM="HS384")
         assert s.ALGORITHM == "HS384"
 
     def test_hs512_accepted(self):
         from src.core.config import Settings
+
         s = Settings(ALGORITHM="HS512")
         assert s.ALGORITHM == "HS512"
 
@@ -103,6 +106,7 @@ class TestAlgorithmValidation:
         import pytest
         from pydantic import ValidationError
         from src.core.config import Settings
+
         with pytest.raises(ValidationError, match="ALGORITHM"):
             Settings(ALGORITHM="none")
 
@@ -110,6 +114,7 @@ class TestAlgorithmValidation:
         import pytest
         from pydantic import ValidationError
         from src.core.config import Settings
+
         with pytest.raises(ValidationError, match="ALGORITHM"):
             Settings(ALGORITHM="RS256")
 
@@ -117,6 +122,7 @@ class TestAlgorithmValidation:
         import pytest
         from pydantic import ValidationError
         from src.core.config import Settings
+
         with pytest.raises(ValidationError, match="ALGORITHM"):
             Settings(ALGORITHM="")
 
@@ -132,12 +138,14 @@ class TestSecretKeyValidation:
     def test_dev_default_secret_key_rejected(self):
         import pytest
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError, match="SECRET_KEY"):
             self._make("dev-secret-change-in-production")
 
     def test_short_secret_key_rejected(self):
         import pytest
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError, match="SECRET_KEY"):
             self._make("tooshort")
 
@@ -150,21 +158,62 @@ class TestCorsOriginsWildcardGuard:
     def test_wildcard_origin_rejected(self):
         import pytest
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError, match="CORS_ORIGINS"):
             Settings(CORS_ORIGINS=["*"])
 
     def test_wildcard_as_comma_string_rejected(self):
         import pytest
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError, match="CORS_ORIGINS"):
             Settings(CORS_ORIGINS="*")
 
     def test_wildcard_in_list_with_other_origins_rejected(self):
         import pytest
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError, match="CORS_ORIGINS"):
             Settings(CORS_ORIGINS=["http://localhost:4200", "*"])
 
     def test_specific_origin_accepted(self):
         s = Settings(CORS_ORIGINS=["http://localhost:4200"])
         assert s.CORS_ORIGINS == ["http://localhost:4200"]
+
+
+class TestDatabaseURLNoHardcodedCredentials:
+    def test_default_database_url_has_no_plaintext_password(self):
+        """Default DATABASE_URL must not embed a real password (no ':password@' pattern)."""
+        import re
+        from pydantic import ValidationError
+
+        try:
+            s = Settings()
+            # If it succeeds, the default URL must not have credentials
+            assert not re.search(
+                r":modishlog_dev@", s.DATABASE_URL
+            ), "Default DATABASE_URL must not contain the hardcoded password 'modishlog_dev'"
+        except ValidationError:
+            # If Settings() raises because DATABASE_URL has no default, that's also acceptable
+            pass
+
+    def test_database_url_required_or_no_plaintext_default(self):
+        """Instantiating Settings without DATABASE_URL env var must either work (no default
+        credentials) or raise ValidationError (required field)."""
+        import os
+        import re
+        from pydantic import ValidationError
+
+        env_backup = os.environ.pop("DATABASE_URL", None)
+        try:
+            try:
+                s = Settings()
+                assert (
+                    not re.search(r":[^@/]+@", s.DATABASE_URL)
+                    or "localhost" not in s.DATABASE_URL
+                ), "Default DATABASE_URL must not contain embedded password"
+            except ValidationError:
+                pass  # Required field with no default — acceptable
+        finally:
+            if env_backup is not None:
+                os.environ["DATABASE_URL"] = env_backup
