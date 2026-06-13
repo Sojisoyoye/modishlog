@@ -3965,13 +3965,61 @@
         "priority": "medium",
         "subtasks": [],
         "updatedAt": "2026-06-12T18:30:14.136Z"
+      },
+      {
+        "id": "102",
+        "title": "Add slug field to Product model",
+        "description": "Add a slug field to the Product model (products table) that is automatically generated from the product name on create and update. Slug is the canonical cross-system identity used by Sanity, Cloudinary (modish/products/{slug}), and Airtable.",
+        "details": "Slug rules: lowercase, spaces→hyphens, special characters stripped (except hyphens), multiple hyphens collapsed, leading/trailing hyphens removed, special case: \"0.5×48\" or \"0.5*48\" → \"05x48\" (× and * replaced with x before stripping). Slug must be unique per product. Expose slug in ProductRead response schema. Add Alembic migration with auto-population of existing products from their current name. Reject duplicate slugs with 409 DuplicateSlugError.",
+        "testStrategy": "TDD: write slugify unit tests and product CRUD integration tests first. Test: correct slug generated on create, slug regenerated on name update, duplicate slug rejected 409, slug in API response, slugify edge cases including multiplication signs.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-06-13T13:27:31.412Z"
+      },
+      {
+        "id": "103",
+        "title": "E2E deep-test: Dashboard — verify all KPI cards, widgets, and navigation actions",
+        "description": "Drive the Dashboard page end-to-end using Playwright/Chrome as a real user. Verify every visible section, widget, and clickable action. Document any broken UI, missing data, or misleading labels, then write Playwright assertions that lock in the correct behaviour.",
+        "details": "Sections to exercise:\n1. KPI cards — Liquidity (Cash Runway, DSCR), FX Exposure (Locked/Floating USD), Portfolio Margin (%, progress bar, target), Orders Pipeline\n2. Global Exposure card — NGN/USD/EUR tabs, all numeric fields\n3. Logistics % card — value, badge colour, progress bar, target label\n4. Inventory Alerts widget — \"View all\" link navigates to /inventory\n5. AI Recommendations widget — \"View all\" link navigates to /recommendations\n6. FX ticker bar (top-right) — USD/NGN and EUR/NGN rates, LIVE badge\n7. Check all \"View all\" / deep-link buttons actually navigate to the correct routes\n8. Verify no JS console errors on load\n\nWrite tests in frontend/e2e/dashboard.spec.ts (extend existing file if present). Tests must use loginViaAPI helper and must NOT delete any user data.",
+        "testStrategy": "Playwright E2E with Chrome. loginViaAPI, then assert text content, presence of elements, and correct navigation for every widget. Screenshot each state.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-06-13T16:03:52.291Z"
+      },
+      {
+        "id": "104",
+        "title": "E2E deep-test: Sales — record sale, multi-item sale, view list, filter, CSV export",
+        "description": "Drive the Sales page end-to-end using Playwright/Chrome as a real user. Test every tab (Record Sale, All Sales) and every available action (add line items, record a sale, view the resulting entry, CSV export). Document bugs and write Playwright assertions.",
+        "details": "Actions to test:\n1. \"Record Sale\" / new-sale flow — open modal or form, fill product + quantity + price, submit, verify success toast and entry appears in All Sales\n2. Multi-line sale — add 2+ line items to one sale, verify totals update\n3. All Sales tab — list loads, columns visible (date, items, total, status)\n4. Search / filter — if a search box exists, filter by product name\n5. Export CSV button — click it, verify download triggers (no 500/404)\n6. Click into a sale row — verify sale detail page/modal shows correct data\n7. Any \"Edit\" or \"Delete\" buttons on individual rows — verify they open the right UI (do NOT delete real data; cancel/dismiss any destructive dialogs)\n8. Pagination if list is long\n\nWrite tests in frontend/e2e/sales.spec.ts (extend existing). Use loginViaAPI and ensureProduct helpers. Create test data with clearly E2E-named values; do not delete existing user data.",
+        "testStrategy": "Playwright E2E with Chrome. Create a product via API helper first, then drive the full record-sale UI flow. Assert toast messages, list entries, and export trigger.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-06-13T15:31:42.722Z"
+      },
+      {
+        "id": "105",
+        "title": "E2E deep-test: Products — create product, stock report, bulk upload, categories/subcategories",
+        "description": "Drive the Products page end-to-end using Playwright/Chrome as a real user. Test every tab (All Products, Stock Report, Add Product, Bulk Upload, Categories) and all available actions. Document bugs and write Playwright assertions.",
+        "details": "Tabs and actions to test:\n\nAll Products tab:\n- List loads with columns (Name, SKU, Category, Cost, Price, Stock, Margin)\n- Search/filter by name\n- Click a product row → product detail or edit panel opens\n- Edit product — change selling price, save, verify updated value shown\n- Image upload button present on product detail\n\nStock Report tab:\n- Table loads with stock levels\n- Any export or filter controls work\n\nAdd Product tab (inline form — NOT a modal):\n- Fill Name, Category (dropdown), Cost Currency, Unit Cost, Selling Price, Min Margin %, Description\n- \"Create Product\" button submits — verify success toast and product appears in All Products\n- Validation: submit with empty Name → inline error shown, not a crash\n\nBulk Upload tab:\n- Upload area / file input is present\n- Template download link works (no 404)\n- Upload a minimal valid CSV → success or meaningful error shown\n\nCategories tab:\n- List of categories loads\n- \"Add Category\" action → fill name, save, verify appears in list\n- Sub-categories: if supported, add a sub-category under an existing category\n\nWrite tests in frontend/e2e/products.spec.ts (extend existing). Use loginViaAPI. Create test data with E2E-prefixed names. Do not delete existing user data.",
+        "testStrategy": "Playwright E2E with Chrome. loginViaAPI, then drive each tab in order. Use ensureProduct/ensureCategory helpers for pre-conditions. Assert toasts, list updates, and validation messages.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-06-13T15:31:42.787Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-06-12T19:16:25.608Z",
-      "taskCount": 101,
-      "completedCount": 101,
+      "lastModified": "2026-06-13T16:03:52.291Z",
+      "taskCount": 105,
+      "completedCount": 105,
       "tags": [
         "master"
       ]
