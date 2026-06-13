@@ -121,7 +121,7 @@ import { StockCountListItem } from '../models/stock-count.model';
           ></textarea>
         </div>
       </div>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button
           (click)="showCreate = false"
           class="mr-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted hover:bg-gray-50"
