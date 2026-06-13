@@ -125,6 +125,7 @@ def _mock_db_with_execute(scalar_result=None, scalars_result=None):
     db = AsyncMock()
     result_mock = MagicMock()
     result_mock.scalar_one_or_none.return_value = scalar_result
+    result_mock.scalar_one.return_value = scalar_result
     result_mock.scalar.return_value = scalar_result
     if scalars_result is not None:
         scalars_mock = MagicMock()
@@ -146,7 +147,8 @@ def _mock_db_with_execute(scalar_result=None, scalars_result=None):
 class TestCategoryCRUD:
     @pytest.mark.asyncio
     async def test_create_category(self):
-        db = _mock_db_with_execute()
+        expected = _make_category(name="Electronics", description="Gadgets")
+        db = _mock_db_with_execute(scalar_result=expected)
         data = CategoryCreate(name="Electronics", description="Gadgets")
         cat = await create_category(db, data)
         assert cat.name == "Electronics"
@@ -495,7 +497,9 @@ class TestProductEndpoints:
         assert resp.status_code == 401
 
     def test_create_category_success(self):
-        db = _mock_db_with_execute()
+        expected_cat = _make_category(name="Test Category")
+        expected_cat.children = []
+        db = _mock_db_with_execute(scalar_result=expected_cat)
         # Mock db.get for get_current_user
         user = _make_user()
         db.get = AsyncMock(return_value=user)
@@ -752,10 +756,18 @@ class TestSubcategoryHierarchy:
         parent.parent_id = None
         parent.children = []
 
+        expected = _make_category(name="Matt")
+        expected.parent_id = parent.id
+        expected.children = []
+
+        result_mock = MagicMock()
+        result_mock.scalar_one.return_value = expected
+
         db = AsyncMock()
         db.get = AsyncMock(return_value=parent)
         db.flush = AsyncMock()
         db.add = MagicMock()
+        db.execute.return_value = result_mock
 
         data = CategoryCreate(name="Matt", parent_id=parent.id)
         cat = await create_category(db, data)

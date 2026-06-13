@@ -74,7 +74,13 @@ async def create_category(
     db.add(category)
     await db.flush()
     await logger.ainfo("category_created", category_id=str(category.id), name=data.name)
-    return category
+    # Reload with children relationship to satisfy lazy='raise' during serialization
+    result = await db.execute(
+        select(ProductCategory)
+        .options(selectinload(ProductCategory.children))
+        .where(ProductCategory.id == category.id)
+    )
+    return result.scalar_one()
 
 
 async def list_categories(db: AsyncSession) -> list[ProductCategory]:
