@@ -405,6 +405,11 @@ async def transition_status_endpoint(
 ):
     """Transition an order to the next status."""
     try:
+        existing = await get_order(db, order_id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(existing.created_by, current_user)
+    try:
         return await transition_status(db, order_id, body, current_user.id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -446,6 +451,11 @@ async def record_payment_endpoint(
     current_user: User = Depends(get_current_active_user),
 ):
     """Record a payment against an order."""
+    try:
+        existing = await get_order(db, order_id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(existing.created_by, current_user)
     try:
         return await record_payment(db, order_id, body, current_user.id)
     except OrderNotFoundError as e:

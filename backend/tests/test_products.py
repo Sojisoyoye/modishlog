@@ -24,6 +24,7 @@ from src.products.exceptions import (
     CategoryNotFoundError,
     DuplicateSKUError,
     DuplicateSlugError,
+    InvalidProductNameError,
     ProductNotFoundError,
 )
 from src.products.utils import slugify
@@ -870,6 +871,18 @@ class TestSlugify:
     def test_parentheses_stripped(self):
         assert slugify("Widget (Large)") == "widget-large"
 
+    def test_unicode_accent_transliteration(self):
+        assert slugify("café") == "cafe"
+
+    def test_unicode_tilde_transliteration(self):
+        assert slugify("naïve") == "naive"
+
+    def test_all_special_chars_returns_empty(self):
+        assert slugify("---") == ""
+
+    def test_only_special_chars_returns_empty(self):
+        assert slugify("!@#$%") == ""
+
 
 # ---------------------------------------------------------------------------
 # Product slug service tests (task #102)
@@ -1028,6 +1041,37 @@ class TestProductSlug:
             await update_product(db, product.id, data, uuid.uuid4())
 
     @pytest.mark.asyncio
+    async def test_create_product_empty_slug_raises_invalid_name(self):
+        """create_product raises InvalidProductNameError when slug is empty after normalisation."""
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=None)
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        result_mock = MagicMock()
+        result_mock.scalar.return_value = 0
+        result_mock.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=result_mock)
+
+        data = ProductCreate(
+            name="---",
+            unit_cost=Decimal("10"),
+            selling_price=Decimal("20"),
+        )
+        with pytest.raises(InvalidProductNameError):
+            await create_product(db, data, uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_update_product_empty_slug_raises_invalid_name(self):
+        """update_product raises InvalidProductNameError when renamed slug is empty."""
+        product = _make_product(name="Test Product", slug="test-product")
+        db = _mock_db_with_execute(scalar_result=product)
+
+        data = ProductUpdate(name="---")
+        with pytest.raises(InvalidProductNameError):
+            await update_product(db, product.id, data, uuid.uuid4())
+
+    @pytest.mark.asyncio
     async def test_create_product_exposes_slug_in_result(self):
         """Slug is present and correct on the returned Product object."""
         db = AsyncMock()
@@ -1116,3 +1160,37 @@ class TestProductSlugEndpoint:
             )
         assert resp.status_code == 409
         assert "hello-world" in resp.json()["detail"]
+
+    def test_create_product_empty_slug_returns_422(self):
+        """POST /products with a name that slugifies to empty returns 422."""
+        user = _make_user()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            result.scalar.return_value = 0
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = AsyncMock()
+        db.execute = mock_execute
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+        db.get = AsyncMock(return_value=user)
+
+        self._override_db(db)
+        headers, _ = self._auth_headers()
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/products",
+                json={
+                    "name": "---",
+                    "unit_cost": "10.00",
+                    "selling_price": "20.00",
+                },
+                headers=headers,
+            )
+        assert resp.status_code == 422

@@ -1600,3 +1600,79 @@ class TestOrdersOwnershipChecks:
         with TestClient(self.app, raise_server_exceptions=False) as client:
             resp = client.delete(f"/api/v1/orders/{order.id}")
         assert resp.status_code != 403
+
+    def test_user_cannot_transition_other_users_order(self):
+        """Non-admin cannot PUT /{id}/status on an order they don't own."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        requester = _make_user(role=UserRole.SALES_MANAGER)
+        order = _make_order(created_by=owner.id)
+        db = _mock_db_with_execute(scalar_result=order)
+        self._override_db(db)
+        self._override_auth_as(requester)
+
+        with TestClient(self.app) as client:
+            resp = client.put(
+                f"/api/v1/orders/{order.id}/status",
+                json={"new_status": "CANCELLED"},
+            )
+        assert resp.status_code == 403
+
+    def test_admin_can_transition_any_order(self):
+        """Admin bypasses ownership check on PUT /{id}/status."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        admin = _make_user(role=UserRole.ADMIN)
+        order = _make_order(created_by=owner.id)
+        db = _mock_db_with_execute(scalar_result=order)
+        self._override_db(db)
+        self._override_auth_as(admin)
+
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.put(
+                f"/api/v1/orders/{order.id}/status",
+                json={"new_status": "CANCELLED"},
+            )
+        assert resp.status_code != 403
+
+    def test_user_cannot_record_payment_on_other_users_order(self):
+        """Non-admin cannot POST /{id}/payments on an order they don't own."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        requester = _make_user(role=UserRole.SALES_MANAGER)
+        order = _make_order(created_by=owner.id)
+        db = _mock_db_with_execute(scalar_result=order)
+        self._override_db(db)
+        self._override_auth_as(requester)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                f"/api/v1/orders/{order.id}/payments",
+                json={
+                    "amount": "100.00",
+                    "payment_method": "CASH",
+                    "payment_date": "2026-06-13",
+                },
+            )
+        assert resp.status_code == 403
+
+    def test_admin_can_record_payment_on_any_order(self):
+        """Admin bypasses ownership check on POST /{id}/payments."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        admin = _make_user(role=UserRole.ADMIN)
+        order = _make_order(created_by=owner.id)
+        db = _mock_db_with_execute(scalar_result=order)
+        self._override_db(db)
+        self._override_auth_as(admin)
+
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.post(
+                f"/api/v1/orders/{order.id}/payments",
+                json={
+                    "amount": "100.00",
+                    "payment_method": "CASH",
+                    "payment_date": "2026-06-13",
+                },
+            )
+        assert resp.status_code != 403

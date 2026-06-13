@@ -3,8 +3,9 @@
 import base64
 import hashlib
 import uuid
+from functools import lru_cache
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,8 +13,13 @@ from src.core.config import settings
 from src.settings.models import UserApiKey
 
 
+@lru_cache(maxsize=1)
 def _fernet() -> Fernet:
-    """Derive a Fernet key from the application SECRET_KEY via SHA-256."""
+    """Derive a Fernet key from the application SECRET_KEY via SHA-256.
+
+    Result is cached for the process lifetime — SECRET_KEY must not change
+    after startup (rotation requires a restart).
+    """
     raw = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
     key = base64.urlsafe_b64encode(raw)
     return Fernet(key)
@@ -24,7 +30,12 @@ def encrypt_api_key(plaintext: str) -> str:
 
 
 def decrypt_api_key(ciphertext: str) -> str:
-    return _fernet().decrypt(ciphertext.encode()).decode()
+    try:
+        return _fernet().decrypt(ciphertext.encode()).decode()
+    except InvalidToken as exc:
+        raise ValueError(
+            "API key could not be decrypted — SECRET_KEY may have been rotated"
+        ) from exc
 
 
 async def upsert_api_key(
