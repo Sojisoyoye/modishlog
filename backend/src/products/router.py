@@ -16,6 +16,7 @@ from src.products.exceptions import (
     CategoryInUseError,
     CategoryNotFoundError,
     DuplicateSKUError,
+    DuplicateSlugError,
     ProductNotFoundError,
     SubcategoryDepthError,
 )
@@ -124,6 +125,8 @@ async def create_product_endpoint(
     except CategoryNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except DuplicateSKUError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except DuplicateSlugError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     return product
 
@@ -340,6 +343,8 @@ async def update_product_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except CategoryNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except DuplicateSlugError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
