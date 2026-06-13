@@ -33,8 +33,8 @@ async function ensureE2ECategory(): Promise<string> {
 }
 
 /**
- * Create a product via the API and return its ID.
- * Uses a random SKU to avoid conflicts across test runs.
+ * Ensure a product with the given name exists and return its ID (idempotent).
+ * Searches first to avoid slug-conflict 409s on re-runs.
  */
 export async function ensureProduct(
   name = 'E2E Test Product',
@@ -43,6 +43,17 @@ export async function ensureProduct(
   const categoryId = await ensureE2ECategory();
   const ctx = await request.newContext();
   try {
+    // Check if product already exists by name
+    const listResp = await ctx.get(`${API}/products?search=${encodeURIComponent(name)}&limit=25`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (listResp.ok()) {
+      const data = await listResp.json();
+      const items: { id: string; name: string }[] = Array.isArray(data) ? data : (data.items ?? data.products ?? []);
+      const found = items.find((p) => p.name === name);
+      if (found) return { id: found.id, name: found.name };
+    }
+    // Not found — create it
     const sku = `E2E-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const resp = await ctx.post(`${API}/products`, {
       headers: { Authorization: `Bearer ${token}` },
