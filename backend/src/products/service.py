@@ -15,6 +15,7 @@ from src.products.exceptions import (
     CategoryNotFoundError,
     DuplicateSKUError,
     DuplicateSlugError,
+    InvalidProductNameError,
     ProductNotFoundError,
     SubcategoryDepthError,
 )
@@ -159,6 +160,10 @@ async def create_product(
             raise DuplicateSKUError(sku)
 
     slug = slugify(data.name)
+    if not slug:
+        raise InvalidProductNameError(
+            data.name, "produces an empty slug — use a name with at least one alphanumeric character"
+        )
     existing_slug = await db.execute(select(Product).where(Product.slug == slug))
     if existing_slug.scalar_one_or_none():
         raise DuplicateSlugError(slug)
@@ -277,6 +282,11 @@ async def update_product(
     # Regenerate slug when name changes
     if "name" in update_fields:
         new_slug = slugify(update_fields["name"])
+        if not new_slug:
+            raise InvalidProductNameError(
+                update_fields["name"],
+                "produces an empty slug — use a name with at least one alphanumeric character",
+            )
         if new_slug != product.slug:
             conflict = await db.execute(
                 select(Product).where(

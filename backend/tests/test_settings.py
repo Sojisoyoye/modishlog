@@ -245,3 +245,10 @@ class TestFernetEncryption:
         e1 = encrypt_api_key("same-key")
         e2 = encrypt_api_key("same-key")
         assert e1 != e2
+
+    def test_decrypt_invalid_token_raises_value_error(self):
+        """decrypt_api_key raises ValueError (not cryptography.InvalidToken) on bad ciphertext."""
+        from src.settings.service import decrypt_api_key
+
+        with pytest.raises(ValueError, match="SECRET_KEY may have been rotated"):
+            decrypt_api_key("not-a-valid-fernet-token")

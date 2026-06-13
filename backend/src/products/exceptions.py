@@ -65,6 +65,15 @@ class DuplicateSlugError(Exception):
         super().__init__(f"Slug already exists: {slug}")
 
 
+class InvalidProductNameError(Exception):
+    """Raised when a product name produces an unusable slug (e.g. all special chars)."""
+
+    def __init__(self, name: str, reason: str):
+        self.name = name
+        self.reason = reason
+        super().__init__(f"Invalid product name {name!r}: {reason}")
+
+
 class InvalidPriceError(Exception):
     """Raised when a price value is invalid."""
 

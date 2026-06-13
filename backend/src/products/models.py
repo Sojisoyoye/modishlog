@@ -62,6 +62,7 @@ class Product(UUIDMixin, TimestampMixin, Base):
     selling_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     currency: Mapped[str] = mapped_column(String(3), default="NGN")
     is_active: Mapped[bool] = mapped_column(default=True)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default=None)
 
     category: Mapped["ProductCategory"] = relationship(back_populates="products")
     price_history: Mapped[list["PriceHistory"]] = relationship(back_populates="product")
