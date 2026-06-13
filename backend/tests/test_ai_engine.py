@@ -405,8 +405,21 @@ class TestExceptions:
 
 
 class TestAIEngineEndpoints:
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+
+        fake_user = MagicMock()
+        app.dependency_overrides[get_current_active_user] = lambda: fake_user
+
     @pytest.mark.anyio
     async def test_list_recommendations_empty(self):
+        self._override_auth()
         with patch("src.ai_engine.router.get_recommendations", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = []
             async with AsyncClient(
@@ -453,6 +466,7 @@ class TestAIEngineEndpoints:
 
     @pytest.mark.anyio
     async def test_impact_summary_empty(self):
+        self._override_auth()
         with patch("src.ai_engine.router.get_impact_summary", new_callable=AsyncMock) as mock_impact:
             mock_impact.return_value = {
                 "total_pending": 0,
@@ -469,6 +483,7 @@ class TestAIEngineEndpoints:
 
     @pytest.mark.anyio
     async def test_recommendation_history_empty(self):
+        self._override_auth()
         with patch("src.ai_engine.router.get_recommendation_history", new_callable=AsyncMock) as mock_hist:
             mock_hist.return_value = []
             async with AsyncClient(
@@ -481,6 +496,7 @@ class TestAIEngineEndpoints:
 
     @pytest.mark.anyio
     async def test_reorder_suggestions_empty(self):
+        self._override_auth()
         with patch("src.ai_engine.router.get_reorder_suggestions", new_callable=AsyncMock) as mock_reorder:
             mock_reorder.return_value = []
             async with AsyncClient(
@@ -503,6 +519,7 @@ class TestAIEngineEndpoints:
 
     @pytest.mark.anyio
     async def test_usd_strategy_config_not_found(self):
+        self._override_auth()
         with patch(
             "src.ai_engine.router.get_usd_strategy_config",
             new_callable=AsyncMock,
