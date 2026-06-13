@@ -11,6 +11,10 @@ os.environ.setdefault(
     "test-secret-key-that-is-at-least-32-characters-long-for-pytest",
 )
 
+# Use a writable temp directory so that src.main's os.makedirs doesn't fail
+# when /app/uploads (the Docker path) doesn't exist in the local test env.
+os.environ.setdefault("UPLOAD_DIR", "/tmp/modishlog_test_uploads")
+
 
 @pytest.fixture
 def anyio_backend():
