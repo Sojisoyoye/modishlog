@@ -135,18 +135,34 @@ test('products – create product end-to-end', async ({ page }) => {
   // Fill the form
   await page.getByPlaceholder('Product name').fill(uniqueName);
 
+  // Select a category — required field (NOT NULL in DB)
+  const catSelect = page.locator('select#add-cat-select').first();
+  if (await catSelect.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    // Pick the first non-empty option (any real category)
+    const optionValues = await catSelect.locator('option').evaluateAll(
+      (opts) => (opts as HTMLOptionElement[]).filter(o => o.value).map(o => o.value)
+    );
+    if (optionValues.length > 0) {
+      await catSelect.selectOption(optionValues[0]);
+    }
+  }
+
   // SKU field if present
   const skuInput = page.locator('input[placeholder*="SKU"], input[placeholder*="sku"]').first();
   if (await skuInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
     await skuInput.fill(`E2E-SKU-${Date.now()}`);
   }
 
-  // Unit cost and selling price
-  const numberInputs = page.locator('input[type="number"]');
-  const count = await numberInputs.count();
-  if (count >= 2) {
-    await numberInputs.first().fill('1000');
-    await numberInputs.nth(1).fill('1500');
+  // Unit cost and selling price — prefer data-testid, fall back to placeholder
+  const costInput = page.locator('[data-testid="add-unit-cost-input"]').first();
+  const priceInput = page.locator('[data-testid="add-selling-price-input"]').first();
+  if (await costInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await costInput.fill('1000');
+    await costInput.press('Tab');
+  }
+  if (await priceInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await priceInput.fill('1500');
+    await priceInput.press('Tab');
   }
 
   await shot(page, '07-product-filled');
@@ -158,13 +174,19 @@ test('products – create product end-to-end', async ({ page }) => {
   await page.waitForTimeout(2_000);
   await shot(page, '07-after-create');
 
-  // Expect success toast or product appears in list
+  // Expect success toast or product appears in search
   const successToast = page.locator('[class*="toast"][class*="success"], .p-toast-message-success').first();
   const toastVisible = await successToast.isVisible({ timeout: 5_000 }).catch(() => false);
-  // Or navigate to All Products and find it
   if (!toastVisible) {
+    // Navigate to All Products and search for the newly created product
     await page.getByText('All Products').click();
     await page.waitForTimeout(500);
+    const searchBox = page.locator('input[placeholder*="search"], input[type="search"]').first();
+    if (await searchBox.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await searchBox.fill(uniqueName);
+      await page.waitForTimeout(700);
+    }
+    await shot(page, '07-search-for-product');
     const productInList = await page.getByText(uniqueName).isVisible({ timeout: 5_000 }).catch(() => false);
     expect(productInList).toBe(true);
   } else {
@@ -214,36 +236,25 @@ test('products – Categories tab loads and shows Add Category option', async ({
   expect(hasAddBtn).toBe(true);
 });
 
-// ── 10. Add Category — modal has all fields and submit ───────────────────────
-test('products – Add Category modal has fields and submit button', async ({ page }) => {
+// ── 10. Add Category — inline form has fields and submit button ───────────────
+test('products – Add Category inline form has fields and submit button', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: /categories/i }).click();
   await page.waitForTimeout(600);
+  await shot(page, '10-categories-tab');
 
-  const addBtn = page.getByRole('button', { name: /add category|new category/i }).first();
-  if (await addBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await addBtn.click();
-    await page.waitForTimeout(600);
-    await shot(page, '10-add-category-modal');
+  // The Add Category form is inline (not a modal) — look for the name input
+  const nameInput = page.locator('input[placeholder*="Category name"]').first();
+  const hasNameInput = await nameInput.isVisible({ timeout: 5_000 }).catch(() => false);
+  expect(hasNameInput).toBe(true);
 
-    const dialog = page.locator('[role="dialog"]').first();
-    const isOpen = await dialog.isVisible({ timeout: 5_000 }).catch(() => false);
-    if (isOpen) {
-      // Name field present
-      const nameInput = dialog.locator('input[type="text"]').first();
-      await expect(nameInput).toBeVisible();
+  // The submit button should be present (initially disabled until name is typed)
+  const addBtn = page.getByRole('button', { name: /add category/i }).first();
+  const hasAddBtn = await addBtn.isVisible({ timeout: 3_000 }).catch(() => false);
+  expect(hasAddBtn).toBe(true);
 
-      // Submit button present (the known bug pattern)
-      const submitBtn = dialog.getByRole('button', { name: /save|create|add/i }).first();
-      await expect(submitBtn).toBeVisible({ timeout: 3_000 });
-
-      // Cancel button present
-      await expect(dialog.getByRole('button', { name: /cancel/i })).toBeVisible();
-
-      await dialog.getByRole('button', { name: /cancel/i }).click();
-    }
-  }
+  await shot(page, '10b-add-category-form');
 });
 
 // ── 11. Add Category — create one end-to-end ────────────────────────────────
@@ -253,21 +264,18 @@ test('products – create category end-to-end', async ({ page }) => {
   await page.getByRole('button', { name: /categories/i }).click();
   await page.waitForTimeout(600);
 
-  const addBtn = page.getByRole('button', { name: /add category|new category/i }).first();
-  if (!await addBtn.isVisible({ timeout: 3_000 }).catch(() => false)) return;
-
-  await addBtn.click();
-  await page.waitForTimeout(600);
-
-  const dialog = page.locator('[role="dialog"]').first();
-  if (!await dialog.isVisible({ timeout: 4_000 }).catch(() => false)) return;
+  // The form is inline — fill name input first, then click Add Category
+  const nameInput = page.locator('input[placeholder*="Category name"]').first();
+  if (!await nameInput.isVisible({ timeout: 5_000 }).catch(() => false)) return;
 
   const catName = `E2E-Cat-${Date.now()}`;
-  await dialog.locator('input[type="text"]').first().fill(catName);
+  await nameInput.fill(catName);
+  await page.waitForTimeout(300);
   await shot(page, '11-category-filled');
 
-  const submitBtn = dialog.getByRole('button', { name: /save|create|add/i }).first();
-  await submitBtn.click();
+  // Now the button should be enabled
+  const addBtn = page.getByRole('button', { name: /add category/i }).first();
+  await addBtn.click();
   await page.waitForTimeout(1_500);
   await shot(page, '11-after-create-category');
 
