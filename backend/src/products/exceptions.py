@@ -57,6 +57,14 @@ class SubcategoryDepthError(Exception):
         )
 
 
+class DuplicateSlugError(Exception):
+    """Raised when a slug already exists."""
+
+    def __init__(self, slug: str):
+        self.slug = slug
+        super().__init__(f"Slug already exists: {slug}")
+
+
 class InvalidPriceError(Exception):
     """Raised when a price value is invalid."""
 

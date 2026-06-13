@@ -73,6 +73,7 @@ class ProductRead(BaseModel):
     id: uuid.UUID
     name: str
     sku: str
+    slug: str
     description: str | None = None
     category_id: uuid.UUID | None = None
     unit_cost: Decimal

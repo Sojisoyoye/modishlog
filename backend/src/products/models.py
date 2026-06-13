@@ -53,6 +53,7 @@ class Product(UUIDMixin, TimestampMixin, Base):
 
     name: Mapped[str] = mapped_column(String(255), index=True)
     sku: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    slug: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, default=None)
     category_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("product_categories.id"),

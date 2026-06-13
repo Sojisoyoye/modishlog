@@ -23,8 +23,10 @@ from src.inventory.service import (
 from src.products.exceptions import (
     CategoryNotFoundError,
     DuplicateSKUError,
+    DuplicateSlugError,
     ProductNotFoundError,
 )
+from src.products.utils import slugify
 from src.products.models import Product, ProductCategory
 from src.products.schemas import CategoryCreate, CategoryUpdate, ProductCreate, ProductUpdate
 from src.products.service import (
@@ -75,6 +77,7 @@ def _make_product(category_id=None, **overrides):
     defaults = dict(
         name="Test Product",
         sku="PRD-00001",
+        slug="test-product",
         description="A test product",
         category_id=category_id or uuid.uuid4(),
         unit_cost=Decimal("100.000000"),
@@ -321,13 +324,30 @@ class TestProductCRUD:
 
     @pytest.mark.asyncio
     async def test_update_product_no_price_change_no_history(self):
-        product = _make_product()
-        db = _mock_db_with_execute(scalar_result=product)
+        product = _make_product(slug="test-product")
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product  # get_product
+            else:
+                result.scalar_one_or_none.return_value = None  # slug uniqueness: no conflict
+            return result
+
+        db = AsyncMock()
+        db.execute = mock_execute
+        db.flush = AsyncMock()
+        db.add = MagicMock()
         db.get = AsyncMock(return_value=_make_category())
 
         data = ProductUpdate(name="New Name")
         updated = await update_product(db, product.id, data, uuid.uuid4())
         assert updated.name == "New Name"
+        assert updated.slug == "new-name"
         # No PriceHistory should be added
         db.add.assert_not_called()
 
@@ -809,3 +829,290 @@ class TestSubcategoryHierarchy:
         )
         product = await create_product(db, data, user_id)
         assert product.category_id == subcat.id
+
+
+# ---------------------------------------------------------------------------
+# Slugify utility tests (task #102)
+# ---------------------------------------------------------------------------
+
+
+class TestSlugify:
+    def test_basic_lowercase_and_spaces(self):
+        assert slugify("Hello World") == "hello-world"
+
+    def test_multiple_words(self):
+        assert slugify("red pen large") == "red-pen-large"
+
+    def test_special_chars_stripped(self):
+        assert slugify("Hello, World!") == "hello-world"
+
+    def test_multiple_hyphens_collapsed(self):
+        assert slugify("hello  --  world") == "hello-world"
+
+    def test_leading_trailing_hyphens_removed(self):
+        assert slugify("--hello--") == "hello"
+
+    def test_multiplication_sign_unicode(self):
+        assert slugify("0.5×48") == "05x48"
+
+    def test_multiplication_asterisk(self):
+        assert slugify("0.5*48") == "05x48"
+
+    def test_dot_stripped(self):
+        assert slugify("v1.5") == "v15"
+
+    def test_already_slug_unchanged(self):
+        assert slugify("my-product") == "my-product"
+
+    def test_numbers_preserved(self):
+        assert slugify("Product 2024") == "product-2024"
+
+    def test_parentheses_stripped(self):
+        assert slugify("Widget (Large)") == "widget-large"
+
+
+# ---------------------------------------------------------------------------
+# Product slug service tests (task #102)
+# ---------------------------------------------------------------------------
+
+
+class TestProductSlug:
+    @pytest.mark.asyncio
+    async def test_create_product_generates_slug_from_name(self):
+        """create_product sets slug derived from name."""
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=None)
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar.return_value = 0  # SKU count
+            else:
+                result.scalar_one_or_none.return_value = None  # SKU unique, slug unique
+            return result
+
+        db.execute = mock_execute
+
+        data = ProductCreate(
+            name="Blue Marker",
+            unit_cost=Decimal("10"),
+            selling_price=Decimal("20"),
+        )
+        product = await create_product(db, data, uuid.uuid4())
+        assert product.slug == "blue-marker"
+
+    @pytest.mark.asyncio
+    async def test_create_product_slug_with_multiplication_sign(self):
+        """Slug handles × and * multiplication signs correctly."""
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=None)
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        result_mock = MagicMock()
+        result_mock.scalar.return_value = 0
+        result_mock.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=result_mock)
+
+        data = ProductCreate(
+            name="0.5×48",
+            unit_cost=Decimal("10"),
+            selling_price=Decimal("20"),
+        )
+        product = await create_product(db, data, uuid.uuid4())
+        assert product.slug == "05x48"
+
+    @pytest.mark.asyncio
+    async def test_create_product_duplicate_slug_raises(self):
+        """create_product raises DuplicateSlugError when slug already exists."""
+        cat = _make_category()
+        existing = _make_product(category_id=cat.id, slug="test-product")
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=cat)
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = None  # SKU unique
+            else:
+                result.scalar_one_or_none.return_value = existing  # slug conflict
+            return result
+
+        db.execute = mock_execute
+
+        data = ProductCreate(
+            name="Test Product",
+            sku="NEW-001",
+            category_id=cat.id,
+            unit_cost=Decimal("10"),
+            selling_price=Decimal("20"),
+        )
+        with pytest.raises(DuplicateSlugError):
+            await create_product(db, data, uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_update_product_name_change_regenerates_slug(self):
+        """update_product regenerates slug when name changes."""
+        product = _make_product(name="Old Name", slug="old-name")
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product  # get_product
+            else:
+                result.scalar_one_or_none.return_value = None  # slug unique
+            return result
+
+        db = AsyncMock()
+        db.execute = mock_execute
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        data = ProductUpdate(name="New Name")
+        updated = await update_product(db, product.id, data, uuid.uuid4())
+        assert updated.slug == "new-name"
+
+    @pytest.mark.asyncio
+    async def test_update_product_same_name_keeps_slug(self):
+        """update_product does not trigger slug check when name is unchanged."""
+        product = _make_product(name="Test Product", slug="test-product")
+        db = _mock_db_with_execute(scalar_result=product)
+
+        data = ProductUpdate(description="Updated description")
+        updated = await update_product(db, product.id, data, uuid.uuid4())
+        assert updated.slug == "test-product"
+        assert db.execute.call_count == 1  # only get_product, no slug check
+
+    @pytest.mark.asyncio
+    async def test_update_product_duplicate_slug_raises(self):
+        """update_product raises DuplicateSlugError when renamed slug conflicts."""
+        product = _make_product(name="Old Name", slug="old-name")
+        conflict = _make_product(name="New Name", slug="new-name")
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product  # get_product
+            else:
+                result.scalar_one_or_none.return_value = conflict  # slug conflict
+            return result
+
+        db = AsyncMock()
+        db.execute = mock_execute
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        data = ProductUpdate(name="New Name")
+        with pytest.raises(DuplicateSlugError):
+            await update_product(db, product.id, data, uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_create_product_exposes_slug_in_result(self):
+        """Slug is present and correct on the returned Product object."""
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=None)
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        result_mock = MagicMock()
+        result_mock.scalar.return_value = 0
+        result_mock.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=result_mock)
+
+        data = ProductCreate(
+            name="Hello World",
+            unit_cost=Decimal("5"),
+            selling_price=Decimal("10"),
+        )
+        product = await create_product(db, data, uuid.uuid4())
+        assert product.slug == "hello-world"
+
+
+# ---------------------------------------------------------------------------
+# Product slug endpoint tests (task #102)
+# ---------------------------------------------------------------------------
+
+
+class TestProductSlugEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _auth_headers(self):
+        user = _make_user()
+        token = build_token(user)
+        return {"Authorization": f"Bearer {token}"}, user
+
+    def test_create_product_duplicate_slug_returns_409(self):
+        """POST /products returns 409 when slug already exists."""
+        user = _make_user()
+        existing = _make_product(slug="hello-world")
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar.return_value = 0      # SKU count
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = None  # SKU unique
+            else:
+                result.scalar_one_or_none.return_value = existing  # slug conflict
+            return result
+
+        db = AsyncMock()
+        db.execute = mock_execute
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+        db.get = AsyncMock(return_value=user)
+
+        self._override_db(db)
+        headers, _ = self._auth_headers()
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/products",
+                json={
+                    "name": "Hello World",
+                    "unit_cost": "10.00",
+                    "selling_price": "20.00",
+                },
+                headers=headers,
+            )
+        assert resp.status_code == 409
+        assert "hello-world" in resp.json()["detail"]

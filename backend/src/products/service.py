@@ -14,9 +14,11 @@ from src.products.exceptions import (
     CategoryInUseError,
     CategoryNotFoundError,
     DuplicateSKUError,
+    DuplicateSlugError,
     ProductNotFoundError,
     SubcategoryDepthError,
 )
+from src.products.utils import slugify
 from src.products.models import PriceHistory, Product, ProductCategory
 from src.products.schemas import (
     CategoryCreate,
@@ -156,9 +158,15 @@ async def create_product(
         if existing.scalar_one_or_none():
             raise DuplicateSKUError(sku)
 
+    slug = slugify(data.name)
+    existing_slug = await db.execute(select(Product).where(Product.slug == slug))
+    if existing_slug.scalar_one_or_none():
+        raise DuplicateSlugError(slug)
+
     product = Product(
         name=data.name,
         sku=sku,
+        slug=slug,
         description=data.description,
         category_id=data.category_id,
         unit_cost=data.unit_cost,
@@ -265,6 +273,20 @@ async def update_product(
     # Validate category if changing
     if "category_id" in update_fields and update_fields["category_id"] is not None:
         await get_category(db, update_fields["category_id"])
+
+    # Regenerate slug when name changes
+    if "name" in update_fields:
+        new_slug = slugify(update_fields["name"])
+        if new_slug != product.slug:
+            conflict = await db.execute(
+                select(Product).where(
+                    Product.slug == new_slug,
+                    Product.id != product_id,
+                )
+            )
+            if conflict.scalar_one_or_none():
+                raise DuplicateSlugError(new_slug)
+            update_fields["slug"] = new_slug
 
     # Apply updates
     for field, value in update_fields.items():
