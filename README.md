@@ -9,8 +9,8 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 ## Features
 
 ### Core Platform
-- **Authentication** -- JWT-based auth with role-based access (Admin / Sales Manager), account lockout with countdown timer, forgot password flow
-- **Products** -- Full CRUD with categories, SKU auto-generation, image upload, search/filter, grid/list views, CSV export. Includes **Price Suggestion** (action menu → Suggest Price): enter a target margin (20–70%), get a recommended sell price based on current landed cost and live FX rate, with suggestion history.
+- **Authentication** -- JWT-based auth with HttpOnly cookie (XSS-safe; no token in localStorage), role-based access (Admin / Sales Manager), account lockout with countdown timer, forgot password flow. API key stored encrypted in the database, not in the browser.
+- **Products** -- Full CRUD with categories (two-level hierarchy: parent → sub-category), SKU auto-generation, auto-generated URL slug field, image upload, search/filter, grid/list views, CSV export. Note: `category_id` is NOT NULL — every product must belong to a category. Includes **Price Suggestion** (action menu → Suggest Price): enter a target margin (20–70%), get a recommended sell price based on current landed cost and live FX rate, with suggestion history.
 - **Sales** -- Daily entry with stock validation, CSV bulk upload, edit/delete with audit trail, FIFO cost tracking
 - **Inventory** -- Stock levels, low-stock alerts, batch tracking (FIFO), editable thresholds, depletion forecast with confidence intervals, liquidation candidates
 - **Stock Counts** (`/stock-counts`) -- Physical inventory counting sessions with variance reporting. Create a full stock take by product (vs system stock) or by lot (vs purchase order units remaining). Enter counted quantities per row; system snapshots live stock at finalisation and shows variance with colour-coded badges (green = surplus, red = shrinkage). Sessions are locked read-only after finalisation to preserve the audit trail.
@@ -46,7 +46,7 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 | Frontend | Angular 21 (standalone components, Signals), TailwindCSS v4, PrimeNG v21 |
 | AI/ML | Prophet, NumPy/SciPy (Monte Carlo), scikit-learn |
 | Auth | JWT (python-jose), bcrypt (passlib) |
-| Testing | pytest (543 tests), Playwright E2E tests |
+| Testing | pytest (675 tests), Playwright E2E (268 tests) |
 | Infra | Docker, Docker Compose, Azure Container Apps, Neon PostgreSQL, Vercel, GitHub Actions |
 
 ---
@@ -69,7 +69,7 @@ modishlog/
 │   │   ├── ai_engine/     # Recommendations, USD strategy, reorder
 │   │   └── core/          # Config, database, security, logging
 │   ├── alembic/           # Database migrations
-│   ├── tests/             # 543 pytest tests
+│   ├── tests/             # 675 pytest tests
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/app/
@@ -259,14 +259,14 @@ Interactive API docs are available at:
 cd backend
 UPLOAD_DIR=/tmp/modishlog_uploads .venv/bin/pytest tests/ -v
 ```
-543 tests covering all services, endpoints, and business logic.
+675 tests covering all services, endpoints, and business logic.
 
 ### Frontend E2E (Playwright)
 ```bash
 cd frontend
 npx playwright test --reporter=list
 ```
-87 E2E tests across auth, dashboard, products, sales, orders, FX, and cashflow.
+268 E2E tests across auth, dashboard, products, sales, orders, FX, cashflow, and more.
 
 ### Frontend Build
 ```bash
@@ -288,6 +288,36 @@ npx ng build   # 0 errors, 0 warnings
 - **TDD enforced** -- tests written before implementation. Every function has at least 2 tests (happy path + error case).
 - **Lazy ML imports** -- heavy libraries (Prophet/Stan) are imported inside the functions that use them, not at module level. This keeps app startup time under 2 s and avoids OOM on containers with limited memory (e.g. 0.5 Gi).
 - **SSL via connect_args** -- asyncpg does not accept `sslmode` as a URL query param. SSL is enabled by passing `connect_args={"ssl": True}` to `create_async_engine` and `async_engine_from_config` (alembic). The raw `DATABASE_URL` is normalised at startup: libpq params are stripped, and `DATABASE_SSL` is auto-derived from the original `sslmode` value.
+- **HttpOnly cookie JWT** — access tokens are set as HttpOnly, SameSite=Lax cookies. The auth interceptor reads the cookie transparently; `localStorage` is never used for tokens. This eliminates XSS token theft.
+- **Self-hosted fonts** — Inter is served via `@fontsource/inter` (bundled in the Angular build). No external font CDN requests; satisfies the Content-Security-Policy `default-src 'self'` rule.
+- **Content-Security-Policy** — nginx serves `default-src 'self'` with narrowed directives for scripts, styles, images, and connections. `frame-ancestors 'none'` replaces the legacy `X-Frame-Options: DENY` header.
+- **PrimeNG v21 dialog footer** — PrimeNG v21 removed the `pTemplate="footer"` string-keyed template API. Dialog footers must use the `#footer` local reference syntax instead. Any dialog missing this will render with no footer buttons.
+
+---
+
+## Security
+
+The following hardening was applied after the initial build (PRs #95–#113):
+
+| Area | Measure |
+|------|---------|
+| Auth tokens | JWT moved to HttpOnly, SameSite=Lax cookie — eliminates XSS token theft |
+| API keys | Anthropic API key stored AES-encrypted in the database, not in `localStorage` |
+| Registration | New-user registration requires admin auth — no open self-sign-up |
+| JWT algorithm | Pinned to HS256/384/512 via startup validator — prevents `alg:none` attacks |
+| Secret key | `SECRET_KEY` startup validation — server refuses to start without a real key |
+| Password reset | Reset tokens SHA-256 hashed before DB storage — raw tokens never persisted |
+| CORS | Explicit `allow_headers` list; wildcard-origin guard added |
+| CSP | `Content-Security-Policy: default-src 'self'` served by nginx |
+| Fonts | Inter self-hosted via `@fontsource/inter` — no external CDN in CSP |
+| CSV exports | Formula injection (`=`, `+`, `-`, `@` prefixes) stripped before download |
+| IDOR | Ownership checks on all individual-resource endpoints |
+| Route auth | Auth dependency on every financial-data router (~50 routes) |
+| Inventory | `SELECT FOR UPDATE` row lock in `adjust_stock` prevents oversell race |
+| Error responses | Global exception handler — stack traces never leak in 500 responses |
+| Products | `is_active` removed from `ProductUpdate` — prevents mass-assignment toggle |
+| Products | `unit_cost` and `selling_price` validated `gt=0` — prevents division-by-zero |
+| Orders | `DELIVERED` removed from editable statuses — prevents retroactive cost manipulation |
 
 ---
 
