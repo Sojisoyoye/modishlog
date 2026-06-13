@@ -1,7 +1,7 @@
 """add_user_api_keys_table
 
-Revision ID: a1b2c3d4e5f6
-Revises: f9a0b1c2d3e4
+Revision ID: e3f4a5b6c7d8
+Revises: d2e3f4a5b6c7
 Create Date: 2026-06-12 20:00:00.000000
 
 """
@@ -10,8 +10,8 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a1b2c3d4e5f6"
-down_revision: Union[str, None] = "f9a0b1c2d3e4"
+revision: str = "e3f4a5b6c7d8"
+down_revision: Union[str, None] = "d2e3f4a5b6c7"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
