@@ -285,7 +285,7 @@ import {
         </div>
       </div>
 
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <div class="flex justify-end gap-3 pt-2">
           <button
             (click)="closeDialog()"

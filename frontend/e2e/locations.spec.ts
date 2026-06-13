@@ -40,7 +40,7 @@ test('creates location and sees it in list', async ({ page }) => {
 
   await dialog.getByPlaceholder('e.g. Main Branch').fill('E2E Test Branch');
   await dialog.getByPlaceholder('e.g. LOC-001').fill(code);
-  await dialog.getByPlaceholder('e.g. Lagos').fill('Lagos');
+  await dialog.getByPlaceholder('e.g. Lagos', { exact: true }).fill('Lagos');
 
   await dialog.getByRole('button', { name: 'Add Location' }).click();
 

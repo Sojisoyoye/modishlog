@@ -146,7 +146,7 @@ import { StockCount, StockCountItem } from '../models/stock-count.model';
         This will snapshot the current system stock quantities into each item and lock the count.
         You will not be able to edit counted quantities after finalisation.
       </p>
-      <ng-template pTemplate="footer">
+      <ng-template #footer>
         <button
           (click)="confirmFinalizeVisible.set(false)"
           class="mr-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted hover:bg-gray-50"
