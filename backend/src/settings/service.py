@@ -19,6 +19,8 @@ def _fernet() -> Fernet:
 
     Result is cached for the process lifetime — SECRET_KEY must not change
     after startup (rotation requires a restart).
+    If a test patches settings.SECRET_KEY it must call _fernet.cache_clear()
+    before and after the patch to avoid stale key cross-contamination.
     """
     raw = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
     key = base64.urlsafe_b64encode(raw)

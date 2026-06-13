@@ -586,6 +586,31 @@ class TestProductEndpoints:
         assert resp.status_code == 400
         assert "too large" in resp.json()["detail"].lower()
 
+    def test_upload_product_image_sets_image_url(self):
+        """POST /products/{id}/image persists image_url on the returned product."""
+        from unittest.mock import patch
+
+        user = _make_user()
+        product = _make_product()
+
+        # update_product calls get_product → scalar_one_or_none returns product
+        db = _mock_db_with_execute(scalar_result=product)
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        headers, _ = self._auth_headers()
+
+        with patch("anyio.to_thread.run_sync", new_callable=AsyncMock), \
+                patch("os.makedirs"):
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    f"/api/v1/products/{product.id}/image",
+                    files={"file": ("photo.jpg", b"fake-image-bytes", "image/jpeg")},
+                    headers=headers,
+                )
+
+        assert resp.status_code == 200
+        assert resp.json()["image_url"] == f"/static/products/{product.id}.jpg"
+
     def test_inventory_adjust_requires_auth(self):
         db = _mock_db_with_execute()
         self._override_db(db)
