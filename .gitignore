@@ -16,6 +16,10 @@ postgres_data/
 .vscode/settings.json
 .idea/
 
+# E2E screenshots (generated at runtime, not source)
+frontend/e2e-screenshots/
+frontend/test-results/
+
 # Logs
 logs
 *.log
