@@ -19,7 +19,7 @@ Full requirements are in .taskmaster/docs/prd.txt.
    needs at least 2 tests (happy path + error case) written FIRST
 3. **TDD: Write E2E tests** -- every new frontend page/feature needs a
    Playwright E2E test in frontend/e2e/
-4. Run `pytest backend/tests/` and confirm it passes before committing
+4. Run `docker compose exec backend pytest tests/` and confirm it passes before committing
 5. Run `ng build` and confirm it compiles before committing
 6. Never commit .env files, secrets, or API keys to git
 7. Never use print() -- use structlog logger from core/logging.py
