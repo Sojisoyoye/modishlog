@@ -126,7 +126,9 @@ async def create_product_endpoint(
     except CategoryNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except InvalidProductNameError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
     except DuplicateSKUError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except DuplicateSlugError as e:
@@ -347,7 +349,9 @@ async def update_product_endpoint(
     except CategoryNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except InvalidProductNameError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
     except DuplicateSlugError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 

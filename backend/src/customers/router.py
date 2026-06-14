@@ -9,8 +9,18 @@ from src.auth.dependencies import get_current_active_user
 from src.auth.models import User
 from src.core.database import get_db
 from src.customers.exceptions import CustomerNotFoundError
-from src.customers.schemas import CustomerCreate, CustomerListResponse, CustomerRead, CustomerUpdate
-from src.customers.service import create_customer, get_customer, list_customers, update_customer
+from src.customers.schemas import (
+    CustomerCreate,
+    CustomerListResponse,
+    CustomerRead,
+    CustomerUpdate,
+)
+from src.customers.service import (
+    create_customer,
+    get_customer,
+    list_customers,
+    update_customer,
+)
 
 router = APIRouter()
 
@@ -35,7 +45,9 @@ async def list_customers_endpoint(
     current_user: User = Depends(get_current_active_user),
 ):
     """List customers, optionally filtered by name search."""
-    items, total = await list_customers(db, search=search, page=page, page_size=page_size)
+    items, total = await list_customers(
+        db, search=search, page=page, page_size=page_size
+    )
     return CustomerListResponse(items=items, total=total)
 
 

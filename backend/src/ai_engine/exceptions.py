@@ -22,9 +22,7 @@ class RecommendationExpiredError(Exception):
     ) -> None:
         self.recommendation_id = recommendation_id
         self.expired_at = expired_at
-        super().__init__(
-            f"Recommendation {recommendation_id} expired at {expired_at}"
-        )
+        super().__init__(f"Recommendation {recommendation_id} expired at {expired_at}")
 
 
 class RecommendationAlreadyProcessedError(Exception):
@@ -37,9 +35,7 @@ class RecommendationAlreadyProcessedError(Exception):
     ) -> None:
         self.recommendation_id = recommendation_id
         self.current_status = current_status
-        super().__init__(
-            f"Recommendation {recommendation_id} already {current_status}"
-        )
+        super().__init__(f"Recommendation {recommendation_id} already {current_status}")
 
 
 class USDStrategyConfigNotFoundError(Exception):

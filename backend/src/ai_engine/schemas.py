@@ -78,9 +78,7 @@ class USDStrategyConfigCreate(BaseModel):
     target_usd_balance: Decimal = Field(gt=0)
     risk_tolerance: str = "moderate"
     max_single_purchase_pct: Decimal = Field(ge=0, le=100, default=Decimal("10"))
-    preferred_rate_percentile: Decimal = Field(
-        ge=0, le=100, default=Decimal("25")
-    )
+    preferred_rate_percentile: Decimal = Field(ge=0, le=100, default=Decimal("25"))
     lookback_days: int = Field(ge=30, le=365, default=90)
 
 

@@ -29,7 +29,9 @@ async def create_customer(
     )
     db.add(customer)
     await db.flush()
-    await logger.ainfo("customer_created", customer_id=str(customer.id), name=customer.name)
+    await logger.ainfo(
+        "customer_created", customer_id=str(customer.id), name=customer.name
+    )
     return customer
 
 
