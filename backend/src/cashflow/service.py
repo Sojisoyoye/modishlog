@@ -82,9 +82,7 @@ VALID_SCENARIO_TYPES = {e.value for e in ScenarioType}
 # ---------------------------------------------------------------------------
 
 
-async def create_loan(
-    db: AsyncSession, data, user_id: uuid.UUID
-) -> LoanObligation:
+async def create_loan(db: AsyncSession, data, user_id: uuid.UUID) -> LoanObligation:
     """Create a loan obligation."""
     end_date = data.start_date + timedelta(days=data.term_months * 30)
     loan = LoanObligation(
@@ -109,16 +107,12 @@ async def create_loan(
 async def get_loans(db: AsyncSession) -> list[LoanObligation]:
     """List active loans."""
     result = await db.execute(
-        select(LoanObligation).where(
-            LoanObligation.status == LoanStatus.ACTIVE
-        )
+        select(LoanObligation).where(LoanObligation.status == LoanStatus.ACTIVE)
     )
     return list(result.scalars().all())
 
 
-async def get_loan(
-    db: AsyncSession, loan_id: uuid.UUID
-) -> LoanObligation:
+async def get_loan(db: AsyncSession, loan_id: uuid.UUID) -> LoanObligation:
     """Get a specific loan."""
     result = await db.execute(
         select(LoanObligation).where(LoanObligation.id == loan_id)
@@ -137,9 +131,7 @@ async def get_loan(
 def _normalize_to_monthly(amount: Decimal, frequency: str) -> Decimal:
     """Normalize cost amount to monthly equivalent."""
     multiplier = FREQUENCY_TO_MONTHLY.get(frequency, Decimal("1"))
-    return (amount * multiplier).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
+    return (amount * multiplier).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 async def create_operating_cost(
@@ -236,11 +228,13 @@ async def _calculate_fx_obligations(
             PurchaseOrder.id,
             PurchaseOrder.total_amount,
         ).where(
-            PurchaseOrder.status.in_([
-                OrderStatus.PENDING,
-                OrderStatus.IN_PRODUCTION,
-                OrderStatus.SHIPPING,
-            ]),
+            PurchaseOrder.status.in_(
+                [
+                    OrderStatus.PENDING,
+                    OrderStatus.IN_PRODUCTION,
+                    OrderStatus.SHIPPING,
+                ]
+            ),
             PurchaseOrder.expected_delivery_date >= target_month_start,
             PurchaseOrder.expected_delivery_date <= target_month_end,
             PurchaseOrder.currency == "USD",
@@ -295,9 +289,7 @@ def _calculate_dscr(
     if loan_payment <= 0:
         return Decimal("999.000")
     noi = revenue - operating_costs
-    return (noi / loan_payment).quantize(
-        Decimal("0.001"), rounding=ROUND_HALF_UP
-    )
+    return (noi / loan_payment).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
 
 def _assign_risk_rating(dscr: Decimal, runway_months: Decimal) -> str:
@@ -365,18 +357,20 @@ async def generate_cashflow_projection(
 
         risk = _assign_risk_rating(dscr, runway)
 
-        monthly_buckets.append({
-            "month": month_start.isoformat()[:7],
-            "projected_revenue": str(monthly_revenue),
-            "projected_loan_payment": str(monthly_loan),
-            "projected_operating_costs": str(monthly_opex),
-            "projected_fx_obligations": str(fx_obligations),
-            "net_cashflow": str(net),
-            "cumulative_cashflow": str(cumulative),
-            "dscr": str(dscr),
-            "cash_runway_months": str(runway),
-            "risk_rating": risk,
-        })
+        monthly_buckets.append(
+            {
+                "month": month_start.isoformat()[:7],
+                "projected_revenue": str(monthly_revenue),
+                "projected_loan_payment": str(monthly_loan),
+                "projected_operating_costs": str(monthly_opex),
+                "projected_fx_obligations": str(fx_obligations),
+                "net_cashflow": str(net),
+                "cumulative_cashflow": str(cumulative),
+                "dscr": str(dscr),
+                "cash_runway_months": str(runway),
+                "risk_rating": risk,
+            }
+        )
 
         total_inflows += monthly_revenue
         total_outflows += total_expenses
@@ -437,9 +431,7 @@ async def calculate_cash_runway(db: AsyncSession) -> dict:
         return {"runway_months": Decimal("0"), "avg_monthly_burn": Decimal("0")}
 
     burns = [
-        Decimal(b["net_cashflow"])
-        for b in buckets
-        if Decimal(b["net_cashflow"]) < 0
+        Decimal(b["net_cashflow"]) for b in buckets if Decimal(b["net_cashflow"]) < 0
     ]
 
     if not burns:
@@ -460,9 +452,7 @@ async def calculate_cash_runway(db: AsyncSession) -> dict:
 
     return {
         "runway_months": runway,
-        "avg_monthly_burn": avg_burn.quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        ),
+        "avg_monthly_burn": avg_burn.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
     }
 
 
@@ -503,9 +493,7 @@ def _avg_dscr_from_buckets(buckets: list[dict]) -> Decimal:
     if not buckets:
         return Decimal("0")
     total = sum(Decimal(b["dscr"]) for b in buckets)
-    return (total / len(buckets)).quantize(
-        Decimal("0.001"), rounding=ROUND_HALF_UP
-    )
+    return (total / len(buckets)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
 
 def _avg_runway_from_buckets(buckets: list[dict]) -> int:
@@ -538,9 +526,7 @@ async def run_stress_scenario(
     scenario_type: str,
 ) -> dict:
     """Run stress scenario and compare to base."""
-    base_proj = await generate_cashflow_projection(
-        db, user_id, scenario_type="BASE"
-    )
+    base_proj = await generate_cashflow_projection(db, user_id, scenario_type="BASE")
     stressed_proj = await generate_cashflow_projection(
         db, user_id, scenario_type=scenario_type
     )
@@ -554,9 +540,7 @@ async def run_stress_scenario(
         base_projection_id=base_proj.id,
         stressed_buckets=stressed_proj.monthly_buckets,
         stressed_dscr=_avg_dscr_from_buckets(stressed_proj.monthly_buckets),
-        stressed_runway_months=_avg_runway_from_buckets(
-            stressed_proj.monthly_buckets
-        ),
+        stressed_runway_months=_avg_runway_from_buckets(stressed_proj.monthly_buckets),
         created_by=user_id,
         created_at=datetime.now(timezone.utc),
     )
@@ -599,38 +583,46 @@ async def check_liquidity_alerts(db: AsyncSession) -> list[dict]:
 
         if net < 0:
             severity = "CRITICAL" if cumulative < 0 else "WARNING"
-            alerts.append({
-                "month": month,
-                "type": "negative_cashflow",
-                "severity": severity,
-                "message": f"Negative net cashflow of {net} in {month}",
-            })
+            alerts.append(
+                {
+                    "month": month,
+                    "type": "negative_cashflow",
+                    "severity": severity,
+                    "message": f"Negative net cashflow of {net} in {month}",
+                }
+            )
 
         if dscr < Decimal("1.0"):
-            alerts.append({
-                "month": month,
-                "type": "dscr_below_1",
-                "severity": "CRITICAL",
-                "message": f"DSCR of {dscr} below 1.0 in {month}",
-            })
+            alerts.append(
+                {
+                    "month": month,
+                    "type": "dscr_below_1",
+                    "severity": "CRITICAL",
+                    "message": f"DSCR of {dscr} below 1.0 in {month}",
+                }
+            )
 
         if Decimal("0") < runway < Decimal("4"):
-            alerts.append({
-                "month": month,
-                "type": "low_runway",
-                "severity": "CRITICAL" if runway < 2 else "WARNING",
-                "message": f"Cash runway of {runway} months in {month}",
-            })
+            alerts.append(
+                {
+                    "month": month,
+                    "type": "low_runway",
+                    "severity": "CRITICAL" if runway < 2 else "WARNING",
+                    "message": f"Cash runway of {runway} months in {month}",
+                }
+            )
 
         if cumulative < 0:
-            alerts.append({
-                "month": month,
-                "type": "negative_cumulative",
-                "severity": "CRITICAL",
-                "message": (
-                    f"Negative cumulative cashflow of {cumulative} in {month}"
-                ),
-            })
+            alerts.append(
+                {
+                    "month": month,
+                    "type": "negative_cumulative",
+                    "severity": "CRITICAL",
+                    "message": (
+                        f"Negative cumulative cashflow of {cumulative} in {month}"
+                    ),
+                }
+            )
 
     return alerts
 
@@ -670,11 +662,13 @@ async def _sum_open_order_usd_obligations(db: AsyncSession) -> Decimal:
         )
         .outerjoin(paid_subq, PurchaseOrder.id == paid_subq.c.order_id)
         .where(
-            PurchaseOrder.status.in_([
-                OrderStatus.PENDING,
-                OrderStatus.IN_PRODUCTION,
-                OrderStatus.SHIPPING,
-            ]),
+            PurchaseOrder.status.in_(
+                [
+                    OrderStatus.PENDING,
+                    OrderStatus.IN_PRODUCTION,
+                    OrderStatus.SHIPPING,
+                ]
+            ),
             PurchaseOrder.currency == "USD",
         )
     )
@@ -695,9 +689,7 @@ async def _trailing_30d_avg_monthly_revenue_usd(
     total_ngn = result.scalar() or Decimal("0")
     if ngn_usd_rate <= 0:
         return Decimal("0")
-    return (total_ngn / ngn_usd_rate).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
+    return (total_ngn / ngn_usd_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 async def calculate_global_exposure(db: AsyncSession) -> dict:
@@ -740,9 +732,7 @@ async def calculate_global_exposure(db: AsyncSession) -> dict:
 
     # Debt-to-trade ratio
     eur_balance_usd_equiv = eur_loan_balance * eur_usd_rate
-    trailing_revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(
-        db, ngn_usd_rate
-    )
+    trailing_revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(db, ngn_usd_rate)
     if trailing_revenue_usd > 0:
         debt_to_trade = (eur_balance_usd_equiv / trailing_revenue_usd).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
@@ -784,9 +774,7 @@ async def check_eur_usd_alert(db: AsyncSession) -> bool:
     if current_rate is None or previous_rate is None or previous_rate == 0:
         return False
 
-    pct_change = abs(
-        (current_rate / previous_rate - Decimal("1")) * Decimal("100")
-    )
+    pct_change = abs((current_rate / previous_rate - Decimal("1")) * Decimal("100"))
 
     if pct_change <= EUR_USD_ALERT_THRESHOLD_PCT:
         return False
@@ -802,7 +790,9 @@ async def check_eur_usd_alert(db: AsyncSession) -> bool:
 
     # Dedup: skip if a PENDING EURUSD alert already exists
     existing = await db.execute(
-        select(func.count()).select_from(AIRecommendation).where(
+        select(func.count())
+        .select_from(AIRecommendation)
+        .where(
             AIRecommendation.category == RecommendationCategory.CASHFLOW,
             AIRecommendation.action_type == ActionType.FX_LOCK,
             AIRecommendation.status == RecommendationStatus.PENDING,
@@ -824,7 +814,9 @@ async def check_eur_usd_alert(db: AsyncSession) -> bool:
             f"({pct_change:.1f}% {direction}). Review EUR-denominated "
             f"loan exposure and consider hedging."
         ),
-        priority=RecommendationPriority.HIGH if pct_change > Decimal("5") else RecommendationPriority.MEDIUM,
+        priority=RecommendationPriority.HIGH
+        if pct_change > Decimal("5")
+        else RecommendationPriority.MEDIUM,
         confidence=Decimal("0.85"),
         expected_impact={"eur_usd_change_pct": str(pct_change)},
         action_payload={"pair": "EURUSD", "pct_change": str(pct_change)},
@@ -905,12 +897,14 @@ async def build_payment_calendar(
         .order_by(LoanPaymentSchedule.due_date)
     )
     for schedule, lender_name in loan_result.all():
-        entries.append({
-            "date": schedule.due_date,
-            "type": "loan_payment",
-            "amount": schedule.total_payment,
-            "description": f"Loan payment to {lender_name}",
-        })
+        entries.append(
+            {
+                "date": schedule.due_date,
+                "type": "loan_payment",
+                "amount": schedule.total_payment,
+                "description": f"Loan payment to {lender_name}",
+            }
+        )
 
     # 2. Operating cost entries (active, within horizon)
     opex_result = await db.execute(
@@ -919,23 +913,26 @@ async def build_payment_calendar(
     for cost in opex_result.scalars().all():
         payment_dates = _generate_operating_cost_dates(cost, today, horizon_end)
         for payment_date, amount in payment_dates:
-            entries.append({
-                "date": payment_date,
-                "type": "operating_cost",
-                "amount": amount,
-                "description": f"{cost.cost_name} ({cost.category.value})",
-            })
+            entries.append(
+                {
+                    "date": payment_date,
+                    "type": "operating_cost",
+                    "amount": amount,
+                    "description": f"{cost.cost_name} ({cost.category.value})",
+                }
+            )
 
     # 3. FX obligations from open purchase orders
     fx_rate = await _get_latest_fx_rate(db)
     fx_result = await db.execute(
-        select(PurchaseOrder)
-        .where(
-            PurchaseOrder.status.in_([
-                OrderStatus.PENDING,
-                OrderStatus.IN_PRODUCTION,
-                OrderStatus.SHIPPING,
-            ]),
+        select(PurchaseOrder).where(
+            PurchaseOrder.status.in_(
+                [
+                    OrderStatus.PENDING,
+                    OrderStatus.IN_PRODUCTION,
+                    OrderStatus.SHIPPING,
+                ]
+            ),
             PurchaseOrder.currency == "USD",
             PurchaseOrder.expected_delivery_date >= today,
             PurchaseOrder.expected_delivery_date <= horizon_end,
@@ -954,12 +951,14 @@ async def build_payment_calendar(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
         if balance_ngn > 0:
-            entries.append({
-                "date": order.expected_delivery_date,
-                "type": "fx_obligation",
-                "amount": balance_ngn,
-                "description": f"FX payment for order (USD balance: {balance_usd})",
-            })
+            entries.append(
+                {
+                    "date": order.expected_delivery_date,
+                    "type": "fx_obligation",
+                    "amount": balance_ngn,
+                    "description": f"FX payment for order (USD balance: {balance_usd})",
+                }
+            )
 
     # Sort by date
     entries.sort(key=lambda e: e["date"])
@@ -1109,28 +1108,28 @@ async def generate_triage_recommendations(
 
     try:
         candidates = await get_liquidation_candidates(db, shortfall)
-        total_liquidation_value = sum(
-            c["total_batch_value"] for c in candidates[:5]
+        total_liquidation_value = sum(c["total_batch_value"] for c in candidates[:5])
+        recommendations.append(
+            {
+                "action_type": "LIQUIDATE",
+                "priority": 1,
+                "description": (
+                    f"Liquidate slow-moving inventory to raise up to "
+                    f"{total_liquidation_value} NGN"
+                ),
+                "estimated_impact": total_liquidation_value,
+                "details": [
+                    {
+                        "batch_id": str(c["batch_id"]),
+                        "product_id": str(c["product_id"]),
+                        "quantity": c["quantity_remaining"],
+                        "batch_value": str(c["total_batch_value"]),
+                        "discount_pct": str(c["discount_pct_needed"]),
+                    }
+                    for c in candidates[:5]
+                ],
+            }
         )
-        recommendations.append({
-            "action_type": "LIQUIDATE",
-            "priority": 1,
-            "description": (
-                f"Liquidate slow-moving inventory to raise up to "
-                f"{total_liquidation_value} NGN"
-            ),
-            "estimated_impact": total_liquidation_value,
-            "details": [
-                {
-                    "batch_id": str(c["batch_id"]),
-                    "product_id": str(c["product_id"]),
-                    "quantity": c["quantity_remaining"],
-                    "batch_value": str(c["total_batch_value"]),
-                    "discount_pct": str(c["discount_pct_needed"]),
-                }
-                for c in candidates[:5]
-            ],
-        })
     except Exception:
         await logger.awarning("triage_liquidation_candidates_failed", exc_info=True)
 
@@ -1145,24 +1144,26 @@ async def generate_triage_recommendations(
     total_deferrable = sum(c.monthly_equivalent for c in deferrable_costs)
 
     if deferrable_costs:
-        recommendations.append({
-            "action_type": "DELAY_PAYMENT",
-            "priority": 2,
-            "description": (
-                f"Defer {len(deferrable_costs)} non-essential operating "
-                f"costs to save {total_deferrable} NGN/month"
-            ),
-            "estimated_impact": total_deferrable,
-            "details": [
-                {
-                    "cost_id": str(c.id),
-                    "cost_name": c.cost_name,
-                    "category": c.category.value,
-                    "monthly_amount": str(c.monthly_equivalent),
-                }
-                for c in deferrable_costs
-            ],
-        })
+        recommendations.append(
+            {
+                "action_type": "DELAY_PAYMENT",
+                "priority": 2,
+                "description": (
+                    f"Defer {len(deferrable_costs)} non-essential operating "
+                    f"costs to save {total_deferrable} NGN/month"
+                ),
+                "estimated_impact": total_deferrable,
+                "details": [
+                    {
+                        "cost_id": str(c.id),
+                        "cost_name": c.cost_name,
+                        "category": c.category.value,
+                        "monthly_amount": str(c.monthly_equivalent),
+                    }
+                    for c in deferrable_costs
+                ],
+            }
+        )
 
     # 3. ACCELERATE_COLLECTION: flag outstanding receivables (pending sales)
     pending_result = await db.execute(
@@ -1176,16 +1177,18 @@ async def generate_triage_recommendations(
     pending_total = row[1] or Decimal("0")
 
     if pending_count > 0:
-        recommendations.append({
-            "action_type": "ACCELERATE_COLLECTION",
-            "priority": 3,
-            "description": (
-                f"Collect {pending_count} outstanding receivables "
-                f"totaling {pending_total} NGN"
-            ),
-            "estimated_impact": pending_total,
-            "details": None,
-        })
+        recommendations.append(
+            {
+                "action_type": "ACCELERATE_COLLECTION",
+                "priority": 3,
+                "description": (
+                    f"Collect {pending_count} outstanding receivables "
+                    f"totaling {pending_total} NGN"
+                ),
+                "estimated_impact": pending_total,
+                "details": None,
+            }
+        )
 
     return {
         "triage_id": triage_id,

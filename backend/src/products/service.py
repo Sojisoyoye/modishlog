@@ -168,7 +168,8 @@ async def create_product(
     slug = slugify(data.name)
     if not slug:
         raise InvalidProductNameError(
-            data.name, "produces an empty slug — use a name with at least one alphanumeric character"
+            data.name,
+            "produces an empty slug — use a name with at least one alphanumeric character",
         )
     existing_slug = await db.execute(select(Product).where(Product.slug == slug))
     if existing_slug.scalar_one_or_none():

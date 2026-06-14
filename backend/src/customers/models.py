@@ -14,7 +14,9 @@ class Customer(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "customers"
 
     name: Mapped[str] = mapped_column(String(255), index=True)
-    contact_number: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
+    contact_number: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default=None
+    )
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
     address: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)

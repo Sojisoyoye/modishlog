@@ -5,7 +5,18 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -74,7 +85,9 @@ class DSCRRecord(UUIDMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     def __repr__(self) -> str:
-        return f"<DSCRRecord(id={self.id}, period={self.period}, dscr={self.dscr_value})>"
+        return (
+            f"<DSCRRecord(id={self.id}, period={self.period}, dscr={self.dscr_value})>"
+        )
 
 
 class LoanObligation(UUIDMixin, TimestampMixin, Base):
@@ -183,7 +196,9 @@ class TriageRecord(UUIDMixin, TimestampMixin, Base):
         Enum(TriageStatus, values_callable=lambda x: [e.value for e in x]),
         default=TriageStatus.ACTIVE,
     )
-    resolution_date: Mapped[date | None] = mapped_column(Date, nullable=True, default=None)
+    resolution_date: Mapped[date | None] = mapped_column(
+        Date, nullable=True, default=None
+    )
 
     def __repr__(self) -> str:
         return f"<TriageRecord(id={self.id}, status={self.status}, shortfall={self.shortfall_amount})>"
