@@ -19,6 +19,7 @@ postgres_data/
 # E2E screenshots (generated at runtime, not source)
 frontend/e2e-screenshots/
 frontend/test-results/
+backend/e2e-screenshots/
 
 # Logs
 logs

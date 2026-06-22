@@ -11,7 +11,7 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/orders');
-  await expect(page.getByRole('heading', { name: 'Purchase Orders' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
 });
 
 test('Import Orders button is visible on orders page', async ({ page }) => {
