@@ -19,6 +19,7 @@ from src.fx.exceptions import (
     ExternalRateSyncError,
     FXAlertNotFoundError,
     FXPairNotFoundError,
+    FXRateNotFoundError,
     InsufficientRateDataError,
     SimulationNotFoundError,
 )
@@ -88,6 +89,17 @@ async def ingest_rate(
         source=data.source,
     )
     return rate
+
+
+async def delete_rate(db: AsyncSession, rate_id: uuid.UUID) -> None:
+    """Delete an FX rate observation by ID."""
+    result = await db.execute(select(FXRate).where(FXRate.id == rate_id))
+    rate = result.scalar_one_or_none()
+    if rate is None:
+        raise FXRateNotFoundError(rate_id)
+    await db.delete(rate)
+    await db.flush()
+    await logger.ainfo("fx_rate_deleted", rate_id=str(rate_id))
 
 
 async def get_current_rate(

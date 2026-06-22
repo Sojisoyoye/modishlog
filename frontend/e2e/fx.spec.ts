@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { test, expect, request } from '@playwright/test';
+import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
 
 // ---------------------------------------------------------------------------
 // FX Rates Page E2E Tests
@@ -99,5 +99,68 @@ test.describe('Add Rate form', () => {
 
     const rateInput = page.locator('input[type="number"]').first();
     await expect(rateInput).toHaveAttribute('placeholder', 'e.g. 1500');
+  });
+});
+
+test.describe('Add Rate submission', () => {
+  const API = 'http://localhost:8000/api/v1';
+  let submittedRateId: string | null = null;
+
+  test.afterEach(async () => {
+    if (submittedRateId) {
+      const token = await getAPIToken();
+      const ctx = await request.newContext();
+      try {
+        await ctx.delete(`${API}/fx/rates/${submittedRateId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } finally {
+        await ctx.dispose();
+        submittedRateId = null;
+      }
+    }
+  });
+
+  test('submitting a new FX rate shows success toast and updates the current rate card', async ({ page }) => {
+    // outer beforeEach already logged in and navigated to /fx
+
+    // Select USDNGN pair
+    await page.locator('select#fx-manual-pair').selectOption('USDNGN');
+
+    // Enter rate value
+    await page.locator('input#fx-manual-rate').fill('1580');
+
+    // Set source to Manual
+    await page.locator('select#fx-manual-source').selectOption('MANUAL');
+
+    // Set date to today
+    const today = new Date().toISOString().split('T')[0];
+    await page.locator('input#fx-manual-date').fill(today);
+
+    // Intercept the ingest API response to capture the rate ID for cleanup
+    const [ingestResponse] = await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes('/fx/rates/ingest') && resp.status() === 201),
+      page.getByRole('button', { name: 'Add' }).click(),
+    ]);
+
+    const rateData = await ingestResponse.json();
+    submittedRateId = rateData.id;
+
+    // Assert success toast appears
+    await expect(page.getByText('Added')).toBeVisible();
+    await expect(page.getByText('USDNGN rate recorded')).toBeVisible();
+
+    // Assert the current rate card updates to show the submitted rate
+    await expect(page.getByText('₦1,580.00')).toBeVisible();
+  });
+
+  test('30-Day Forecast section is visible and shows the forecast chart', async ({ page }) => {
+    // outer beforeEach already logged in and navigated to /fx
+
+    // The forecast section heading is dynamic (N-Day Forecast)
+    await expect(page.locator('h3').filter({ hasText: /\d+-Day Forecast/ })).toBeVisible();
+
+    // The forecast p-chart is the second canvas on the page (index 1); historical chart is first
+    await expect(page.locator('canvas').nth(1)).toBeVisible();
   });
 });
