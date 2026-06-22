@@ -13,21 +13,6 @@ import { ensureProduct, createOrder } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
 
-/** Transition an order to a new status via the API (for setup only). */
-async function apiTransitionOrder(orderId: string, newStatus: string): Promise<void> {
-  const token = await getAPIToken();
-  const ctx = await pwRequest.newContext();
-  try {
-    const resp = await ctx.put(`${API}/orders/${orderId}/status`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: { new_status: newStatus },
-    });
-    if (!resp.ok()) throw new Error(`Transition to ${newStatus} failed: ${resp.status()} ${await resp.text()}`);
-  } finally {
-    await ctx.dispose();
-  }
-}
-
 /** Get current stock level for a product via the API. */
 async function getStock(productId: string): Promise<number> {
   const token = await getAPIToken();
@@ -53,6 +38,8 @@ function iso30DaysAgo(): string {
   d.setDate(d.getDate() - 30);
   return d.toISOString().slice(0, 10);
 }
+
+test.describe.configure({ mode: 'serial' });
 
 test.describe('Golden path — full MVP business cycle', () => {
   let productId: string;
@@ -136,8 +123,8 @@ test.describe('Golden path — full MVP business cycle', () => {
     await page.getByRole('button', { name: 'Record Sales' }).click();
     await page.waitForLoadState('networkidle');
 
-    // Success toast
-    await expect(page.getByText(/sale.*record|record.*sale/i).or(page.getByText('success', { exact: false }))).toBeVisible({ timeout: 8000 });
+    // Success toast — summary 'Success', detail 'Sales recorded successfully'
+    await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 8000 });
 
     // Stock decreased by 3
     const stockAfter = await getStock(productId);
