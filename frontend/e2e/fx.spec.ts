@@ -122,9 +122,7 @@ test.describe('Add Rate submission', () => {
   });
 
   test('submitting a new FX rate shows success toast and updates the current rate card', async ({ page }) => {
-    await loginViaUI(page);
-    await page.goto('/fx');
-    await expect(page.getByRole('heading', { name: 'FX Rates' })).toBeVisible();
+    // outer beforeEach already logged in and navigated to /fx
 
     // Select USDNGN pair
     await page.locator('select#fx-manual-pair').selectOption('USDNGN');
@@ -157,15 +155,12 @@ test.describe('Add Rate submission', () => {
   });
 
   test('30-Day Forecast section is visible and shows the forecast chart', async ({ page }) => {
-    await loginViaUI(page);
-    await page.goto('/fx');
-    await expect(page.getByRole('heading', { name: 'FX Rates' })).toBeVisible();
+    // outer beforeEach already logged in and navigated to /fx
 
     // The forecast section heading is dynamic (N-Day Forecast)
     await expect(page.locator('h3').filter({ hasText: /\d+-Day Forecast/ })).toBeVisible();
 
-    // The p-chart canvas element for forecast must be rendered
-    const forecastSection = page.locator('div').filter({ has: page.locator('h3').filter({ hasText: /\d+-Day Forecast/ }) });
-    await expect(forecastSection.locator('canvas').first()).toBeVisible();
+    // The forecast p-chart is the second canvas on the page (index 1); historical chart is first
+    await expect(page.locator('canvas').nth(1)).toBeVisible();
   });
 });

@@ -704,6 +704,13 @@ class TestFXEndpoints:
             )
         assert resp.status_code == 401
 
+    def test_delete_rate_requires_auth(self):
+        db = _mock_db()
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.delete(f"/api/v1/fx/rates/{uuid.uuid4()}")
+        assert resp.status_code == 401
+
     def test_delete_rate_success(self):
         rate = _make_fx_rate()
         self._override_auth()
