@@ -1,10 +1,31 @@
-import { test, expect, request } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { test, expect } from '@playwright/test';
+import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureProduct, createOrder, deleteOrder, advanceOrderToStatus } from './helpers/data';
 
-const API = 'http://localhost:8000/api/v1';
+test.describe.configure({ mode: 'serial' });
+
+let deliveredOrderId: string;
+let orderedOrderId: string;
 
 test.beforeAll(async () => {
   await ensureTestUser();
+  const product = await ensureProduct('E2E Lot Tracking Product');
+
+  // One order advanced all the way to DELIVERED
+  const delivered = await createOrder(product.id, { currency: 'NGN', quantity: 3, unitCost: '4000.00' });
+  deliveredOrderId = delivered.id;
+  await advanceOrderToStatus(deliveredOrderId, 'DELIVERED', { fxRateAtDelivery: '1580' });
+
+  // One order left at ORDERED (not DELIVERED — used to assert In Stock is absent)
+  const ordered = await createOrder(product.id, { currency: 'NGN', quantity: 1, unitCost: '4000.00' });
+  orderedOrderId = ordered.id;
+});
+
+test.afterAll(async () => {
+  const cleanup = async (id: string) =>
+    deleteOrder(id).catch((e: Error) => { if (!/4\d\d/.test(e.message)) throw e; });
+  if (deliveredOrderId) await cleanup(deliveredOrderId);
+  if (orderedOrderId) await cleanup(orderedOrderId);
 });
 
 test.describe('Order lot inventory tracking', () => {
@@ -12,46 +33,15 @@ test.describe('Order lot inventory tracking', () => {
     await loginViaUI(page);
   });
 
-  async function findDeliveredOrder() {
-    const token = await getAPIToken();
-    const ctx = await request.newContext();
-    try {
-      const resp = await ctx.get(`${API}/orders?page_size=50`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await resp.json();
-      return (data.items ?? []).find((o: { status: string }) => o.status === 'DELIVERED') ?? null;
-    } finally {
-      await ctx.dispose();
-    }
-  }
-
-  async function findPendingOrder() {
-    const token = await getAPIToken();
-    const ctx = await request.newContext();
-    try {
-      const resp = await ctx.get(`${API}/orders?page_size=50`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await resp.json();
-      return (data.items ?? []).find((o: { status: string }) => o.status === 'PENDING') ?? null;
-    } finally {
-      await ctx.dispose();
-    }
-  }
-
   test('In Stock column is visible on DELIVERED orders', async ({ page }) => {
-    const order = await findDeliveredOrder();
-    if (!order) { test.skip(); return; }
-    await page.goto(`/orders/${order.id}`);
+    await page.goto(`/orders/${deliveredOrderId}`);
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
     await expect(page.getByText(/in stock/i).first()).toBeVisible();
   });
 
   test('In Stock column shows a value (number or dash) for delivered line items', async ({ page }) => {
-    const order = await findDeliveredOrder();
-    if (!order) { test.skip(); return; }
-    await page.goto(`/orders/${order.id}`);
-    // In Stock column header must be present
+    await page.goto(`/orders/${deliveredOrderId}`);
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
     await expect(page.getByText(/in stock/i).first()).toBeVisible();
     // At least one In Stock cell must exist — value is a formatted integer or — for null lots
     const stockCells = page.locator('table td').filter({ hasText: /\d|—/ });
@@ -59,9 +49,8 @@ test.describe('Order lot inventory tracking', () => {
   });
 
   test('In Stock column is NOT visible on non-delivered orders', async ({ page }) => {
-    const pending = await findPendingOrder();
-    if (!pending) { test.skip(); return; }
-    await page.goto(`/orders/${pending.id}`);
+    await page.goto(`/orders/${orderedOrderId}`);
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
     await expect(page.getByText(/in stock/i)).not.toBeVisible();
   });
 });
