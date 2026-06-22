@@ -105,6 +105,7 @@ import {
       <div class="space-y-3">
         @for (rec of filteredRecs(); track rec.id) {
           <div
+            data-testid="rec-card"
             class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
           >
             <div class="flex items-start justify-between">
