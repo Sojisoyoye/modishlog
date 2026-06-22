@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureProduct, createOrder, deleteOrder } from './helpers/data';
 
 // ---------------------------------------------------------------------------
 // Dashboard E2E Tests
@@ -46,84 +47,65 @@ test.describe('Dashboard cards', () => {
 });
 
 test.describe('Global Exposure card (Task 16)', () => {
+  let usdOrderId: string;
+
+  test.beforeAll(async () => {
+    // Seed a USD purchase order so the global-exposure API returns non-null data
+    const product = await ensureProduct('E2E Global Exposure Product');
+    const order = await createOrder(product.id, { currency: 'USD', quantity: 5, unitCost: '200.00' });
+    usdOrderId = order.id;
+  });
+
+  test.afterAll(async () => {
+    if (usdOrderId) await deleteOrder(usdOrderId);
+  });
+
   test('renders when data is available', async ({ page }) => {
-    // The Global Exposure card may or may not render depending on API data.
-    // Wait for the loading skeleton to disappear first.
-    await page.waitForTimeout(3000);
+    // outer beforeEach already logged in and navigated to /dashboard
+    await page.waitForLoadState('networkidle');
 
-    const card = page.getByText('Global Exposure').first();
-    const isVisible = await card.isVisible().catch(() => false);
-
-    if (isVisible) {
-      // If the card renders, verify its sub-elements
-      await expect(page.getByText('EUR Debt').first()).toBeVisible();
-      await expect(page.getByText('USD Obligations').first()).toBeVisible();
-      await expect(page.getByText('Total Exposure (NGN)').first()).toBeVisible();
-      await expect(page.getByText('Debt/Trade Ratio').first()).toBeVisible();
-    } else {
-      // If the API returns no data, a skeleton placeholder should appear
-      test.info().annotations.push({
-        type: 'skip-reason',
-        description: 'Global Exposure data not available from API',
-      });
-    }
+    await expect(page.getByText('Global Exposure').first()).toBeVisible();
+    await expect(page.getByText('EUR Debt').first()).toBeVisible();
+    await expect(page.getByText('USD Obligations').first()).toBeVisible();
+    await expect(page.getByText('Total Exposure (NGN)').first()).toBeVisible();
+    await expect(page.getByText('Debt/Trade Ratio').first()).toBeVisible();
   });
 
   test('currency toggle buttons are present when card renders', async ({ page }) => {
-    await page.waitForTimeout(3000);
-    const card = page.getByText('Global Exposure').first();
-    const isVisible = await card.isVisible().catch(() => false);
+    await page.waitForLoadState('networkidle');
 
-    if (isVisible) {
-      await expect(page.getByRole('button', { name: 'NGN' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'USD' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'EUR' })).toBeVisible();
-    }
+    await expect(page.getByRole('button', { name: 'NGN' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'USD' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'EUR' })).toBeVisible();
   });
 
   test('clicking currency toggle changes active button styling', async ({ page }) => {
-    await page.waitForTimeout(3000);
-    const usdButton = page.getByRole('button', { name: 'USD' });
-    const isVisible = await usdButton.isVisible().catch(() => false);
+    await page.waitForLoadState('networkidle');
 
-    if (isVisible) {
-      await usdButton.click();
-      // After clicking, the USD button should have the primary bg class
-      await expect(usdButton).toHaveClass(/bg-primary/);
-    }
+    const usdButton = page.getByRole('button', { name: 'USD' });
+    await expect(usdButton).toBeVisible();
+    await usdButton.click();
+    await expect(usdButton).toHaveClass(/bg-primary/);
   });
 });
 
 test.describe('Logistics % card (Task 17)', () => {
-  test('renders when data is available', async ({ page }) => {
-    await page.waitForTimeout(3000);
-    const card = page.getByText('Logistics %').first();
-    const isVisible = await card.isVisible().catch(() => false);
+  test('renders with rolling average data', async ({ page }) => {
+    // The logistics-efficiency API always returns a dict (with 0 values when no orders exist),
+    // so this card always renders after the page loads.
+    await page.waitForLoadState('networkidle');
 
-    if (isVisible) {
-      await expect(page.getByText('90-day rolling average').first()).toBeVisible();
-    } else {
-      test.info().annotations.push({
-        type: 'skip-reason',
-        description: 'Logistics data not available from API',
-      });
-    }
+    await expect(page.getByText('Logistics %').first()).toBeVisible();
+    await expect(page.getByText('90-day rolling average').first()).toBeVisible();
   });
 });
 
 test.describe('Triage banner (Task 21)', () => {
-  test('banner is either shown or hidden based on triage status', async ({ page }) => {
-    await page.waitForTimeout(3000);
+  test('banner is hidden when no active triage condition exists', async ({ page }) => {
+    // No triage conditions are seeded in CI — verify the banner is absent.
+    // This assertion fails if the banner renders unexpectedly (e.g. due to stale DB state).
+    await page.waitForLoadState('networkidle');
 
-    const banner = page.getByText('Liquidity Squeeze Alert');
-    const isVisible = await banner.isVisible().catch(() => false);
-
-    if (isVisible) {
-      // If banner is visible, verify its content
-      await expect(page.getByText('Shortfall of')).toBeVisible();
-    }
-    // If not visible, that is also valid (no active triage)
-    // Either way the test passes -- we are verifying the conditional rendering works
-    expect(true).toBe(true);
+    await expect(page.getByText('Liquidity Squeeze Alert')).not.toBeVisible();
   });
 });
