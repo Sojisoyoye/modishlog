@@ -218,6 +218,47 @@ export async function advanceOrderToStatus(
 }
 
 /**
+ * Create a sale for a product and return the sale ID.
+ * Requires the product to have available stock (use addStock first).
+ */
+export async function createSale(
+  productId: string,
+  options: { quantity?: number; unitPrice?: string; saleDate?: string } = {},
+): Promise<{ id: string }> {
+  const { quantity = 1, unitPrice = '8000.00', saleDate = new Date().toISOString().split('T')[0] } = options;
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.post(`${API}/sales`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { product_id: productId, quantity, unit_price: unitPrice, sale_date: saleDate },
+    });
+    if (!resp.ok()) throw new Error(`Create sale failed: ${resp.status()} ${await resp.text()}`);
+    return { id: (await resp.json()).id };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Void (delete) a sale and restore inventory.
+ */
+export async function voidSale(saleId: string): Promise<void> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.delete(`${API}/sales/${saleId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok() && resp.status() !== 404) {
+      throw new Error(`Void sale failed: ${resp.status()} ${await resp.text()}`);
+    }
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
  * Add stock to a product via the inventory adjust endpoint.
  */
 export async function addStock(
