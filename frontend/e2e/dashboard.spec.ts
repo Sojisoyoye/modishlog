@@ -71,6 +71,19 @@ test.describe('Global Exposure card (Task 16)', () => {
     await expect(page.getByText('Debt/Trade Ratio').first()).toBeVisible();
   });
 
+  test('shows numeric values for exposure amounts', async ({ page }) => {
+    await page.waitForLoadState('networkidle');
+
+    // The Total Exposure (NGN) value is the only text-primary bold number in the card.
+    // With a seeded USD order it must be a non-zero formatted integer (e.g. "1,000,000").
+    const totalExposureValue = page.locator('p.text-lg.font-bold.text-primary').first();
+    await expect(totalExposureValue).toBeVisible();
+    await expect(totalExposureValue).toHaveText(/[\d,]+/);
+
+    // Debt/Trade Ratio renders as a decimal formatted by number:'1.2-2' (e.g. "0.00")
+    await expect(page.getByText(/^\d+\.\d{2}$/).first()).toBeVisible();
+  });
+
   test('currency toggle buttons are present when card renders', async ({ page }) => {
     await page.waitForLoadState('networkidle');
 
@@ -97,6 +110,16 @@ test.describe('Logistics % card (Task 17)', () => {
 
     await expect(page.getByText('Logistics %').first()).toBeVisible();
     await expect(page.getByText('90-day rolling average').first()).toBeVisible();
+  });
+
+  test('shows a numeric percentage value', async ({ page }) => {
+    await page.waitForLoadState('networkidle');
+
+    // The rolling_90d_avg_pct value renders via Angular's number:'1.1-1' pipe followed by '%'
+    // e.g. "0.0%" or "5.3%". This assertion fails if the API crashes or the template breaks.
+    const pctElement = page.locator('p.text-3xl.font-bold').filter({ hasText: /%/ });
+    await expect(pctElement).toBeVisible();
+    await expect(pctElement).toHaveText(/^\d+\.\d%$/);
   });
 });
 
