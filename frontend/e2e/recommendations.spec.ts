@@ -108,7 +108,7 @@ test.describe('AI Recommendations page', () => {
       await page.waitForLoadState('networkidle');
 
       // Count initial cards
-      const initialCount = await page.locator('.space-y-3 > div[class*="rounded-xl border border-gray-200 bg-white"]').count();
+      const initialCount = await page.locator('[data-testid="rec-card"]').count();
       expect(initialCount).toBeGreaterThan(0);
 
       // Click Apply on the first card
@@ -120,7 +120,7 @@ test.describe('AI Recommendations page', () => {
       await expect(page.getByText('Applied')).toBeVisible({ timeout: 5000 });
 
       // Card is removed from the list
-      await expect(page.locator('.space-y-3 > div[class*="rounded-xl border border-gray-200 bg-white"]')).toHaveCount(
+      await expect(page.locator('[data-testid="rec-card"]')).toHaveCount(
         initialCount - 1,
         { timeout: 5000 },
       );
@@ -137,7 +137,7 @@ test.describe('AI Recommendations page', () => {
 
       await page.waitForLoadState('networkidle');
 
-      const initialCount = await page.locator('.space-y-3 > div[class*="rounded-xl border border-gray-200 bg-white"]').count();
+      const initialCount = await page.locator('[data-testid="rec-card"]').count();
       expect(initialCount).toBeGreaterThan(0);
 
       // Click Dismiss on the first card
@@ -166,7 +166,7 @@ test.describe('AI Recommendations page', () => {
       await expect(page.getByText('Dismissed')).toBeVisible({ timeout: 5000 });
 
       // Card is removed from the list
-      await expect(page.locator('.space-y-3 > div[class*="rounded-xl border border-gray-200 bg-white"]')).toHaveCount(
+      await expect(page.locator('[data-testid="rec-card"]')).toHaveCount(
         initialCount - 1,
         { timeout: 5000 },
       );
