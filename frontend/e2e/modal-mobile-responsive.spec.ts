@@ -1,15 +1,16 @@
 import { test, expect } from '@playwright/test';
+import { ensureTestUser, loginViaUI } from './helpers/auth';
 
 const MOBILE = { width: 390, height: 844 };
 
 test.describe('Modal mobile responsiveness', () => {
+  test.beforeAll(async () => {
+    await ensureTestUser();
+  });
+
   test.beforeEach(async ({ page }) => {
     await page.setViewportSize(MOBILE);
-    await page.goto('/login');
-    await page.fill('input[type="email"]', 'admin@modishlog.com');
-    await page.fill('input[type="password"]', 'ModishAdmin@2024!');
-    await page.click('button[type="submit"]');
-    await page.waitForURL(/\/dashboard/);
+    await loginViaUI(page);
   });
 
   test('inventory adjust-stock dialog fits viewport on mobile', async ({ page }) => {
@@ -34,7 +35,7 @@ test.describe('Modal mobile responsiveness', () => {
     await allTab.click();
     const txnRow = page.getByTestId('transaction-row').first();
     await txnRow.waitFor({ timeout: 5000 }).catch(() => null);
-    // If no transactions exist, skip detail test
+    // TODO(#113): seed a sale in beforeAll so this test never silently skips on a clean DB
     if (await txnRow.count() === 0) return;
     await txnRow.click();
 
@@ -64,6 +65,7 @@ test.describe('Modal mobile responsiveness', () => {
     // Wait for products to load
     await page.waitForTimeout(1000);
     const editBtn = page.locator('button[title="Edit product"]').first();
+    // TODO(#113): seed a product in beforeAll so this test never silently skips on a clean DB
     if (await editBtn.count() === 0) return;
     await editBtn.click();
 
