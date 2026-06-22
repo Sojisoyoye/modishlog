@@ -4013,12 +4013,235 @@
         "priority": "high",
         "subtasks": [],
         "updatedAt": "2026-06-13T15:31:42.787Z"
+      },
+      {
+        "id": "106",
+        "title": "Write golden-path E2E spec: Login → Product → PO → Deliver → Sale → P&L",
+        "description": "Create frontend/e2e/golden-path.spec.ts — a single end-to-end spec that walks the complete MVP business cycle in sequence, proving every critical handoff works on a clean database.",
+        "details": "Steps the spec must cover in order:\n1. Login with E2E credentials, assert redirect to /dashboard\n2. Create a new product (name, unit cost, sell price, category) — assert it appears in the products list\n3. Create a purchase order with that product as a line item (qty 10, unit cost) — assert order appears in Orders table with status ORDERED\n4. Transition the order through each status step via the UI status-advance button: ORDERED → PENDING → IN_PRODUCTION → SHIPPING → CLEARED → DELIVERED — assert the status badge updates at each step\n5. After DELIVERED, assert the product's stock level in /inventory increased by 10\n6. Record a sale for that product (qty 3) — assert success toast, sale appears in sales list, stock drops to 7\n7. Navigate to /reports/profit-loss, fill start/end date to bracket the session, click Generate Report — assert revenue and profit figures are non-zero ₦ amounts\n\nUse helpers from frontend/e2e/helpers/auth.ts for login. Create/clean up all data via API calls in beforeAll/afterAll so the spec is fully self-contained and does not pollute shared E2E data.\n\nNotes:\n- This is the single most important missing test. A beta user's first session follows exactly this path.\n- Run with: cd frontend && npx playwright test e2e/golden-path.spec.ts --headed to observe during development",
+        "testStrategy": "The spec IS the test. Verify it passes on a clean DB (after docker compose down -v && docker compose up). Also run it twice back-to-back to confirm afterAll cleanup works and no stale data bleeds between runs.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": "107",
+        "title": "Fix orders-import.spec.ts: stale heading assertion causes all 4 tests to error",
+        "description": "Line 14 of frontend/e2e/orders-import.spec.ts asserts getByRole('heading', { name: 'Purchase Orders' }) in beforeEach, but the actual page heading is 'Orders'. This causes every test in the file to error before the body runs — CSV import is effectively untested in CI.",
+        "details": "File: frontend/e2e/orders-import.spec.ts, line 14.\nChange: `getByRole('heading', { name: 'Purchase Orders' })` → `getByRole('heading', { name: 'Orders', exact: true })`\nAfter the fix, run the full file: `cd frontend && npx playwright test e2e/orders-import.spec.ts` and confirm all 4 tests pass, not just \"error\".",
+        "testStrategy": "Run `npx playwright test e2e/orders-import.spec.ts --reporter=list` before and after. Before: 4 errors. After: 4 passing tests.",
+        "status": "in-progress",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-06-22T11:05:29.421Z"
+      },
+      {
+        "id": "108",
+        "title": "Fix modal-mobile-responsive.spec.ts: replace hardcoded admin credentials with shared E2E auth helper",
+        "description": "Lines 9–10 of frontend/e2e/modal-mobile-responsive.spec.ts hardcode 'admin@modishlog.com' / 'ModishAdmin@2024!' directly. This fails on any environment where that exact account does not exist. All other specs use the shared auth helper.",
+        "details": "File: frontend/e2e/modal-mobile-responsive.spec.ts\n1. Import { ensureTestUser, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth'\n2. Add `test.beforeAll(() => ensureTestUser())` at the top of the describe block\n3. Replace the hardcoded email/password strings with E2E_EMAIL and E2E_PASSWORD throughout the file\n4. Verify the mobile viewport (390x844) tests still work after the change\n\nAlso audit the conditional `if (await ... count() === 0) return` guards in the edit-sale and edit-product tests — these silently pass with zero assertions on a clean DB. If data can be seeded from the auth helper's createSale/createProduct utilities, seed it; otherwise add a comment marking them as known gaps to address in task #113 (self-seeding specs).",
+        "testStrategy": "Run `npx playwright test e2e/modal-mobile-responsive.spec.ts` on a fresh environment (no pre-existing admin account). All tests should pass or explicitly skip — none should error with \"Invalid credentials\".",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": "109",
+        "title": "Write AI Recommendations E2E spec: generate, apply, dismiss workflow",
+        "description": "The AI Recommendations page (generateNew, applyRec, dismiss dialog) has zero E2E coverage. It appears as a dashboard card and is a key differentiator for beta users. Create frontend/e2e/recommendations.spec.ts.",
+        "details": "Create frontend/e2e/recommendations.spec.ts with the following tests:\n1. Page loads: navigate to /recommendations (or wherever the route is — check the Angular router), assert heading 'AI Recommendations' is visible, no JS console errors\n2. Generate recommendations: seed at least one product and sale via API in beforeAll, click 'Generate New' button, wait for API response (POST /api/v1/recommendations/generate), assert at least one recommendation card appears with title, category badge, and action buttons (Apply / Dismiss)\n3. Apply recommendation: click 'Apply' on the first card, assert the card is removed from the pending list (or moves to an 'Applied' section), assert the apply API endpoint was called (intercept with page.route or check via response listener)\n4. Dismiss recommendation: click 'Dismiss' on a card, assert a dialog opens requiring a reason, fill in the reason, submit, assert the card disappears from the list\n\nIn beforeAll: seed data needed for recommendations to make sense (product with cost, recent sale)\nIn afterAll: clean up created data via API\n\nNotes:\n- Check recommendations-page.component.ts for the exact method names and API routes used\n- The dashboard card at /dashboard should also show a recommendations count — add a sanity assertion there after generating",
+        "testStrategy": "Run `npx playwright test e2e/recommendations.spec.ts --headed` to observe the full flow. Confirm the apply/dismiss actions actually remove items from the list rather than just calling the API silently.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": "110",
+        "title": "Replace no-op expect(true).toBe(true) assertions in cashflow.spec.ts and dashboard.spec.ts",
+        "description": "Three tests contain expect(true).toBe(true) which always pass regardless of what the UI does, providing zero regression protection. These are in cashflow.spec.ts (FX +10% preset button test) and dashboard.spec.ts (Triage banner test).",
+        "details": "Files to fix:\n1. frontend/e2e/cashflow.spec.ts — 'FX +10% preset button' test (around line 101):\n   - After clicking the FX +10% preset button, await page.waitForLoadState('networkidle')\n   - Assert the FX Shock input value changed: await expect(fxShockInput).toHaveValue('10')\n   - Also assert the result section updates (e.g., a projected value changes) — check the component for what re-renders\n\n2. frontend/e2e/dashboard.spec.ts — 'Triage banner' test (around line 127):\n   - The triage banner appears when cashflow metrics breach a threshold. Check the backend endpoint (likely POST /cashflow/triage-check or the cashflow summary endpoint) to understand what triggers it.\n   - Seed a triage condition via API in a beforeEach (e.g., set operating costs very high relative to revenue)\n   - Assert the triage banner element is visible and contains expected text\n   - Clean up in afterEach\n\nAlso fix the dashboard Global Exposure and Logistics % card tests that use isVisible().catch(() => false) guards — they silently pass even if cards are broken. Convert to unconditional toBeVisible() after seeding the required data (FX orders).",
+        "testStrategy": "Run `npx playwright test e2e/cashflow.spec.ts e2e/dashboard.spec.ts --reporter=list`. All previously no-op tests should now either genuinely pass (with real assertions) or fail with a descriptive error if the UI is broken — never silently green.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": "111",
+        "title": "Add order status transition flow E2E test: ORDERED → DELIVERED via UI buttons",
+        "description": "No test drives an order through all lifecycle statuses via the UI. The entire lot tracking, payment, and sell price feature set depends on DELIVERED status — but only specs that assume a pre-existing DELIVERED order cover those features.",
+        "details": "Extend frontend/e2e/orders.spec.ts or create frontend/e2e/order-lifecycle.spec.ts.\n\nSteps:\n1. In beforeAll, create a product and a purchase order via API (POST /api/v1/orders) starting at ORDERED status\n2. Navigate to /orders/:id\n3. For each status transition: ORDERED → PENDING → IN_PRODUCTION → SHIPPING → CLEARED → DELIVERED\n   - Find and click the status-advance button (check the order-detail component for the button selector)\n   - Assert the status badge on the page updates to the new status\n   - Take a screenshot at each step for debugging\n4. After DELIVERED, assert the 'In Stock' column appears in the line items table (from order-lot-tracking.spec.ts logic)\n5. In afterAll, clean up the order and product via API\n\nThis test is a prerequisite for understanding whether order-payment, order-sell-price, and order-lot-tracking specs will work on fresh environments. Consider marking those specs as depending on the patterns established here.",
+        "testStrategy": "Run `npx playwright test e2e/order-lifecycle.spec.ts --headed`. Confirm each status badge change is visible and the DELIVERED state unlocks the In Stock column. If any transition button is missing in the UI, log it as a UI bug in the task notes.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": "112",
+        "title": "Write Pricing page functional E2E spec (/pricing — margin targets, sensitivity playground)",
+        "description": "The /pricing page (portfolio margin, per-product margin targets, Mix Planner, sensitivity playground) has zero functional E2E coverage. Current explore-all-sections.spec.ts only checks there is no '404' text. Create frontend/e2e/pricing.spec.ts.",
+        "details": "Create frontend/e2e/pricing.spec.ts with these tests:\n1. Page loads: navigate to /pricing, assert heading 'Pricing & Margins' (or equivalent), no console errors, no '404' or 'Error' text\n2. Blended Portfolio Margin card: seed at least one delivered order with a sell price in beforeAll (via API), assert the Portfolio Margin card shows a numeric % value (not '--' or 0%)\n3. Per-product margin table: assert at least one table row is visible with columns for product name and margin %\n4. Sensitivity playground: locate the cost-change input, enter a value (e.g. +10%), click Calculate or Simulate, assert the result row/section updates with a new recommended price\n5. Mix Planner (if it exists as a tab): click the tab, assert the planner section loads without errors\n\nIn beforeAll: seed product + delivered order + sell price via API\nIn afterAll: clean up seeded data\n\nCheck frontend/src/app/features/pricing/ for the component structure and exact route/heading names before writing selectors.",
+        "testStrategy": "Run `npx playwright test e2e/pricing.spec.ts --headed`. The sensitivity playground and margin values must show real computed numbers — not placeholder dashes. If any section is broken, note the exact error in the task.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": "113",
+        "title": "Make order-payment, order-lot-tracking, order-sell-price, order-detail specs self-seeding",
+        "description": "All four specs silently skip when no orders exist in the DB (if (!order) { test.skip(); return; }). On a fresh CI environment they produce zero assertions and appear green — hiding that critical order functionality is completely untested.",
+        "details": "Files to fix:\n- frontend/e2e/order-payment.spec.ts\n- frontend/e2e/order-lot-tracking.spec.ts\n- frontend/e2e/order-sell-price.spec.ts\n- frontend/e2e/order-detail.spec.ts\n\nFor each file:\n1. Add a beforeAll that:\n   a. Creates a product via POST /api/v1/products\n   b. Creates a purchase order via POST /api/v1/orders with that product as a line item\n   c. Advances the order to DELIVERED status via PUT /api/v1/orders/:id (or via the status transition endpoint) — DELIVERED is required for payment, lot tracking, and sell price features\n   d. Stores the created order ID for use in tests\n2. Remove the `if (!order) { test.skip() }` conditional guards — the data now always exists\n3. Add an afterAll that deletes the created order and product via API\n4. Fix order-payment.spec.ts line that calls `page.request.get('/api/orders')` with a relative path — change to the full URL `http://localhost:8000/api/v1/orders`\n\nNote: price-suggestion.spec.ts afterAll attempts DELETE on a DELIVERED order which the PRD says cannot be cancelled — check if this leaves leaked test data and if so, change the cleanup strategy (e.g., soft-delete or use a test-only teardown endpoint).",
+        "testStrategy": "Run all four specs on a fresh DB (docker compose down -v && docker compose up -d). Confirm zero skips and all assertions execute. Also run twice back-to-back to confirm afterAll cleanup prevents data accumulation.",
+        "status": "pending",
+        "dependencies": [
+          "111"
+        ],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": "114",
+        "title": "Add P&L report generation assertion to reports.spec.ts",
+        "description": "reports.spec.ts only verifies navigation and that the Generate Report button is present. It never submits the form and verifies revenue/cost/profit figures are returned. The report page could silently return blank data or crash and no test would catch it.",
+        "details": "File: frontend/e2e/reports.spec.ts\n\nAdd a new test 'P&L report generates with revenue and profit figures':\n1. In beforeAll (or reuse existing E2E data), ensure at least one sale exists within the last 30 days\n2. Navigate to /reports/profit-loss\n3. Fill the start date input with (today - 30 days) and end date with today\n4. Click Generate Report button\n5. Wait for the API response (GET /api/v1/reports/profit-loss or equivalent)\n6. Assert a results table or summary section is visible\n7. Assert revenue figure is a non-zero ₦ amount (use regex like /₦[\\d,]+/ on a results cell)\n8. Assert profit/loss figure is present (can be negative, but must not be '--' or empty)\n\nAlso add for Stock Report:\n1. Navigate to /reports/stock\n2. Click Generate Report\n3. Assert at least one product row appears in the output with a stock quantity\n\nCheck frontend/src/app/features/reports/ for exact selectors and API route names.",
+        "testStrategy": "Run `npx playwright test e2e/reports.spec.ts`. The new tests must fail if the report returns empty data — use toContainText with a ₦ pattern rather than just toBeVisible on a container element.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": "115",
+        "title": "Write account lockout E2E test in auth.spec.ts",
+        "description": "The backend implements account lockout after N failed login attempts (LOCKOUT_THRESHOLD in backend/src/auth/service.py, locked_until field). auth.spec.ts has no test for it — a broken lockout would be a security regression.",
+        "details": "File: frontend/e2e/auth.spec.ts\n\nAdd test 'account locks out after N failed login attempts':\n1. Use a dedicated lockout-test account: e2e-lockout@modishlogtest.com — create it via API in beforeAll (or ensure it exists via ensureTestUser with a different email)\n2. Navigate to /auth/login\n3. Submit wrong password N+1 times (check LOCKOUT_THRESHOLD in backend/src/auth/service.py — likely 5)\n4. On the final attempt, assert the UI shows a lockout message (e.g. 'account locked', 'too many attempts', or a countdown timer)\n5. Assert that even the correct password does NOT work while locked\n6. In afterAll: reset the lockout via API or wait for locked_until to pass (or use an admin endpoint to unlock)\n\nImportant: use a SEPARATE email (e2e-lockout@modishlogtest.com) — never the shared E2E_EMAIL, as locking that account would break all other specs.\n\nCheck backend/src/auth/router.py for the exact lockout error message/response format so the UI assertion matches what the backend returns.",
+        "testStrategy": "Run `npx playwright test e2e/auth.spec.ts -g \"lockout\"`. Confirm the test fails if you comment out the lockout logic in the backend, and passes when it is active.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": "116",
+        "title": "Add FX rate submission test to fx.spec.ts",
+        "description": "fx.spec.ts tests page layout and pair selector but never actually submits a new FX rate. The primary data-entry action on the FX page is entirely untested — a broken Add Rate form would go undetected.",
+        "details": "File: frontend/e2e/fx.spec.ts\n\nAdd test 'submitting a new FX rate adds it to the historical rates section':\n1. Navigate to /fx-rates\n2. Select USDNGN from the pair selector (or whichever pair is shown by default)\n3. Fill rate value input with 1580\n4. Set source to Manual (or the equivalent select option)\n5. Fill the date input with today's date\n6. Click the Add Rate / Submit button\n7. Assert a success toast appears\n8. Assert the submitted rate (1580) appears in the Historical Rates section/table\n\nAdd a teardown in afterEach to delete the submitted rate via API so the test is idempotent.\n\nAlso check if there is a 30-day Prophet forecast chart on the page — if so, add a basic assertion that the chart element is visible and contains at least one data point (not an empty chart state).",
+        "testStrategy": "Run `npx playwright test e2e/fx.spec.ts`. The new submission test must fail if the Add Rate form is broken or the API returns an error — use toContainText on the historical rates table, not just toBeVisible on the container.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": "117",
+        "title": "Add LOT-type stock count test and variance column assertions",
+        "description": "stock-count.spec.ts only creates PRODUCT-type counts. LOT-type counts (counting by individual lot/batch) are completely untested, including the variance column which shows discrepancies between system and counted quantities.",
+        "details": "File: frontend/e2e/stock-count.spec.ts\n\nAdd tests:\n1. 'Create LOT-type stock count and view lot rows':\n   - Seed a product with at least one delivered order lot via API in beforeAll\n   - Navigate to /stock-counts, click New Count, select LOT type\n   - Submit and navigate to the detail page\n   - Assert lot rows appear (not product rows) with lot number, system qty visible\n   - Assert status is DRAFT\n\n2. 'Enter counted quantity and view variance':\n   - On the LOT-type count detail page, find the counted quantity input for the first lot row\n   - Enter a value different from the system qty (e.g. system qty - 1)\n   - Save/update\n   - Assert the variance column shows the difference (e.g. -1) and is highlighted (red for shrinkage)\n\n3. 'Finalize LOT-type count changes status':\n   - Click Finalize on the LOT count\n   - Assert status changes to FINALIZED\n   - Assert the count appears in the counts list with FINALIZED status\n\nClean up created count and seeded data in afterAll.",
+        "testStrategy": "Run `npx playwright test e2e/stock-count.spec.ts`. All 3 new tests must make real assertions — no conditional guards or isVisible catches.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": "118",
+        "title": "Fix dashboard conditional tests: Global Exposure and Logistics % cards must make real assertions",
+        "description": "dashboard.spec.ts tests for the Global Exposure and Logistics % cards are wrapped in isVisible().catch(() => false) guards, meaning they silently pass even if the cards are broken or missing. These are core financial health indicators shown to every beta user.",
+        "details": "File: frontend/e2e/dashboard.spec.ts\n\nFor the Global Exposure card test:\n1. In beforeAll, seed at least one purchase order with a non-NGN currency (e.g. USD) via API — this should trigger the FX exposure calculation\n2. Navigate to /dashboard\n3. Remove the isVisible().catch() guard\n4. Replace with: await expect(page.getByTestId('global-exposure-card')).toBeVisible() (check actual selector in dashboard component)\n5. Assert the card shows a currency amount (not '--' or empty)\n\nFor the Logistics % card test:\n1. Seed an order in SHIPPING status via API in beforeAll\n2. Assert the Logistics % card is visible and shows a numeric % value\n\nAlso audit for any other isVisible().catch(() => false) patterns in dashboard.spec.ts and replace them all with real expect() assertions, seeding data as needed.\n\nNote: check dashboard.spec.ts for the exact data-testid or aria-label attributes used for each card selector.",
+        "testStrategy": "Run `npx playwright test e2e/dashboard.spec.ts`. After the fix, if you temporarily break the FX endpoint, the Global Exposure test must fail — not silently pass. This verifies the assertions are real.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": "119",
+        "title": "Add void-sale stock restore assertion to sales.spec.ts",
+        "description": "The void sale test only checks that the dialog opens — it never submits the void or verifies that inventory is restored. Stock reversal is the most critical side-effect of voiding a sale.",
+        "details": "File: frontend/e2e/sales.spec.ts\n\nExtend the existing void sale test:\n1. Before voiding, record the current stock level via GET /api/v1/inventory/{product_id}\n2. Click Void on a sale, fill in the reason, submit the void dialog\n3. Assert the success toast appears and the sale row shows a VOIDED badge\n4. Call GET /api/v1/inventory/{product_id} again and assert the stock qty returned to its pre-sale level\n\nAlso verify the sale cannot be voided twice — attempt to void the already-voided sale and assert an error or that the Void button is disabled/absent.",
+        "testStrategy": "Run `npx playwright test e2e/sales.spec.ts -g \"void\"`. The stock assertion must fail if the inventory reversal endpoint is broken.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
+      },
+      {
+        "id": "120",
+        "title": "Write Quick Quote functional E2E test",
+        "description": "The Quick Quote feature (POST /api/v1/sales/quick-quote — FIFO minimum sell price calculator) is implemented in the backend but has zero E2E coverage. It is described in the PRD as a primary sales tool.",
+        "details": "First, locate the Quick Quote UI — check frontend/src/app/features/sales/ for a quick-quote component or tab. If it is a button/tab on the Sales page, navigate there. If it is a standalone route, find the route in the Angular router.\n\nCreate or extend a spec with tests:\n1. 'Quick Quote form is accessible from the Sales page': navigate to /sales, find the Quick Quote button/tab, assert it opens the form\n2. 'Quick Quote calculates minimum sell price': seed a product with a delivered order (known unit cost) via API in beforeAll, select the product from the Quick Quote form, enter a quantity, click Calculate, assert the minimum sell price and floor margin are displayed as non-zero values\n3. 'Quick Quote respects FIFO cost basis': if multiple lots with different unit costs exist, assert the quoted price reflects the oldest lot's cost\n\nCheck POST /api/v1/sales/quick-quote request/response schema in backend/src/sales/router.py before writing selectors.",
+        "testStrategy": "Run the new spec headed to confirm the UI flow works. If the Quick Quote UI does not exist on the frontend yet, note it as a frontend gap in the task and create a subtask to implement the UI component.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
+      },
+      {
+        "id": "121",
+        "title": "Add cashflow simulation result assertions to cashflow.spec.ts",
+        "description": "The Simulate button test in cashflow.spec.ts uses isVisible catches and never asserts on projected DSCR, runway values, or chart changes after simulation. The test passes even if the simulation returns an error or blank results.",
+        "details": "File: frontend/e2e/cashflow.spec.ts\n\n1. In beforeAll, seed operating costs and loan data via API so the cashflow model has real inputs to project from\n2. Extend the Simulate test:\n   - After clicking Simulate, await page.waitForLoadState('networkidle')\n   - Assert 'Worst DSCR' or the equivalent results label is visible (check the cashflow component for exact text)\n   - Assert the projected Cash Runway value is a number (not '--')\n   - Assert the 6-Month Projection table has at least one row with non-zero values\n3. For preset buttons (FX +10%, Operating Costs +15%, etc.):\n   - After clicking each preset, assert the relevant input field updates to the expected value\n   - Assert the projection table updates (values change from baseline)\n4. Remove all isVisible().catch(() => false) guards and replace with real expect() assertions\n\nCheck frontend/src/app/features/cashflow/ for the exact component template selectors and result section IDs.",
+        "testStrategy": "Run `npx playwright test e2e/cashflow.spec.ts`. Break the cashflow API endpoint temporarily and confirm the simulation tests now fail rather than passing silently.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
+      },
+      {
+        "id": "122",
+        "title": "Add invoice scheme create, edit, delete, and preview tests",
+        "description": "invoice-schemes.spec.ts only opens the Add Scheme dialog — it never creates, edits, or previews a scheme. Invoice numbering affects every order and sale, so a broken scheme would silently produce wrong invoice numbers.",
+        "details": "File: frontend/e2e/invoice-schemes.spec.ts\n\nAdd tests:\n1. 'Create a blank-prefix scheme and verify it appears in the list':\n   - Open Add Scheme dialog, select blank-prefix radio, fill in a prefix (e.g. 'E2E-'), fill year, submit\n   - Assert success toast, assert the scheme appears in the schemes list with the correct prefix\n2. 'Edit an existing scheme prefix':\n   - Click edit on the created scheme, change the prefix to 'E2E-EDIT-', save\n   - Assert the updated prefix appears in the list\n3. 'Preview generates correct invoice number format':\n   - Click Preview on the scheme\n   - Assert the preview string matches the expected pattern (e.g. 'E2E-EDIT-2026-0001')\n4. 'Delete a scheme':\n   - Click delete, confirm the dialog, assert the scheme disappears from the list\n\nIn afterAll, clean up any schemes created during the test run.",
+        "testStrategy": "Run `npx playwright test e2e/invoice-schemes.spec.ts`. All 4 new tests must make real assertions against visible UI text, not just check that dialogs open.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
+      },
+      {
+        "id": "123",
+        "title": "Add supplier delete test and Purchases tab assertion to suppliers.spec.ts",
+        "description": "suppliers.spec.ts tests create, edit, and the Activities/Ledger tabs but misses supplier delete and the Purchases tab (which shows linked purchase orders). A beta user managing suppliers needs both.",
+        "details": "File: frontend/e2e/suppliers.spec.ts\n\nAdd tests:\n1. 'Delete a supplier removes it from the list':\n   - Create a disposable supplier via API in beforeAll (name: 'E2E Delete Supplier')\n   - Navigate to /suppliers, find the supplier in the list\n   - Click the delete button/action, confirm the confirmation dialog\n   - Assert a success toast appears\n   - Assert the supplier no longer appears in the list\n\n2. 'Purchases tab shows linked purchase orders':\n   - Seed a supplier and a purchase order linked to that supplier via API in beforeAll\n   - Navigate to the supplier detail page\n   - Click the Purchases tab\n   - Assert at least one purchase order row is visible with order reference and status\n\nClean up seeded data in afterAll.",
+        "testStrategy": "Run `npx playwright test e2e/suppliers.spec.ts`. Both new tests must make real assertions — the Purchases tab test must fail if no orders are shown even though they were seeded.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
+      },
+      {
+        "id": "124",
+        "title": "Add location edit and duplicate-code validation tests to locations.spec.ts",
+        "description": "locations.spec.ts only tests creating a location. Edit and duplicate validation are untested — a broken edit or missing uniqueness check would not be caught before beta.",
+        "details": "File: frontend/e2e/locations.spec.ts\n\nAdd tests:\n1. 'Edit an existing location updates the city':\n   - Seed a location via API or use the one created by the existing create test\n   - Click the edit button/icon for the location\n   - Change the city field to 'Lagos Updated'\n   - Submit\n   - Assert a success toast appears\n   - Assert the updated city value appears in the locations list\n\n2. 'Creating a location with a duplicate code shows a validation error':\n   - Take note of an existing location's code (from the list or the seeded one)\n   - Click New Location, fill in the same code as an existing location\n   - Submit\n   - Assert a validation error message appears (e.g. 'Location code already exists' or similar)\n   - Assert the dialog stays open (not closed on error)\n\nClean up any extra locations created in afterAll.",
+        "testStrategy": "Run `npx playwright test e2e/locations.spec.ts`. The duplicate code test must fail if the backend does not enforce uniqueness. The edit test must fail if the PUT endpoint is broken.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
+      },
+      {
+        "id": "125",
+        "title": "Replace console.log non-assertions in deep-test-products.spec.ts and deep-test-sales.spec.ts with real expect() calls",
+        "description": "Both deep-test spec files use console.log to record observations and isVisible().catch(() => false) guards instead of real assertions. Large sections pass silently with no UI interaction, masking regressions. These are exploratory sweeps dressed as regression tests.",
+        "details": "Files:\n- frontend/e2e/deep-test-products.spec.ts\n- frontend/e2e/deep-test-sales.spec.ts\n\nAudit each file and for every occurrence of:\n- `console.log(...)` used in place of an assertion → replace with the appropriate `await expect(...).toBeVisible()`, `await expect(...).toHaveText(...)`, or `await expect(...).toHaveAttribute(...)`\n- `isVisible().catch(() => false)` with an `if` guard → remove the guard; if data is needed, seed it in beforeAll; assert unconditionally\n- `isVisible().catch(() => false)` where the feature may genuinely not exist → either confirm the feature exists in the Angular router and seed data, or delete the test block entirely with a comment explaining why\n\nSpecific example in deep-test-products.spec.ts:\n- Template download URL is logged — replace with `await expect(downloadLink).toHaveAttribute('href', /.+/)`\n\nAfter the audit, every remaining test block must have at least one real `await expect(...)` assertion. Delete any block that cannot be given a real assertion (it was never testing anything).",
+        "testStrategy": "Run `npx playwright test e2e/deep-test-products.spec.ts e2e/deep-test-sales.spec.ts`. Temporarily break a feature (e.g. comment out an API endpoint) and confirm the relevant test now fails rather than passing silently.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-06-13T16:03:52.291Z",
-      "taskCount": 105,
+      "lastModified": "2026-06-22T11:05:29.422Z",
+      "taskCount": 125,
       "completedCount": 105,
       "tags": [
         "master"
