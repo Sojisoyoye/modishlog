@@ -1,10 +1,23 @@
-import { test, expect, request } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { test, expect } from '@playwright/test';
+import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureProduct, createOrder, deleteOrder, advanceOrderToStatus } from './helpers/data';
 
-const API = 'http://localhost:8000/api/v1';
+test.describe.configure({ mode: 'serial' });
+
+let orderId: string;
 
 test.beforeAll(async () => {
   await ensureTestUser();
+  const product = await ensureProduct('E2E Sell Price Product');
+  const order = await createOrder(product.id, { currency: 'NGN', quantity: 2, unitCost: '6000.00' });
+  orderId = order.id;
+  await advanceOrderToStatus(orderId, 'DELIVERED', { fxRateAtDelivery: '1580' });
+});
+
+test.afterAll(async () => {
+  if (orderId) await deleteOrder(orderId).catch((e: Error) => {
+    if (!/4\d\d/.test(e.message)) throw e;
+  });
 });
 
 test.describe('Order line item sell price (sell_price_ngn)', () => {
@@ -12,55 +25,28 @@ test.describe('Order line item sell price (sell_price_ngn)', () => {
     await loginViaUI(page);
   });
 
-  async function goToFirstOrder(page: import('@playwright/test').Page) {
-    const token = await getAPIToken();
-    const ctx = await request.newContext();
-    let data: { items?: { id: string; order_number: string }[] };
-    try {
-      const resp = await ctx.get(`${API}/orders`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      data = await resp.json();
-    } finally {
-      await ctx.dispose();
-    }
-    if (!data.items || data.items.length === 0) return null;
-    const order = data.items[0];
-    await page.goto(`/orders/${order.id}`);
-    await expect(page.getByText(order.order_number).first()).toBeVisible();
-    return order;
-  }
-
   test('sell column shows (catalog) label when sell_price_ngn is null', async ({ page }) => {
-    const order = await goToFirstOrder(page);
-    if (!order) { test.skip(); return; }
-    // In view mode, at least one cell should show the catalog label
+    await page.goto(`/orders/${orderId}`);
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
     await expect(page.getByText('(catalog)').first()).toBeVisible();
   });
 
   test('edit mode shows sell price input per line item', async ({ page }) => {
-    const order = await goToFirstOrder(page);
-    if (!order) { test.skip(); return; }
+    await page.goto(`/orders/${orderId}`);
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
     await page.getByRole('button', { name: /edit/i }).click();
     await expect(page.getByTestId('sell-price-input').first()).toBeVisible();
   });
 
   test('entering a sell price saves and displays locked value', async ({ page }) => {
-    const order = await goToFirstOrder(page);
-    if (!order) { test.skip(); return; }
+    await page.goto(`/orders/${orderId}`);
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
 
     await page.getByRole('button', { name: /edit/i }).first().click();
-
     const sellInput = page.getByTestId('sell-price-input').first();
-    // Wait up to 4s for Angular to enter edit mode; skip if not applicable
-    try {
-      await sellInput.waitFor({ state: 'visible', timeout: 4000 });
-    } catch {
-      test.skip(); return;
-    }
+    await expect(sellInput).toBeVisible({ timeout: 5000 });
 
     await sellInput.fill('250000');
-
     await page.getByRole('button', { name: /save/i }).click();
     await expect(page.getByRole('button', { name: /edit/i })).toBeVisible({ timeout: 5000 });
 
