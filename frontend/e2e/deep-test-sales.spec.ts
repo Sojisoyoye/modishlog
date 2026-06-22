@@ -4,7 +4,7 @@
  */
 import { test, expect, Page } from '@playwright/test';
 import { ensureTestUser, loginViaAPI } from './helpers/auth';
-import { ensureProduct } from './helpers/data';
+import { addStock, createSale, ensureProduct } from './helpers/data';
 
 let productId: string;
 let productName: string;
@@ -14,6 +14,9 @@ test.beforeAll(async () => {
   const p = await ensureProduct('E2E Sales Test Product');
   productId = p.id;
   productName = p.name;
+  // Seed stock and a sale so the All Sales list always has at least one row
+  await addStock(productId, 50);
+  await createSale(productId, { quantity: 1 });
 });
 
 test.beforeEach(async ({ page }) => {
@@ -24,8 +27,8 @@ async function shot(page: Page, name: string) {
   await page.screenshot({ path: `e2e-screenshots/sales-${name}.png`, fullPage: true });
 }
 
-// ── 1. Sales page loads ────────────────────────────────────────────────────────
-test('sales – page loads with heading and Record Sale button', async ({ page }) => {
+// -- 1. Sales page loads ------------------------------------------------------
+test('sales - page loads with heading and Record Sale button', async ({ page }) => {
   await page.goto('/sales');
   await page.waitForLoadState('networkidle');
   await shot(page, '01-loaded');
@@ -39,8 +42,8 @@ test('sales – page loads with heading and Record Sale button', async ({ page }
   expect(hasRecordBtn || hasRecordTab).toBe(true);
 });
 
-// ── 2. All Sales tab loads list ────────────────────────────────────────────────
-test('sales – All Sales tab shows a list or empty state', async ({ page }) => {
+// -- 2. All Sales tab loads list ----------------------------------------------
+test('sales - All Sales tab shows a list or empty state', async ({ page }) => {
   await page.goto('/sales');
   await page.waitForLoadState('networkidle');
 
@@ -58,8 +61,8 @@ test('sales – All Sales tab shows a list or empty state', async ({ page }) => 
   expect(hasTable || hasEmpty).toBe(true);
 });
 
-// ── 3. Open record-sale form/modal ─────────────────────────────────────────────
-test('sales – record-sale form opens with required fields', async ({ page }) => {
+// -- 3. Open record-sale form/modal -------------------------------------------
+test('sales - record-sale form opens with required fields', async ({ page }) => {
   await page.goto('/sales');
   await page.waitForLoadState('networkidle');
 
@@ -89,8 +92,8 @@ test('sales – record-sale form opens with required fields', async ({ page }) =
   expect(submitVisible).toBe(true);
 });
 
-// ── 4. Record a single sale ────────────────────────────────────────────────────
-test('sales – record single-product sale shows success', async ({ page }) => {
+// -- 4. Record a single sale --------------------------------------------------
+test('sales - record single-product sale shows success', async ({ page }) => {
   await page.goto('/sales');
   await page.waitForLoadState('networkidle');
 
@@ -138,36 +141,29 @@ test('sales – record single-product sale shows success', async ({ page }) => {
     // Check for success toast or navigation change
     const successToast = page.locator('[class*="toast"], [class*="success"], [severity="success"]').first();
     const toastVisible = await successToast.isVisible({ timeout: 5_000 }).catch(() => false);
-    // Or check we navigated somewhere
     const url = page.url();
     expect(toastVisible || url.includes('sales')).toBe(true);
   }
 });
 
-// ── 5. Search/filter in All Sales ─────────────────────────────────────────────
-test('sales – search field filters sales list', async ({ page }) => {
+// -- 5. Search/filter in All Sales --------------------------------------------
+test('sales - All Sales tab has a transaction row after seeded sale', async ({ page }) => {
   await page.goto('/sales');
   await page.waitForLoadState('networkidle');
 
-  const allSalesTab = page.getByRole('tab', { name: /all sales/i });
+  const allSalesTab = page.getByTestId('tab-all-sales');
   if (await allSalesTab.isVisible({ timeout: 3_000 }).catch(() => false)) {
     await allSalesTab.click();
     await page.waitForTimeout(500);
   }
 
-  const searchInput = page.locator('input[placeholder*="search"], input[type="search"]').first();
-  if (await searchInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await searchInput.fill('E2E');
-    await page.waitForTimeout(700);
-    await shot(page, '05-search-results');
-  } else {
-    await shot(page, '05-no-search');
-    // Not a bug — just note there is no search field
-  }
+  await shot(page, '05-all-sales');
+  // A sale was seeded in beforeAll — at least one transaction row must be visible
+  await expect(page.locator('[data-testid="transaction-row"]').first()).toBeVisible({ timeout: 10_000 });
 });
 
-// ── 6. CSV export ──────────────────────────────────────────────────────────────
-test('sales – CSV export button exists and is clickable', async ({ page }) => {
+// -- 6. CSV export ------------------------------------------------------------
+test('sales - CSV export button exists and is clickable', async ({ page }) => {
   await page.goto('/sales');
   await page.waitForLoadState('networkidle');
 
@@ -194,16 +190,14 @@ test('sales – CSV export button exists and is clickable', async ({ page }) => 
     const errorToast = page.locator('[class*="toast"][class*="error"], [severity="error"]').first();
     const hasError = await errorToast.isVisible({ timeout: 2_000 }).catch(() => false);
     expect(hasError).toBe(false);
-  } else if (hasExportLink) {
-    expect(hasExportLink).toBe(true);
   } else {
-    // Export button not found — record it informally; not every sales page has one
-    console.log('INFO: No CSV export button/link found on Sales page');
+    // Export button or link must be present — the sales page has data-testid="export-sales-csv"
+    expect(hasExportBtn || hasExportLink).toBe(true);
   }
 });
 
-// ── 7. Sale detail / click into a sale row ─────────────────────────────────────
-test('sales – clicking a sale row opens detail view', async ({ page }) => {
+// -- 7. Sale detail / click into a sale row -----------------------------------
+test('sales - clicking a sale row opens detail view', async ({ page }) => {
   await page.goto('/sales');
   await page.waitForLoadState('networkidle');
 
@@ -213,21 +207,16 @@ test('sales – clicking a sale row opens detail view', async ({ page }) => {
     await page.waitForTimeout(500);
   }
 
-  // Check if any rows exist
-  const rows = page.locator('table tbody tr, [class*="sale-row"], [class*="list-item"]');
-  const rowCount = await rows.count();
   await shot(page, '07-sales-list');
 
-  if (rowCount > 0) {
-    await rows.first().click();
-    await page.waitForTimeout(800);
-    await shot(page, '07-sale-detail');
-    // Either a modal, a panel, or navigation to a detail page
-    const detailVisible = await page.locator('[role="dialog"], [class*="detail"], [class*="panel"]').first().isVisible({ timeout: 4_000 }).catch(() => false);
-    const urlChanged = !page.url().endsWith('/sales');
-    expect(detailVisible || urlChanged).toBe(true);
-  } else {
-    // No sales yet — that's fine, just record it
-    console.log('INFO: No sale rows to click — sales list is empty');
-  }
+  // A sale was seeded in beforeAll — first row must exist and be clickable
+  const firstRow = page.locator('table tbody tr, [data-testid="transaction-row"]').first();
+  await expect(firstRow).toBeVisible({ timeout: 10_000 });
+
+  await firstRow.click();
+  await page.waitForTimeout(800);
+  await shot(page, '07-sale-detail');
+
+  // A dialog must open (Transaction Detail or similar)
+  await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 5_000 });
 });

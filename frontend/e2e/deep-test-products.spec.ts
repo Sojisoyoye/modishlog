@@ -12,8 +12,8 @@ async function shot(page: Page, name: string) {
   await page.screenshot({ path: `e2e-screenshots/products-${name}.png`, fullPage: true });
 }
 
-// ── 1. Products page loads ────────────────────────────────────────────────────
-test('products – page loads with tabs', async ({ page }) => {
+// -- 1. Products page loads ---------------------------------------------------
+test('products - page loads with tabs', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
   await shot(page, '01-loaded');
@@ -25,8 +25,8 @@ test('products – page loads with tabs', async ({ page }) => {
   await expect(page.getByRole('button', { name: /categories/i })).toBeVisible();
 });
 
-// ── 2. All Products tab ───────────────────────────────────────────────────────
-test('products – All Products tab shows list or empty state', async ({ page }) => {
+// -- 2. All Products tab ------------------------------------------------------
+test('products - All Products tab shows list or empty state', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
   await shot(page, '02-all-products');
@@ -36,22 +36,20 @@ test('products – All Products tab shows list or empty state', async ({ page })
   expect(hasTable || hasEmpty).toBe(true);
 });
 
-// ── 3. Products list — search field ──────────────────────────────────────────
-test('products – search field filters list', async ({ page }) => {
+// -- 3. Products list - search field ------------------------------------------
+test('products - search field filters list', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
-  const searchInput = page.locator('input[placeholder*="search"], input[type="search"]').first();
-  if (await searchInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await searchInput.fill('Test');
-    await page.waitForTimeout(700);
-    await shot(page, '03-search-results');
-  } else {
-    await shot(page, '03-no-search');
-  }
+  // The products page has placeholder="Search products..." — assert it exists
+  const searchInput = page.locator('input[placeholder*="Search"]').first();
+  await expect(searchInput).toBeVisible({ timeout: 5_000 });
+  await searchInput.fill('Test');
+  await page.waitForLoadState('networkidle');
+  await shot(page, '03-search-results');
 });
 
-// ── 4. Stock Report tab loads ─────────────────────────────────────────────────
-test('products – Stock Report tab loads content', async ({ page }) => {
+// -- 4. Stock Report tab loads ------------------------------------------------
+test('products - Stock Report tab loads content', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
   const stockTab = page.getByText('Stock Report');
@@ -63,8 +61,8 @@ test('products – Stock Report tab loads content', async ({ page }) => {
   await expect(page.locator('body')).not.toContainText('TypeError');
 });
 
-// ── 5. Add Product tab — form present with submit button ─────────────────────
-test('products – Add Product tab shows full form with submit button', async ({ page }) => {
+// -- 5. Add Product tab - form present with submit button ---------------------
+test('products - Add Product tab shows full form with submit button', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
 
@@ -92,8 +90,8 @@ test('products – Add Product tab shows full form with submit button', async ({
   await expect(page.getByRole('button', { name: /cancel/i })).toBeVisible();
 });
 
-// ── 6. Add Product — validation on empty submit ───────────────────────────────
-test('products – Add Product validation: empty name shows error not crash', async ({ page }) => {
+// -- 6. Add Product - validation on empty submit ------------------------------
+test('products - Add Product validation: empty name shows error not crash', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
   const newBtn = page.getByRole('button', { name: /new product/i });
@@ -111,15 +109,14 @@ test('products – Add Product validation: empty name shows error not crash', as
   await page.waitForTimeout(800);
   await shot(page, '06-empty-submit');
 
-  // Should show validation error or toast — NOT a blank page or crash
+  // Must show validation error or toast — removing the always-true "nocrash" fallback
   const hasError = await page.locator('[class*="error"], [class*="invalid"], [class*="warn"], [severity="error"], [severity="warn"]').first().isVisible({ timeout: 3_000 }).catch(() => false);
   const hasToast = await page.locator('[class*="toast"]').first().isVisible({ timeout: 3_000 }).catch(() => false);
-  const nocrash = await page.getByRole('heading', { name: 'Products' }).isVisible({ timeout: 3_000 }).catch(() => false);
-  expect(hasError || hasToast || nocrash).toBe(true);
+  expect(hasError || hasToast).toBe(true);
 });
 
-// ── 7. Add Product — create a real product and verify it appears ──────────────
-test('products – create product end-to-end', async ({ page }) => {
+// -- 7. Add Product - create a real product and verify it appears -------------
+test('products - create product end-to-end', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
   const newBtn = page.getByRole('button', { name: /new product/i });
@@ -181,7 +178,7 @@ test('products – create product end-to-end', async ({ page }) => {
     // Navigate to All Products and search for the newly created product
     await page.getByText('All Products').click();
     await page.waitForTimeout(500);
-    const searchBox = page.locator('input[placeholder*="search"], input[type="search"]').first();
+    const searchBox = page.locator('input[placeholder*="Search"]').first();
     if (await searchBox.isVisible({ timeout: 3_000 }).catch(() => false)) {
       await searchBox.fill(uniqueName);
       await page.waitForTimeout(700);
@@ -194,8 +191,8 @@ test('products – create product end-to-end', async ({ page }) => {
   }
 });
 
-// ── 8. Bulk Upload tab — file input and template download ────────────────────
-test('products – Bulk Upload tab shows file input and template download', async ({ page }) => {
+// -- 8. Bulk Upload tab - file input and template download -------------------
+test('products - Bulk Upload tab shows file input and template download', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
   await page.getByText('Bulk Upload').click();
@@ -207,17 +204,16 @@ test('products – Bulk Upload tab shows file input and template download', asyn
   const hasDragDrop = await page.locator('[class*="upload"], [class*="drop"], [class*="drag"]').first().isVisible({ timeout: 3_000 }).catch(() => false);
   expect(hasFileInput || hasDragDrop).toBe(true);
 
-  // Template download link
-  const templateLink = page.getByRole('link', { name: /template|download|sample/i }).first();
-  const templateBtn = page.getByRole('button', { name: /template|download|sample/i }).first();
-  const hasTemplate = await templateLink.isVisible({ timeout: 3_000 }).catch(() => false)
-    || await templateBtn.isVisible({ timeout: 3_000 }).catch(() => false);
-  // Note if missing — it's informational
-  if (!hasTemplate) console.log('INFO: No template download link on Bulk Upload tab');
+  // Template download button must be present (component renders "Download CSV template")
+  const templateBtn = page.getByRole('button', { name: /template|download/i }).first();
+  const templateLink = page.getByRole('link', { name: /template|download/i }).first();
+  const hasTemplate = await templateBtn.isVisible({ timeout: 3_000 }).catch(() => false)
+    || await templateLink.isVisible({ timeout: 3_000 }).catch(() => false);
+  expect(hasTemplate).toBe(true);
 });
 
-// ── 9. Categories tab — list, add category ───────────────────────────────────
-test('products – Categories tab loads and shows Add Category option', async ({ page }) => {
+// -- 9. Categories tab - list, add category ----------------------------------
+test('products - Categories tab loads and shows Add Category option', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: /categories/i }).click();
@@ -236,8 +232,8 @@ test('products – Categories tab loads and shows Add Category option', async ({
   expect(hasAddBtn).toBe(true);
 });
 
-// ── 10. Add Category — inline form has fields and submit button ───────────────
-test('products – Add Category inline form has fields and submit button', async ({ page }) => {
+// -- 10. Add Category - inline form has fields and submit button -------------
+test('products - Add Category inline form has fields and submit button', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: /categories/i }).click();
@@ -257,8 +253,8 @@ test('products – Add Category inline form has fields and submit button', async
   await shot(page, '10b-add-category-form');
 });
 
-// ── 11. Add Category — create one end-to-end ────────────────────────────────
-test('products – create category end-to-end', async ({ page }) => {
+// -- 11. Add Category - create one end-to-end --------------------------------
+test('products - create category end-to-end', async ({ page }) => {
   await page.goto('/products');
   await page.waitForLoadState('networkidle');
   await page.getByRole('button', { name: /categories/i }).click();
@@ -266,7 +262,8 @@ test('products – create category end-to-end', async ({ page }) => {
 
   // The form is inline — fill name input first, then click Add Category
   const nameInput = page.locator('input[placeholder*="Category name"]').first();
-  if (!await nameInput.isVisible({ timeout: 5_000 }).catch(() => false)) return;
+  // Assert the input exists rather than silently returning
+  await expect(nameInput).toBeVisible({ timeout: 5_000 });
 
   const catName = `E2E-Cat-${Date.now()}`;
   await nameInput.fill(catName);
