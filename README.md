@@ -11,7 +11,7 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 ### Core Platform
 - **Authentication** -- JWT-based auth with HttpOnly cookie (XSS-safe; no token in localStorage), role-based access (Admin / Sales Manager), account lockout with countdown timer, forgot password flow. API key stored encrypted in the database, not in the browser.
 - **Products** -- Full CRUD with categories (two-level hierarchy: parent → sub-category), SKU auto-generation, auto-generated URL slug field, image upload, search/filter, grid/list views, CSV export. Note: `category_id` is NOT NULL — every product must belong to a category. Includes **Price Suggestion** (action menu → Suggest Price): enter a target margin (20–70%), get a recommended sell price based on current landed cost and live FX rate, with suggestion history.
-- **Sales** -- Daily entry with stock validation, CSV bulk upload, edit/delete with audit trail, FIFO cost tracking
+- **Sales** -- Daily entry with stock validation, CSV bulk upload, edit/delete with audit trail, FIFO cost tracking. Includes **Quick Quote** tab: enter a product + quantity to instantly calculate the FIFO-based minimum sell price at a configurable floor margin.
 - **Inventory** -- Stock levels, low-stock alerts, batch tracking (FIFO), editable thresholds, depletion forecast with confidence intervals, liquidation candidates
 - **Stock Counts** (`/stock-counts`) -- Physical inventory counting sessions with variance reporting. Create a full stock take by product (vs system stock) or by lot (vs purchase order units remaining). Enter counted quantities per row; system snapshots live stock at finalisation and shows variance with colour-coded badges (green = surplus, red = shrinkage). Sessions are locked read-only after finalisation to preserve the audit trail.
 - **Orders** -- Full lifecycle pipeline (Ordered → Pending → In Production → Shipping → Cleared → Delivered). Pipeline view at the top of `/orders` acts as a filter — click any status chip to show only those orders in the table; click **All** to reset. All fields (sell price, costs, notes, line items) remain editable even after an order is delivered.
@@ -33,7 +33,7 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 - **AI Recommendations** -- Unified ranked actions across pricing, inventory, FX, cashflow, and orders with apply/dismiss workflow
 - **Logistics Efficiency** -- Shipping + clearing cost as % of COGS, 90-day rolling average, threshold alerts
 - **Triage Mode** -- Liquidity squeeze detection with payment calendar, shortfall alerts, ranked corrective actions (liquidate, delay payment, accelerate collection)
-- **Quick Quote** -- FIFO-based minimum sell price calculator with configurable floor margin
+- **Quick Quote** -- FIFO-based minimum sell price calculator (Sales page → Quick Quote tab): select product + quantity to get FIFO landed cost, floor margin %, min sell price per unit, and total min price
 - **Strategic Mix Planner** -- Target revenue split by product category, actual vs target comparison, drift alerts
 
 ---
@@ -46,7 +46,7 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 | Frontend | Angular 21 (standalone components, Signals), TailwindCSS v4, PrimeNG v21 |
 | AI/ML | Prophet, NumPy/SciPy (Monte Carlo), scikit-learn |
 | Auth | JWT (python-jose), bcrypt (passlib) |
-| Testing | pytest (675 tests), Playwright E2E (268 tests) |
+| Testing | pytest (713 tests), Playwright E2E (312 tests) |
 | Infra | Docker, Docker Compose, Azure Container Apps, Neon PostgreSQL, Vercel, GitHub Actions |
 
 ---
@@ -259,14 +259,14 @@ Interactive API docs are available at:
 cd backend
 UPLOAD_DIR=/tmp/modishlog_uploads .venv/bin/pytest tests/ -v
 ```
-675 tests covering all services, endpoints, and business logic.
+713 tests covering all services, endpoints, and business logic.
 
 ### Frontend E2E (Playwright)
 ```bash
 cd frontend
 npx playwright test --reporter=list
 ```
-268 E2E tests across auth, dashboard, products, sales, orders, FX, cashflow, and more.
+312 E2E tests across auth, dashboard, products, sales, orders, FX, cashflow, and more.
 
 ### Frontend Build
 ```bash
