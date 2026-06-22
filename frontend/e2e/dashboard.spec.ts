@@ -61,7 +61,7 @@ test.describe('Global Exposure card (Task 16)', () => {
   });
 
   test('renders when data is available', async ({ page }) => {
-    await loginViaUI(page);
+    // outer beforeEach already logged in and navigated to /dashboard
     await page.waitForLoadState('networkidle');
 
     await expect(page.getByText('Global Exposure').first()).toBeVisible();
@@ -72,7 +72,6 @@ test.describe('Global Exposure card (Task 16)', () => {
   });
 
   test('currency toggle buttons are present when card renders', async ({ page }) => {
-    await loginViaUI(page);
     await page.waitForLoadState('networkidle');
 
     await expect(page.getByRole('button', { name: 'NGN' })).toBeVisible();
@@ -81,7 +80,6 @@ test.describe('Global Exposure card (Task 16)', () => {
   });
 
   test('clicking currency toggle changes active button styling', async ({ page }) => {
-    await loginViaUI(page);
     await page.waitForLoadState('networkidle');
 
     const usdButton = page.getByRole('button', { name: 'USD' });

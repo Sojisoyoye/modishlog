@@ -162,9 +162,12 @@ export async function deleteOrder(orderId: string): Promise<void> {
   const token = await getAPIToken();
   const ctx = await request.newContext();
   try {
-    await ctx.delete(`${API}/orders/${orderId}`, {
+    const resp = await ctx.delete(`${API}/orders/${orderId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (!resp.ok() && resp.status() !== 404) {
+      throw new Error(`Delete order failed: ${resp.status()} ${await resp.text()}`);
+    }
   } finally {
     await ctx.dispose();
   }
