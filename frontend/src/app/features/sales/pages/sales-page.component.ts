@@ -12,6 +12,7 @@ import {
   AuditEntry,
   SaleUpdatePayload,
   BulkUploadResponse,
+  QuickQuote,
 } from '../../../core/services/sales.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
@@ -90,6 +91,21 @@ interface TransactionMeta {
           >
             <i class="pi pi-upload mr-1.5 text-xs"></i>
             Upload CSV
+          </button>
+          <button
+            type="button"
+            data-testid="tab-quick-quote"
+            (click)="activeTab.set('quick-quote')"
+            class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+            [class.border-primary]="activeTab() === 'quick-quote'"
+            [class.text-primary]="activeTab() === 'quick-quote'"
+            [class.border-transparent]="activeTab() !== 'quick-quote'"
+            [class.text-muted]="activeTab() !== 'quick-quote'"
+            [class.hover:border-gray-300]="activeTab() !== 'quick-quote'"
+            [class.hover:text-text]="activeTab() !== 'quick-quote'"
+          >
+            <i class="pi pi-calculator mr-1.5 text-xs"></i>
+            Quick Quote
           </button>
         </nav>
       </div>
@@ -556,6 +572,106 @@ interface TransactionMeta {
           </div>
         </div>
       }
+
+      <!-- Quick Quote Tab -->
+      @if (activeTab() === 'quick-quote') {
+        <div class="mx-auto max-w-lg">
+          <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div class="mb-5 flex items-center gap-2">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+                <i class="pi pi-calculator text-sm text-amber-600"></i>
+              </div>
+              <h3 class="text-base font-semibold text-text">Quick Quote</h3>
+            </div>
+            <p class="mb-5 text-sm text-muted">
+              Calculate the minimum sell price for a product using FIFO landed cost.
+            </p>
+
+            <div class="space-y-4">
+              <div>
+                <label for="qq-product" class="mb-1.5 block text-xs font-medium text-muted">Product</label>
+                <select
+                  id="qq-product"
+                  data-testid="quick-quote-product-select"
+                  [(ngModel)]="qqProductId"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">Select product</option>
+                  @for (p of products(); track p.id) {
+                    <option [value]="p.id">{{ p.name }}</option>
+                  }
+                </select>
+              </div>
+
+              <div>
+                <label for="qq-qty" class="mb-1.5 block text-xs font-medium text-muted">Quantity</label>
+                <input
+                  id="qq-qty"
+                  type="number"
+                  min="1"
+                  data-testid="quick-quote-qty-input"
+                  [(ngModel)]="qqQuantity"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <button
+                type="button"
+                data-testid="quick-quote-calculate-btn"
+                (click)="calculateQuote()"
+                [disabled]="!qqProductId || qqQuantity < 1 || qqCalculating()"
+                class="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                @if (qqCalculating()) { Calculating… } @else { Calculate }
+              </button>
+            </div>
+
+            @if (qqResult()) {
+              @if (qqResult()!.fifo_landed_cost_per_unit === 0) {
+                <div
+                  data-testid="qq-no-data"
+                  class="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"
+                >
+                  No FIFO cost data found. Ensure the product has a delivered purchase order with remaining stock.
+                </div>
+              } @else {
+                <div class="mt-6 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-muted">FIFO Landed Cost / Unit</span>
+                    <span data-testid="qq-fifo-cost" class="font-semibold text-text">
+                      {{ qqResult()!.fifo_landed_cost_per_unit | currency: 'NGN' : 'symbol' : '1.2-2' }}
+                    </span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-muted">Floor Margin</span>
+                    <span data-testid="qq-floor-margin" class="font-semibold text-text">
+                      {{ qqResult()!.floor_margin_pct }}%
+                    </span>
+                  </div>
+                  <div class="flex items-center justify-between border-t border-gray-200 pt-3">
+                    <span class="text-sm font-semibold text-text">Min Sell Price / Unit</span>
+                    <span data-testid="qq-min-price" class="text-base font-bold text-primary">
+                      {{ qqResult()!.min_sell_price_per_unit | currency: 'NGN' : 'symbol' : '1.2-2' }}
+                    </span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-muted">Total Min Price (× {{ qqResult()!.quantity }})</span>
+                    <span data-testid="qq-total-price" class="font-semibold text-text">
+                      {{ qqResult()!.total_min_price | currency: 'NGN' : 'symbol' : '1.2-2' }}
+                    </span>
+                  </div>
+                </div>
+              }
+            }
+
+            @if (qqError()) {
+              <div data-testid="qq-error" class="mt-4 rounded-lg border border-red-200 bg-red-50 p-3">
+                <p class="text-sm text-red-700">{{ qqError() }}</p>
+              </div>
+            }
+          </div>
+        </div>
+      }
     </div>
 
     <!-- Edit Sale Dialog -->
@@ -941,7 +1057,7 @@ export class SalesPageComponent implements OnInit {
   savingCustomer = signal(false);
 
   // Tab state
-  activeTab = signal<'record' | 'all' | 'upload'>('record');
+  activeTab = signal<'record' | 'all' | 'upload' | 'quick-quote'>('record');
 
   // Transaction-level customer + payment meta (shared across all rows in one submission)
   txnMeta: TransactionMeta = { customer_id: '', payment_method: '', payment_status: 'paid' };
@@ -971,6 +1087,13 @@ export class SalesPageComponent implements OnInit {
   auditDialogVisible = false;
   auditEntries = signal<AuditEntry[]>([]);
   auditLoading = signal(false);
+
+  // Quick Quote state
+  qqProductId = '';
+  qqQuantity = 1;
+  qqResult = signal<QuickQuote | null>(null);
+  qqError = signal<string | null>(null);
+  qqCalculating = signal(false);
 
   hasStockExceeded = computed(() => {
     const map = this.stockMap();
@@ -1284,6 +1407,25 @@ export class SalesPageComponent implements OnInit {
           summary: 'Error',
           detail: 'Failed to void sale',
         });
+      },
+    });
+  }
+
+  // ---- Quick Quote ----
+
+  calculateQuote(): void {
+    if (!this.qqProductId || this.qqQuantity < 1) return;
+    this.qqResult.set(null);
+    this.qqError.set(null);
+    this.qqCalculating.set(true);
+    this.salesService.quickQuote(this.qqProductId, this.qqQuantity).subscribe({
+      next: (result) => {
+        this.qqResult.set(result);
+        this.qqCalculating.set(false);
+      },
+      error: () => {
+        this.qqError.set('Failed to calculate quote. Please try again.');
+        this.qqCalculating.set(false);
       },
     });
   }
