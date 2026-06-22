@@ -183,30 +183,25 @@ export async function advanceOrderToStatus(
   targetStatus: string,
   options: { fxRateAtDelivery?: string } = {},
 ): Promise<void> {
-  const chain: Record<string, string> = {
-    ORDERED: 'PENDING',
-    PENDING: 'IN_PRODUCTION',
-    IN_PRODUCTION: 'SHIPPING',
-    SHIPPING: 'CLEARED',
-    CLEARED: 'DELIVERED',
-  };
   const statusOrder = ['ORDERED', 'PENDING', 'IN_PRODUCTION', 'SHIPPING', 'CLEARED', 'DELIVERED'];
+  const targetIdx = statusOrder.indexOf(targetStatus);
+  if (targetIdx === -1) throw new Error(`Unknown targetStatus: "${targetStatus}"`);
+
   const token = await getAPIToken();
   const ctx = await request.newContext();
   try {
-    // Fetch current status
     const orderResp = await ctx.get(`${API}/orders/${orderId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!orderResp.ok()) throw new Error(`Get order failed: ${orderResp.status()}`);
-    let currentStatus: string = (await orderResp.json()).status;
+    const currentStatus: string = (await orderResp.json()).status;
 
     const currentIdx = statusOrder.indexOf(currentStatus);
-    const targetIdx = statusOrder.indexOf(targetStatus);
+    if (currentIdx === -1) throw new Error(`Unexpected current status: "${currentStatus}"`);
     if (targetIdx <= currentIdx) return;
 
     for (let i = currentIdx; i < targetIdx; i++) {
-      const next = chain[statusOrder[i]];
+      const next = statusOrder[i + 1];
       const body: Record<string, unknown> = { new_status: next };
       if (next === 'DELIVERED' && options.fxRateAtDelivery) {
         body['fx_rate_at_delivery'] = options.fxRateAtDelivery;

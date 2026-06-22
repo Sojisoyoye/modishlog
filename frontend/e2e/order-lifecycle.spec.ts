@@ -11,19 +11,21 @@ import { ensureProduct, createOrder, deleteOrder } from './helpers/data';
 test.describe.configure({ mode: 'serial' });
 
 let orderId: string;
-let productId: string;
 
 test.beforeAll(async () => {
   await ensureTestUser();
   const product = await ensureProduct('E2E Lifecycle Product');
-  productId = product.id;
-  const order = await createOrder(productId, { currency: 'NGN', quantity: 2, unitCost: '5000.00' });
+  const order = await createOrder(product.id, { currency: 'NGN', quantity: 2, unitCost: '5000.00' });
   orderId = order.id;
 });
 
 test.afterAll(async () => {
-  // DELIVERED orders cannot be deleted; only attempt for non-delivered state.
-  if (orderId) await deleteOrder(orderId).catch(() => {/* swallow — order may be DELIVERED */});
+  // DELIVERED orders cannot be cancelled; swallow only 4xx responses.
+  if (orderId) {
+    await deleteOrder(orderId).catch((e: Error) => {
+      if (!/4\d\d/.test(e.message)) throw e;
+    });
+  }
 });
 
 test('ORDERED → PENDING: advance status and assert badge updates', async ({ page }) => {
@@ -32,20 +34,18 @@ test('ORDERED → PENDING: advance status and assert badge updates', async ({ pa
   await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
   await page.waitForLoadState('networkidle');
 
-  // Assert starting status badge
   await expect(page.locator('span').filter({ hasText: /^ORDERED$/ }).first()).toBeVisible();
 
-  // Click PENDING button
   await page.getByRole('button', { name: 'PENDING' }).click();
   await page.screenshot({ path: 'e2e-screenshots/lifecycle-01-pending.png' });
 
-  // Assert badge updated
   await expect(page.locator('span').filter({ hasText: /^PENDING$/ }).first()).toBeVisible();
 });
 
 test('PENDING → IN_PRODUCTION: advance status and assert badge updates', async ({ page }) => {
   await loginViaUI(page);
   await page.goto(`/orders/${orderId}`);
+  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
   await page.waitForLoadState('networkidle');
 
   await expect(page.locator('span').filter({ hasText: /^PENDING$/ }).first()).toBeVisible();
@@ -59,6 +59,7 @@ test('PENDING → IN_PRODUCTION: advance status and assert badge updates', async
 test('IN_PRODUCTION → SHIPPING: advance status and assert badge updates', async ({ page }) => {
   await loginViaUI(page);
   await page.goto(`/orders/${orderId}`);
+  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
   await page.waitForLoadState('networkidle');
 
   await expect(page.locator('span').filter({ hasText: /^IN_PRODUCTION$/ }).first()).toBeVisible();
@@ -72,6 +73,7 @@ test('IN_PRODUCTION → SHIPPING: advance status and assert badge updates', asyn
 test('SHIPPING → CLEARED: advance status and assert badge updates', async ({ page }) => {
   await loginViaUI(page);
   await page.goto(`/orders/${orderId}`);
+  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
   await page.waitForLoadState('networkidle');
 
   await expect(page.locator('span').filter({ hasText: /^SHIPPING$/ }).first()).toBeVisible();
@@ -85,6 +87,7 @@ test('SHIPPING → CLEARED: advance status and assert badge updates', async ({ p
 test('CLEARED → DELIVERED: fill FX rate, advance status, assert badge and In Stock column', async ({ page }) => {
   await loginViaUI(page);
   await page.goto(`/orders/${orderId}`);
+  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
   await page.waitForLoadState('networkidle');
 
   await expect(page.locator('span').filter({ hasText: /^CLEARED$/ }).first()).toBeVisible();
