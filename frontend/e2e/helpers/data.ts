@@ -130,6 +130,47 @@ export async function ensureProductInCategory(
 }
 
 /**
+ * Create a purchase order for a product and return the order ID.
+ */
+export async function createOrder(
+  productId: string,
+  options: { currency?: string; quantity?: number; unitCost?: string } = {},
+): Promise<{ id: string }> {
+  const { currency = 'USD', quantity = 10, unitCost = '100.00' } = options;
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.post(`${API}/orders`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        supplier_name: 'E2E Test Supplier',
+        currency,
+        line_items: [{ product_id: productId, quantity, unit_cost: unitCost }],
+      },
+    });
+    if (!resp.ok()) throw new Error(`Create order failed: ${resp.status()} ${await resp.text()}`);
+    return { id: (await resp.json()).id };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Delete (cancel) a purchase order via the API.
+ */
+export async function deleteOrder(orderId: string): Promise<void> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    await ctx.delete(`${API}/orders/${orderId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
  * Add stock to a product via the inventory adjust endpoint.
  */
 export async function addStock(

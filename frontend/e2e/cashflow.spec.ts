@@ -91,13 +91,11 @@ test.describe('Scenario Simulator', () => {
   }) => {
     await page.getByRole('button', { name: 'FX +10%' }).click();
 
-    // Wait for result
-    await page.waitForTimeout(3000);
+    // The preset sets fxShock = 10 via Angular binding — verify the input reflects this
+    const fxShockInput = page.locator('#cf-fx-shock');
+    await expect(fxShockInput).toHaveValue('10');
 
-    // The scenario result might appear
-    const resultPanel = page.getByText('Worst DSCR');
-    const isVisible = await resultPanel.isVisible().catch(() => false);
-    // We just verify clicking the preset does not crash
-    expect(true).toBe(true);
+    // Wait for the auto-triggered simulation to settle
+    await page.waitForLoadState('networkidle');
   });
 });
