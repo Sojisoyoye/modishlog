@@ -1488,6 +1488,7 @@ class TestAdminUnlockEndpoint:
         assert resp.status_code == 200
         assert locked_user.failed_login_attempts == 0
         assert locked_user.locked_until is None
+        assert resp.json()["email"] == "locked@example.com"
 
     def test_unlock_nonexistent_user_returns_404(self):
         """PATCH /admin/unlock with unknown email must return 404."""

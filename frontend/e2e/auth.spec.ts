@@ -145,11 +145,13 @@ test.describe('Account lockout', () => {
     const token = await getAPIToken();
     const ctx = await request.newContext();
     try {
-      await ctx.post(`${API}/auth/register`, {
+      const resp = await ctx.post(`${API}/auth/register`, {
         headers: { Authorization: `Bearer ${token}` },
         data: { email: LOCKOUT_EMAIL, password: LOCKOUT_PASSWORD, full_name: 'E2E Lockout Tester' },
       });
-      // 201 = created, 409 = already exists — both are fine
+      if (!resp.ok() && resp.status() !== 409) {
+        throw new Error(`Failed to create lockout test user: ${resp.status()} ${await resp.text()}`);
+      }
     } finally {
       await ctx.dispose();
     }
@@ -159,10 +161,13 @@ test.describe('Account lockout', () => {
     const token = await getAPIToken();
     const ctx = await request.newContext();
     try {
-      await ctx.patch(`${API}/auth/admin/unlock`, {
+      const resp = await ctx.patch(`${API}/auth/admin/unlock`, {
         headers: { Authorization: `Bearer ${token}` },
         data: { email: LOCKOUT_EMAIL },
       });
+      if (!resp.ok()) {
+        console.warn(`afterAll unlock failed: ${resp.status()} — next run may see a locked account`);
+      }
     } finally {
       await ctx.dispose();
     }
@@ -192,11 +197,13 @@ test.describe('Account lockout', () => {
     await expect(alert).toContainText('Account locked', { timeout: 10_000 });
     await expect(alert).toContainText('Try again in');
 
-    // Correct password also fails while account is locked
+    // Correct password also fails while account is locked — set up listener before click
     await emailInput.fill(LOCKOUT_EMAIL);
     await passwordInput.fill(LOCKOUT_PASSWORD);
-    await signInBtn.click();
-    await page.waitForResponse((resp) => resp.url().includes('/auth/login'));
+    await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes('/auth/login')),
+      signInBtn.click(),
+    ]);
     await expect(alert).toContainText('Account locked');
     await expect(page).toHaveURL(/\/login/);
   });
