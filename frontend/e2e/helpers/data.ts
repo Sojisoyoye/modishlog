@@ -259,6 +259,29 @@ export async function voidSale(saleId: string): Promise<void> {
 }
 
 /**
+ * Create a cashflow operating cost entry via POST /cashflow/operating-costs.
+ */
+export async function createOperatingCost(
+  costName: string,
+  costAmount: string,
+  frequency: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annually' = 'monthly',
+  category = 'other',
+): Promise<{ id: string }> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.post(`${API}/cashflow/operating-costs`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { cost_name: costName, cost_amount: costAmount, frequency, category },
+    });
+    if (!resp.ok()) throw new Error(`Create operating cost failed: ${resp.status()} ${await resp.text()}`);
+    return { id: (await resp.json()).id };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
  * Fetch the current quantity_on_hand for a product via GET /inventory/:id.
  */
 export async function getInventoryQty(productId: string): Promise<number> {
