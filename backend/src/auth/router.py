@@ -13,6 +13,7 @@ from src.auth.exceptions import (
     InvalidRefreshTokenError,
     InvalidResetTokenError,
     UserAlreadyExistsError,
+    UserNotFoundError,
     WeakPasswordError,
 )
 from src.auth.models import User
@@ -23,6 +24,7 @@ from src.auth.schemas import (
     RefreshRequest,
     ResetPasswordRequest,
     TokenResponse,
+    UnlockUserRequest,
     UserLogin,
     UserProfile,
     UserRegister,
@@ -36,6 +38,7 @@ from src.auth.service import (
     refresh_access_token,
     reset_password,
     revoke_refresh_token,
+    unlock_user,
 )
 from src.core.database import get_db
 
@@ -153,6 +156,20 @@ async def do_reset_password(
     except WeakPasswordError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return MessageResponse(message="Password has been reset successfully.")
+
+
+@router.patch("/admin/unlock", response_model=UserProfile)
+async def admin_unlock_user(
+    body: UnlockUserRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Reset account lockout for a given email. Admin only."""
+    try:
+        user = await unlock_user(db, body.email)
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return user
 
 
 @router.get("/me", response_model=UserProfile)

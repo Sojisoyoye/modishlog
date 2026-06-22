@@ -27,3 +27,7 @@ class InvalidResetTokenError(Exception):
 
 class InvalidRefreshTokenError(Exception):
     """Raised when a refresh token is invalid, expired, or revoked."""
+
+
+class UserNotFoundError(Exception):
+    """Raised when a requested user account does not exist."""

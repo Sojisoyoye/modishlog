@@ -15,6 +15,7 @@ from src.auth.exceptions import (
     InvalidRefreshTokenError,
     InvalidResetTokenError,
     UserAlreadyExistsError,
+    UserNotFoundError,
     WeakPasswordError,
 )
 from src.auth.models import PasswordResetToken, RefreshToken, User, UserRole
@@ -239,6 +240,19 @@ async def refresh_access_token(db: AsyncSession, raw_token: str) -> str:
     new_access_token = create_access_token(data={"sub": str(token_obj.user.id)})
     await logger.ainfo("access_token_refreshed", user_id=str(token_obj.user.id))
     return new_access_token
+
+
+async def unlock_user(db: AsyncSession, email: str) -> User:
+    """Reset failed_login_attempts and locked_until for a user (admin action)."""
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise UserNotFoundError(f"User {email} not found")
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    await db.flush()
+    await logger.ainfo("account_unlocked", email=email)
+    return user
 
 
 async def revoke_refresh_token(db: AsyncSession, raw_token: str | None) -> None:

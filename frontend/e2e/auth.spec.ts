@@ -1,5 +1,11 @@
-import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
+import { test, expect, request } from '@playwright/test';
+import { ensureTestUser, loginViaUI, getAPIToken, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
+
+const API = 'http://localhost:8000/api/v1';
+const LOCKOUT_EMAIL = 'e2e-lockout@modishlogtest.com';
+const LOCKOUT_PASSWORD = 'E2eLock0ut!Pass';
+const WRONG_PASSWORD = 'WrongPassword!99';
+const LOCKOUT_THRESHOLD = 3;
 
 // ---------------------------------------------------------------------------
 // Auth / Login E2E Tests
@@ -128,6 +134,77 @@ test.describe('Login functionality', () => {
     // Click the Logout button in the topbar
     await page.getByRole('button', { name: 'Logout' }).click();
     await page.waitForURL('**/login', { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/login/);
+  });
+});
+
+test.describe('Account lockout', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test.beforeAll(async () => {
+    const token = await getAPIToken();
+    const ctx = await request.newContext();
+    try {
+      const resp = await ctx.post(`${API}/auth/register`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { email: LOCKOUT_EMAIL, password: LOCKOUT_PASSWORD, full_name: 'E2E Lockout Tester' },
+      });
+      if (!resp.ok() && resp.status() !== 409) {
+        throw new Error(`Failed to create lockout test user: ${resp.status()} ${await resp.text()}`);
+      }
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  test.afterAll(async () => {
+    const token = await getAPIToken();
+    const ctx = await request.newContext();
+    try {
+      const resp = await ctx.patch(`${API}/auth/admin/unlock`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: { email: LOCKOUT_EMAIL },
+      });
+      if (!resp.ok()) {
+        console.warn(`afterAll unlock failed: ${resp.status()} — next run may see a locked account`);
+      }
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  test('account locks out after N failed login attempts', async ({ page }) => {
+    await page.goto('/login');
+    const emailInput = page.getByPlaceholder('you@example.com');
+    const passwordInput = page.locator('#login-password');
+    const signInBtn = page.getByRole('button', { name: 'Sign In' });
+    const alert = page.getByRole('alert');
+
+    // Submit wrong password LOCKOUT_THRESHOLD times to build up the counter
+    for (let i = 0; i < LOCKOUT_THRESHOLD; i++) {
+      await emailInput.fill(LOCKOUT_EMAIL);
+      await passwordInput.fill(WRONG_PASSWORD);
+      await signInBtn.click();
+      await expect(alert).toContainText('Invalid email or password', { timeout: 10_000 });
+    }
+
+    // One more attempt triggers the 429 lockout response
+    await emailInput.fill(LOCKOUT_EMAIL);
+    await passwordInput.fill(WRONG_PASSWORD);
+    await signInBtn.click();
+
+    // UI shows the countdown banner
+    await expect(alert).toContainText('Account locked', { timeout: 10_000 });
+    await expect(alert).toContainText('Try again in');
+
+    // Correct password also fails while account is locked — set up listener before click
+    await emailInput.fill(LOCKOUT_EMAIL);
+    await passwordInput.fill(LOCKOUT_PASSWORD);
+    await Promise.all([
+      page.waitForResponse((resp) => resp.url().includes('/auth/login')),
+      signInBtn.click(),
+    ]);
+    await expect(alert).toContainText('Account locked');
     await expect(page).toHaveURL(/\/login/);
   });
 });
