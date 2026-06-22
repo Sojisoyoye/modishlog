@@ -74,14 +74,19 @@ test.describe('Global Exposure card (Task 16)', () => {
   test('shows numeric values for exposure amounts', async ({ page }) => {
     await page.waitForLoadState('networkidle');
 
-    // The Total Exposure (NGN) value is the only text-primary bold number in the card.
-    // With a seeded USD order it must be a non-zero formatted integer (e.g. "1,000,000").
+    // Total Exposure (NGN) is the only text-primary bold value in the card.
+    // /^[1-9][\d,]*$/ requires a non-zero leading digit — seeded USD order guarantees this.
     const totalExposureValue = page.locator('p.text-lg.font-bold.text-primary').first();
     await expect(totalExposureValue).toBeVisible();
-    await expect(totalExposureValue).toHaveText(/[\d,]+/);
+    await expect(totalExposureValue).toHaveText(/^[1-9][\d,]*$/);
 
-    // Debt/Trade Ratio renders as a decimal formatted by number:'1.2-2' (e.g. "0.00")
-    await expect(page.getByText(/^\d+\.\d{2}$/).first()).toBeVisible();
+    // Debt/Trade Ratio renders as a decimal via number:'1.2-2' (e.g. "0.00").
+    // Scoped to the section containing the "Debt/Trade Ratio" label to avoid false matches
+    // from other decimal values elsewhere on the page.
+    const debtRatioSection = page.locator('div').filter({
+      has: page.getByText('Debt/Trade Ratio'),
+    });
+    await expect(debtRatioSection.locator('p.text-lg.font-bold').first()).toHaveText(/^\d+\.\d{2}$/);
   });
 
   test('currency toggle buttons are present when card renders', async ({ page }) => {
