@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureTestUser, loginViaUI } from './helpers/auth';
-import { addStock, ensureProduct } from './helpers/data';
+import { addStock, createSale, ensureProduct, getInventoryQty, voidSale } from './helpers/data';
 
 // ---------------------------------------------------------------------------
 // Sales Page E2E Tests
@@ -379,7 +379,9 @@ test.describe('Transaction grouping in All Sales tab', () => {
     await expect(rows.first()).toContainText('2');
   });
 
-  test('click transaction row opens detail dialog with product items', async ({ page }) => {
+  test('click transaction row opens detail dialog with product items', async ({
+    page,
+  }) => {
     const productA = await ensureProduct('E2E Detail Txn A');
     await addStock(productA.id, 20);
     await page.reload();
@@ -407,5 +409,86 @@ test.describe('Transaction grouping in All Sales tab', () => {
     await expect(page.locator('[data-testid="transaction-item-row"]').first()).toBeVisible({
       timeout: 5_000,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Void sale — stock restore (task #119)
+// ---------------------------------------------------------------------------
+
+test.describe('Void sale — stock restore', () => {
+  test('voiding a sale restores stock to the pre-sale level', async ({ page }) => {
+    const product = await ensureProduct('E2E Void Stock Restore');
+    await addStock(product.id, 10);
+
+    // Stock level after adding 10 units (may already have stock from prior runs)
+    const stockBefore = await getInventoryQty(product.id);
+
+    // Record a sale of 3 units via API to reduce stock
+    await createSale(product.id, { quantity: 3 });
+
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+
+    // Navigate to All Sales tab and find the most recent transaction (our sale)
+    await page.getByTestId('tab-all-sales').click();
+    const firstTxnRow = page.locator('[data-testid="transaction-row"]').first();
+    await expect(firstTxnRow).toBeVisible({ timeout: 10_000 });
+    await firstTxnRow.click();
+
+    // Transaction Detail dialog opens — find our product's item row
+    const detailDialog = page.locator('[role="dialog"]').filter({ hasText: 'Transaction Detail' });
+    await expect(detailDialog).toBeVisible({ timeout: 5_000 });
+    const itemRow = detailDialog
+      .locator('[data-testid="transaction-item-row"]')
+      .filter({ hasText: product.name });
+    await expect(itemRow).toBeVisible({ timeout: 5_000 });
+
+    // Click the void button for that item
+    await itemRow.locator('[data-testid="txn-item-void-btn"]').click();
+
+    // Void dialog — fill reason and confirm
+    const voidDialog = page.locator('[role="dialog"]').filter({ hasText: 'Void Sale' });
+    await expect(voidDialog).toBeVisible({ timeout: 5_000 });
+    await voidDialog.locator('[data-testid="void-reason-input"]').fill('E2E stock restore test');
+    await voidDialog.locator('[data-testid="confirm-void-btn"]').click();
+
+    // Success toast
+    await expect(page.getByText('Sale voided and inventory restored')).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Stock must be restored to what it was before the sale
+    const stockAfter = await getInventoryQty(product.id);
+    expect(stockAfter).toBe(stockBefore);
+  });
+
+  test('voided item row has no Void button — sale cannot be voided twice', async ({ page }) => {
+    const product = await ensureProduct('E2E No Revoid Product');
+    await addStock(product.id, 5);
+    const sale = await createSale(product.id, { quantity: 1 });
+
+    // Void the sale directly via API
+    await voidSale(sale.id);
+
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+
+    // Navigate to All Sales tab and open the most recent transaction
+    await page.getByTestId('tab-all-sales').click();
+    const firstTxnRow = page.locator('[data-testid="transaction-row"]').first();
+    await expect(firstTxnRow).toBeVisible({ timeout: 10_000 });
+    await firstTxnRow.click();
+
+    // Transaction Detail dialog opens
+    const detailDialog = page.locator('[role="dialog"]').filter({ hasText: 'Transaction Detail' });
+    await expect(detailDialog).toBeVisible({ timeout: 5_000 });
+    const itemRow = detailDialog
+      .locator('[data-testid="transaction-item-row"]')
+      .filter({ hasText: product.name });
+    await expect(itemRow).toBeVisible({ timeout: 5_000 });
+
+    // The void button must not be present for a voided item
+    await expect(itemRow.locator('[data-testid="txn-item-void-btn"]')).toHaveCount(0);
   });
 });

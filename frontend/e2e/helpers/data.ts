@@ -259,6 +259,24 @@ export async function voidSale(saleId: string): Promise<void> {
 }
 
 /**
+ * Fetch the current quantity_on_hand for a product via GET /inventory/:id.
+ */
+export async function getInventoryQty(productId: string): Promise<number> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.get(`${API}/inventory/${productId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok()) throw new Error(`Get inventory failed: ${resp.status()} ${await resp.text()}`);
+    const data = await resp.json();
+    return data.quantity_on_hand as number;
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
  * Add stock to a product via the inventory adjust endpoint.
  */
 export async function addStock(
