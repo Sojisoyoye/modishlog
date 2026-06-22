@@ -183,8 +183,8 @@ test.describe('LOT-type stock count', () => {
   test('enter counted quantity and view variance after finalization', async ({ page }) => {
     // Get the first item ID from the pre-created LOT count
     const sc = await getStockCount(lotCountId);
-    const firstItem = sc.items[0] as { id: string };
-    expect(firstItem).toBeTruthy();
+    const firstItem = sc.items[0];
+    if (!firstItem) throw new Error(`LOT count ${lotCountId} has no items — delivery may not have completed`);
 
     // Set counted_quantity to 0 via API (will produce a negative variance when system_qty is snapshotted)
     await updateStockCountItem(lotCountId, firstItem.id, 0);
@@ -213,9 +213,9 @@ test.describe('LOT-type stock count', () => {
   });
 
   test('finalized LOT count appears in the list with FINALIZED status', async ({ page }) => {
-    // lotCountId was finalized in the previous test; check it appears in the list
+    // Serial mode ensures test 2 has already finalized lotCountId before this runs
     await page.goto('/stock-counts');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('table tbody')).toBeVisible();
 
     // List should contain a row showing Lot type and FINALIZED
     const finalizedLotRow = page.locator('table tbody tr').filter({ hasText: 'FINALIZED' }).filter({ hasText: 'Lot' });
