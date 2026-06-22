@@ -131,22 +131,26 @@ export async function ensureProductInCategory(
 
 /**
  * Create a purchase order for a product and return the order ID.
+ * Optionally pass supplierId to link the order to a Supplier record (needed
+ * for the supplier's Purchases tab to show this order).
  */
 export async function createOrder(
   productId: string,
-  options: { currency?: string; quantity?: number; unitCost?: string } = {},
+  options: { currency?: string; quantity?: number; unitCost?: string; supplierId?: string } = {},
 ): Promise<{ id: string }> {
-  const { currency = 'USD', quantity = 10, unitCost = '100.00' } = options;
+  const { currency = 'USD', quantity = 10, unitCost = '100.00', supplierId } = options;
   const token = await getAPIToken();
   const ctx = await request.newContext();
   try {
+    const body: Record<string, unknown> = {
+      supplier_name: 'E2E Test Supplier',
+      currency,
+      line_items: [{ product_id: productId, quantity, unit_cost: unitCost }],
+    };
+    if (supplierId) body['supplier_id'] = supplierId;
     const resp = await ctx.post(`${API}/orders`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: {
-        supplier_name: 'E2E Test Supplier',
-        currency,
-        line_items: [{ product_id: productId, quantity, unit_cost: unitCost }],
-      },
+      data: body,
     });
     if (!resp.ok()) throw new Error(`Create order failed: ${resp.status()} ${await resp.text()}`);
     return { id: (await resp.json()).id };
@@ -253,6 +257,25 @@ export async function voidSale(saleId: string): Promise<void> {
     if (!resp.ok() && resp.status() !== 404) {
       throw new Error(`Void sale failed: ${resp.status()} ${await resp.text()}`);
     }
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Create a supplier via POST /suppliers and return its ID and name.
+ */
+export async function createSupplier(name: string): Promise<{ id: string; name: string }> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.post(`${API}/suppliers`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { name },
+    });
+    if (!resp.ok()) throw new Error(`Create supplier failed: ${resp.status()} ${await resp.text()}`);
+    const s = await resp.json();
+    return { id: s.id, name: s.name };
   } finally {
     await ctx.dispose();
   }
