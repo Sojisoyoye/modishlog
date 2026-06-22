@@ -15,6 +15,7 @@ from src.fx.exceptions import (
     ExposureConfigError,
     FXAlertNotFoundError,
     FXPairNotFoundError,
+    FXRateNotFoundError,
     InsufficientRateDataError,
     SimulationNotFoundError,
 )
@@ -39,6 +40,7 @@ from src.fx.service import (
     check_alerts,
     create_alert,
     delete_alert,
+    delete_rate,
     get_current_rate,
     get_rate_history,
     get_simulation,
@@ -330,6 +332,21 @@ class TestAlerts:
 # ---------------------------------------------------------------------------
 # Service tests - exposure
 # ---------------------------------------------------------------------------
+
+
+class TestDeleteRate:
+    @pytest.mark.asyncio
+    async def test_delete_rate_success(self):
+        rate = _make_fx_rate()
+        db = _mock_db_with_execute(scalar_result=rate)
+        await delete_rate(db, rate.id)
+        db.delete.assert_called_once_with(rate)
+
+    @pytest.mark.asyncio
+    async def test_delete_rate_not_found(self):
+        db = _mock_db_with_execute(scalar_result=None)
+        with pytest.raises(FXRateNotFoundError):
+            await delete_rate(db, uuid.uuid4())
 
 
 class TestExposure:
@@ -686,6 +703,24 @@ class TestFXEndpoints:
                 json={"locked_pct": "40", "floating_pct": "60"},
             )
         assert resp.status_code == 401
+
+    def test_delete_rate_success(self):
+        rate = _make_fx_rate()
+        self._override_auth()
+        db = _mock_db_with_execute(scalar_result=rate)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.delete(f"/api/v1/fx/rates/{rate.id}")
+        assert resp.status_code == 204
+
+    def test_delete_rate_not_found(self):
+        self._override_auth()
+        db = _mock_db_with_execute(scalar_result=None)
+        self._override_db(db)
+        fake_id = str(uuid.uuid4())
+        with TestClient(self.app) as client:
+            resp = client.delete(f"/api/v1/fx/rates/{fake_id}")
+        assert resp.status_code == 404
 
     def test_forecast_generate_requires_auth(self):
         db = _mock_db()

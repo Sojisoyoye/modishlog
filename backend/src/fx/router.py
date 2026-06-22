@@ -20,6 +20,7 @@ from src.fx.exceptions import (
     ExternalRateSyncError,
     FXAlertNotFoundError,
     FXPairNotFoundError,
+    FXRateNotFoundError,
     InsufficientRateDataError,
     SimulationNotFoundError,
 )
@@ -52,6 +53,7 @@ from src.fx.service import (
     calculate_volatility,
     create_alert,
     delete_alert,
+    delete_rate,
     get_all_current_rates,
     get_current_rate,
     get_exposure_config,
@@ -150,6 +152,18 @@ async def live_rate_endpoint(db: AsyncSession = Depends(get_db)):
         return LiveRateRead(usd_ngn=rate, fetched_at=fetched_at, cached=cached)
     except ExternalRateSyncError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+
+
+@router.delete("/rates/{rate_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_rate_endpoint(
+    rate_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete an FX rate observation by ID."""
+    try:
+        await delete_rate(db, rate_id)
+    except FXRateNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get("/rates/{pair}", response_model=FXRateRead)

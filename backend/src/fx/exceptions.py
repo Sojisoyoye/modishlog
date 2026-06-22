@@ -23,6 +23,14 @@ class InvalidFXPairError(Exception):
         )
 
 
+class FXRateNotFoundError(Exception):
+    """Raised when an FX rate lookup by ID yields no result."""
+
+    def __init__(self, rate_id: uuid.UUID) -> None:
+        self.rate_id = rate_id
+        super().__init__(f"FX rate {rate_id} not found")
+
+
 class FXAlertNotFoundError(Exception):
     """Raised when an alert lookup by ID yields no result."""
 
