@@ -6,15 +6,15 @@ const API = 'http://localhost:8000/api/v1';
 
 test.describe.configure({ mode: 'serial' });
 
+const orderCurrency = 'NGN';
+
 let orderId: string;
-let orderCurrency: string;
 
 test.beforeAll(async () => {
   await ensureTestUser();
   const product = await ensureProduct('E2E Payment Product');
-  const order = await createOrder(product.id, { currency: 'NGN', quantity: 2, unitCost: '5000.00' });
+  const order = await createOrder(product.id, { currency: orderCurrency, quantity: 2, unitCost: '5000.00' });
   orderId = order.id;
-  orderCurrency = 'NGN';
   await advanceOrderToStatus(orderId, 'DELIVERED', { fxRateAtDelivery: '1580' });
 });
 

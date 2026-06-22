@@ -1,6 +1,8 @@
-import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { test, expect, request } from '@playwright/test';
+import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
 import { ensureProduct, createOrder, deleteOrder } from './helpers/data';
+
+const API = 'http://localhost:8000/api/v1';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -13,12 +15,10 @@ test.beforeAll(async () => {
   const order = await createOrder(product.id, { currency: 'NGN', quantity: 1, unitCost: '3000.00' });
   orderId = order.id;
   // Fetch the generated order_number for assertions
-  const { getAPIToken } = await import('./helpers/auth');
-  const { request } = await import('@playwright/test');
   const token = await getAPIToken();
   const ctx = await request.newContext();
   try {
-    const resp = await ctx.get(`http://localhost:8000/api/v1/orders/${orderId}`, {
+    const resp = await ctx.get(`${API}/orders/${orderId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     orderNumber = (await resp.json()).order_number;
