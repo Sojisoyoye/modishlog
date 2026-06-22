@@ -174,6 +174,55 @@ export async function deleteOrder(orderId: string): Promise<void> {
 }
 
 /**
+ * Advance a purchase order to the given status via the status-transition API.
+ * Calls PUT /orders/:id/status for each hop in the transition chain.
+ * Pass `fxRateAtDelivery` when transitioning to DELIVERED (required by the backend).
+ */
+export async function advanceOrderToStatus(
+  orderId: string,
+  targetStatus: string,
+  options: { fxRateAtDelivery?: string } = {},
+): Promise<void> {
+  const chain: Record<string, string> = {
+    ORDERED: 'PENDING',
+    PENDING: 'IN_PRODUCTION',
+    IN_PRODUCTION: 'SHIPPING',
+    SHIPPING: 'CLEARED',
+    CLEARED: 'DELIVERED',
+  };
+  const statusOrder = ['ORDERED', 'PENDING', 'IN_PRODUCTION', 'SHIPPING', 'CLEARED', 'DELIVERED'];
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    // Fetch current status
+    const orderResp = await ctx.get(`${API}/orders/${orderId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!orderResp.ok()) throw new Error(`Get order failed: ${orderResp.status()}`);
+    let currentStatus: string = (await orderResp.json()).status;
+
+    const currentIdx = statusOrder.indexOf(currentStatus);
+    const targetIdx = statusOrder.indexOf(targetStatus);
+    if (targetIdx <= currentIdx) return;
+
+    for (let i = currentIdx; i < targetIdx; i++) {
+      const next = chain[statusOrder[i]];
+      const body: Record<string, unknown> = { new_status: next };
+      if (next === 'DELIVERED' && options.fxRateAtDelivery) {
+        body['fx_rate_at_delivery'] = options.fxRateAtDelivery;
+      }
+      const resp = await ctx.put(`${API}/orders/${orderId}/status`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: body,
+      });
+      if (!resp.ok()) throw new Error(`Status transition to ${next} failed: ${resp.status()} ${await resp.text()}`);
+    }
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
  * Add stock to a product via the inventory adjust endpoint.
  */
 export async function addStock(
