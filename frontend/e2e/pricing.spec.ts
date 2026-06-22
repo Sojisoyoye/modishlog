@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginViaAPI, ensureTestUser } from './helpers/auth';
-import { ensureProduct, createSale, voidSale, advanceOrderToStatus, createOrder, deleteOrder } from './helpers/data';
+import { ensureProduct, createSale, voidSale, advanceOrderToStatus, createOrder } from './helpers/data';
 
 test.describe.configure({ mode: 'serial' });
 
