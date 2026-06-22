@@ -1,6 +1,6 @@
 import { test, expect, request } from '@playwright/test';
 import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
-import { ensureProduct } from './helpers/data';
+import { ensureProduct, createOrder, advanceOrderToStatus } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
 
@@ -14,6 +14,35 @@ async function createStockCount(countType: 'PRODUCT' | 'LOT', notes?: string) {
       data: { count_date: today, count_type: countType, notes: notes ?? null },
     });
     if (!resp.ok()) throw new Error(`Create stock count failed: ${resp.status()} ${await resp.text()}`);
+    return resp.json();
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+async function getStockCount(id: string) {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.get(`${API}/stockcount/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok()) throw new Error(`Get stock count failed: ${resp.status()} ${await resp.text()}`);
+    return resp.json();
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+async function updateStockCountItem(countId: string, itemId: string, countedQty: number) {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.patch(`${API}/stockcount/${countId}/items/${itemId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { counted_quantity: countedQty },
+    });
+    if (!resp.ok()) throw new Error(`Update item failed: ${resp.status()} ${await resp.text()}`);
     return resp.json();
   } finally {
     await ctx.dispose();
@@ -99,5 +128,97 @@ test.describe('Stock count feature', () => {
     await page.waitForLoadState('networkidle');
 
     await expect(page.locator('table tbody tr').filter({ hasText: 'FINALIZED' }).first()).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LOT-type stock count tests
+// ---------------------------------------------------------------------------
+
+test.describe('LOT-type stock count', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  let lotCountId: string;
+
+  test.beforeAll(async () => {
+    await ensureTestUser();
+    // Deliver an order so OrderLineItem.units_remaining > 0 → LOT items appear
+    const product = await ensureProduct('E2E LOT Count Product');
+    const order = await createOrder(product.id, { currency: 'NGN', quantity: 10, unitCost: '3000.00' });
+    await advanceOrderToStatus(order.id, 'DELIVERED', { fxRateAtDelivery: '1500' });
+
+    // Pre-create a LOT count for variance and finalization tests
+    const sc = await createStockCount('LOT', 'E2E LOT variance test');
+    lotCountId = sc.id;
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await loginViaUI(page);
+  });
+
+  test('create LOT-type stock count via UI and see lot rows', async ({ page }) => {
+    await page.goto('/stock-counts');
+    await page.getByRole('button', { name: /New Stock Count/i }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel(/Count date/i).fill(new Date().toISOString().split('T')[0]);
+    await dialog.getByRole('radio', { name: /Lot level/i }).check();
+    await dialog.getByRole('button', { name: /Create/i }).click();
+
+    // Should navigate to the LOT-type detail page
+    await page.waitForURL(/\/stock-counts\/.+/);
+    await expect(page.getByText('DRAFT')).toBeVisible();
+
+    // LOT-type shows the extra "Lot (Order line)" column header
+    await expect(page.getByText('Lot (Order line)')).toBeVisible();
+
+    // At least one data row (not the empty-state colspan row)
+    const dataRows = page.locator('table tbody tr').filter({
+      hasNot: page.locator('td[colspan]'),
+    });
+    await expect(dataRows.first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('enter counted quantity and view variance after finalization', async ({ page }) => {
+    // Get the first item ID from the pre-created LOT count
+    const sc = await getStockCount(lotCountId);
+    const firstItem = sc.items[0] as { id: string };
+    expect(firstItem).toBeTruthy();
+
+    // Set counted_quantity to 0 via API (will produce a negative variance when system_qty is snapshotted)
+    await updateStockCountItem(lotCountId, firstItem.id, 0);
+
+    await page.goto(`/stock-counts/${lotCountId}`);
+    await expect(page.getByText('DRAFT')).toBeVisible();
+
+    // Counted qty input for the first row should show 0
+    const countedInput = page.getByRole('spinbutton').first();
+    await expect(countedInput).toBeVisible();
+    await expect(countedInput).toHaveValue('0');
+
+    // Finalize: snapshot system_qty and lock the count
+    await page.getByRole('button', { name: /Finalise/i }).click();
+    const confirmDialog = page.getByRole('dialog').filter({ hasText: /Finalise/ });
+    await confirmDialog.getByRole('button', { name: /Confirm/i }).click();
+
+    await expect(page.getByText('FINALIZED')).toBeVisible({ timeout: 10_000 });
+
+    // Variance badge must be visible and negative (counted 0, system qty ≥ 1 from delivered order)
+    const varianceBadge = page.locator('.bg-red-100.text-red-700').first();
+    await expect(varianceBadge).toBeVisible({ timeout: 10_000 });
+    const varianceText = await varianceBadge.textContent();
+    const varianceValue = parseFloat(varianceText?.trim() ?? '0');
+    expect(varianceValue).toBeLessThan(0);
+  });
+
+  test('finalized LOT count appears in the list with FINALIZED status', async ({ page }) => {
+    // lotCountId was finalized in the previous test; check it appears in the list
+    await page.goto('/stock-counts');
+    await page.waitForLoadState('networkidle');
+
+    // List should contain a row showing Lot type and FINALIZED
+    const finalizedLotRow = page.locator('table tbody tr').filter({ hasText: 'FINALIZED' }).filter({ hasText: 'Lot' });
+    await expect(finalizedLotRow.first()).toBeVisible({ timeout: 10_000 });
   });
 });
