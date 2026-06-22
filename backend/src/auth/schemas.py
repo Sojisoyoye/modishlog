@@ -75,3 +75,9 @@ class MessageResponse(BaseModel):
     """Generic message response."""
 
     message: str
+
+
+class UnlockUserRequest(BaseModel):
+    """Admin unlock-account request."""
+
+    email: EmailStr

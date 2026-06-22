@@ -1430,3 +1430,92 @@ class TestHttpOnlyCookie:
         set_cookie = resp.headers.get("set-cookie", "")
         assert set_cookie, "Expected Set-Cookie header on logout to clear access_token"
         assert "access_token" in set_cookie
+
+
+# ---------------------------------------------------------------------------
+# Admin unlock endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestAdminUnlockEndpoint:
+    """PATCH /auth/admin/unlock endpoint tests."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _override_require_admin(self, admin_user=None):
+        from src.auth.dependencies import require_admin
+
+        if admin_user is None:
+            admin_user = _make_user()
+
+        async def _fake_admin():
+            return admin_user
+
+        self.app.dependency_overrides[require_admin] = _fake_admin
+
+    def test_admin_unlock_resets_lockout(self):
+        """PATCH /admin/unlock must clear failed_login_attempts and locked_until."""
+        locked_until = datetime.now(timezone.utc) + timedelta(minutes=10)
+        locked_user = _make_user(
+            email="locked@example.com",
+            failed_login_attempts=3,
+            locked_until=locked_until,
+        )
+        db = _mock_db(user=locked_user)
+        self._override_db(db)
+        self._override_require_admin()
+
+        with TestClient(self.app) as client:
+            resp = client.patch(
+                "/api/v1/auth/admin/unlock",
+                json={"email": "locked@example.com"},
+            )
+        assert resp.status_code == 200
+        assert locked_user.failed_login_attempts == 0
+        assert locked_user.locked_until is None
+
+    def test_unlock_nonexistent_user_returns_404(self):
+        """PATCH /admin/unlock with unknown email must return 404."""
+        db = _mock_db(user=None)
+        self._override_db(db)
+        self._override_require_admin()
+
+        with TestClient(self.app) as client:
+            resp = client.patch(
+                "/api/v1/auth/admin/unlock",
+                json={"email": "ghost@example.com"},
+            )
+        assert resp.status_code == 404
+
+    def test_non_admin_unlock_returns_403(self):
+        """PATCH /admin/unlock without admin role must return 403."""
+        from src.auth.models import UserRole
+
+        non_admin = _make_user(role=UserRole.SALES_MANAGER)
+        token = build_token(non_admin)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=non_admin)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.patch(
+                "/api/v1/auth/admin/unlock",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"email": "anyone@example.com"},
+            )
+        assert resp.status_code == 403
