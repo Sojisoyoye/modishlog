@@ -39,6 +39,7 @@ from src.sales.schemas import (
     SalesSummary,
     SaleTransactionListResponse,
     SaleTransactionRead,
+    SaleTransactionUpdate,
     SaleUpdate,
 )
 from src.sales.service import (
@@ -54,6 +55,7 @@ from src.sales.service import (
     process_bulk_upload,
     quick_quote,
     update_sale,
+    update_transaction,
     void_sale,
 )
 
@@ -256,6 +258,21 @@ async def get_transaction_endpoint(
 ):
     """Get all sale items for a given transaction."""
     try:
+        return await get_transaction(db, transaction_id)
+    except SaleNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.put("/transactions/{transaction_id}", response_model=SaleTransactionRead)
+async def update_transaction_endpoint(
+    transaction_id: uuid.UUID,
+    body: SaleTransactionUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Update payment method, payment status, and notes for all items in a transaction."""
+    try:
+        await update_transaction(db, transaction_id, body, current_user.id)
         return await get_transaction(db, transaction_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

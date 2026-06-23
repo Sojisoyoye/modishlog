@@ -330,6 +330,50 @@ async def update_sale(
     return sale
 
 
+async def update_transaction(
+    db: AsyncSession,
+    transaction_id: uuid.UUID,
+    data: "SaleTransactionUpdate",
+    user_id: uuid.UUID,
+) -> list[Sale]:
+    """Update transaction-level fields (payment_method, payment_status, notes) across all Sale records in a group."""
+    from src.sales.schemas import SaleTransactionUpdate  # noqa: F401 — type hint only
+
+    result = await db.execute(select(Sale).where(Sale.transaction_id == transaction_id))
+    sales = list(result.scalars().all())
+
+    if not sales:
+        raise SaleNotFoundError(transaction_id)
+
+    update_fields = data.model_dump(exclude_unset=True)
+    if not update_fields:
+        return sales
+
+    for sale in sales:
+        if sale.status == SaleStatus.VOIDED:
+            continue
+        field_changes = {}
+        for field, value in update_fields.items():
+            old_value = getattr(sale, field)
+            if old_value != value:
+                field_changes[field] = {"old": str(old_value), "new": str(value)}
+                setattr(sale, field, value)
+        if field_changes:
+            audit = SaleAuditEntry(
+                sale_id=sale.id,
+                action="transaction_updated",
+                field_changes=field_changes,
+                performed_by=user_id,
+                reason=None,
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(audit)
+
+    await db.flush()
+    await logger.ainfo("transaction_updated", transaction_id=str(transaction_id))
+    return sales
+
+
 async def void_sale(
     db: AsyncSession,
     sale_id: uuid.UUID,
@@ -686,6 +730,7 @@ def _build_transaction_read(
     contact_number = first.contact_number if first else None
     payment_method = first.payment_method if first else None
     payment_status = first.payment_status if first else None
+    notes = first.notes if first else None
 
     statuses = {s.status for s in items}
     if statuses == {SaleStatus.VOIDED}:
@@ -727,6 +772,7 @@ def _build_transaction_read(
         contact_number=contact_number,
         payment_method=payment_method,
         payment_status=payment_status,
+        notes=notes,
         items=item_reads,
         created_at=created_at,
     )

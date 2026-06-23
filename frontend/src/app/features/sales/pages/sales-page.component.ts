@@ -11,6 +11,7 @@ import {
   SaleTransactionItem,
   AuditEntry,
   SaleUpdatePayload,
+  SaleTransactionUpdatePayload,
   BulkUploadResponse,
   QuickQuote,
 } from '../../../core/services/sales.service';
@@ -720,17 +721,6 @@ interface TransactionMeta {
               <option value="wholesale">Wholesale</option>
             </select>
           </div>
-          <div>
-            <label for="edit-sale-notes" class="mb-1.5 block text-xs font-medium text-muted">Notes</label>
-            <textarea
-              id="edit-sale-notes"
-              [(ngModel)]="editForm.notes"
-              rows="3"
-              data-testid="edit-notes-input"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-              placeholder="Optional notes..."
-            ></textarea>
-          </div>
           <div class="flex justify-end gap-2 pt-2">
             <button
               (click)="editDialogVisible = false"
@@ -821,6 +811,25 @@ interface TransactionMeta {
     >
       @if (viewingTransaction()) {
         <div class="space-y-4">
+
+          <!-- Transaction-level summary: payment + notes -->
+          <div class="flex flex-wrap gap-4 rounded-xl bg-gray-50 px-4 py-3 text-sm">
+            <div>
+              <span class="font-medium text-muted">Payment: </span>
+              <span class="text-text">{{ formatPaymentMethod(viewingTransaction()!.payment_method) || '—' }}</span>
+            </div>
+            <div>
+              <span class="font-medium text-muted">Status: </span>
+              <span class="text-text">{{ viewingTransaction()!.payment_status || 'paid' }}</span>
+            </div>
+            @if (viewingTransaction()!.notes) {
+              <div class="w-full">
+                <span class="font-medium text-muted">Note: </span>
+                <span class="text-text">{{ viewingTransaction()!.notes }}</span>
+              </div>
+            }
+          </div>
+
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 text-sm">
               <caption class="sr-only">Transaction items</caption>
@@ -898,13 +907,98 @@ interface TransactionMeta {
               </tfoot>
             </table>
           </div>
-          <div class="flex justify-end pt-2">
+          <div class="flex justify-end gap-2 pt-2">
+            @if (viewingTransaction()!.status !== 'voided') {
+              <button
+                data-testid="edit-transaction-btn"
+                (click)="openEditTransactionDialog(viewingTransaction()!)"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+                type="button"
+              >
+                <i class="pi pi-pencil text-xs"></i> Edit Transaction
+              </button>
+            }
             <button
               (click)="transactionDetailVisible = false"
               class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50"
               type="button"
             >
               Close
+            </button>
+          </div>
+        </div>
+      }
+    </p-dialog>
+
+    <!-- Edit Transaction Dialog -->
+    <p-dialog
+      header="Edit Transaction"
+      [(visible)]="editTransactionDialogVisible"
+      [modal]="true"
+      [style]="{ width: '440px' }"
+      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
+    >
+      @if (editingTransaction()) {
+        <div class="space-y-4">
+          <div>
+            <label for="txn-payment-method" class="mb-1.5 block text-xs font-medium text-muted">Payment Method</label>
+            <select
+              id="txn-payment-method"
+              [(ngModel)]="txnEditForm.payment_method"
+              data-testid="txn-payment-method-select"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              <option value="">— None —</option>
+              <option value="cash">Cash</option>
+              <option value="transfer">Bank Transfer</option>
+              <option value="pos">POS</option>
+              <option value="credit">Credit</option>
+              <option value="cheque">Cheque</option>
+            </select>
+          </div>
+          <div>
+            <label for="txn-payment-status" class="mb-1.5 block text-xs font-medium text-muted">Payment Status</label>
+            <select
+              id="txn-payment-status"
+              [(ngModel)]="txnEditForm.payment_status"
+              data-testid="txn-payment-status-select"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              <option value="paid">Paid</option>
+              <option value="credit">Credit (Owed)</option>
+              <option value="partial">Partial</option>
+            </select>
+          </div>
+          <div>
+            <label for="txn-notes" class="mb-1.5 block text-xs font-medium text-muted">Sale Note</label>
+            <textarea
+              id="txn-notes"
+              [(ngModel)]="txnEditForm.notes"
+              rows="3"
+              data-testid="txn-notes-input"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              placeholder="Optional note for this transaction..."
+            ></textarea>
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <button
+              (click)="editTransactionDialogVisible = false"
+              class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50"
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              (click)="submitTransactionEdit()"
+              [disabled]="saving()"
+              data-testid="save-txn-edit-btn"
+              class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+            >
+              @if (saving()) {
+                <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
+              } @else {
+                <i class="pi pi-check text-sm"></i> Save
+              }
             </button>
           </div>
         </div>
@@ -1077,6 +1171,11 @@ export class SalesPageComponent implements OnInit {
   editDialogVisible = false;
   editingsale = signal<SaleRecord | null>(null);
   editForm: SaleUpdatePayload = {};
+
+  // Edit transaction dialog state
+  editTransactionDialogVisible = false;
+  editingTransaction = signal<SaleTransaction | null>(null);
+  txnEditForm: { payment_method: string; payment_status: string; notes: string } = { payment_method: '', payment_status: 'paid', notes: '' };
 
   // Void dialog state
   voidDialogVisible = false;
@@ -1367,6 +1466,44 @@ export class SalesPageComponent implements OnInit {
           summary: 'Error',
           detail: 'Failed to update sale',
         });
+      },
+    });
+  }
+
+  // ---- Edit Transaction ----
+
+  openEditTransactionDialog(txn: SaleTransaction): void {
+    this.editingTransaction.set(txn);
+    this.txnEditForm = {
+      payment_method: txn.payment_method || '',
+      payment_status: txn.payment_status || 'paid',
+      notes: txn.notes || '',
+    };
+    this.editTransactionDialogVisible = true;
+  }
+
+  submitTransactionEdit(): void {
+    const txn = this.editingTransaction();
+    if (!txn) return;
+
+    this.saving.set(true);
+    const payload: SaleTransactionUpdatePayload = {
+      payment_method: this.txnEditForm.payment_method || null,
+      payment_status: this.txnEditForm.payment_status || null,
+      notes: this.txnEditForm.notes || null,
+    };
+    this.salesService.updateTransaction(txn.transaction_id, payload).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.editTransactionDialogVisible = false;
+        this.editingTransaction.set(null);
+        this.transactionDetailVisible = false;
+        this.messageService.add({ severity: 'success', summary: 'Updated', detail: 'Transaction updated successfully' });
+        this.loadTransactions();
+      },
+      error: () => {
+        this.saving.set(false);
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to update transaction' });
       },
     });
   }

@@ -1273,3 +1273,77 @@ class TestSalesOwnershipChecks:
         with TestClient(self.app) as client:
             resp = client.get(f"/api/v1/sales/{sale.id}")
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Service tests - update_transaction
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateTransaction:
+    @pytest.mark.asyncio
+    async def test_happy_path_updates_all_items_in_group(self):
+        from src.sales.schemas import SaleTransactionUpdate
+        from src.sales.service import update_transaction
+
+        txn_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        sale1 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None)
+        sale2 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None)
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [sale1, sale2]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        data = SaleTransactionUpdate(payment_method="transfer", notes="Group note")
+        updated = await update_transaction(db, txn_id, data, user_id)
+
+        assert sale1.payment_method == "transfer"
+        assert sale2.payment_method == "transfer"
+        assert sale1.notes == "Group note"
+        assert sale2.notes == "Group note"
+        assert len(updated) == 2
+
+    @pytest.mark.asyncio
+    async def test_not_found_raises_error(self):
+        from src.sales.schemas import SaleTransactionUpdate
+        from src.sales.service import update_transaction
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        with pytest.raises(SaleNotFoundError):
+            await update_transaction(
+                db, uuid.uuid4(), SaleTransactionUpdate(payment_method="cash"), uuid.uuid4()
+            )
+
+    @pytest.mark.asyncio
+    async def test_skips_voided_items(self):
+        from src.sales.schemas import SaleTransactionUpdate
+        from src.sales.service import update_transaction
+
+        txn_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        active = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None)
+        voided = _make_sale(
+            transaction_id=txn_id, payment_method="cash", notes=None, status=SaleStatus.VOIDED
+        )
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [active, voided]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await update_transaction(db, txn_id, SaleTransactionUpdate(payment_method="transfer"), user_id)
+
+        assert active.payment_method == "transfer"
+        assert voided.payment_method == "cash"  # unchanged — voided items are skipped
