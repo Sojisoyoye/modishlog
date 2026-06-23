@@ -1325,7 +1325,7 @@ class TestUpdateTransaction:
             )
 
     @pytest.mark.asyncio
-    async def test_skips_voided_items(self):
+    async def test_skips_voided_items_in_mixed_transaction(self):
         from src.sales.schemas import SaleTransactionUpdate
         from src.sales.service import update_transaction
 
@@ -1346,4 +1346,29 @@ class TestUpdateTransaction:
         await update_transaction(db, txn_id, SaleTransactionUpdate(payment_method="transfer"), user_id)
 
         assert active.payment_method == "transfer"
-        assert voided.payment_method == "cash"  # unchanged — voided items are skipped
+        assert voided.payment_method == "cash"  # unchanged
+
+    @pytest.mark.asyncio
+    async def test_all_voided_raises_error(self):
+        from src.sales.schemas import SaleTransactionUpdate
+        from src.sales.service import update_transaction
+
+        txn_id = uuid.uuid4()
+        voided1 = _make_sale(
+            transaction_id=txn_id, payment_method="cash", notes=None, status=SaleStatus.VOIDED
+        )
+        voided2 = _make_sale(
+            transaction_id=txn_id, payment_method="cash", notes=None, status=SaleStatus.VOIDED
+        )
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [voided1, voided2]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        with pytest.raises(SaleAlreadyVoidedError):
+            await update_transaction(
+                db, txn_id, SaleTransactionUpdate(payment_method="transfer"), uuid.uuid4()
+            )

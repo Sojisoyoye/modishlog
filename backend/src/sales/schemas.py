@@ -216,8 +216,8 @@ class SaleTransactionRead(BaseModel):
 
 
 class SaleTransactionUpdate(BaseModel):
-    payment_method: str | None = None
-    payment_status: str | None = None
+    payment_method: str | None = Field(None, pattern=r"^(cash|transfer|pos|credit|cheque)$")
+    payment_status: str | None = Field(None, pattern=r"^(paid|credit|partial)$")
     notes: str | None = None
 
 

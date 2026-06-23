@@ -337,26 +337,31 @@ async def update_transaction(
     user_id: uuid.UUID,
 ) -> list[Sale]:
     """Update transaction-level fields (payment_method, payment_status, notes) across all Sale records in a group."""
-    from src.sales.schemas import SaleTransactionUpdate  # noqa: F401 — type hint only
-
-    result = await db.execute(select(Sale).where(Sale.transaction_id == transaction_id))
+    result = await db.execute(
+        select(Sale).where(Sale.transaction_id == transaction_id).order_by(Sale.created_at)
+    )
     sales = list(result.scalars().all())
 
     if not sales:
         raise SaleNotFoundError(transaction_id)
 
+    active_sales = [s for s in sales if s.status != SaleStatus.VOIDED]
+    if not active_sales:
+        raise SaleAlreadyVoidedError(transaction_id)
+
     update_fields = data.model_dump(exclude_unset=True)
     if not update_fields:
         return sales
 
-    for sale in sales:
-        if sale.status == SaleStatus.VOIDED:
-            continue
+    for sale in active_sales:
         field_changes = {}
         for field, value in update_fields.items():
             old_value = getattr(sale, field)
             if old_value != value:
-                field_changes[field] = {"old": str(old_value), "new": str(value)}
+                field_changes[field] = {
+                    "old": old_value if old_value is not None else None,
+                    "new": value,
+                }
                 setattr(sale, field, value)
         if field_changes:
             audit = SaleAuditEntry(
@@ -806,7 +811,9 @@ async def list_transactions(
 
     transactions = []
     for txn_id in txn_ids:
-        result = await db.execute(select(Sale).where(Sale.transaction_id == txn_id))
+        result = await db.execute(
+            select(Sale).where(Sale.transaction_id == txn_id).order_by(Sale.created_at)
+        )
         items = list(result.scalars().all())
         transactions.append(_build_transaction_read(txn_id, items))
 
@@ -818,7 +825,9 @@ async def get_transaction(
     transaction_id: uuid.UUID,
 ) -> "SaleTransactionRead":
     """Get all Sale records for a given transaction_id."""
-    result = await db.execute(select(Sale).where(Sale.transaction_id == transaction_id))
+    result = await db.execute(
+        select(Sale).where(Sale.transaction_id == transaction_id).order_by(Sale.created_at)
+    )
     items = list(result.scalars().all())
     if not items:
         raise SaleNotFoundError(transaction_id)

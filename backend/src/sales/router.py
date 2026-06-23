@@ -7,6 +7,7 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user, require_any_role
@@ -25,6 +26,7 @@ from src.sales.exceptions import (
     SaleNotFoundError,
     SaleValidationError,
 )
+from src.sales.models import Sale
 from src.sales.schemas import (
     AuditEntryRead,
     BulkUploadResponse,
@@ -272,10 +274,20 @@ async def update_transaction_endpoint(
 ):
     """Update payment method, payment status, and notes for all items in a transaction."""
     try:
+        probe = await db.execute(
+            select(Sale).where(Sale.transaction_id == transaction_id).limit(1)
+        )
+        first_sale = probe.scalars().first()
+        if first_sale is None:
+            raise SaleNotFoundError(transaction_id)
+        _check_ownership(first_sale.recorded_by, current_user)
+
         await update_transaction(db, transaction_id, body, current_user.id)
         return await get_transaction(db, transaction_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except SaleAlreadyVoidedError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
 
 @router.get("/export.csv")
