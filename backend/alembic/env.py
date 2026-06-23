@@ -19,13 +19,17 @@ from src.core.database import Base
 from src.auth.models import User, PasswordResetToken  # noqa: F401
 from src.products.models import Product, ProductCategory, PriceHistory  # noqa: F401
 from src.inventory.models import InventoryLevel, StockMovement, LowStockAlert  # noqa: F401
-from src.sales.models import Sale, SaleBulkUploadJob, SaleAuditEntry  # noqa: F401
+from src.sales.models import Sale, SaleBulkUploadJob, SaleAuditEntry, SellReturn  # noqa: F401
 from src.orders.models import (  # noqa: F401
     PurchaseOrder,
     OrderLineItem,
     OrderStatusHistory,
     OrderPayment,
+    PurchaseReturn,
 )
+from src.locations.models import BusinessLocation  # noqa: F401
+from src.suppliers.models import Supplier, SupplierProduct  # noqa: F401
+from src.customers.models import Customer  # noqa: F401
 from src.fx.models import (  # noqa: F401
     FXRate,
     FXExposure,

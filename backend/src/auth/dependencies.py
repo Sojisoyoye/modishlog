@@ -37,6 +37,7 @@ async def get_current_user(
         user_id = payload.get("sub")
         if user_id is None:
             raise ValueError("Missing sub claim")
+        user_uuid = uuid.UUID(user_id)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -44,7 +45,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = await db.get(User, uuid.UUID(user_id))
+    user = await db.get(User, user_uuid)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

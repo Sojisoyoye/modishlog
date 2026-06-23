@@ -293,6 +293,9 @@ class PurchaseReturn(UUIDMixin, TimestampMixin, Base):
     return_date: Mapped[date] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    amount_paid: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6), default=Decimal("0"), server_default="0"
+    )
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
 
     original_order: Mapped["PurchaseOrder"] = relationship(

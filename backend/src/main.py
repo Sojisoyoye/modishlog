@@ -113,6 +113,10 @@ from src.settings.router import router as settings_router  # noqa: E402
 
 app.include_router(settings_router, prefix="/api/v1", tags=["settings"])
 
+from src.dashboard.router import router as dashboard_router  # noqa: E402
+
+app.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"])
+
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
