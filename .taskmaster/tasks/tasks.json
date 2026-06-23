@@ -4255,12 +4255,143 @@
         "priority": "low",
         "subtasks": [],
         "updatedAt": "2026-06-22T16:38:31.947Z"
+      },
+      {
+        "id": "126",
+        "title": "Dashboard Overview Page — KPI Summary Cards",
+        "description": "Implement the main dashboard overview page with a personalized welcome header, location filter, date filter, and 8 KPI summary cards displaying financial totals for the selected location and date range.",
+        "details": "## Layout & Structure\n\n### Header Section\n- Blue-to-dark-navy gradient banner spanning full width\n- Personalized greeting: **\"Welcome {firstName},\"** (bold, white, large text) rendered from the authenticated user's profile\n- Two controls on the same row below the greeting:\n  - **Left**: \"Select location\" dropdown — filters all KPI cards by the chosen business location (shows all locations when blank)\n  - **Right**: \"Filter by date\" button (calendar icon + caret) — opens a date-range picker; filters all KPI cards by the chosen period\n\n---\n\n## KPI Cards — Row 1\n\nAll cards share a white card container with a rounded coloured circle icon on the left, a label above the value, and the financial total in **large bold text** formatted as `₦ X,XXX.XX`.\n\n### 1. Total Sales\n- **Icon**: Shopping cart, teal/cyan background\n- **Label**: TOTAL SALES\n- **Value**: Sum of all completed sale amounts for the selected location + date range\n\n### 2. NET\n- **Icon**: Document/ledger, green background\n- **Label**: NET (with an ℹ info icon that shows a tooltip explaining the calculation: Total Sales − Cost of Goods Sold − Expenses)\n- **Value**: Net profit for the selected filters\n\n### 3. Invoice Due\n- **Icon**: Invoice/alert document, orange background\n- **Label**: INVOICE DUE\n- **Value**: Total outstanding (unpaid) invoice balance for the selected filters\n\n### 4. Total Sell Return\n- **Icon**: Bidirectional arrows (swap), pink/red background\n- **Label**: TOTAL SELL RETURN\n- **Value**: Combined sell-return total\n- **Sub-lines** (smaller text below the main value):\n  - `Total Sell Return: ₦ X.XX` — gross return amount\n  - `Total Sell Return Paid: ₦ X.XX` — portion already refunded to customers\n\n---\n\n## KPI Cards — Row 2\n\n### 5. Total Purchase\n- **Icon**: Cash/banknotes, teal/cyan background\n- **Label**: TOTAL PURCHASE\n- **Value**: Sum of all purchase order amounts for the selected filters\n\n### 6. Purchase Due\n- **Icon**: Exclamation mark circle, orange background\n- **Label**: PURCHASE DUE\n- **Value**: Total outstanding (unpaid) purchase balance owed to suppliers\n\n### 7. Total Purchase Return\n- **Icon**: Circular refresh/undo arrow, pink/red background\n- **Label**: TOTAL PURCHASE RETURN\n- **Value**: Combined purchase-return total\n- **Sub-lines** (smaller text below the main value):\n  - `Total Purchase Return: ₦ X.XX` — gross return amount\n  - `Total Purchase Return Paid: ₦ X.XX` — portion already credited/received back\n\n### 8. Expense\n- **Icon**: Minus/subtract circle, pink/red background\n- **Label**: EXPENSE\n- **Value**: Total logged business expenses for the selected filters\n\n---\n\n## Backend API\n\nCreate `GET /api/dashboard/summary` endpoint:\n- **Query params**: `location_id` (optional UUID), `date_from` (ISO date), `date_to` (ISO date)\n- **Response schema**:\n```json\n{\n  \"total_sales\": \"Decimal\",\n  \"net\": \"Decimal\",\n  \"invoice_due\": \"Decimal\",\n  \"total_sell_return\": \"Decimal\",\n  \"total_sell_return_paid\": \"Decimal\",\n  \"total_purchase\": \"Decimal\",\n  \"purchase_due\": \"Decimal\",\n  \"total_purchase_return\": \"Decimal\",\n  \"total_purchase_return_paid\": \"Decimal\",\n  \"expense\": \"Decimal\"\n}\n```\n- All monetary values must use Python `Decimal`; never `float`\n- Use async SQLAlchemy queries with `selectinload()` where relationships are involved\n- Scope all queries to the authenticated user's business (`current_user.business_id`)\n\n## Frontend\n\n- Angular standalone component `DashboardOverviewComponent` at `frontend/src/app/features/dashboard/pages/`\n- Use Angular Signals for reactive state (`locationSignal`, `dateRangeSignal`)\n- Call `DashboardService.getSummary(locationId, dateFrom, dateTo)` which hits the API above\n- Currency pipe: display all values as Nigerian Naira `₦` with 2 decimal places\n- KPI card subcomponent `KpiCardComponent` (reusable): accepts `label`, `value`, `iconClass`, `iconColor`, `subLines?: {label, value}[]`\n- Responsive grid: 4 columns on desktop, 2 on tablet, 1 on mobile (TailwindCSS)\n- Loading skeleton state while API call is in flight\n- Error state with retry button if API call fails\n\n## Tech notes\n- Static `/dashboard` route before any parameterized routes (FastAPI rule)\n- PrimeNG `p-dropdown` for location selector, `p-calendar` with range mode for date filter\n- Icon colours: teal = `#17A2B8`, green = `#28A745`, orange = `#FFC107`, pink/red = `#E74C3C`",
+        "testStrategy": "**Backend (pytest — TDD: write tests first)**\n1. Happy path: `GET /api/dashboard/summary` returns correct aggregated totals for a seeded dataset\n2. Location filter: totals change when `location_id` is supplied vs omitted\n3. Date range filter: totals only include transactions within the specified window\n4. Empty state: all values return `0.00` when no transactions exist\n5. Auth guard: unauthenticated request returns 401\n6. Cross-business isolation: user cannot see another business's data\n\n**Frontend (Playwright E2E — TDD: write tests first)**\n1. Dashboard loads and displays all 8 KPI card labels\n2. All values default to `₦ 0.00` on a fresh account with no data\n3. Selecting a location from the dropdown re-fetches and updates card values\n4. Applying a date filter updates card values accordingly\n5. Sell Return card shows both sub-lines (`Total Sell Return` + `Total Sell Return Paid`)\n6. Purchase Return card shows both sub-lines\n7. Loading skeleton is visible during API call; disappears on completion\n8. Error state renders correctly when API returns 500",
+        "status": "in-progress",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Write backend pytest tests for GET /api/dashboard/summary",
+            "description": "TDD first: write all 6 backend tests for the dashboard summary endpoint before any implementation exists.",
+            "details": "Create tests/dashboard/test_dashboard_summary.py. Seed the test DB with sales, purchases, expenses, sell returns, purchase returns, and invoices across two locations and date ranges. Write 6 test cases: (1) happy path — correct aggregated totals for seeded data, (2) location_id filter — totals change when location_id is supplied vs omitted, (3) date_from/date_to filter — only transactions within the window are counted, (4) empty state — all 10 fields return Decimal(\"0.00\") when no data exists, (5) auth guard — unauthenticated request returns 401, (6) cross-business isolation — user A cannot see user B business data. Use pytest-asyncio and httpx AsyncClient. All expected values must be Python Decimal, never float. Tests must FAIL until the endpoint is implemented.",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 126,
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement DashboardSummary Pydantic schema and async service query",
+            "description": "Create the response schema and the async SQLAlchemy service function that aggregates all 10 KPI values.",
+            "details": "In backend/src/dashboard/schemas.py define DashboardSummaryResponse with 10 Decimal fields: total_sales, net, invoice_due, total_sell_return, total_sell_return_paid, total_purchase, purchase_due, total_purchase_return, total_purchase_return_paid, expense. In backend/src/dashboard/service.py implement async get_dashboard_summary(db, business_id, location_id=None, date_from=None, date_to=None). Each KPI is a separate scalar query with optional location and date filters. Net = total_sales - sum(purchase_cost) - expense. All returned values must be Decimal, defaulting to Decimal(\"0.00\") when no rows match. Use selectinload() where relationships are traversed. Tests from subtask 126.1 must pass after this subtask.",
+            "status": "pending",
+            "dependencies": [
+              "126.1"
+            ],
+            "parentTaskId": 126,
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement GET /api/dashboard/summary FastAPI router and register it",
+            "description": "Wire the service function to a FastAPI router, register it in main.py, and confirm all 6 backend tests pass.",
+            "details": "Create backend/src/dashboard/router.py. Register a static GET /summary route (static before any parameterised routes per project rules). Accept query params: location_id (optional UUID), date_from (optional date), date_to (optional date). Inject db session and current_user via FastAPI Depends. Call get_dashboard_summary() scoped to current_user.business_id. Return DashboardSummaryResponse. Register router in backend/src/main.py under prefix /api/dashboard. Confirm: docker compose exec backend pytest tests/dashboard/ — all 6 tests green.",
+            "status": "pending",
+            "dependencies": [
+              "126.2"
+            ],
+            "parentTaskId": 126,
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Write Playwright E2E tests for the dashboard overview page",
+            "description": "TDD first: write all 8 Playwright E2E tests before any frontend component exists.",
+            "details": "Create frontend/e2e/dashboard/dashboard-overview.spec.ts. Use loginViaAPI() helper for auth. Write 8 test cases: (1) page loads and shows \"Welcome {name},\" heading, (2) all 8 KPI card labels are visible: TOTAL SALES, NET, INVOICE DUE, TOTAL SELL RETURN, TOTAL PURCHASE, PURCHASE DUE, TOTAL PURCHASE RETURN, EXPENSE, (3) values default to N 0.00 on empty account, (4) location dropdown exists and selecting a location triggers a re-fetch, (5) Filter by date button opens a calendar picker, (6) Sell Return card shows both sub-lines: \"Total Sell Return\" and \"Total Sell Return Paid\", (7) Purchase Return card shows both sub-lines: \"Total Purchase Return\" and \"Total Purchase Return Paid\", (8) loading skeleton is visible during API call and disappears on completion. Tests must FAIL until the component is implemented.",
+            "status": "pending",
+            "dependencies": [
+              "126.3"
+            ],
+            "parentTaskId": 126,
+            "parentId": "undefined"
+          },
+          {
+            "id": 5,
+            "title": "Create reusable KpiCardComponent (presentational)",
+            "description": "Build the shared Angular standalone KPI card component used by all 8 dashboard cards.",
+            "details": "Create frontend/src/app/shared/components/kpi-card/kpi-card.component.ts as an Angular 21 standalone component. Inputs: label (string), value (string, pre-formatted currency), iconClass (string, PrimeIcon class), iconBgColor (string, hex), subLines (optional array of {label: string; value: string} rendered as smaller rows below the main value), loading (boolean, shows skeleton when true). Template: white rounded card, coloured circle on the left containing the PrimeIcon, label in small-caps above the large bold value, sub-lines below in smaller text. Use TailwindCSS v4 for all styles. Pure presentational — no business logic or service calls.",
+            "status": "pending",
+            "dependencies": [
+              "126.4"
+            ],
+            "parentTaskId": 126,
+            "parentId": "undefined"
+          },
+          {
+            "id": 6,
+            "title": "Create DashboardService connecting to GET /api/dashboard/summary",
+            "description": "Angular service that calls the backend summary endpoint and returns a typed Observable.",
+            "details": "Create frontend/src/app/features/dashboard/services/dashboard.service.ts as an Angular injectable. Define DashboardSummary interface in frontend/src/app/features/dashboard/models/dashboard.model.ts with all 10 string fields (backend Decimal serialises to string over JSON). Method: getSummary(locationId: string | null, dateFrom: string | null, dateTo: string | null): Observable<DashboardSummary>. Build HttpParams conditionally — omit null values. Use Angular HttpClient. Re-throw HTTP errors so the component can display an error state. No client-side caching at this stage.",
+            "status": "pending",
+            "dependencies": [
+              "126.5"
+            ],
+            "parentTaskId": 126,
+            "parentId": "undefined"
+          },
+          {
+            "id": 7,
+            "title": "Implement DashboardOverviewComponent with header, filters, and KPI card grid",
+            "description": "Build the main dashboard page component wiring together the welcome header, location dropdown, date filter, and all 8 KPI cards.",
+            "details": "Create frontend/src/app/features/dashboard/pages/dashboard-overview/dashboard-overview.component.ts as Angular 21 standalone. Signals: locationSignal = signal<string|null>(null), dateRangeSignal = signal<{from:string;to:string}|null>(null), summarySignal = signal<DashboardSummary|null>(null), loadingSignal = signal(false), errorSignal = signal(false). On init and on any filter change call DashboardService.getSummary(); set loadingSignal(true) before and false after; set errorSignal(true) on HTTP error. Header: full-width blue-to-dark-navy gradient banner, \"Welcome {user.firstName},\" in bold white. Controls row: PrimeNG p-dropdown bound to locationSignal, PrimeNG p-calendar in range mode bound to dateRangeSignal labelled \"Filter by date\" with calendar icon. KPI grid: TailwindCSS grid-cols-4 lg, grid-cols-2 md, grid-cols-1 sm. Render 8 KpiCardComponent instances: Total Sales, NET, Invoice Due, Total Sell Return (row 1), Total Purchase, Purchase Due, Total Purchase Return, Expense (row 2). Pass loading=loadingSignal() to all cards. Error state: \"Failed to load data\" banner with Retry button. Format values with Naira symbol and 2 decimal places.",
+            "status": "pending",
+            "dependencies": [
+              "126.6"
+            ],
+            "parentTaskId": 126,
+            "parentId": "undefined"
+          },
+          {
+            "id": 8,
+            "title": "Register /dashboard route and populate location dropdown options",
+            "description": "Wire the dashboard page into Angular routing with AuthGuard and populate the location dropdown from LocationService.",
+            "details": "In frontend/src/app/app.routes.ts add lazy-loaded route {path: \"dashboard\", component: DashboardOverviewComponent} guarded by AuthGuard. Ensure it appears before any parameterised routes. In DashboardOverviewComponent inject LocationService (already exists) and call listLocations() on init to populate p-dropdown options as {label: location.name, value: location.id}. Prepend {label: \"All locations\", value: null} as the first option to reset the filter. Confirm: ng build compiles with zero errors.",
+            "status": "pending",
+            "dependencies": [
+              "126.7"
+            ],
+            "parentTaskId": 126,
+            "parentId": "undefined"
+          },
+          {
+            "id": 9,
+            "title": "Apply final visual polish — icons, colours, typography, responsive layout",
+            "description": "Tune all visual details to match the screenshot exactly: correct icon per card, brand colours, card spacing, gradient header, responsive breakpoints.",
+            "details": "Apply exact icon colours: teal #17A2B8 for Total Sales and Total Purchase, green #28A745 for NET, orange #FFC107 for Invoice Due and Purchase Due, pink/red #E74C3C for Total Sell Return, Total Purchase Return, and Expense. PrimeIcons: pi-shopping-cart (Total Sales), pi-file (NET), pi-file-edit (Invoice Due), pi-arrow-right-arrow-left (Total Sell Return), pi-money-bill (Total Purchase), pi-exclamation-circle (Purchase Due), pi-replay (Total Purchase Return), pi-minus-circle (Expense). NET card: attach PrimeNG p-tooltip to the info icon with text \"Net = Total Sales minus Cost of Goods Sold minus Expenses\". Responsive grid: 4 cols lg+, 2 cols md, 1 col sm. Card padding, font sizes, and sub-line text must match the screenshot. Run Playwright E2E suite after styling — all 8 tests must remain green.",
+            "status": "pending",
+            "dependencies": [
+              "126.8"
+            ],
+            "parentTaskId": 126,
+            "parentId": "undefined"
+          },
+          {
+            "id": 10,
+            "title": "Run full test suite and open PR",
+            "description": "Final gate: all backend and frontend tests pass, ng build compiles, then open the PR targeting main.",
+            "details": "Run: docker compose exec backend pytest tests/ — confirm all tests including the 6 new dashboard tests pass. Run: ng build — confirm zero compilation errors. Run: npx playwright test frontend/e2e/dashboard/dashboard-overview.spec.ts — confirm all 8 E2E tests pass. Fix any regressions before opening the PR. Open PR with title \"feat(dashboard): KPI summary cards overview page\" targeting main. PR description must reference task #126 and summarise what was implemented.",
+            "status": "pending",
+            "dependencies": [
+              "126.9"
+            ],
+            "parentTaskId": 126,
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-06-23T16:16:09.229Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-06-22T16:38:31.951Z",
-      "taskCount": 125,
+      "lastModified": "2026-06-23T16:16:09.230Z",
+      "taskCount": 126,
       "completedCount": 125,
       "tags": [
         "master"

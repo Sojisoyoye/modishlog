@@ -91,6 +91,12 @@ class Sale(UUIDMixin, TimestampMixin, Base):
     )
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    location_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("business_locations.id", ondelete="SET NULL"),
+        nullable=True,
+        default=None,
+        index=True,
+    )
 
     def __repr__(self) -> str:
         return f"<Sale(id={self.id}, product_id={self.product_id}, total={self.total_amount})>"
@@ -134,3 +140,23 @@ class SaleAuditEntry(UUIDMixin, Base):
 
     def __repr__(self) -> str:
         return f"<SaleAuditEntry(id={self.id}, sale_id={self.sale_id}, action={self.action})>"
+
+
+class SellReturn(UUIDMixin, TimestampMixin, Base):
+    """Return of goods against a completed sale."""
+
+    __tablename__ = "sell_returns"
+
+    sale_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sales.id"), index=True
+    )
+    return_date: Mapped[date] = mapped_column(Date)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    amount_paid: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6), default=Decimal("0")
+    )
+    notes: Mapped[str | None] = mapped_column(Text, default=None)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+
+    def __repr__(self) -> str:
+        return f"<SellReturn(id={self.id}, sale_id={self.sale_id}, amount={self.total_amount})>"

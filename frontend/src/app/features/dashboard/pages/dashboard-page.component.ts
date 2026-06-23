@@ -1,18 +1,149 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { DecimalPipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { Select } from 'primeng/select';
+import { DatePicker } from 'primeng/datepicker';
+import { Tooltip } from 'primeng/tooltip';
+import { FormsModule } from '@angular/forms';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
+import { KpiCardComponent, KpiSubLine } from '../../../shared/components/kpi-card/kpi-card.component';
 import { DashboardService, DashboardData } from '../../../core/services/dashboard.service';
 import { CashflowService, GlobalExposure, TriageStatusResponse } from '../../../core/services/cashflow.service';
 import { OrdersService, LogisticsEfficiency } from '../../../core/services/orders.service';
 import { FxService } from '../../../core/services/fx.service';
+import { DashboardKpiService } from '../services/dashboard-kpi.service';
+import { DashboardKpiSummary } from '../models/dashboard-kpi.model';
+import { LocationsService, Location } from '../../../core/services/locations.service';
+import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   selector: 'app-dashboard-page',
   standalone: true,
-  imports: [DecimalPipe, CurrencyPipe, UpperCasePipe, RouterLink, StatusBadgeComponent],
+  imports: [
+    DecimalPipe, CurrencyPipe, UpperCasePipe, RouterLink,
+    StatusBadgeComponent, KpiCardComponent,
+    Select, DatePicker, Tooltip, FormsModule,
+  ],
   template: `
     <div>
+      <!-- ============================================================
+           KPI Summary Banner (Task 126)
+           ============================================================ -->
+      <div class="mb-6 rounded-xl bg-gradient-to-r from-blue-600 to-slate-800 p-6 text-white shadow">
+        <!-- Welcome heading -->
+        <h1 class="mb-4 text-2xl font-bold">Welcome {{ userName() }},</h1>
+
+        <!-- Filters row -->
+        <div class="flex flex-wrap items-center gap-3">
+          <p-select
+            [options]="locationOptions()"
+            [(ngModel)]="selectedLocationId"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="Select location"
+            [showClear]="true"
+            styleClass="w-56"
+            (onChange)="onLocationChange()"
+            data-testid="location-dropdown"
+          />
+          <p-datepicker
+            [(ngModel)]="dateRange"
+            selectionMode="range"
+            [readonlyInput]="true"
+            placeholder="Filter by date"
+            (onSelect)="onDateChange()"
+            (onClearClick)="onDateChange()"
+            [showButtonBar]="true"
+            [iconDisplay]="'input'"
+            [showIcon]="true"
+          >
+            <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
+              <i class="pi pi-calendar cursor-pointer" (click)="clickCallBack($event)"></i>
+            </ng-template>
+          </p-datepicker>
+        </div>
+      </div>
+
+      <!-- KPI cards grid -->
+      <div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <!-- Row 1 -->
+        <app-kpi-card
+          label="TOTAL SALES"
+          iconClass="pi pi-shopping-cart"
+          iconBgColor="#17A2B8"
+          [value]="kpi()?.total_sales ?? '0.00'"
+          [loading]="kpiLoading()"
+        />
+        <app-kpi-card
+          label="NET"
+          iconClass="pi pi-file"
+          iconBgColor="#28A745"
+          [value]="kpi()?.net ?? '0.00'"
+          [loading]="kpiLoading()"
+          [tooltipText]="'Net = Total Sales − Cost of Goods Sold − Expenses'"
+        />
+        <app-kpi-card
+          label="INVOICE DUE"
+          iconClass="pi pi-file-edit"
+          iconBgColor="#FFC107"
+          [value]="kpi()?.invoice_due ?? '0.00'"
+          [loading]="kpiLoading()"
+        />
+        <app-kpi-card
+          label="TOTAL SELL RETURN"
+          iconClass="pi pi-arrow-right-arrow-left"
+          iconBgColor="#E74C3C"
+          [value]="kpi()?.total_sell_return ?? '0.00'"
+          [loading]="kpiLoading()"
+          [subLines]="sellReturnSubLines()"
+        />
+
+        <!-- Row 2 -->
+        <app-kpi-card
+          label="TOTAL PURCHASE"
+          iconClass="pi pi-money-bill"
+          iconBgColor="#17A2B8"
+          [value]="kpi()?.total_purchase ?? '0.00'"
+          [loading]="kpiLoading()"
+        />
+        <app-kpi-card
+          label="PURCHASE DUE"
+          iconClass="pi pi-exclamation-circle"
+          iconBgColor="#FFC107"
+          [value]="kpi()?.purchase_due ?? '0.00'"
+          [loading]="kpiLoading()"
+        />
+        <app-kpi-card
+          label="TOTAL PURCHASE RETURN"
+          iconClass="pi pi-replay"
+          iconBgColor="#E74C3C"
+          [value]="kpi()?.total_purchase_return ?? '0.00'"
+          [loading]="kpiLoading()"
+          [subLines]="purchaseReturnSubLines()"
+        />
+        <app-kpi-card
+          label="EXPENSE"
+          iconClass="pi pi-minus-circle"
+          iconBgColor="#E74C3C"
+          [value]="kpi()?.expense ?? '0.00'"
+          [loading]="kpiLoading()"
+        />
+      </div>
+
+      @if (kpiError()) {
+        <div class="mb-4 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
+          <i class="pi pi-exclamation-triangle text-danger"></i>
+          <p class="text-sm text-danger">Failed to load KPI data.</p>
+          <button
+            class="ml-auto text-xs font-medium text-danger underline"
+            (click)="loadKpi()"
+          >Retry</button>
+        </div>
+      }
+      <!-- ============================================================
+           End KPI Banner
+           ============================================================ -->
+
       <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 class="text-2xl font-bold text-text">Dashboard</h2>
@@ -367,6 +498,36 @@ export class DashboardPageComponent implements OnInit {
   private readonly cashflowService = inject(CashflowService);
   private readonly ordersService = inject(OrdersService);
   private readonly fxService = inject(FxService);
+  private readonly kpiService = inject(DashboardKpiService);
+  private readonly locationsService = inject(LocationsService);
+  private readonly authService = inject(AuthService);
+
+  // KPI state
+  kpi = signal<DashboardKpiSummary | null>(null);
+  kpiLoading = signal(false);
+  kpiError = signal(false);
+  userName = signal('');
+  locationOptions = signal<{ label: string; value: string | null }[]>([
+    { label: 'All locations', value: null },
+  ]);
+  selectedLocationId: string | null = null;
+  dateRange: Date[] | null = null;
+
+  sellReturnSubLines = computed<KpiSubLine[]>(() => {
+    const k = this.kpi();
+    return [
+      { label: 'Total Sell Return', value: k?.total_sell_return ?? '0.00' },
+      { label: 'Total Sell Return Paid', value: k?.total_sell_return_paid ?? '0.00' },
+    ];
+  });
+
+  purchaseReturnSubLines = computed<KpiSubLine[]>(() => {
+    const k = this.kpi();
+    return [
+      { label: 'Total Purchase Return', value: k?.total_purchase_return ?? '0.00' },
+      { label: 'Total Purchase Return Paid', value: k?.total_purchase_return_paid ?? '0.00' },
+    ];
+  });
 
   loading = signal(true);
   liveRates = signal<{ usd_ngn: number; eur_ngn: number | null } | null>(null);
@@ -402,7 +563,53 @@ export class DashboardPageComponent implements OnInit {
     return 'pi pi-minus text-warning';
   }
 
+  loadKpi(): void {
+    this.kpiError.set(false);
+    this.kpiLoading.set(true);
+    const dateFrom = this.dateRange?.[0]
+      ? this.dateRange[0].toISOString().slice(0, 10)
+      : null;
+    const dateTo = this.dateRange?.[1]
+      ? this.dateRange[1].toISOString().slice(0, 10)
+      : null;
+    this.kpiService.getSummary(this.selectedLocationId, dateFrom, dateTo).subscribe({
+      next: (data) => {
+        this.kpi.set(data);
+        this.kpiLoading.set(false);
+      },
+      error: () => {
+        this.kpiLoading.set(false);
+        this.kpiError.set(true);
+      },
+    });
+  }
+
+  onLocationChange(): void {
+    this.loadKpi();
+  }
+
+  onDateChange(): void {
+    this.loadKpi();
+  }
+
   ngOnInit(): void {
+    this.loadKpi();
+
+    this.authService.checkSession().subscribe({
+      next: (user) => {
+        if (user) this.userName.set(user.full_name.split(' ')[0]);
+      },
+    });
+
+    this.locationsService.getAll(undefined, true).subscribe({
+      next: (res) => {
+        this.locationOptions.set([
+          { label: 'All locations', value: null },
+          ...res.items.map((l: Location) => ({ label: l.name, value: l.id })),
+        ]);
+      },
+    });
+
     this.dashboardService.loadDashboard().subscribe({
       next: (d) => {
         this.data.set(d);
