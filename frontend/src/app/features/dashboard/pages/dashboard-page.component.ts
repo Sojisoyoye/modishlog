@@ -1,7 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit, DestroyRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, EMPTY } from 'rxjs';
-import { switchMap, catchError } from 'rxjs/operators';
+import { switchMap, catchError, debounceTime } from 'rxjs/operators';
 import { DecimalPipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Select } from 'primeng/select';
@@ -586,11 +586,13 @@ export class DashboardPageComponent implements OnInit {
   }
 
   onDateChange(): void {
+    if (!this.dateRange?.[0] || !this.dateRange?.[1]) return;
     this.loadKpi();
   }
 
   ngOnInit(): void {
     this.kpiTrigger$.pipe(
+      debounceTime(300),
       switchMap(({ locationId, dateFrom, dateTo }) => {
         this.kpiLoading.set(true);
         this.kpiError.set(false);

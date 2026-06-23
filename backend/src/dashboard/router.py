@@ -3,10 +3,10 @@
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_user
+from src.auth.dependencies import get_current_active_user
 from src.auth.models import User
 from src.core.database import get_db
 from src.dashboard.schemas import DashboardSummaryResponse
@@ -17,13 +17,19 @@ router = APIRouter()
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
 async def dashboard_summary(
+    response: Response,
     location_id: uuid.UUID | None = Query(default=None),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> DashboardSummaryResponse:
     """Return aggregated KPI totals for the authenticated user's business."""
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(
+            status_code=422, detail="date_from must not be after date_to"
+        )
+    response.headers["Cache-Control"] = "no-store, private"
     return await get_dashboard_summary(
         db=db,
         user_id=current_user.id,

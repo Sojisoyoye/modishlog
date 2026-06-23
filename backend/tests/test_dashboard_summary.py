@@ -62,7 +62,7 @@ def _setup_app(user, summary_override=None, svc_mock=None):
     """Return a TestClient with db and auth dependencies overridden."""
     from src.main import app
     from src.core.database import get_db
-    from src.auth.dependencies import get_current_user
+    from src.auth.dependencies import get_current_user, get_current_active_user
 
     db_mock = AsyncMock()
 
@@ -75,6 +75,7 @@ def _setup_app(user, summary_override=None, svc_mock=None):
     _saved_overrides[id(app)] = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = _fake_db
     app.dependency_overrides[get_current_user] = _fake_auth
+    app.dependency_overrides[get_current_active_user] = _fake_auth
     return app, db_mock
 
 

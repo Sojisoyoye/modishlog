@@ -1,14 +1,17 @@
 """Dashboard domain — KPI summary aggregation service."""
 
+import asyncio
 import uuid
 from datetime import date
 from decimal import Decimal
 
+from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
 from src.dashboard.schemas import DashboardSummaryResponse
+from src.locations.models import BusinessLocation
 from src.orders.models import OrderPaymentStatus, PurchaseOrder, PurchaseReturn
 from src.sales.models import Sale, SaleStatus, SellReturn
 
@@ -25,7 +28,18 @@ async def get_dashboard_summary(
 ) -> DashboardSummaryResponse:
     """Aggregate all 10 KPI values for the dashboard summary."""
 
-    # -- Total Sales (completed) ------------------------------------------
+    # -- Location ownership guard -----------------------------------------
+    if location_id is not None:
+        owned = await db.scalar(
+            select(BusinessLocation.id).where(
+                BusinessLocation.id == location_id,
+                BusinessLocation.created_by == user_id,
+            )
+        )
+        if owned is None:
+            raise HTTPException(status_code=404, detail="Location not found")
+
+    # -- Build all queries ------------------------------------------------
     q = select(func.coalesce(func.sum(Sale.total_amount), _ZERO)).where(
         Sale.recorded_by == user_id,
         Sale.status == SaleStatus.COMPLETED,
@@ -36,9 +50,7 @@ async def get_dashboard_summary(
         q = q.where(Sale.sale_date >= date_from)
     if date_to:
         q = q.where(Sale.sale_date <= date_to)
-    total_sales: Decimal = (await db.execute(q)).scalar_one()
 
-    # -- COGS (sum of fifo_cogs on completed sales) ------------------------
     q_cogs = select(func.coalesce(func.sum(Sale.fifo_cogs), _ZERO)).where(
         Sale.recorded_by == user_id,
         Sale.status == SaleStatus.COMPLETED,
@@ -50,27 +62,16 @@ async def get_dashboard_summary(
         q_cogs = q_cogs.where(Sale.sale_date >= date_from)
     if date_to:
         q_cogs = q_cogs.where(Sale.sale_date <= date_to)
-    total_cogs: Decimal = (await db.execute(q_cogs)).scalar_one()
 
-    # -- Expense (active operating costs created by this user) -------------
-    # OperatingCost stores a normalised monthly rate. When a bounded date
-    # range is given we pro-rate to avoid over-subtracting from net.
+    # OperatingCost stores a normalised monthly rate; pro-rate when a
+    # bounded date range is given to avoid over-subtracting from net.
     q_exp = select(
         func.coalesce(func.sum(OperatingCost.monthly_equivalent), _ZERO)
     ).where(
         OperatingCost.created_by == user_id,
         OperatingCost.is_active.is_(True),
     )
-    raw_monthly_expense: Decimal = (await db.execute(q_exp)).scalar_one()
-    if date_from and date_to:
-        range_days = Decimal((date_to - date_from).days + 1)
-        expense = raw_monthly_expense * range_days / Decimal(30)
-    else:
-        expense = raw_monthly_expense
 
-    net = total_sales - total_cogs - expense
-
-    # -- Invoice Due (sales with payment_status != 'paid') -----------------
     q_inv = select(func.coalesce(func.sum(Sale.total_amount), _ZERO)).where(
         Sale.recorded_by == user_id,
         Sale.status == SaleStatus.COMPLETED,
@@ -82,13 +83,12 @@ async def get_dashboard_summary(
         q_inv = q_inv.where(Sale.sale_date >= date_from)
     if date_to:
         q_inv = q_inv.where(Sale.sale_date <= date_to)
-    invoice_due: Decimal = (await db.execute(q_inv)).scalar_one()
 
-    # -- Sell Return -------------------------------------------------------
-    # Join SellReturn → Sale to scope by user, location, and status.
-    q_sr = select(func.coalesce(func.sum(SellReturn.total_amount), _ZERO)).join(
-        Sale, SellReturn.sale_id == Sale.id
-    ).where(
+    # Merged sell-return query: both sums in one JOIN to halve the DB work.
+    q_sr = select(
+        func.coalesce(func.sum(SellReturn.total_amount), _ZERO),
+        func.coalesce(func.sum(SellReturn.amount_paid), _ZERO),
+    ).join(Sale, SellReturn.sale_id == Sale.id).where(
         Sale.recorded_by == user_id,
         Sale.status == SaleStatus.COMPLETED,
     )
@@ -98,23 +98,7 @@ async def get_dashboard_summary(
         q_sr = q_sr.where(SellReturn.return_date >= date_from)
     if date_to:
         q_sr = q_sr.where(SellReturn.return_date <= date_to)
-    total_sell_return: Decimal = (await db.execute(q_sr)).scalar_one()
 
-    q_srp = select(func.coalesce(func.sum(SellReturn.amount_paid), _ZERO)).join(
-        Sale, SellReturn.sale_id == Sale.id
-    ).where(
-        Sale.recorded_by == user_id,
-        Sale.status == SaleStatus.COMPLETED,
-    )
-    if location_id:
-        q_srp = q_srp.where(Sale.location_id == location_id)
-    if date_from:
-        q_srp = q_srp.where(SellReturn.return_date >= date_from)
-    if date_to:
-        q_srp = q_srp.where(SellReturn.return_date <= date_to)
-    total_sell_return_paid: Decimal = (await db.execute(q_srp)).scalar_one()
-
-    # -- Total Purchase ----------------------------------------------------
     q_po = select(func.coalesce(func.sum(PurchaseOrder.total_amount), _ZERO)).where(
         PurchaseOrder.created_by == user_id,
     )
@@ -124,9 +108,7 @@ async def get_dashboard_summary(
         q_po = q_po.where(PurchaseOrder.order_date >= date_from)
     if date_to:
         q_po = q_po.where(PurchaseOrder.order_date <= date_to)
-    total_purchase: Decimal = (await db.execute(q_po)).scalar_one()
 
-    # -- Purchase Due ------------------------------------------------------
     q_pd = select(func.coalesce(func.sum(PurchaseOrder.total_amount), _ZERO)).where(
         PurchaseOrder.created_by == user_id,
         PurchaseOrder.payment_status == OrderPaymentStatus.UNPAID,
@@ -137,10 +119,7 @@ async def get_dashboard_summary(
         q_pd = q_pd.where(PurchaseOrder.order_date >= date_from)
     if date_to:
         q_pd = q_pd.where(PurchaseOrder.order_date <= date_to)
-    purchase_due: Decimal = (await db.execute(q_pd)).scalar_one()
 
-    # -- Purchase Return ---------------------------------------------------
-    # Join PurchaseReturn → PurchaseOrder to scope by user
     q_pr = select(
         func.coalesce(func.sum(PurchaseReturn.total_amount), _ZERO)
     ).join(
@@ -150,9 +129,40 @@ async def get_dashboard_summary(
         q_pr = q_pr.where(PurchaseReturn.return_date >= date_from)
     if date_to:
         q_pr = q_pr.where(PurchaseReturn.return_date <= date_to)
-    total_purchase_return: Decimal = (await db.execute(q_pr)).scalar_one()
 
-    # PurchaseReturn has no amount_paid; treat full amount as paid
+    # -- Execute all queries concurrently (asyncpg pipelines them) --------
+    r_sales, r_cogs, r_expense, r_inv, r_sr, r_po, r_pd, r_pr = await asyncio.gather(
+        db.execute(q),
+        db.execute(q_cogs),
+        db.execute(q_exp),
+        db.execute(q_inv),
+        db.execute(q_sr),
+        db.execute(q_po),
+        db.execute(q_pd),
+        db.execute(q_pr),
+    )
+
+    total_sales: Decimal = r_sales.scalar_one()
+    total_cogs: Decimal = r_cogs.scalar_one()
+    raw_monthly_expense: Decimal = r_expense.scalar_one()
+    invoice_due: Decimal = r_inv.scalar_one()
+
+    sr_row = r_sr.one()
+    total_sell_return: Decimal = sr_row[0]
+    total_sell_return_paid: Decimal = sr_row[1]
+
+    total_purchase: Decimal = r_po.scalar_one()
+    purchase_due: Decimal = r_pd.scalar_one()
+    total_purchase_return: Decimal = r_pr.scalar_one()
+
+    # -- Derived values ---------------------------------------------------
+    if date_from and date_to:
+        range_days = Decimal((date_to - date_from).days + 1)
+        expense = raw_monthly_expense * range_days / Decimal(30)
+    else:
+        expense = raw_monthly_expense
+
+    net = total_sales - total_cogs - expense
     total_purchase_return_paid = total_purchase_return
 
     return DashboardSummaryResponse(
