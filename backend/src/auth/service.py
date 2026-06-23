@@ -94,7 +94,6 @@ async def authenticate_user(
             user.locked_until = now + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
             await logger.awarn("account_locked", email=email)
         await db.flush()
-        await db.commit()  # Commit before raising so the counter persists despite the error path rollback
         raise InvalidCredentialsError()
 
     # Successful login — reset counters

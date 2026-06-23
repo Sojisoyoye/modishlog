@@ -336,6 +336,7 @@ export async function createDailySale(
     });
     if (!resp.ok()) throw new Error(`Create daily sale failed: ${resp.status()} ${await resp.text()}`);
     const sales: { id: string; transaction_id: string }[] = await resp.json();
+    if (!sales[0]) throw new Error('Create daily sale returned empty array');
     return sales[0];
   } finally {
     await ctx.dispose();

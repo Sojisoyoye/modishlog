@@ -292,7 +292,8 @@ test.describe('Category-aware price suggestion margin (#80)', () => {
 
   test.afterAll(async () => {
     if (orderId) await deleteOrder(orderId);
-    if (productId) await deleteProduct(productId);
+    // Do not delete the product — soft-delete marks it inactive and ensureProduct
+    // returns it inactive on the next run, breaking findProductRow.
     // Attempt category cleanup — may fail if soft-deleted product reference remains
     if (categoryId) {
       const token = await getAPIToken();

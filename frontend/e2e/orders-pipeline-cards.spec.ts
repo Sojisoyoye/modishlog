@@ -74,7 +74,7 @@ test.describe('Orders pipeline status cards', () => {
     }
 
     // The raw underscore enum values must NOT appear as button text
-    const rawValues = ['IN_PRODUCTION', 'SHIPPING', 'CLEARED', 'DELIVERED'];
+    const rawValues = ['PENDING', 'IN_PRODUCTION', 'SHIPPING', 'CLEARED', 'DELIVERED'];
     for (const raw of rawValues) {
       // Should not have a button whose accessible name exactly equals the raw value
       await expect(page.getByRole('button', { name: new RegExp(`^${raw}$`) })).toHaveCount(0);

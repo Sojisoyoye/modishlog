@@ -449,8 +449,8 @@ class TestAuthEndpoints:
         assert "locked_until" in data
         # Verify it's a valid ISO timestamp matching what we set
         parsed = datetime.fromisoformat(data["locked_until"])
-        # Allow 1-second tolerance for rounding
-        assert abs((parsed - locked_until).total_seconds()) < 1
+        # Allow 1-second tolerance for rounding; locked_until is naive UTC so add tzinfo before comparing
+        assert abs((parsed - locked_until.replace(tzinfo=timezone.utc)).total_seconds()) < 1
 
     # -- /me -------------------------------------------------------------
 
