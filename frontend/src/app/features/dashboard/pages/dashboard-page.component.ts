@@ -516,7 +516,7 @@ export class DashboardPageComponent implements OnInit {
     { label: 'All locations', value: null },
   ]);
   selectedLocationId: string | null = null;
-  dateRange: Date[] | null = null;
+  dateRange: Date[] = (() => { const t = new Date(); return [t, t]; })();
 
   sellReturnSubLines = computed<KpiSubLine[]>(() => {
     const k = this.kpi();
@@ -586,9 +586,16 @@ export class DashboardPageComponent implements OnInit {
   }
 
   onDateChange(): void {
-    // Fire immediately when the date is cleared (dateRange becomes null).
     // Guard against mid-selection state where only the start date has been picked.
-    if (this.dateRange !== null && !this.dateRange[1]) return;
+    // After clear, PrimeNG resets to [] so dateRange[1] is undefined — we reset to today.
+    if (!this.dateRange[1]) {
+      if (this.dateRange.length === 0) {
+        const today = new Date();
+        this.dateRange = [today, today];
+      } else {
+        return; // start date picked but end date not yet — wait
+      }
+    }
     this.loadKpi();
   }
 
@@ -615,8 +622,11 @@ export class DashboardPageComponent implements OnInit {
     });
 
     // Initial load bypasses the debounce so the first paint has no delay.
+    // dateRange is initialised to [today, today] so the first fetch is already date-scoped.
     this.kpiLoading.set(true);
-    this.kpiService.getSummary(null, null, null).pipe(
+    const initFrom = this.toLocalDateString(this.dateRange[0]);
+    const initTo = this.toLocalDateString(this.dateRange[1]);
+    this.kpiService.getSummary(null, initFrom, initTo).pipe(
       takeUntilDestroyed(this.destroyRef),
       catchError(() => {
         this.kpiLoading.set(false);

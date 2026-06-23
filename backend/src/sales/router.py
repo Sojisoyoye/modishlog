@@ -129,6 +129,7 @@ async def daily_entry_endpoint(
             contact_number=entry.contact_number,
             payment_method=entry.payment_method,
             payment_status=entry.payment_status,
+            location_id=entry.location_id,
         )
         try:
             sale = await create_sale(db, sale_data, current_user.id)

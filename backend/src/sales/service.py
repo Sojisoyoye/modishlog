@@ -155,6 +155,7 @@ async def create_sale(
         payment_method=data.payment_method,
         payment_status=data.payment_status or "paid",
         notes=data.notes,
+        location_id=data.location_id,
         recorded_by=user_id,
     )
     db.add(sale)

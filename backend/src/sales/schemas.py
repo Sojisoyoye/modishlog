@@ -26,6 +26,7 @@ class SaleCreate(BaseModel):
     contact_number: str | None = None
     payment_method: str | None = None
     payment_status: str | None = "paid"
+    location_id: uuid.UUID | None = None
 
 
 class SaleUpdate(BaseModel):
@@ -46,6 +47,7 @@ class DailyEntryItem(BaseModel):
     contact_number: str | None = None
     payment_method: str | None = None
     payment_status: str | None = "paid"
+    location_id: uuid.UUID | None = None
 
 
 class DailyEntryRequest(BaseModel):
@@ -72,6 +74,7 @@ class SaleRead(BaseModel):
     payment_method: str | None = None
     payment_status: str | None = None
     notes: str | None = None
+    location_id: uuid.UUID | None = None
     recorded_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
