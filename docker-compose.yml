@@ -39,6 +39,16 @@ services:
     build: { context: ./frontend, dockerfile: Dockerfile }
     ports: ['4200:4200']
     depends_on: [backend]
+    volumes:
+      - ./frontend:/frontend
+      - /frontend/node_modules
+    environment:
+      # Polling is required on macOS host — Docker volumes don't propagate
+      # native inotify/FSEvents into the Linux container, so Vite's file
+      # watcher would never fire. CHOKIDAR_USEPOLLING tells chokidar (Vite's
+      # underlying watcher) to fall back to stat-based polling instead.
+      CHOKIDAR_USEPOLLING: 'true'
+      CHOKIDAR_INTERVAL: '500'
 
 volumes:
   postgres_data:

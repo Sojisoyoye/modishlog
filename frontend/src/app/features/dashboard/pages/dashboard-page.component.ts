@@ -1,19 +1,25 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit, DestroyRef } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  signal,
+  computed,
+  OnInit,
+  DestroyRef,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, EMPTY } from 'rxjs';
 import { switchMap, catchError, debounceTime } from 'rxjs/operators';
-import { DecimalPipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
+import { DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Select } from 'primeng/select';
 import { DatePicker } from 'primeng/datepicker';
-import { Tooltip } from 'primeng/tooltip';
 import { FormsModule } from '@angular/forms';
-import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import { KpiCardComponent, KpiSubLine } from '../../../shared/components/kpi-card/kpi-card.component';
 import { DashboardService, DashboardData } from '../../../core/services/dashboard.service';
-import { CashflowService, GlobalExposure, TriageStatusResponse } from '../../../core/services/cashflow.service';
+import { FxService, FxExposureEntry } from '../../../core/services/fx.service';
+import { CashflowService, GlobalExposure } from '../../../core/services/cashflow.service';
 import { OrdersService, LogisticsEfficiency } from '../../../core/services/orders.service';
-import { FxService } from '../../../core/services/fx.service';
 import { DashboardKpiService } from '../services/dashboard-kpi.service';
 import { DashboardKpiSummary } from '../models/dashboard-kpi.model';
 import { LocationsService, Location } from '../../../core/services/locations.service';
@@ -23,29 +29,37 @@ import { AuthService } from '../../../core/services/auth.service';
   selector: 'app-dashboard-page',
   standalone: true,
   imports: [
-    DecimalPipe, CurrencyPipe, UpperCasePipe, RouterLink,
-    StatusBadgeComponent, KpiCardComponent,
-    Select, DatePicker, Tooltip, FormsModule,
+    DecimalPipe, RouterLink,
+    KpiCardComponent, Select, DatePicker, FormsModule,
   ],
   template: `
-    <div>
-      <!-- ============================================================
-           KPI Summary Banner (Task 126)
-           ============================================================ -->
-      <div class="mb-6 rounded-xl bg-gradient-to-r from-blue-600 to-slate-800 p-6 text-white shadow">
-        <!-- Welcome heading -->
-        <h1 class="mb-4 text-2xl font-bold">Welcome {{ userName() }},</h1>
+    <div class="space-y-5">
 
-        <!-- Filters row -->
+      <!-- ============================================================
+           Welcome Banner + Filters
+           ============================================================ -->
+      <div class="rounded-2xl bg-gradient-to-br from-slate-800 via-slate-700 to-blue-700 p-5 text-white shadow-lg sm:p-6">
+        <div class="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p class="text-sm font-medium text-blue-200">Good day,</p>
+            <h1 class="text-2xl font-bold tracking-tight">{{ userName() }}</h1>
+          </div>
+          @if (liveRate() !== null) {
+            <div class="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-sm backdrop-blur-sm">
+              <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400"></span>
+              <span class="font-semibold">$1 = ₦{{ liveRate()! | number: '1.0-0' }}</span>
+            </div>
+          }
+        </div>
         <div class="flex flex-wrap items-center gap-3">
           <p-select
             [options]="locationOptions()"
             [(ngModel)]="selectedLocationId"
             optionLabel="label"
             optionValue="value"
-            placeholder="Select location"
+            placeholder="All locations"
             [showClear]="true"
-            styleClass="w-56"
+            styleClass="w-48"
             (onChange)="onLocationChange()"
             data-testid="location-dropdown"
           />
@@ -67,429 +81,418 @@ import { AuthService } from '../../../core/services/auth.service';
         </div>
       </div>
 
-      <!-- KPI cards grid -->
-      <div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <!-- Row 1 -->
-        <app-kpi-card
-          label="TOTAL SALES"
-          iconClass="pi pi-shopping-cart"
-          iconBgColor="#17A2B8"
-          [value]="kpi()?.total_sales ?? '0.00'"
-          [loading]="kpiLoading()"
-        />
-        <app-kpi-card
-          label="NET"
-          iconClass="pi pi-file"
-          iconBgColor="#28A745"
-          [value]="kpi()?.net ?? '0.00'"
-          [loading]="kpiLoading()"
-          [tooltipText]="'Net = Total Sales − Cost of Goods Sold − Expenses'"
-        />
-        <app-kpi-card
-          label="INVOICE DUE"
-          iconClass="pi pi-file-edit"
-          iconBgColor="#FFC107"
-          [value]="kpi()?.invoice_due ?? '0.00'"
-          [loading]="kpiLoading()"
-        />
-        <app-kpi-card
-          label="TOTAL SELL RETURN"
-          iconClass="pi pi-arrow-right-arrow-left"
-          iconBgColor="#E74C3C"
-          [value]="kpi()?.total_sell_return ?? '0.00'"
-          [loading]="kpiLoading()"
-          [subLines]="sellReturnSubLines()"
-        />
-
-        <!-- Row 2 -->
-        <app-kpi-card
-          label="TOTAL PURCHASE"
-          iconClass="pi pi-money-bill"
-          iconBgColor="#17A2B8"
-          [value]="kpi()?.total_purchase ?? '0.00'"
-          [loading]="kpiLoading()"
-        />
-        <app-kpi-card
-          label="PURCHASE DUE"
-          iconClass="pi pi-exclamation-circle"
-          iconBgColor="#FFC107"
-          [value]="kpi()?.purchase_due ?? '0.00'"
-          [loading]="kpiLoading()"
-        />
-        <app-kpi-card
-          label="TOTAL PURCHASE RETURN"
-          iconClass="pi pi-replay"
-          iconBgColor="#E74C3C"
-          [value]="kpi()?.total_purchase_return ?? '0.00'"
-          [loading]="kpiLoading()"
-          [subLines]="purchaseReturnSubLines()"
-        />
-        <app-kpi-card
-          label="EXPENSE"
-          iconClass="pi pi-minus-circle"
-          iconBgColor="#E74C3C"
-          [value]="kpi()?.expense ?? '0.00'"
-          [loading]="kpiLoading()"
-        />
+      <!-- ============================================================
+           KPI Cards — 8 business metrics
+           ============================================================ -->
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <app-kpi-card label="Total Sales"        iconClass="pi pi-chart-bar"    iconBgColor="#0EA5E9" [value]="kpi()?.total_sales       ?? '0.00'" [loading]="kpiLoading()" tooltipText="All completed sales in the selected period" />
+        <app-kpi-card label="Net Profit"         iconClass="pi pi-trending-up"  iconBgColor="#22C55E" [value]="kpi()?.net               ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales Revenue − Cost of Goods Sold − Expenses" />
+        <app-kpi-card label="Unpaid Sales"       iconClass="pi pi-clock"        iconBgColor="#F59E0B" [value]="kpi()?.invoice_due       ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales where payment hasn't been received yet" />
+        <app-kpi-card label="Customer Returns"   iconClass="pi pi-undo"         iconBgColor="#EF4444" [value]="kpi()?.total_sell_return ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned by customers"          [subLines]="sellReturnSubLines()" />
+        <app-kpi-card label="Total Purchased"    iconClass="pi pi-shopping-bag" iconBgColor="#0EA5E9" [value]="kpi()?.total_purchase    ?? '0.00'" [loading]="kpiLoading()" tooltipText="Total value of all purchase orders placed" />
+        <app-kpi-card label="Amount Owed"        iconClass="pi pi-credit-card"  iconBgColor="#F59E0B" [value]="kpi()?.purchase_due      ?? '0.00'" [loading]="kpiLoading()" tooltipText="Outstanding balance you owe to suppliers" />
+        <app-kpi-card label="Supplier Refunds"   iconClass="pi pi-replay"       iconBgColor="#EF4444" [value]="kpi()?.total_purchase_return ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned to suppliers"   [subLines]="purchaseReturnSubLines()" />
+        <app-kpi-card label="Monthly Expenses"   iconClass="pi pi-minus-circle" iconBgColor="#8B5CF6" [value]="kpi()?.expense           ?? '0.00'" [loading]="kpiLoading()" tooltipText="Operating costs (rent, salaries, utilities, etc.)" />
       </div>
 
       @if (kpiError()) {
-        <div class="mb-4 flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
-          <i class="pi pi-exclamation-triangle text-danger"></i>
-          <p class="text-sm text-danger">Failed to load KPI data.</p>
-          <button
-            class="ml-auto text-xs font-medium text-danger underline"
-            (click)="loadKpi()"
-          >Retry</button>
+        <div class="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
+          <i class="pi pi-exclamation-triangle text-red-500"></i>
+          <p class="text-sm text-red-600">Could not load your business figures.</p>
+          <button class="ml-auto text-xs font-semibold text-red-600 underline" (click)="loadKpi()">Retry</button>
         </div>
       }
+
       <!-- ============================================================
-           End KPI Banner
+           Row 1: Cash Health | Order Activity | Profit Margin
            ============================================================ -->
-
-      <div class="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 class="text-2xl font-bold text-text">Dashboard</h2>
-          <p class="mt-1 text-sm text-muted">Business overview at a glance</p>
-        </div>
-
-        <!-- Live FX Rate strip -->
-        <div class="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-2.5 shadow-sm">
-          <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-green-50">
-            <i class="pi pi-money-bill text-xs text-success"></i>
-          </div>
-          @if (liveRates()) {
-            <div class="flex items-center gap-4">
-              <div class="text-center">
-                <p class="text-[10px] font-semibold uppercase tracking-wider text-muted">USD / NGN</p>
-                <p class="text-base font-bold text-text">₦{{ liveRates()!.usd_ngn | number: '1.0-0' }}</p>
-              </div>
-              @if (liveRates()!.eur_ngn) {
-                <div class="h-6 w-px bg-gray-200"></div>
-                <div class="text-center">
-                  <p class="text-[10px] font-semibold uppercase tracking-wider text-muted">EUR / NGN</p>
-                  <p class="text-base font-bold text-text">₦{{ liveRates()!.eur_ngn! | number: '1.0-0' }}</p>
-                </div>
-              }
-              <span class="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-success">LIVE</span>
-            </div>
-          } @else {
-            <p class="text-xs text-muted">Loading rates…</p>
-          }
-        </div>
-      </div>
-
-      @if (triageStatus()) {
-        <div role="alert" class="mb-4 rounded-xl border-l-4 border-l-danger bg-red-50 p-4 shadow-sm">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <div class="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
-                <i class="pi pi-exclamation-triangle text-lg text-danger"></i>
-              </div>
-              <div>
-                <h3 class="text-sm font-bold text-danger">Liquidity Squeeze Alert</h3>
-                <p class="text-xs text-red-700">
-                  Shortfall of {{ triageStatus()!.shortfall_amount | number: '1.0-0' }} NGN detected
-                  within {{ triageStatus()!.horizon_days }} days
-                </p>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-danger">
-                {{ triageStatus()!.status | uppercase }}
-              </span>
-              <span class="text-xs text-red-600">
-                Since {{ triageStatus()!.trigger_date }}
-              </span>
-            </div>
-          </div>
-        </div>
-      }
-
       @if (loading()) {
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          @for (i of [1, 2, 3, 4]; track i) {
-            <div class="h-32 rounded-xl skeleton"></div>
-          }
-          @for (i of [1, 2]; track i) {
-            <div class="h-48 rounded-xl skeleton md:col-span-2"></div>
-          }
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          @for (i of [1,2,3]; track i) { <div class="h-44 rounded-xl skeleton"></div> }
+        </div>
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          @for (i of [1,2]; track i) { <div class="h-48 rounded-xl skeleton"></div> }
+        </div>
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          @for (i of [1,2,3]; track i) { <div class="h-40 rounded-xl skeleton"></div> }
         </div>
       } @else {
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          <!-- Liquidity Risk -->
-          <div class="rounded-xl border bg-white p-5 shadow-sm" [class]="liquidityBorder()">
-            <div class="mb-3 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-                  <i class="pi pi-shield text-sm text-secondary"></i>
-                </div>
-                <p class="text-sm font-semibold text-text">Liquidity</p>
-              </div>
-              <app-status-badge [label]="data().liquidity.risk_rating" [status]="riskStatus()" />
-            </div>
-            <div class="space-y-3">
-              <div>
-                <p class="text-xs text-muted">Cash Runway</p>
-                <p class="text-xl font-bold text-text">
-                  {{ runwayMonths() }} months
-                  <i class="text-sm" [class]="trendArrowClass()"></i>
-                </p>
-              </div>
-              <div>
-                <p class="text-xs text-muted">DSCR</p>
-                <p class="text-xl font-bold" [class]="dscrColor()">
-                  {{ data().liquidity.dscr | number: '1.2-2' }}
-                  <i class="text-sm" [class]="trendArrowClass()"></i>
-                </p>
-              </div>
-            </div>
-          </div>
 
-          <!-- FX Exposure -->
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+
+          <!-- Cash Health -->
           <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="mb-3 flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
-                <i class="pi pi-money-bill text-sm text-success"></i>
+            <div class="mb-4 flex items-center gap-3">
+              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-blue-50">
+                <i class="pi pi-wallet text-lg text-blue-600"></i>
               </div>
-              <p class="text-sm font-semibold text-text">FX Exposure</p>
+              <div>
+                <p class="font-semibold text-slate-800">Cash Health</p>
+                <p class="text-xs text-slate-400">How long your money lasts</p>
+              </div>
             </div>
             <div class="space-y-3">
               <div class="flex items-center justify-between">
-                <span class="text-xs text-muted">Locked (USD)</span>
-                <span class="text-sm font-bold text-success">
-                  {{ data().fxExposure.total_locked_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
+                <span class="text-sm text-slate-500">Cash Runway</span>
+                <span class="text-sm font-bold text-slate-800">
+                  @if (data().liquidity.runway_months > 0) {
+                    {{ data().liquidity.runway_months | number: '1.1-1' }} mo
+                  } @else { Profitable ✓ }
                 </span>
               </div>
               <div class="flex items-center justify-between">
-                <span class="text-xs text-muted">Floating (USD)</span>
-                <span class="text-sm font-bold text-warning">
-                  {{ data().fxExposure.total_floating_usd | currency: 'USD' : 'symbol' : '1.0-0' }}
+                <span class="text-sm text-slate-500">Profit Score (DSCR)</span>
+                <span class="text-sm font-bold" [class]="dscrColor()">
+                  @if (data().liquidity.dscr >= 99) { Excellent }
+                  @else if (data().liquidity.dscr > 0) { {{ data().liquidity.dscr | number: '1.1-1' }} }
+                  @else { — }
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-sm text-slate-500">Status</span>
+                <span class="rounded-full px-3 py-1 text-xs font-semibold" [class]="riskBadgeClass()">
+                  {{ riskLabel() }}
                 </span>
               </div>
             </div>
           </div>
 
-          <!-- Portfolio Margin -->
+          <!-- Order Activity -->
           <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="mb-3 flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
-                <i class="pi pi-percentage text-sm text-purple-600"></i>
+            <div class="mb-4 flex items-center gap-3">
+              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-50">
+                <i class="pi pi-box text-lg text-amber-600"></i>
               </div>
-              <p class="text-sm font-semibold text-text">Portfolio Margin</p>
+              <div>
+                <p class="font-semibold text-slate-800">Order Activity</p>
+                <p class="text-xs text-slate-400">Purchases &amp; shipments</p>
+              </div>
+            </div>
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="text-sm text-slate-500">In Progress</span>
+                <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.active_orders }}</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-sm text-slate-500">All Time</span>
+                <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.total_orders }}</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-sm text-slate-500">Delivered</span>
+                <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.by_status['DELIVERED'] || 0 }}</span>
+              </div>
+            </div>
+            <a routerLink="/orders" class="mt-4 flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
+              View orders <i class="pi pi-arrow-right text-[10px]"></i>
+            </a>
+          </div>
+
+          <!-- Profit Margin -->
+          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex items-center gap-3">
+              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-purple-50">
+                <i class="pi pi-percentage text-lg text-purple-600"></i>
+              </div>
+              <div>
+                <p class="font-semibold text-slate-800">Profit Margin</p>
+                <p class="text-xs text-slate-400">Average across all products</p>
+              </div>
             </div>
             <div class="flex items-baseline gap-2">
-              <p class="text-2xl font-bold text-text">
-                {{ data().portfolioMargin.blended_margin | number: '1.1-1' }}%
+              <p class="text-3xl font-bold tracking-tight" [class]="marginColor()">
+                {{ data().profitMargin.blended_margin | number: '1.1-1' }}%
               </p>
-              <span class="text-xs font-medium" [class]="marginGapColor()">
-                @if (data().portfolioMargin.gap >= 0) {
-                  +{{ data().portfolioMargin.gap | number: '1.1-1' }}%
+              <span class="text-sm font-medium" [class]="marginGapColor()">
+                @if (data().profitMargin.margin_gap >= 0) {
+                  +{{ data().profitMargin.margin_gap | number: '1.1-1' }}% vs target
                 } @else {
-                  {{ data().portfolioMargin.gap | number: '1.1-1' }}%
+                  {{ data().profitMargin.margin_gap | number: '1.1-1' }}% vs target
                 }
               </span>
             </div>
             <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100">
-              <div
-                class="h-2 rounded-full transition-all"
-                [class]="data().portfolioMargin.gap >= 0 ? 'bg-success' : 'bg-warning'"
-                [style.width.%]="marginBarWidth()"
-              ></div>
+              <div class="h-2 rounded-full transition-all" [class]="marginColor() === 'text-green-600' ? 'bg-green-500' : 'bg-amber-500'" [style.width.%]="marginBarWidth()"></div>
             </div>
-            <p class="mt-1 text-xs text-muted">
-              Target: {{ data().portfolioMargin.target_margin }}%
-            </p>
+            <p class="mt-1.5 text-xs text-slate-400">Target: {{ data().profitMargin.target_margin }}%</p>
           </div>
+        </div>
 
-          <!-- Orders Pipeline -->
+        <!-- ============================================================
+             Row 2: FX Exposure | Global Exposure
+             ============================================================ -->
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+          <!-- FX Exposure Widget -->
           <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="mb-3 flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
-                <i class="pi pi-truck text-sm text-warning"></i>
-              </div>
-              <p class="text-sm font-semibold text-text">Orders Pipeline</p>
-            </div>
-            <div class="space-y-2">
-              @for (entry of pipelineEntries(); track entry[0]) {
-                <div class="flex items-center justify-between">
-                  <span class="text-xs text-muted">{{ entry[0] }}</span>
-                  <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-bold text-text">{{
-                    entry[1]
-                  }}</span>
-                </div>
-              }
-              @if (pipelineEntries().length === 0) {
-                <p class="text-xs text-muted">No active orders</p>
-              }
-            </div>
-          </div>
-
-          <!-- Global Exposure -->
-          @if (globalExposure()) {
-            <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm md:col-span-2">
-              <div class="mb-3 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50">
-                    <i class="pi pi-globe text-sm text-indigo-600"></i>
-                  </div>
-                  <p class="text-sm font-semibold text-text">Global Exposure</p>
-                </div>
-                <div class="flex items-center gap-1.5">
-                  @for (cur of currencies; track cur) {
-                    <button
-                      (click)="exposureCurrency.set(cur)"
-                      [class]="exposureCurrency() === cur
-                        ? 'rounded-md bg-primary px-2 py-0.5 text-xs font-semibold text-white'
-                        : 'rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-muted hover:bg-gray-200'"
-                    >{{ cur }}</button>
-                  }
-                </div>
-              </div>
-              <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <div>
-                  <p class="text-xs text-muted">EUR Debt</p>
-                  <p class="text-lg font-bold text-text">{{ formatExposureValue(globalExposure()!.eur_loan_balance_eur, 'EUR') }}</p>
+            <div class="mb-4 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-sky-50">
+                  <i class="pi pi-arrow-right-arrow-left text-lg text-sky-600"></i>
                 </div>
                 <div>
-                  <p class="text-xs text-muted">USD Obligations</p>
-                  <p class="text-lg font-bold text-text">{{ formatExposureValue(globalExposure()!.open_order_usd_obligations, 'USD') }}</p>
-                </div>
-                <div>
-                  <p class="text-xs text-muted">Total Exposure (NGN)</p>
-                  <p class="text-lg font-bold text-primary">{{ globalExposure()!.total_global_exposure_ngn | number: '1.0-0' }}</p>
-                </div>
-                <div>
-                  <p class="text-xs text-muted">Debt/Trade Ratio</p>
-                  <p class="text-lg font-bold" [class]="globalExposure()!.debt_to_trade_ratio > 1.5 ? 'text-danger' : globalExposure()!.debt_to_trade_ratio > 0.8 ? 'text-warning' : 'text-success'">
-                    {{ globalExposure()!.debt_to_trade_ratio | number: '1.2-2' }}
-                    <i [class]="globalExposure()!.debt_to_trade_ratio > 1.5 ? 'pi pi-arrow-up text-xs text-danger' : 'pi pi-arrow-down text-xs text-success'"></i>
-                  </p>
+                  <p class="font-semibold text-slate-800">FX Exposure</p>
+                  <p class="text-xs text-slate-400">Locked vs floating currency risk on open orders</p>
                 </div>
               </div>
-              <div class="mt-3 flex items-center gap-4 border-t border-gray-100 pt-3 text-xs text-muted">
-                <span>EUR/USD: {{ globalExposure()!.eur_usd_rate | number: '1.4-4' }}</span>
-                <span>NGN/USD: {{ globalExposure()!.ngn_usd_rate | number: '1.2-2' }}</span>
-                <span>EUR/NGN: {{ globalExposure()!.eur_ngn_derived_rate | number: '1.2-2' }}</span>
-              </div>
-            </div>
-          } @else if (!loading()) {
-            <div class="h-40 rounded-xl skeleton md:col-span-2"></div>
-          }
-
-          <!-- Logistics Efficiency -->
-          @if (logistics()) {
-            <div class="rounded-xl border bg-white p-5 shadow-sm"
-              [class]="logistics()!.status === 'red' ? 'border-l-4 border-l-danger border-t-gray-200 border-r-gray-200 border-b-gray-200' : logistics()!.status === 'amber' ? 'border-l-4 border-l-warning border-t-gray-200 border-r-gray-200 border-b-gray-200' : 'border-gray-200'"
-            >
-              <div class="mb-3 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
-                    <i class="pi pi-percentage text-sm text-purple-600"></i>
-                  </div>
-                  <p class="text-sm font-semibold text-text">Logistics %</p>
-                </div>
-                <span [class]="logistics()!.status === 'red' ? 'rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700' : logistics()!.status === 'amber' ? 'rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700' : 'rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700'">
-                  {{ logistics()!.status | uppercase }}
-                </span>
-              </div>
-              <p class="text-3xl font-bold" [class]="logistics()!.status === 'red' ? 'text-danger' : logistics()!.status === 'amber' ? 'text-warning' : 'text-success'">
-                {{ logistics()!.rolling_90d_avg_pct | number: '1.1-1' }}%
-              </p>
-              <p class="mt-1 text-xs text-muted">90-day rolling average</p>
-              <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100">
-                <div
-                  class="h-2 rounded-full transition-all"
-                  [class]="logistics()!.status === 'red' ? 'bg-danger' : logistics()!.status === 'amber' ? 'bg-warning' : 'bg-success'"
-                  [style.width.%]="Math.min(logistics()!.rolling_90d_avg_pct / 25 * 100, 100)"
-                ></div>
-              </div>
-              <p class="mt-1 text-xs text-muted">
-                Target: &lt;{{ logistics()!.amber_threshold_pct }}%
-              </p>
-            </div>
-          } @else if (!loading()) {
-            <div class="h-32 rounded-xl skeleton"></div>
-          }
-
-          <!-- Inventory Alerts -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm md:col-span-2">
-            <div class="mb-3 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50">
-                  <i class="pi pi-box text-sm text-danger"></i>
-                </div>
-                <p class="text-sm font-semibold text-text">Inventory Alerts</p>
-              </div>
-              <a
-                routerLink="/inventory"
-                class="text-xs font-medium text-secondary transition-colors hover:text-primary hover:underline"
-              >
-                View all <i class="pi pi-arrow-right text-[10px]"></i>
+              <a routerLink="/fx" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                Manage <i class="pi pi-arrow-right text-[10px]"></i>
               </a>
             </div>
-            @if (data().inventoryAlerts.length === 0) {
-              <div class="flex items-center gap-2 rounded-lg bg-green-50 p-3">
-                <i class="pi pi-check-circle text-success"></i>
-                <p class="text-sm text-success">All stock levels healthy</p>
-              </div>
-            } @else {
-              <div class="space-y-2">
-                @for (alert of data().inventoryAlerts.slice(0, 5); track alert.product_id) {
-                  <div
-                    class="flex items-center justify-between rounded-lg border-l-4 border-l-danger bg-red-50 px-3 py-2.5"
-                  >
-                    <span class="text-sm font-medium text-text">{{ alert.product_name }}</span>
-                    <span class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-danger">
-                      {{ alert.current_stock }} left
-                    </span>
-                  </div>
-                }
-              </div>
-            }
-          </div>
 
-          <!-- Top Recommendations -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm md:col-span-2">
-            <div class="mb-3 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50">
-                  <i class="pi pi-sparkles text-sm text-indigo-600"></i>
-                </div>
-                <p class="text-sm font-semibold text-text">AI Recommendations</p>
+            @if (fxExposure().length === 0) {
+              <div class="rounded-xl bg-slate-50 p-5 text-center">
+                <i class="pi pi-info-circle mb-2 text-2xl text-slate-400"></i>
+                <p class="font-medium text-slate-600">No FX exposure tracked yet</p>
+                <p class="mt-1 text-xs text-slate-400">
+                  FX exposure is recorded when purchase orders are created with a USD/EUR component.<br>
+                  30% is locked at deposit rate; 70% floats until delivery.
+                </p>
+                <a routerLink="/orders" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline">
+                  Create a purchase order <i class="pi pi-arrow-right text-[10px]"></i>
+                </a>
               </div>
-              <a
-                routerLink="/recommendations"
-                class="text-xs font-medium text-secondary transition-colors hover:text-primary hover:underline"
-              >
-                View all <i class="pi pi-arrow-right text-[10px]"></i>
-              </a>
-            </div>
-            @if (data().recommendations.length === 0) {
-              <p class="text-sm text-muted">No pending recommendations</p>
             } @else {
-              <div class="space-y-2">
-                @for (rec of data().recommendations; track rec.id) {
-                  <div
-                    class="rounded-lg border border-gray-100 p-3 transition-colors hover:bg-gray-50"
-                  >
-                    <div class="flex items-start justify-between">
+              <div class="space-y-3">
+                @for (entry of fxExposure(); track entry.pair) {
+                  <div class="rounded-xl border border-gray-100 p-4">
+                    <div class="mb-3 flex items-center justify-between">
+                      <span class="rounded-full bg-sky-100 px-3 py-0.5 text-xs font-bold text-sky-700">{{ entry.pair }}</span>
+                      <span class="text-xs" [class]="entry.unrealized_pnl >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'">
+                        {{ entry.unrealized_pnl >= 0 ? '+' : '' }}{{ entry.unrealized_pnl | number: '1.0-0' }} P&amp;L
+                      </span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
                       <div>
-                        <div class="flex items-center gap-2">
-                          <app-status-badge
-                            [label]="rec.priority"
-                            [status]="priorityStatus(rec.priority)"
-                          />
-                          <span class="text-xs text-muted">{{ rec.category }}</span>
-                        </div>
-                        <p class="mt-1.5 text-sm font-medium text-text">{{ rec.title }}</p>
+                        <p class="text-xs text-slate-400">Locked ({{ (entry.locked_pct * 100) | number: '1.0-0' }}%)</p>
+                        <p class="font-bold text-slate-800">{{ entry.locked_amount | number: '1.0-0' }}</p>
+                        <p class="text-[10px] text-slate-400">at {{ entry.weighted_locked_rate | number: '1.2-2' }}</p>
                       </div>
+                      <div>
+                        <p class="text-xs text-slate-400">Floating ({{ (entry.floating_pct * 100) | number: '1.0-0' }}%)</p>
+                        <p class="font-bold text-slate-800">{{ entry.floating_amount | number: '1.0-0' }}</p>
+                        <p class="text-[10px] text-slate-400">market {{ entry.current_market_rate | number: '1.2-2' }}</p>
+                      </div>
+                    </div>
+                    <!-- Locked vs floating bar -->
+                    <div class="mt-3 flex h-2 w-full overflow-hidden rounded-full">
+                      <div class="bg-blue-500" [style.width.%]="entry.locked_pct * 100"></div>
+                      <div class="bg-amber-400" [style.width.%]="entry.floating_pct * 100"></div>
+                    </div>
+                    <div class="mt-1 flex justify-between text-[10px] text-slate-400">
+                      <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500"></span> Locked</span>
+                      <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"></span> Floating</span>
                     </div>
                   </div>
                 }
               </div>
             }
           </div>
+
+          <!-- Global Exposure Widget -->
+          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex items-center gap-3">
+              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50">
+                <i class="pi pi-globe text-lg text-indigo-600"></i>
+              </div>
+              <div>
+                <p class="font-semibold text-slate-800">Global Exposure</p>
+                <p class="text-xs text-slate-400">Total financial obligations across all currencies</p>
+              </div>
+            </div>
+
+            @let ge = globalExposure();
+            @if (ge) {
+              <!-- Total headline -->
+              <div class="mb-4 rounded-xl bg-indigo-50 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wider text-indigo-400">Total Exposure (NGN)</p>
+                <p class="mt-1 text-2xl font-bold text-indigo-700">₦{{ ge.total_global_exposure_ngn | number: '1.0-0' }}</p>
+                <div class="mt-2 flex items-center gap-2">
+                  <span class="text-xs text-indigo-500">Debt/Trade Ratio:</span>
+                  <span class="text-xs font-bold" [class]="ge.debt_to_trade_ratio > 1.5 ? 'text-red-600' : ge.debt_to_trade_ratio > 0.8 ? 'text-amber-600' : 'text-green-600'">
+                    {{ ge.debt_to_trade_ratio | number: '1.2-2' }}
+                    @if (ge.debt_to_trade_ratio <= 0.8) { (Healthy) }
+                    @else if (ge.debt_to_trade_ratio <= 1.5) { (Moderate) }
+                    @else { (High) }
+                  </span>
+                </div>
+              </div>
+
+              <!-- Breakdown -->
+              <div class="space-y-3">
+                <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
+                  <div class="flex items-center gap-2">
+                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-green-50 text-xs font-bold text-green-700">$</span>
+                    <div>
+                      <p class="text-sm font-medium text-slate-700">USD Order Obligations</p>
+                      <p class="text-xs text-slate-400">Balance owed on open purchase orders</p>
+                    </div>
+                  </div>
+                  <span class="text-sm font-bold text-slate-800">\${{ ge.open_order_usd_obligations | number: '1.0-0' }}</span>
+                </div>
+
+                <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
+                  <div class="flex items-center gap-2">
+                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-xs font-bold text-blue-700">€</span>
+                    <div>
+                      <p class="text-sm font-medium text-slate-700">EUR Loan Balance</p>
+                      <p class="text-xs text-slate-400">Outstanding loan obligations in EUR</p>
+                    </div>
+                  </div>
+                  <span class="text-sm font-bold text-slate-800">€{{ ge.eur_loan_balance_eur | number: '1.0-0' }}</span>
+                </div>
+              </div>
+
+              <!-- FX Rates used -->
+              <div class="mt-4 flex flex-wrap gap-3 border-t border-gray-100 pt-3">
+                <span class="text-xs text-slate-400">$1 = ₦{{ ge.ngn_usd_rate | number: '1.0-0' }}</span>
+                @if (ge.eur_usd_rate_available) {
+                  <span class="text-xs text-slate-400">€1 = \${{ ge.eur_usd_rate | number: '1.3-3' }}</span>
+                  <span class="text-xs text-slate-400">€1 = ₦{{ ge.eur_ngn_derived_rate | number: '1.0-0' }}</span>
+                } @else {
+                  <span class="text-xs text-amber-500">EUR/USD rate unavailable</span>
+                }
+              </div>
+            } @else {
+              <div class="h-32 rounded-xl skeleton"></div>
+            }
+          </div>
+        </div>
+
+        <!-- ============================================================
+             Row 3: Logistics Efficiency | Low Stock | AI Suggestions
+             ============================================================ -->
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+          <!-- Logistics Efficiency -->
+          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" [class]="logisticsIconBg()">
+                  <i class="pi pi-truck text-lg" [class]="logisticsIconColor()"></i>
+                </div>
+                <div>
+                  <p class="font-semibold text-slate-800">Shipping Costs</p>
+                  <p class="text-xs text-slate-400">Logistics as % of order value</p>
+                </div>
+              </div>
+              <a routerLink="/orders" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                Orders <i class="pi pi-arrow-right text-[10px]"></i>
+              </a>
+            </div>
+
+            @let lg = logistics();
+            @if (lg) {
+              <p class="text-4xl font-bold" [class]="logisticsValueColor()">
+                {{ lg.rolling_90d_avg_pct | number: '1.1-1' }}%
+              </p>
+              <p class="mt-1 text-xs text-slate-400">90-day rolling average</p>
+
+              <!-- Status badge -->
+              <div class="mt-3 flex items-center gap-2">
+                <span class="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold" [class]="logisticsBadgeClass()">
+                  <i class="pi" [class]="lg.status === 'healthy' ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
+                  {{ lg.status === 'healthy' ? 'Within target' : lg.status === 'amber' ? 'Watch closely' : 'Above limit' }}
+                </span>
+              </div>
+
+              <!-- Threshold guide -->
+              <div class="mt-4 space-y-1.5">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="flex items-center gap-1 text-green-600"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span> Target</span>
+                  <span class="font-medium text-slate-600">&lt; {{ lg.amber_threshold_pct }}%</span>
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                  <span class="flex items-center gap-1 text-amber-600"><span class="h-1.5 w-1.5 rounded-full bg-amber-400"></span> Caution</span>
+                  <span class="font-medium text-slate-600">{{ lg.amber_threshold_pct }}–{{ lg.red_threshold_pct }}%</span>
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                  <span class="flex items-center gap-1 text-red-600"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> High</span>
+                  <span class="font-medium text-slate-600">&gt; {{ lg.red_threshold_pct }}%</span>
+                </div>
+              </div>
+            } @else {
+              <div class="space-y-2">
+                <div class="h-10 w-24 rounded skeleton"></div>
+                <div class="h-4 w-32 rounded skeleton"></div>
+              </div>
+            }
+          </div>
+
+          <!-- Low Stock Alerts -->
+          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-red-50">
+                  <i class="pi pi-exclamation-triangle text-lg text-red-500"></i>
+                </div>
+                <div>
+                  <p class="font-semibold text-slate-800">Stock Levels</p>
+                  <p class="text-xs text-slate-400">Products running low</p>
+                </div>
+              </div>
+              <a routerLink="/inventory" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                Inventory <i class="pi pi-arrow-right text-[10px]"></i>
+              </a>
+            </div>
+            @if (data().lowStockCount === 0) {
+              <div class="flex items-center gap-3 rounded-xl bg-green-50 p-4">
+                <i class="pi pi-check-circle text-xl text-green-600"></i>
+                <div>
+                  <p class="font-medium text-green-700">All stock levels healthy</p>
+                  <p class="text-xs text-green-600">No products need restocking</p>
+                </div>
+              </div>
+            } @else {
+              <div class="flex items-center gap-4 rounded-xl bg-red-50 p-4">
+                <div class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-red-100">
+                  <span class="text-2xl font-bold text-red-600">{{ data().lowStockCount }}</span>
+                </div>
+                <div>
+                  <p class="font-semibold text-red-700">{{ data().lowStockCount }} product{{ data().lowStockCount !== 1 ? 's' : '' }} low</p>
+                  <p class="text-xs text-red-500">Check inventory and restock soon</p>
+                </div>
+              </div>
+            }
+          </div>
+
+          <!-- AI Smart Suggestions -->
+          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50">
+                  <i class="pi pi-sparkles text-lg text-indigo-600"></i>
+                </div>
+                <div>
+                  <p class="font-semibold text-slate-800">Smart Suggestions</p>
+                  <p class="text-xs text-slate-400">AI-powered business tips</p>
+                </div>
+              </div>
+              <a routerLink="/recommendations" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                View all <i class="pi pi-arrow-right text-[10px]"></i>
+              </a>
+            </div>
+            @if (data().recommendations.length === 0) {
+              <div class="flex items-center gap-3 rounded-xl bg-slate-50 p-4">
+                <i class="pi pi-check-circle text-xl text-slate-400"></i>
+                <p class="text-sm text-slate-500">No new suggestions right now.</p>
+              </div>
+            } @else {
+              <div class="space-y-2">
+                @for (rec of data().recommendations; track rec.id) {
+                  <div class="flex items-start gap-3 rounded-xl border border-gray-100 p-3 transition-colors hover:bg-slate-50">
+                    <span class="mt-0.5 flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" [class]="priorityClass(rec.priority)">
+                      {{ rec.priority }}
+                    </span>
+                    <div class="min-w-0">
+                      <p class="truncate text-sm font-medium text-slate-800">{{ rec.title }}</p>
+                      <p class="truncate text-xs text-slate-400">{{ rec.category }}</p>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+
         </div>
       }
     </div>
@@ -498,75 +501,128 @@ import { AuthService } from '../../../core/services/auth.service';
 })
 export class DashboardPageComponent implements OnInit {
   private readonly dashboardService = inject(DashboardService);
+  private readonly fxService = inject(FxService);
   private readonly cashflowService = inject(CashflowService);
   private readonly ordersService = inject(OrdersService);
-  private readonly fxService = inject(FxService);
   private readonly kpiService = inject(DashboardKpiService);
   private readonly locationsService = inject(LocationsService);
   private readonly authService = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly kpiTrigger$ = new Subject<{ locationId: string | null; dateFrom: string | null; dateTo: string | null }>();
+  private readonly kpiTrigger$ = new Subject<{
+    locationId: string | null;
+    dateFrom: string | null;
+    dateTo: string | null;
+  }>();
 
-  // KPI state
+  // KPI banner
   kpi = signal<DashboardKpiSummary | null>(null);
   kpiLoading = signal(false);
   kpiError = signal(false);
+
+  // Filters
   userName = signal('');
-  locationOptions = signal<{ label: string; value: string | null }[]>([
-    { label: 'All locations', value: null },
-  ]);
+  locationOptions = signal<{ label: string; value: string | null }[]>([{ label: 'All locations', value: null }]);
   selectedLocationId: string | null = null;
   dateRange: Date[] = (() => { const t = new Date(); return [t, t]; })();
+
+  // FX live rate (header chip)
+  liveRate = signal<number | null>(null);
+
+  // Dashboard data (loaded in parallel)
+  loading = signal(true);
+  data = signal<DashboardData>({
+    liquidity: { runway_months: 0, dscr: 0, risk_rating: 'UNKNOWN' },
+    ordersSummary: { total_orders: 0, total_value: '0', by_status: {}, active_orders: 0 },
+    profitMargin: { blended_margin: 0, target_margin: 35, margin_gap: -35 },
+    lowStockCount: 0,
+    recommendations: [],
+  });
+
+  // Three restored widgets (loaded independently so one failure doesn't block others)
+  fxExposure = signal<FxExposureEntry[]>([]);
+  globalExposure = signal<GlobalExposure | null>(null);
+  logistics = signal<LogisticsEfficiency | null>(null);
+
+  // ---- Computed sub-lines -----------------------------------------------
 
   sellReturnSubLines = computed<KpiSubLine[]>(() => {
     const k = this.kpi();
     return [
-      { label: 'Total Sell Return', value: k?.total_sell_return ?? '0.00' },
-      { label: 'Total Sell Return Paid', value: k?.total_sell_return_paid ?? '0.00' },
+      { label: 'Total returned', value: k?.total_sell_return ?? '0.00' },
+      { label: 'Amount paid back', value: k?.total_sell_return_paid ?? '0.00' },
     ];
   });
 
   purchaseReturnSubLines = computed<KpiSubLine[]>(() => {
     const k = this.kpi();
     return [
-      { label: 'Total Purchase Return', value: k?.total_purchase_return ?? '0.00' },
-      { label: 'Total Purchase Return Paid', value: k?.total_purchase_return_paid ?? '0.00' },
+      { label: 'Total returned', value: k?.total_purchase_return ?? '0.00' },
+      { label: 'Amount refunded', value: k?.total_purchase_return_paid ?? '0.00' },
     ];
   });
 
-  loading = signal(true);
-  liveRates = signal<{ usd_ngn: number; eur_ngn: number | null } | null>(null);
-  triageStatus = signal<TriageStatusResponse | null>(null);
-  globalExposure = signal<GlobalExposure | null>(null);
-  exposureCurrency = signal<'NGN' | 'USD' | 'EUR'>('NGN');
-  readonly currencies: ('NGN' | 'USD' | 'EUR')[] = ['NGN', 'USD', 'EUR'];
-  logistics = signal<LogisticsEfficiency | null>(null);
-  Math = Math;
-  data = signal<DashboardData>({
-    liquidity: { cash_runway_days: 0, dscr: 0, risk_rating: 'UNKNOWN' },
-    fxExposure: {
-      total_locked_usd: 0,
-      total_floating_usd: 0,
-      total_locked_ngn: 0,
-      total_floating_ngn: 0,
-    },
-    portfolioMargin: { blended_margin: 0, target_margin: 35, gap: -35 },
-    ordersPipeline: {},
-    inventoryAlerts: [],
-    recommendations: [],
-  });
+  // ---- Cash Health helpers -----------------------------------------------
 
-  runwayMonths = computed(() => {
-    const days = this.data().liquidity.cash_runway_days;
-    return (days / 30).toFixed(1);
-  });
-
-  trendArrowClass(): string {
-    const r = this.data().liquidity.risk_rating;
-    if (r === 'LOW') return 'pi pi-arrow-up text-success';
-    if (r === 'HIGH') return 'pi pi-arrow-down text-danger';
-    return 'pi pi-minus text-warning';
+  dscrColor(): string {
+    const d = this.data().liquidity.dscr;
+    return d >= 1.5 ? 'text-green-600' : d >= 1.0 ? 'text-amber-600' : 'text-red-600';
   }
+
+  riskBadgeClass(): string {
+    const r = this.data().liquidity.risk_rating;
+    return r === 'LOW' ? 'bg-green-50 text-green-700' : r === 'MEDIUM' ? 'bg-amber-50 text-amber-700' : r === 'HIGH' ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-500';
+  }
+
+  riskLabel(): string {
+    const r = this.data().liquidity.risk_rating;
+    return r === 'LOW' ? 'Healthy' : r === 'MEDIUM' ? 'Caution' : r === 'HIGH' ? 'At Risk' : 'Unknown';
+  }
+
+  // ---- Profit Margin helpers ---------------------------------------------
+
+  marginColor(): string {
+    const { blended_margin, target_margin } = this.data().profitMargin;
+    return blended_margin >= target_margin ? 'text-green-600' : blended_margin >= target_margin * 0.8 ? 'text-amber-600' : 'text-red-600';
+  }
+
+  marginGapColor(): string {
+    return this.data().profitMargin.margin_gap >= 0 ? 'text-green-500' : 'text-red-500';
+  }
+
+  marginBarWidth(): number {
+    const { blended_margin, target_margin } = this.data().profitMargin;
+    return Math.min((blended_margin / (target_margin || 35)) * 100, 100);
+  }
+
+  // ---- Logistics helpers -------------------------------------------------
+
+  logisticsIconBg(): string {
+    const s = this.logistics()?.status;
+    return s === 'red' ? 'bg-red-50' : s === 'amber' ? 'bg-amber-50' : 'bg-green-50';
+  }
+
+  logisticsIconColor(): string {
+    const s = this.logistics()?.status;
+    return s === 'red' ? 'text-red-600' : s === 'amber' ? 'text-amber-600' : 'text-green-600';
+  }
+
+  logisticsValueColor(): string {
+    const s = this.logistics()?.status;
+    return s === 'red' ? 'text-red-600' : s === 'amber' ? 'text-amber-600' : 'text-green-600';
+  }
+
+  logisticsBadgeClass(): string {
+    const s = this.logistics()?.status;
+    return s === 'red' ? 'bg-red-100 text-red-700' : s === 'amber' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700';
+  }
+
+  // ---- AI Suggestions helpers --------------------------------------------
+
+  priorityClass(priority: string): string {
+    return priority === 'HIGH' ? 'bg-red-100 text-red-700' : priority === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700';
+  }
+
+  // ---- KPI filter logic --------------------------------------------------
 
   loadKpi(): void {
     const dateFrom = this.dateRange?.[0] ? this.toLocalDateString(this.dateRange[0]) : null;
@@ -581,69 +637,50 @@ export class DashboardPageComponent implements OnInit {
     return `${y}-${m}-${day}`;
   }
 
-  onLocationChange(): void {
-    this.loadKpi();
-  }
+  onLocationChange(): void { this.loadKpi(); }
 
   onDateChange(): void {
-    // Guard against mid-selection state where only the start date has been picked.
-    // After clear, PrimeNG resets to [] so dateRange[1] is undefined — we reset to today.
     if (!this.dateRange[1]) {
       if (this.dateRange.length === 0) {
         const today = new Date();
         this.dateRange = [today, today];
       } else {
-        return; // start date picked but end date not yet — wait
+        return;
       }
     }
     this.loadKpi();
   }
 
+  // ---- Lifecycle ---------------------------------------------------------
+
   ngOnInit(): void {
-    // Debounced pipeline for filter changes and manual retry — avoids
-    // firing on every intermediate state while a user picks a date range.
-    this.kpiTrigger$.pipe(
-      debounceTime(300),
-      switchMap(({ locationId, dateFrom, dateTo }) => {
-        this.kpiLoading.set(true);
-        this.kpiError.set(false);
-        return this.kpiService.getSummary(locationId, dateFrom, dateTo).pipe(
-          catchError(() => {
-            this.kpiLoading.set(false);
-            this.kpiError.set(true);
-            return EMPTY;
-          }),
-        );
-      }),
-      takeUntilDestroyed(this.destroyRef),
-    ).subscribe(data => {
-      this.kpi.set(data);
-      this.kpiLoading.set(false);
-    });
+    // Debounced KPI pipeline (filter changes)
+    this.kpiTrigger$
+      .pipe(
+        debounceTime(300),
+        switchMap(({ locationId, dateFrom, dateTo }) => {
+          this.kpiLoading.set(true);
+          this.kpiError.set(false);
+          return this.kpiService.getSummary(locationId, dateFrom, dateTo).pipe(
+            catchError(() => { this.kpiLoading.set(false); this.kpiError.set(true); return EMPTY; }),
+          );
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((d) => { this.kpi.set(d); this.kpiLoading.set(false); });
 
-    // Initial load bypasses the debounce so the first paint has no delay.
-    // dateRange is initialised to [today, today] so the first fetch is already date-scoped.
+    // Initial KPI load (bypass debounce for first paint)
     this.kpiLoading.set(true);
-    const initFrom = this.toLocalDateString(this.dateRange[0]);
-    const initTo = this.toLocalDateString(this.dateRange[1]);
-    this.kpiService.getSummary(null, initFrom, initTo).pipe(
-      takeUntilDestroyed(this.destroyRef),
-      catchError(() => {
-        this.kpiLoading.set(false);
-        this.kpiError.set(true);
-        return EMPTY;
-      }),
-    ).subscribe(data => {
-      this.kpi.set(data);
-      this.kpiLoading.set(false);
-    });
+    this.kpiService.getSummary(null, this.toLocalDateString(this.dateRange[0]), this.toLocalDateString(this.dateRange[1]))
+      .pipe(takeUntilDestroyed(this.destroyRef), catchError(() => { this.kpiLoading.set(false); this.kpiError.set(true); return EMPTY; }))
+      .subscribe((d) => { this.kpi.set(d); this.kpiLoading.set(false); });
 
+    // User display name
     this.authService.checkSession().subscribe({
-      next: (user) => {
-        if (user) this.userName.set(user.full_name?.split(' ')?.[0] ?? '');
-      },
+      next: (u) => { if (u) this.userName.set(u.full_name?.split(' ')?.[0] ?? ''); },
     });
 
+    // Location filter options
     this.locationsService.getAll(undefined, true).subscribe({
       next: (res) => {
         this.locationOptions.set([
@@ -653,91 +690,35 @@ export class DashboardPageComponent implements OnInit {
       },
     });
 
+    // Core dashboard data (cash health, orders, margin, low stock, AI)
     this.dashboardService.loadDashboard().subscribe({
-      next: (d) => {
-        this.data.set(d);
-        this.loading.set(false);
-      },
+      next: (d) => { this.data.set(d); this.loading.set(false); },
       error: () => this.loading.set(false),
     });
-    this.cashflowService.getTriageStatus().subscribe({
-      next: (t) => this.triageStatus.set(t),
-    });
-    this.cashflowService.getGlobalExposure().subscribe({
-      next: (e) => this.globalExposure.set(e),
-    });
-    this.ordersService.getLogisticsEfficiency().subscribe({
-      next: (l) => this.logistics.set(l),
-    });
+
+    // Live FX rate (header chip)
     this.fxService.getLiveRate().subscribe({
-      next: (live) => {
-        this.fxService.getLatestEurUsd().subscribe({
-          next: (eur) => {
-            const eurNgn = eur ? Math.round(eur.rate * live.usd_ngn) : null;
-            this.liveRates.set({ usd_ngn: live.usd_ngn, eur_ngn: eurNgn });
-          },
-          error: () => this.liveRates.set({ usd_ngn: live.usd_ngn, eur_ngn: null }),
-        });
-      },
-      error: () => this.liveRates.set(null),
+      next: (r) => this.liveRate.set(r.usd_ngn),
+      error: () => {},
     });
-  }
 
-  formatExposureValue(value: number, baseCurrency: string): string {
-    const cur = this.exposureCurrency();
-    const ge = this.globalExposure();
-    if (!ge) return value.toFixed(0);
-    if (cur === baseCurrency) return value.toLocaleString('en', { maximumFractionDigits: 0 });
-    if (baseCurrency === 'EUR' && cur === 'USD') return (value * ge.eur_usd_rate).toLocaleString('en', { maximumFractionDigits: 0 });
-    if (baseCurrency === 'EUR' && cur === 'NGN') return (value * ge.eur_ngn_derived_rate).toLocaleString('en', { maximumFractionDigits: 0 });
-    if (baseCurrency === 'USD' && cur === 'EUR') return ge.eur_usd_rate > 0 ? (value / ge.eur_usd_rate).toLocaleString('en', { maximumFractionDigits: 0 }) : '0';
-    if (baseCurrency === 'USD' && cur === 'NGN') return (value * ge.ngn_usd_rate).toLocaleString('en', { maximumFractionDigits: 0 });
-    return value.toLocaleString('en', { maximumFractionDigits: 0 });
-  }
+    // FX Exposure — locked vs floating per currency pair
+    this.fxService.getExposureSummary().subscribe({
+      next: (d) => this.fxExposure.set(d),
+      error: () => {},
+    });
 
-  riskStatus(): 'success' | 'warning' | 'danger' | 'neutral' {
-    const r = this.data().liquidity.risk_rating;
-    if (r === 'LOW') return 'success';
-    if (r === 'MEDIUM') return 'warning';
-    if (r === 'HIGH') return 'danger';
-    return 'neutral';
-  }
+    // Global Exposure — multi-currency debt overview
+    this.cashflowService.getGlobalExposure().subscribe({
+      next: (d) => this.globalExposure.set(d),
+      error: () => {},
+    });
 
-  liquidityBorder(): string {
-    const s = this.riskStatus();
-    if (s === 'success')
-      return 'border-l-4 border-l-success border-t-gray-200 border-r-gray-200 border-b-gray-200';
-    if (s === 'warning')
-      return 'border-l-4 border-l-warning border-t-gray-200 border-r-gray-200 border-b-gray-200';
-    if (s === 'danger')
-      return 'border-l-4 border-l-danger border-t-gray-200 border-r-gray-200 border-b-gray-200';
-    return 'border-gray-200';
-  }
-
-  dscrColor(): string {
-    const d = this.data().liquidity.dscr;
-    if (d >= 1.5) return 'text-success';
-    if (d >= 1.0) return 'text-warning';
-    return 'text-danger';
-  }
-
-  marginGapColor(): string {
-    return this.data().portfolioMargin.gap >= 0 ? 'text-success' : 'text-danger';
-  }
-
-  marginBarWidth(): number {
-    const m = this.data().portfolioMargin.blended_margin;
-    const t = this.data().portfolioMargin.target_margin || 35;
-    return Math.min((m / t) * 100, 100);
-  }
-
-  pipelineEntries(): [string, number][] {
-    return Object.entries(this.data().ordersPipeline);
-  }
-
-  priorityStatus(priority: string): 'danger' | 'warning' | 'info' {
-    if (priority === 'HIGH') return 'danger';
-    if (priority === 'MEDIUM') return 'warning';
-    return 'info';
+    // Logistics Efficiency — shipping cost % of order value (90-day rolling)
+    this.ordersService.getLogisticsEfficiency().subscribe({
+      next: (d) => this.logistics.set(d),
+      error: () => {},
+    });
   }
 }
+
