@@ -85,7 +85,7 @@ async def login(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             content={
                 "detail": "Account locked",
-                "locked_until": e.locked_until.isoformat(),
+                "locked_until": e.locked_until.isoformat() + "Z",
             },
         )
     access_token = build_token(user)

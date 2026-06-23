@@ -27,6 +27,7 @@ services:
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       CORS_ORIGINS: '["http://localhost:4200","http://localhost","https://modishlog-staging.vercel.app"]'
       ENVIRONMENT: development
+      TZ: UTC
     ports: ['8000:8000']
     depends_on: { db: { condition: service_healthy } }
     volumes:

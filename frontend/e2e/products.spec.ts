@@ -4,9 +4,15 @@ import { ensureCategory, ensureProductInCategory } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
 
-// Create the test user once for this suite
+// Shared test category — category_id is NOT NULL in the DB so every
+// product creation via the UI must select one.
+let testCategoryName: string;
+
+// Create the test user and a shared test category once for this suite
 test.beforeAll(async () => {
   await ensureTestUser();
+  const cat = await ensureCategory('E2E Products Suite Category');
+  testCategoryName = cat.name;
 });
 
 // Authenticate and land on /products before every test
@@ -47,9 +53,14 @@ test.describe('Edit Product price decimal display', () => {
     await addForm.getByPlaceholder('Product name').fill(name);
     await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10500');
     await addForm.locator('[data-testid="add-selling-price-input"]').fill('15500');
+    await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
     // Submit button inside the add form is labelled "Create Product"
     await addForm.getByRole('button', { name: 'Create Product' }).click();
-    await expect(page.getByText('Product created')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Product created')).toBeVisible({ timeout: 10_000 });
+
+    // Search by name to handle pagination (product may not be on page 1)
+    await page.getByPlaceholder('Search products...').fill(name);
+    await page.waitForTimeout(400);
 
     // Wait for the product row to be visible before interacting
     const row = page.getByRole('row').filter({ hasText: name }).first();
@@ -87,8 +98,13 @@ test('product action menu is visible and not clipped by the table container', as
   await addForm.getByPlaceholder('Product name').fill(name);
   await addForm.locator('[data-testid="add-unit-cost-input"]').fill('100');
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('180');
+  await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
   await addForm.getByRole('button', { name: 'Create Product' }).click();
-  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+
+  // Search by name to handle pagination
+  await page.getByPlaceholder('Search products...').fill(name);
+  await page.waitForTimeout(400);
 
   // Click the ellipsis button on the product row
   const row = page.locator('tr').filter({ hasText: name });
@@ -97,8 +113,8 @@ test('product action menu is visible and not clipped by the table container', as
   // The menu must be visible — rendered via fixed positioning outside the overflow container
   const menu = page.locator('[role="menu"]').filter({ hasText: 'Edit' });
   await expect(menu).toBeVisible({ timeout: 3_000 });
-  await expect(menu.getByRole('button', { name: 'Edit' })).toBeVisible();
-  await expect(menu.getByRole('button', { name: 'Delete' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Edit' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
 
   // Verify the menu is not clipped: its bounding box must be fully within the viewport
   const box = await menu.boundingBox();
@@ -123,8 +139,13 @@ test('product table displays prices formatted to 2 decimal places', async ({ pag
   await addForm.getByPlaceholder('Product name').fill(name);
   await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10200');    // unit_cost — should display as 10,200.00
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('14500.50'); // selling_price — should display as 14,500.50
+  await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
   await addForm.getByRole('button', { name: 'Create Product' }).click();
-  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+
+  // Search by name to handle pagination
+  await page.getByPlaceholder('Search products...').fill(name);
+  await page.waitForTimeout(400);
 
   // Locate the product row and check the formatted price cells
   const row = page.locator('tr').filter({ hasText: name });
@@ -186,13 +207,18 @@ test('Edit Product dialog shows profit margin % for existing product', async ({ 
   await addForm.getByPlaceholder('Product name').fill(name);
   await addForm.locator('[data-testid="add-unit-cost-input"]').fill('200');
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('400');
+  await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
   await addForm.getByRole('button', { name: 'Create Product' }).click();
-  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+
+  // Search by name to handle pagination
+  await page.getByPlaceholder('Search products...').fill(name);
+  await page.waitForTimeout(400);
 
   // Open edit dialog via action menu
   const row = page.locator('tr').filter({ hasText: name });
   await row.locator('button[aria-haspopup="true"]').click();
-  await page.locator('[role="menu"]').filter({ hasText: 'Edit' }).getByRole('button', { name: 'Edit' }).click();
+  await page.locator('[role="menu"]').filter({ hasText: 'Edit' }).getByRole('menuitem', { name: 'Edit' }).click();
 
   const editDialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Product' });
   await expect(editDialog).toBeVisible();
@@ -265,7 +291,7 @@ test('"New Product" button switches to Add Product tab', async ({ page }) => {
 // Create product flow
 // ---------------------------------------------------------------------------
 
-test('can create a product without a category', async ({ page }) => {
+test('can create a basic product', async ({ page }) => {
   const name = `E2E Product ${Date.now()}`;
 
   // Open Add Product tab via the "New Product" button
@@ -274,16 +300,20 @@ test('can create a product without a category', async ({ page }) => {
   const addForm = page.locator('#add-product-form');
   await expect(addForm).toBeVisible();
 
-  // Fill form
+  // Fill form (category is required by the backend)
   await addForm.getByPlaceholder('Product name').fill(name);
   await addForm.locator('[data-testid="add-unit-cost-input"]').fill('200'); // unit_cost
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('350'); // selling_price
+  await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
 
   // Submit
   await addForm.getByRole('button', { name: 'Create Product' }).click();
 
-  // Switches back to All Products tab; new product appears
-  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+  // Switches back to All Products tab; search to handle pagination
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+  await page.getByPlaceholder('Search products...').fill(name);
+  await page.waitForTimeout(400);
+  await expect(page.getByText(name)).toBeVisible({ timeout: 5_000 });
 });
 
 // ---------------------------------------------------------------------------
@@ -300,8 +330,13 @@ test('can edit a product name and price', async ({ page }) => {
   await addForm.getByPlaceholder('Product name').fill(name);
   await addForm.locator('[data-testid="add-unit-cost-input"]').fill('100');
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('180');
+  await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
   await addForm.getByRole('button', { name: 'Create Product' }).click();
-  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+
+  // Search by name to handle pagination
+  await page.getByPlaceholder('Search products...').fill(name);
+  await page.waitForTimeout(400);
 
   // Open the actions menu for this product row
   const row = page.locator('tr').filter({ hasText: name });
@@ -336,8 +371,13 @@ test('can delete a product', async ({ page }) => {
   await addForm.getByPlaceholder('Product name').fill(name);
   await addForm.locator('[data-testid="add-unit-cost-input"]').fill('50');
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('90');
+  await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
   await addForm.getByRole('button', { name: 'Create Product' }).click();
-  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+
+  // Search by name to handle pagination
+  await page.getByPlaceholder('Search products...').fill(name);
+  await page.waitForTimeout(400);
 
   // Open actions menu then click Delete
   const row = page.locator('tr').filter({ hasText: name });
@@ -350,7 +390,7 @@ test('can delete a product', async ({ page }) => {
   await confirmDialog.getByRole('button', { name: 'Delete' }).click();
 
   // Row should disappear
-  await expect(page.getByText(name)).not.toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('tr').filter({ hasText: name })).not.toBeVisible({ timeout: 10_000 });
 });
 
 // ---------------------------------------------------------------------------
@@ -408,6 +448,8 @@ test('can create a category inline and it is auto-selected', async ({ page }) =>
   await expect(addForm.getByPlaceholder('Category name')).not.toBeVisible({ timeout: 8_000 });
   await expect(addForm.locator('#add-cat-select')).toBeVisible();
 
+  // Wait for Angular to populate the option list and auto-select the new category
+  await expect(addForm.locator('#add-cat-select')).not.toHaveValue('');
   const selectedText = await addForm.locator('#add-cat-select').evaluate(
     (sel: HTMLSelectElement) => sel.options[sel.selectedIndex]?.text ?? '',
   );
@@ -434,8 +476,11 @@ test('can create a product with the inline-created category', async ({ page }) =
 
   await addForm.getByRole('button', { name: 'Create Product' }).click();
 
-  // Product appears in the list
-  await expect(page.getByText(productName)).toBeVisible({ timeout: 10_000 });
+  // Product appears in the list — search to handle pagination
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+  await page.getByPlaceholder('Search products...').fill(productName);
+  await page.waitForTimeout(400);
+  await expect(page.getByText(productName)).toBeVisible({ timeout: 5_000 });
 });
 
 // ---------------------------------------------------------------------------
@@ -451,21 +496,20 @@ test('shows inline confirm banner when deleting a category (cancel keeps categor
 
   await page.getByPlaceholder('Category name').first().fill(catName);
   await page.getByRole('button', { name: 'Add Category' }).click();
-  await expect(page.getByText(catName)).toBeVisible({ timeout: 8_000 });
+  await expect(page.locator('tr').filter({ hasText: catName })).toBeVisible({ timeout: 8_000 });
 
-  // Click the trash icon — an inline alert banner with Cancel/Delete appears (no modal)
+  // Click the trash icon — a confirm dialog with Cancel/Delete appears
   await page.locator('tr').filter({ hasText: catName }).locator('button[title="Delete category"]').click();
 
-  // Inline banner appears inside the categories tab (scoped to app-alert-banner element)
-  const confirmBanner = page.locator('app-alert-banner');
-  await expect(confirmBanner.getByRole('button', { name: 'Cancel' })).toBeVisible({ timeout: 3_000 });
-  await expect(confirmBanner.getByRole('button', { name: 'Delete' })).toBeVisible({ timeout: 3_000 });
-  await expect(page.getByText(catName)).toBeVisible();
+  const confirmDialog = page.locator('[role="dialog"]').filter({ hasText: 'Delete Category' });
+  await expect(confirmDialog.getByRole('button', { name: 'Cancel' })).toBeVisible({ timeout: 3_000 });
+  await expect(confirmDialog.getByRole('button', { name: 'Delete' })).toBeVisible({ timeout: 3_000 });
+  await expect(page.locator('tr').filter({ hasText: catName })).toBeVisible();
 
-  // Click Cancel — banner dismisses, category still in table
-  await confirmBanner.getByRole('button', { name: 'Cancel' }).click();
-  await expect(confirmBanner).not.toBeVisible({ timeout: 3_000 });
-  await expect(page.getByText(catName)).toBeVisible();
+  // Click Cancel — dialog dismisses, category still in table
+  await confirmDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirmDialog).not.toBeVisible({ timeout: 3_000 });
+  await expect(page.locator('tr').filter({ hasText: catName })).toBeVisible();
 });
 
 test('deletes category after confirming in inline banner', async ({ page }) => {
@@ -477,16 +521,16 @@ test('deletes category after confirming in inline banner', async ({ page }) => {
 
   await page.getByPlaceholder('Category name').first().fill(catName);
   await page.getByRole('button', { name: 'Add Category' }).click();
-  await expect(page.getByText(catName)).toBeVisible({ timeout: 8_000 });
+  await expect(page.locator('tr').filter({ hasText: catName })).toBeVisible({ timeout: 8_000 });
 
-  // Click the trash icon — inline alert banner appears
+  // Click the trash icon — confirm dialog appears
   await page.locator('tr').filter({ hasText: catName }).locator('button[title="Delete category"]').click();
-  const confirmBanner = page.locator('app-alert-banner');
-  await expect(confirmBanner.getByRole('button', { name: 'Delete' })).toBeVisible({ timeout: 3_000 });
+  const confirmDialog = page.locator('[role="dialog"]').filter({ hasText: 'Delete Category' });
+  await expect(confirmDialog.getByRole('button', { name: 'Delete' })).toBeVisible({ timeout: 3_000 });
 
   // Click Delete — category is removed from the table
-  await confirmBanner.getByRole('button', { name: 'Delete' }).click();
-  await expect(page.getByText(catName)).not.toBeVisible({ timeout: 8_000 });
+  await confirmDialog.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.locator('tr').filter({ hasText: catName })).not.toBeVisible({ timeout: 8_000 });
 });
 
 // ---------------------------------------------------------------------------
@@ -539,10 +583,10 @@ test.describe('Category delete with linked products', () => {
     // Click the trash icon to initiate delete
     await categoryRow.locator('button[title="Delete category"]').click();
 
-    // Confirm in the inline alert banner that appears
-    const alertBanner = page.locator('app-alert-banner');
-    await expect(alertBanner).toBeVisible({ timeout: 5_000 });
-    await alertBanner.getByRole('button', { name: 'Delete' }).click();
+    // Confirm in the confirm dialog that appears
+    const confirmDialog = page.locator('[role="dialog"]').filter({ hasText: 'Delete Category' });
+    await expect(confirmDialog).toBeVisible({ timeout: 5_000 });
+    await confirmDialog.getByRole('button', { name: 'Delete' }).click();
 
     // A WARN toast (amber) must appear — severity='warn' → PrimeNG class p-toast-message-warn
     const toast = page.locator('.p-toast-message');
@@ -569,7 +613,7 @@ test.describe('Category editing', () => {
     await page.getByPlaceholder('Category name').fill(catName);
     await page.getByPlaceholder('Description (optional)').fill('Original desc');
     await page.getByRole('button', { name: 'Add Category' }).click();
-    await expect(page.getByText(catName)).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('tr').filter({ hasText: catName })).toBeVisible({ timeout: 5_000 });
 
     // Click the pencil (edit) button on the new category row
     const catRow = page.locator('tr').filter({ hasText: catName });
@@ -591,7 +635,7 @@ test.describe('Category editing', () => {
     await page.getByRole('button', { name: /Categories/ }).click();
     await page.getByPlaceholder('Category name').fill(catName);
     await page.getByRole('button', { name: 'Add Category' }).click();
-    await expect(page.getByText(catName)).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('tr').filter({ hasText: catName })).toBeVisible({ timeout: 5_000 });
 
     // Open edit dialog
     const catRow = page.locator('tr').filter({ hasText: catName });
@@ -599,12 +643,14 @@ test.describe('Category editing', () => {
     const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Category' });
     await expect(dialog).toBeVisible();
 
-    // Change name and save
-    await dialog.locator('#cat-edit-name').fill(newName);
+    // Change name and save (wait for the input to be rendered inside the @if block)
+    const nameInput = dialog.locator('#cat-edit-name');
+    await expect(nameInput).toBeVisible({ timeout: 5_000 });
+    await nameInput.fill(newName);
     await dialog.getByRole('button', { name: 'Save' }).click();
 
     // Success toast
-    await expect(page.getByText('Category updated')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Category updated')).toBeVisible({ timeout: 8_000 });
 
     // Updated name appears in the table
     await expect(page.locator('tr').filter({ hasText: newName })).toBeVisible({ timeout: 5_000 });
@@ -643,12 +689,17 @@ test.describe('Currency-formatted price inputs', () => {
     await addForm.getByPlaceholder('Product name').fill(name);
     await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10200');
     await addForm.locator('[data-testid="add-selling-price-input"]').fill('14500');
+    await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
     await addForm.getByRole('button', { name: 'Create Product' }).click();
-    await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Product created')).toBeVisible({ timeout: 10_000 });
+
+    // Search by name to handle pagination
+    await page.getByPlaceholder('Search products...').fill(name);
+    await page.waitForTimeout(400);
 
     const row = page.locator('tr').filter({ hasText: name });
     await row.locator('button[aria-haspopup="true"]').click();
-    await page.locator('[role="menu"]').filter({ hasText: 'Edit' }).getByRole('button', { name: 'Edit' }).click();
+    await page.locator('[role="menu"]').filter({ hasText: 'Edit' }).getByRole('menuitem', { name: 'Edit' }).click();
 
     const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Edit Product' });
     await expect(dialog).toBeVisible({ timeout: 5_000 });
@@ -664,14 +715,24 @@ test.describe('Currency-formatted price inputs', () => {
     await page.getByRole('button', { name: 'New Product' }).click();
     const addForm = page.locator('#add-product-form');
     await addForm.getByPlaceholder('Product name').fill(name);
-    await addForm.locator('[data-testid="add-unit-cost-input"]').fill('10200');
-    await addForm.locator('[data-testid="add-selling-price-input"]').fill('14500');
+    const costInput = addForm.locator('[data-testid="add-unit-cost-input"]');
+    await costInput.fill('10200');
+    // Use a price above the min margin threshold to avoid the warning blocking submission
+    const priceInput = addForm.locator('[data-testid="add-selling-price-input"]');
+    await priceInput.fill('16000');
+    await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
     await addForm.getByRole('button', { name: 'Create Product' }).click();
-    await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Product created')).toBeVisible({ timeout: 10_000 });
+
+    // Search by name to handle pagination
+    await page.getByPlaceholder('Search products...').fill(name);
+    await page.waitForTimeout(400);
 
     const row = page.locator('tr').filter({ hasText: name });
+    await expect(row).toBeVisible({ timeout: 5_000 });
     await expect(row).toContainText('10,200.00');
-    await expect(row).toContainText('14,500.00');
+    // Selling price 16,000 should appear formatted
+    await expect(row).toContainText('16,000.00');
   });
 });
 

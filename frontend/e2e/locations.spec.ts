@@ -47,8 +47,10 @@ test('creates location and sees it in list', async ({ page }) => {
   await expect(dialog).not.toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('Location created successfully')).toBeVisible({ timeout: 5_000 });
 
-  await expect(page.getByText('E2E Test Branch')).toBeVisible({ timeout: 5_000 });
-  await expect(page.getByText(code)).toBeVisible();
+  // Search by branch name (API searches by name, not code) to surface the row
+  await page.getByPlaceholder('Search locations...').fill('E2E Test Branch');
+  await page.waitForTimeout(500);
+  await expect(page.getByRole('cell', { name: code })).toBeVisible({ timeout: 5_000 });
 });
 
 // ---------------------------------------------------------------------------
@@ -57,21 +59,27 @@ test('creates location and sees it in list', async ({ page }) => {
 
 test.describe('Location edit and duplicate-code validation', () => {
   test('editing a location updates its city in the list', async ({ page }) => {
-    const code = `E2E-EDIT-${Date.now()}`;
+    const ts = Date.now();
+    const code = `E2E-EDIT-${ts}`;
+    const branchName = `E2E Edit Branch ${ts}`;  // Unique name — avoids strict-mode with old runs
 
     // Create the location to edit
     await page.getByRole('button', { name: 'Add Location' }).click();
     const addDialog = page.locator('[role="dialog"]').filter({ hasText: 'Add Location' });
     await expect(addDialog).toBeVisible({ timeout: 5_000 });
-    await addDialog.getByPlaceholder('e.g. Main Branch').fill('E2E Edit Branch');
+    await addDialog.getByPlaceholder('e.g. Main Branch').fill(branchName);
     await addDialog.getByPlaceholder('e.g. LOC-001').fill(code);
     await addDialog.getByPlaceholder('e.g. Lagos', { exact: true }).fill('Abuja');
     await addDialog.getByRole('button', { name: 'Add Location' }).click();
     await expect(addDialog).not.toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Location created successfully')).toBeVisible({ timeout: 5_000 });
 
-    // Find the row and click the Edit location button
-    const row = page.getByRole('row').filter({ hasText: 'E2E Edit Branch' });
+    // Search by unique branch name
+    await page.getByPlaceholder('Search locations...').fill(branchName);
+    await page.waitForTimeout(500);
+
+    // Find our row (unique name guarantees single match)
+    const row = page.locator('tr').filter({ hasText: branchName });
     await expect(row).toBeVisible({ timeout: 5_000 });
     await row.getByTitle('Edit location').click();
 
@@ -90,9 +98,8 @@ test.describe('Location edit and duplicate-code validation', () => {
     // Success toast
     await expect(page.getByText('Location updated successfully')).toBeVisible({ timeout: 10_000 });
 
-    // Updated city appears in the list row
-    const updatedRow = page.getByRole('row').filter({ hasText: 'E2E Edit Branch' });
-    await expect(updatedRow).toContainText('Lagos Updated');
+    // Updated city appears in OUR specific row (unique branch name)
+    await expect(page.locator('tr').filter({ hasText: branchName })).toContainText('Lagos Updated');
   });
 
   test('creating a location with a duplicate code shows a validation error', async ({ page }) => {

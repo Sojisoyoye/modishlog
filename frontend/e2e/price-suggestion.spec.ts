@@ -21,7 +21,7 @@ async function seedDeliveredOrder(productId: string): Promise<{ id: string }> {
     if (!orderResp.ok()) throw new Error(`Create order failed: ${orderResp.status()} ${await orderResp.text()}`);
     const order = await orderResp.json();
 
-    // Transition through full lifecycle to DELIVERED
+    // Transition through full lifecycle to DELIVERED (order is already created in PENDING state)
     for (const status of ['IN_PRODUCTION', 'SHIPPING', 'CLEARED', 'DELIVERED']) {
       const tr = await ctx.put(`${API}/orders/${order.id}/status`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -93,7 +93,8 @@ test.describe('Price suggestion engine (#76)', () => {
 
   test.afterAll(async () => {
     if (orderId) await deleteOrder(orderId);
-    if (productId) await deleteProduct(productId);
+    // Do not delete the product — soft-delete marks it inactive and ensureProduct
+    // returns it inactive on the next run, breaking findProductRow.
   });
 
   test.beforeEach(async ({ page }) => {
@@ -291,7 +292,8 @@ test.describe('Category-aware price suggestion margin (#80)', () => {
 
   test.afterAll(async () => {
     if (orderId) await deleteOrder(orderId);
-    if (productId) await deleteProduct(productId);
+    // Do not delete the product — soft-delete marks it inactive and ensureProduct
+    // returns it inactive on the next run, breaking findProductRow.
     // Attempt category cleanup — may fail if soft-deleted product reference remains
     if (categoryId) {
       const token = await getAPIToken();

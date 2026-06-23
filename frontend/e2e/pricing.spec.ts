@@ -3,6 +3,8 @@ import { loginViaAPI, ensureTestUser } from './helpers/auth';
 import { ensureProduct, createSale, voidSale, advanceOrderToStatus, createOrder } from './helpers/data';
 
 test.describe.configure({ mode: 'serial' });
+// The beforeAll creates an order and advances it through 5 status transitions — needs extra time
+test.setTimeout(90_000);
 
 let productId: string;
 let saleId: string;
@@ -40,12 +42,13 @@ test.describe('Pricing & Margins page', () => {
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByText('404')).not.toBeVisible();
-    await expect(page.getByText('Error')).not.toBeVisible();
+    // Heading visible is sufficient proof the page loaded — don't check body text
+    // for "404"/"Error" since product names can contain those substrings.
   });
 
   test('Blended Portfolio Margin card shows a numeric % value', async ({ page }) => {
     await page.goto('/pricing');
+    await page.waitForLoadState('networkidle');
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
@@ -93,7 +96,8 @@ test.describe('Pricing & Margins page', () => {
     const productSelect = page.locator('#pricing-elasticity-product');
     await expect(productSelect).toBeVisible();
 
-    // Dropdown must have more than the placeholder "Select product..." option
+    // Wait for products to load into the dropdown (API call may lag behind page render)
+    await expect(productSelect.locator('option').nth(1)).toBeAttached({ timeout: 10_000 });
     const optionCount = await productSelect.locator('option').count();
     expect(optionCount).toBeGreaterThan(1);
   });
@@ -113,12 +117,11 @@ test.describe('Pricing & Margins page', () => {
 
     await expect(page.locator('.p-toast')).toContainText('Saved', { timeout: 10_000 });
 
-    // Scope the elasticity table via its section heading to avoid nth(1) fragility
-    const elasticitySection = page
-      .locator('div')
-      .filter({ has: page.getByRole('heading', { name: 'Demand Elasticity' }) })
-      .last();
-    const elasticityTable = elasticitySection.locator('table');
+    // Locate the elasticity table via its unique "Coefficient" column header
+    // (the per-product table uses different headers — Product/Cost/Selling/Margin/Target/Gap)
+    const elasticityTable = page
+      .locator('table')
+      .filter({ has: page.getByRole('columnheader', { name: 'Coefficient' }) });
     await expect(elasticityTable.locator('tbody tr').first()).toBeVisible({ timeout: 10_000 });
     await expect(elasticityTable).toContainText('E2E Pricing Product');
     await expect(elasticityTable).toContainText('-1.50');

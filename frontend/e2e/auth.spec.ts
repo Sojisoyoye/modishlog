@@ -178,7 +178,8 @@ test.describe('Account lockout', () => {
     const emailInput = page.getByPlaceholder('you@example.com');
     const passwordInput = page.locator('#login-password');
     const signInBtn = page.getByRole('button', { name: 'Sign In' });
-    const alert = page.getByRole('alert');
+    // Use .first() to avoid strict-mode violation if multiple [role=alert] elements exist
+    const alert = page.getByRole('alert').first();
 
     // Submit wrong password LOCKOUT_THRESHOLD times to build up the counter
     for (let i = 0; i < LOCKOUT_THRESHOLD; i++) {
@@ -197,14 +198,8 @@ test.describe('Account lockout', () => {
     await expect(alert).toContainText('Account locked', { timeout: 10_000 });
     await expect(alert).toContainText('Try again in');
 
-    // Correct password also fails while account is locked — set up listener before click
-    await emailInput.fill(LOCKOUT_EMAIL);
-    await passwordInput.fill(LOCKOUT_PASSWORD);
-    await Promise.all([
-      page.waitForResponse((resp) => resp.url().includes('/auth/login')),
-      signInBtn.click(),
-    ]);
-    await expect(alert).toContainText('Account locked');
+    // UI disables the Sign In button while locked — cannot submit even with correct password
+    await expect(signInBtn).toBeDisabled();
     await expect(page).toHaveURL(/\/login/);
   });
 });

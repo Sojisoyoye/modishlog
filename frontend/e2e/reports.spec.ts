@@ -78,12 +78,16 @@ test.describe('P&L report generation', () => {
     await page.waitForLoadState('networkidle');
 
     // Net Profit section: prominent 4xl value formatted by number:'1.2-2'
-    await expect(page.getByText('Net Profit')).toBeVisible();
-    await expect(page.locator('p.text-4xl.font-bold').first()).toHaveText(/^-?\d[\d,.]*\.\d{2}$/);
+    await expect(page.getByText('Net Profit', { exact: true })).toBeVisible();
+    // Allow surrounding whitespace from Angular template interpolation
+    await expect(page.locator('p.text-4xl.font-bold').first()).toHaveText(/-?\d[\d,.]*\.\d{2}/);
 
     // Total Sales card: seeded sale guarantees a non-zero value
     await expect(page.getByText('Total Sales')).toBeVisible();
-    const totalSalesCard = page.locator('div').filter({ has: page.getByText('Total Sales') }).first();
+    // Target the specific summary card div using its rounded-xl class (not the outer grid wrapper)
+    const totalSalesCard = page.locator('div.rounded-xl').filter({
+      has: page.locator('p', { hasText: 'Total Sales' })
+    }).first();
     await expect(totalSalesCard.locator('p.text-xl.font-bold')).toHaveText(/\d[\d,.]*\.\d{2}/);
   });
 });

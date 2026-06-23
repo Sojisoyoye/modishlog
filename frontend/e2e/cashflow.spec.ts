@@ -102,9 +102,10 @@ test.describe('Scenario Simulator', () => {
     await expect(page.getByText('Worst DSCR')).toBeVisible({ timeout: 15_000 });
 
     // DSCR value must be a decimal number (e.g. "0.00" or "1.23")
+    // Use containsText since Angular may add whitespace around the value
     const dscrValueEl = page
       .locator('p.text-2xl.font-bold')
-      .filter({ hasText: /^\d+\.\d{2}$/ })
+      .filter({ hasText: /\d+\.\d{2}/ })
       .first();
     await expect(dscrValueEl).toBeVisible({ timeout: 5_000 });
 

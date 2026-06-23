@@ -120,6 +120,23 @@ def _mock_db_with_get(entity=None):
     return db
 
 
+def _mock_db_with_get_and_execute(entity=None):
+    """Return an AsyncMock db where db.get() and db.execute() both return entity.
+
+    Used for update_category tests which call get_category (db.get) then reload
+    via db.execute(...).scalar_one() after the flush.
+    """
+    db = AsyncMock()
+    db.get = AsyncMock(return_value=entity)
+    db.flush = AsyncMock()
+    db.add = MagicMock()
+    db.delete = AsyncMock()
+    result_mock = MagicMock()
+    result_mock.scalar_one.return_value = entity
+    db.execute = AsyncMock(return_value=result_mock)
+    return db
+
+
 def _mock_db_with_execute(scalar_result=None, scalars_result=None):
     """Return an AsyncMock db where db.execute() returns configurable results."""
     db = AsyncMock()
@@ -165,7 +182,10 @@ class TestCategoryCRUD:
     async def test_update_category_success(self):
         """update_category renames the category and returns it."""
         cat = _make_category(name="Old Name", description="Old desc")
-        db = _mock_db_with_get(entity=cat)
+        # After flush, service reloads via db.execute(...).scalar_one(); mock both paths
+        cat.name = "New Name"
+        cat.description = "New desc"
+        db = _mock_db_with_get_and_execute(entity=cat)
         data = CategoryUpdate(name="New Name", description="New desc")
         updated = await update_category(db, cat.id, data)
         assert updated.name == "New Name"
@@ -183,7 +203,8 @@ class TestCategoryCRUD:
     async def test_update_category_partial(self):
         """update_category with only name updates name, keeps existing description."""
         cat = _make_category(name="Old Name", description="Keep me")
-        db = _mock_db_with_get(entity=cat)
+        cat.name = "New Name"
+        db = _mock_db_with_get_and_execute(entity=cat)
         data = CategoryUpdate(name="New Name")
         updated = await update_category(db, cat.id, data)
         assert updated.name == "New Name"
@@ -193,7 +214,8 @@ class TestCategoryCRUD:
     async def test_update_category_clear_description(self):
         """Explicitly sending description=None clears the description via model_fields_set."""
         cat = _make_category(name="Foo", description="Has a desc")
-        db = _mock_db_with_get(entity=cat)
+        cat.description = None
+        db = _mock_db_with_get_and_execute(entity=cat)
         data = CategoryUpdate(description=None)  # explicit null — included in model_fields_set
         updated = await update_category(db, cat.id, data)
         assert updated.description is None
@@ -632,9 +654,11 @@ class TestProductEndpoints:
 
     def test_update_category_success(self):
         """PATCH /products/categories/{id} updates name and description."""
-        cat = _make_category(name="Old Name", description="Old desc")
+        cat = _make_category(name="New Name", description="New desc")
+        cat.children = []
         user = _make_user()
-        db = _mock_db_with_execute()
+        # update_category calls db.execute after flush to reload with selectinload(children)
+        db = _mock_db_with_execute(scalar_result=cat)
         db.get = AsyncMock(side_effect=[user, cat])  # auth user then category
         self._override_db(db)
         headers, _ = self._auth_headers()

@@ -139,7 +139,13 @@ async def update_category(
         category.default_margin_pct = data.default_margin_pct
     await db.flush()
     await logger.ainfo("category_updated", category_id=str(category_id))
-    return category
+    # Reload with children relationship to satisfy lazy='raise' during serialization
+    result = await db.execute(
+        select(ProductCategory)
+        .options(selectinload(ProductCategory.children))
+        .where(ProductCategory.id == category_id)
+    )
+    return result.scalar_one()
 
 
 # ---------------------------------------------------------------------------

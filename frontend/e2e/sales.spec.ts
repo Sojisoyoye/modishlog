@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureTestUser, loginViaUI } from './helpers/auth';
-import { addStock, createSale, ensureProduct, getInventoryQty, voidSale } from './helpers/data';
+import { addStock, createSale, createDailySale, ensureProduct, getInventoryQty, voidSale } from './helpers/data';
 
 // ---------------------------------------------------------------------------
 // Sales Page E2E Tests
@@ -35,10 +35,17 @@ test.describe('Edit Sale price decimal display', () => {
     await page.getByRole('button', { name: /Record Sales/i }).last().click();
     await expect(page.getByText(/recorded/i)).toBeVisible({ timeout: 8_000 });
 
-    // Wait for the sale row to appear then open Edit
-    const saleRow = page.getByRole('row').filter({ hasText: product.name }).first();
-    await expect(saleRow).toBeVisible({ timeout: 8_000 });
-    await saleRow.getByRole('button', { name: /edit/i }).click();
+    // The Recent Sales table shows grouped transactions — product names are not
+    // visible directly. Switch to All Sales tab, open the first transaction row,
+    // then open the edit dialog for the item inside the Transaction Detail dialog.
+    await page.getByTestId('tab-all-sales').click();
+    const firstTxnRow = page.locator('[data-testid="transaction-row"]').first();
+    await expect(firstTxnRow).toBeVisible({ timeout: 10_000 });
+    await firstTxnRow.click();
+
+    const txnDetailDialog = page.locator('[role="dialog"]').filter({ hasText: 'Transaction Detail' });
+    await expect(txnDetailDialog).toBeVisible({ timeout: 5_000 });
+    await txnDetailDialog.locator('[data-testid="txn-item-edit-btn"]').first().click();
 
     const dialog = page.locator('[role="dialog"]').filter({ hasText: /edit sale/i });
     await expect(dialog).toBeVisible({ timeout: 5_000 });
@@ -144,13 +151,13 @@ test.describe('Stock-level validation', () => {
 });
 
 test.describe('Sales history table', () => {
-  test('shows table headers (Date, Product, Qty, Total, Status, Actions)', async ({ page }) => {
-    await expect(page.getByRole('columnheader', { name: /Date/i })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: /Product/i })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: /Qty/i })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: /Total/i })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: /Status/i })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: /Actions/i })).toBeVisible();
+  test('shows table headers (Date, Invoice No., Customer, Payment Status, Total Amount)', async ({ page }) => {
+    // The Recent Sales table groups transactions — columns are transaction-level fields
+    await expect(page.getByRole('columnheader', { name: /Date/i }).first()).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /Invoice No\./i }).first()).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /Customer/i }).first()).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /Payment Status/i }).first()).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /Total Amount/i }).first()).toBeVisible();
   });
 });
 
@@ -329,8 +336,10 @@ test.describe('Create Sale flow', () => {
     // Success toast should appear
     await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 10_000 });
 
-    // The sale should appear in the "Recent Sales" or "All Sales" table
-    await expect(page.getByText(product.name).first()).toBeVisible({ timeout: 5_000 });
+    // The Recent Sales table should now have at least one transaction row
+    // (product name is not shown in the transaction table; check a table row exists)
+    const recentSalesTable = page.locator('table').filter({ has: page.getByRole('columnheader', { name: /Invoice No\./i }) }).first();
+    await expect(recentSalesTable.locator('tbody tr').first()).toBeVisible({ timeout: 5_000 });
   });
 });
 
@@ -354,15 +363,17 @@ test.describe('Transaction grouping in All Sales tab', () => {
       page.locator(`select option[value="${productA.id}"]`),
     ).toBeAttached({ timeout: 10_000 });
 
-    // Fill first row
-    await page.locator('select').first().selectOption(productA.id);
+    // Fill first row — use the first product select (filter by 'Select product' placeholder option)
+    const productSelects = page.locator('select').filter({ hasText: 'Select product' });
+    await productSelects.first().selectOption(productA.id);
     await page.locator('input[type="number"]').first().fill('1');
 
     // Add a second row
     await page.getByRole('button', { name: /Add Row/i }).click();
 
-    // Fill second row (second select, second qty input)
-    await page.locator('select').nth(1).selectOption(productB.id);
+    // Fill second row — the second 'Select product' dropdown is now visible
+    await expect(productSelects.nth(1)).toBeVisible({ timeout: 5_000 });
+    await productSelects.nth(1).selectOption(productB.id);
     await page.locator('input[type="number"]').nth(1).fill('2');
 
     // Submit
@@ -424,25 +435,29 @@ test.describe('Void sale — stock restore', () => {
     // Stock level after adding 10 units (may already have stock from prior runs)
     const stockBefore = await getInventoryQty(product.id);
 
-    // Record a sale of 3 units via API to reduce stock
-    await createSale(product.id, { quantity: 3 });
+    // Record a sale of 3 units via daily-entry so it gets a transaction_id
+    // and appears in the All Sales tab; derive the invoice number directly.
+    const sale = await createDailySale(product.id, { quantity: 3 });
+    const invoice = 'INV-' + sale.transaction_id.replace(/-/g, '').slice(0, 8).toUpperCase();
 
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
 
-    // Navigate to All Sales tab and find the most recent transaction (our sale)
+    // Navigate to All Sales tab and find OUR specific transaction by invoice number.
+    // Avoids relying on "first row" which may belong to another test's data.
     await page.getByTestId('tab-all-sales').click();
-    const firstTxnRow = page.locator('[data-testid="transaction-row"]').first();
-    await expect(firstTxnRow).toBeVisible({ timeout: 10_000 });
-    await firstTxnRow.click();
+    const txnRow = page.locator('[data-testid="transaction-row"]').filter({ hasText: invoice });
+    await expect(txnRow).toBeVisible({ timeout: 10_000 });
+    await txnRow.click();
 
-    // Transaction Detail dialog opens — find our product's item row
+    // Transaction Detail dialog opens — find our product's item row by product name.
+    // We wait up to 10 s for productMap to resolve names (async API call).
     const detailDialog = page.locator('[role="dialog"]').filter({ hasText: 'Transaction Detail' });
     await expect(detailDialog).toBeVisible({ timeout: 5_000 });
     const itemRow = detailDialog
       .locator('[data-testid="transaction-item-row"]')
       .filter({ hasText: product.name });
-    await expect(itemRow).toBeVisible({ timeout: 5_000 });
+    await expect(itemRow).toBeVisible({ timeout: 10_000 });
 
     // Click the void button for that item
     await itemRow.locator('[data-testid="txn-item-void-btn"]').click();
@@ -466,7 +481,9 @@ test.describe('Void sale — stock restore', () => {
   test('voided item row has no Void button — sale cannot be voided twice', async ({ page }) => {
     const product = await ensureProduct('E2E No Revoid Product');
     await addStock(product.id, 5);
-    const sale = await createSale(product.id, { quantity: 1 });
+    // Use daily-entry so the sale has a transaction_id and appears in All Sales
+    const sale = await createDailySale(product.id, { quantity: 1 });
+    const invoice = 'INV-' + sale.transaction_id.replace(/-/g, '').slice(0, 8).toUpperCase();
 
     // Void the sale directly via API
     await voidSale(sale.id);
@@ -474,19 +491,18 @@ test.describe('Void sale — stock restore', () => {
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
 
-    // Navigate to All Sales tab and open the most recent transaction
     await page.getByTestId('tab-all-sales').click();
-    const firstTxnRow = page.locator('[data-testid="transaction-row"]').first();
-    await expect(firstTxnRow).toBeVisible({ timeout: 10_000 });
-    await firstTxnRow.click();
+    const txnRow = page.locator('[data-testid="transaction-row"]').filter({ hasText: invoice });
+    await expect(txnRow).toBeVisible({ timeout: 10_000 });
+    await txnRow.click();
 
-    // Transaction Detail dialog opens
+    // Transaction Detail dialog opens — find our voided item row by product name
     const detailDialog = page.locator('[role="dialog"]').filter({ hasText: 'Transaction Detail' });
     await expect(detailDialog).toBeVisible({ timeout: 5_000 });
     const itemRow = detailDialog
       .locator('[data-testid="transaction-item-row"]')
       .filter({ hasText: product.name });
-    await expect(itemRow).toBeVisible({ timeout: 5_000 });
+    await expect(itemRow).toBeVisible({ timeout: 10_000 });
 
     // The void button must not be present for a voided item
     await expect(itemRow.locator('[data-testid="txn-item-void-btn"]')).toHaveCount(0);

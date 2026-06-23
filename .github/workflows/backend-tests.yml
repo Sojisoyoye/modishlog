@@ -27,6 +27,6 @@ jobs:
       - run: pytest backend/tests/ -v --cov=src --cov-fail-under=70
         env:
           DATABASE_URL: postgresql+asyncpg://modishlog:test@localhost/modishlog_test
-          SECRET_KEY: test-secret-key
+          SECRET_KEY: ci-test-secret-key-do-not-use-in-production-32x
           ENVIRONMENT: test
           UPLOAD_DIR: /tmp/modishlog_uploads

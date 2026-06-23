@@ -141,8 +141,10 @@ test('product assigned to a sub-category shows sub-category name', async ({ page
   await addForm.getByRole('button', { name: 'Create Product' }).click();
   await expect(page.getByText('Product created')).toBeVisible({ timeout: 8_000 });
 
-  // Product list shows the sub-category name
+  // Product list shows the sub-category name — search to handle pagination
   await page.getByRole('button', { name: /All Products/ }).click();
+  await page.getByPlaceholder('Search products...').fill(productName);
+  await page.waitForTimeout(400);
   const row = page.getByRole('row').filter({ hasText: productName }).first();
   await expect(row).toBeVisible({ timeout: 5_000 });
   await expect(row).toContainText(childName);

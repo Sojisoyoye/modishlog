@@ -196,9 +196,9 @@ test('pricing – loads page', async ({ page }) => {
   await page.goto('/pricing');
   await page.waitForLoadState('networkidle');
   await shot(page, '08-pricing');
-  // Should show content (not an error page)
-  await expect(page.locator('body')).not.toContainText('404');
-  await expect(page.locator('body')).not.toContainText('Error');
+  // Should show content (not a 404 page) — check heading rather than body text
+  // because product names can contain "404" as part of a timestamp-based ID.
+  await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({ timeout: 10_000 });
 });
 
 // ── FX Rates ──────────────────────────────────────────────────────────────────

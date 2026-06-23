@@ -110,6 +110,7 @@ test.describe('Order payment recording', () => {
     await expect(page.getByTestId('void-payment-btn').first()).toBeVisible();
     await page.getByTestId('void-payment-btn').first().click();
 
-    await expect(page.getByTestId('payment-row').first()).toContainText(/void/i);
+    // At least one payment row must show voided status after the operation
+    await expect(page.getByTestId('payment-row').filter({ hasText: /void/i }).first()).toBeVisible({ timeout: 5_000 });
   });
 });

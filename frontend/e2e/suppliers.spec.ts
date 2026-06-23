@@ -34,6 +34,9 @@ test('creates a supplier and shows it in the list', async ({ page }) => {
   await page.getByPlaceholder('Email address').fill('jane@test.com');
   await page.getByRole('button', { name: 'Save Supplier' }).click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  // Search to surface the newly created supplier (list may be paginated)
+  await page.getByPlaceholder('Search suppliers...').fill(name);
+  await page.waitForTimeout(400);
   await expect(page.getByRole('cell', { name, exact: true })).toBeVisible({ timeout: 5000 });
 });
 
@@ -43,6 +46,8 @@ test('opens supplier detail and shows tabs', async ({ page }) => {
   await page.getByPlaceholder('Supplier name').fill(name);
   await page.getByRole('button', { name: 'Save Supplier' }).click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await page.getByPlaceholder('Search suppliers...').fill(name);
+  await page.waitForTimeout(400);
   await expect(page.getByRole('cell', { name, exact: true })).toBeVisible({ timeout: 5000 });
 
   await page.getByRole('cell', { name, exact: true }).click();
@@ -58,12 +63,15 @@ test('can switch between supplier detail tabs', async ({ page }) => {
   await page.getByPlaceholder('Supplier name').fill(name);
   await page.getByRole('button', { name: 'Save Supplier' }).click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await page.getByPlaceholder('Search suppliers...').fill(name);
+  await page.waitForTimeout(400);
   await expect(page.getByRole('cell', { name, exact: true })).toBeVisible({ timeout: 5000 });
 
   await page.getByRole('cell', { name, exact: true }).click();
   await page.getByRole('tab', { name: 'Ledger' }).click();
   await expect(page.locator('.pi-spinner')).toHaveCount(0);
-  await expect(page.getByRole('table')).toBeVisible();
+  // Use last() to avoid strict-mode violation: suppliers list table + ledger table
+  await expect(page.getByRole('table').last()).toBeVisible();
 
   await page.getByRole('tab', { name: 'Activities' }).click();
   await expect(page.locator('.pi-spinner')).toHaveCount(0);
@@ -76,6 +84,8 @@ test('edits a supplier', async ({ page }) => {
   await page.getByPlaceholder('Supplier name').fill(name);
   await page.getByRole('button', { name: 'Save Supplier' }).click();
   await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await page.getByPlaceholder('Search suppliers...').fill(name);
+  await page.waitForTimeout(400);
   await expect(page.getByRole('cell', { name, exact: true })).toBeVisible({ timeout: 5000 });
 
   await page.getByTestId(`edit-supplier-${name}`).click();
@@ -119,6 +129,10 @@ test.describe('Purchases tab shows linked orders', () => {
     await page.goto('/suppliers');
     await expect(page.getByRole('heading', { name: 'Suppliers' })).toBeVisible();
 
+    // Search for the supplier to handle pagination
+    await page.getByPlaceholder('Search suppliers...').fill(supplierName);
+    await page.waitForTimeout(400);
+
     // Open supplier detail by clicking the name cell
     await page.getByRole('cell', { name: supplierName, exact: true }).click();
 
@@ -132,7 +146,8 @@ test.describe('Purchases tab shows linked orders', () => {
     await expect(page.locator('.pi-spinner')).toHaveCount(0, { timeout: 10_000 });
 
     // The order row must show status 'ORDERED' (initial state after creation)
-    await expect(page.getByRole('cell', { name: 'ORDERED' })).toBeVisible({ timeout: 10_000 });
+    // Use getByText since the cell shows the raw enum value without a role attribute
+    await expect(page.getByText('ORDERED').first()).toBeVisible({ timeout: 10_000 });
 
     // Total amount cell: 5 × 1500 = 7500.00 (formatted by number pipe)
     await expect(page.getByRole('cell', { name: /7[,.]?500/ })).toBeVisible({ timeout: 5_000 });
