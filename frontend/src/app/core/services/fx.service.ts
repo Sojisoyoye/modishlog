@@ -109,9 +109,9 @@ export class FxService {
       pair: string;
       total_exposure: string;
       locked_amount: string;
-      locked_pct: number;
+      locked_pct: string;
       floating_amount: string;
-      floating_pct: number;
+      floating_pct: string;
       weighted_locked_rate: string;
       current_market_rate: string;
       unrealized_pnl: string;

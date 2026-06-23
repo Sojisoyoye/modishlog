@@ -41,7 +41,7 @@ export interface KpiSubLine {
           <div class="mt-1 h-7 w-28 rounded skeleton"></div>
         } @else {
           <p class="mt-0.5 text-2xl font-bold text-text">
-            ₦ {{ value() }}
+            ₦ {{ +value() | number: '1.2-2' }}
           </p>
         }
 
@@ -52,7 +52,7 @@ export interface KpiSubLine {
                 <div class="h-3 w-36 rounded skeleton"></div>
               } @else {
                 <p class="text-xs text-muted">
-                  {{ line.label }}: <span class="font-medium text-text">₦ {{ line.value }}</span>
+                  {{ line.label }}: <span class="font-medium text-text">₦ {{ +line.value | number: '1.2-2' }}</span>
                 </p>
               }
             }
