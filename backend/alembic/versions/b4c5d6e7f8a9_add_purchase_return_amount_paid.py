@@ -1,6 +1,6 @@
 """add_purchase_return_amount_paid
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: b4c5d6e7f8a9
 Revises: e8f9a0b1c2d3
 Create Date: 2026-06-23 20:00:00.000000
 
@@ -10,7 +10,7 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = 'a1b2c3d4e5f6'
+revision: str = 'b4c5d6e7f8a9'
 down_revision: Union[str, None] = 'e8f9a0b1c2d3'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
