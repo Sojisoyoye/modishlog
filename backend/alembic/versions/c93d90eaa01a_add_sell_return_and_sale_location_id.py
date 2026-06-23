@@ -9,7 +9,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = 'c93d90eaa01a'
@@ -23,24 +22,27 @@ def upgrade() -> None:
     sa.Column('sale_id', sa.Uuid(), nullable=False),
     sa.Column('return_date', sa.Date(), nullable=False),
     sa.Column('total_amount', sa.Numeric(precision=18, scale=6), nullable=False),
-    sa.Column('amount_paid', sa.Numeric(precision=18, scale=6), nullable=False),
+    sa.Column('amount_paid', sa.Numeric(precision=18, scale=6), nullable=False, server_default=sa.text('0')),
     sa.Column('notes', sa.Text(), nullable=True),
     sa.Column('created_by', sa.Uuid(), nullable=False),
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['created_by'], ['users.id'], ),
-    sa.ForeignKeyConstraint(['sale_id'], ['sales.id'], ),
+    sa.ForeignKeyConstraint(['sale_id'], ['sales.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_sell_returns_sale_id'), 'sell_returns', ['sale_id'], unique=False)
     op.add_column('sales', sa.Column('location_id', sa.Uuid(), nullable=True))
     op.create_index(op.f('ix_sales_location_id'), 'sales', ['location_id'], unique=False)
-    op.create_foreign_key(None, 'sales', 'business_locations', ['location_id'], ['id'], ondelete='SET NULL')
+    op.create_foreign_key(
+        'fk_sales_location_id_business_locations',
+        'sales', 'business_locations', ['location_id'], ['id'], ondelete='SET NULL',
+    )
 
 
 def downgrade() -> None:
-    op.drop_constraint(None, 'sales', type_='foreignkey')
+    op.drop_constraint('fk_sales_location_id_business_locations', 'sales', type_='foreignkey')
     op.drop_index(op.f('ix_sales_location_id'), table_name='sales')
     op.drop_column('sales', 'location_id')
     op.drop_index(op.f('ix_sell_returns_sale_id'), table_name='sell_returns')

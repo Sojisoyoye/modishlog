@@ -148,12 +148,12 @@ class SellReturn(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "sell_returns"
 
     sale_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("sales.id"), index=True
+        ForeignKey("sales.id", ondelete="CASCADE"), index=True
     )
     return_date: Mapped[date] = mapped_column(Date)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     amount_paid: Mapped[Decimal] = mapped_column(
-        Numeric(18, 6), default=Decimal("0")
+        Numeric(18, 6), default=Decimal("0"), server_default="0"
     )
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))

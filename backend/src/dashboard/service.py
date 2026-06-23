@@ -53,13 +53,20 @@ async def get_dashboard_summary(
     total_cogs: Decimal = (await db.execute(q_cogs)).scalar_one()
 
     # -- Expense (active operating costs created by this user) -------------
+    # OperatingCost stores a normalised monthly rate. When a bounded date
+    # range is given we pro-rate to avoid over-subtracting from net.
     q_exp = select(
         func.coalesce(func.sum(OperatingCost.monthly_equivalent), _ZERO)
     ).where(
         OperatingCost.created_by == user_id,
         OperatingCost.is_active.is_(True),
     )
-    expense: Decimal = (await db.execute(q_exp)).scalar_one()
+    raw_monthly_expense: Decimal = (await db.execute(q_exp)).scalar_one()
+    if date_from and date_to:
+        range_days = Decimal((date_to - date_from).days + 1)
+        expense = raw_monthly_expense * range_days / Decimal(30)
+    else:
+        expense = raw_monthly_expense
 
     net = total_sales - total_cogs - expense
 
@@ -78,10 +85,15 @@ async def get_dashboard_summary(
     invoice_due: Decimal = (await db.execute(q_inv)).scalar_one()
 
     # -- Sell Return -------------------------------------------------------
-    # Join SellReturn → Sale to scope by user
+    # Join SellReturn → Sale to scope by user, location, and status.
     q_sr = select(func.coalesce(func.sum(SellReturn.total_amount), _ZERO)).join(
         Sale, SellReturn.sale_id == Sale.id
-    ).where(Sale.recorded_by == user_id)
+    ).where(
+        Sale.recorded_by == user_id,
+        Sale.status == SaleStatus.COMPLETED,
+    )
+    if location_id:
+        q_sr = q_sr.where(Sale.location_id == location_id)
     if date_from:
         q_sr = q_sr.where(SellReturn.return_date >= date_from)
     if date_to:
@@ -90,7 +102,12 @@ async def get_dashboard_summary(
 
     q_srp = select(func.coalesce(func.sum(SellReturn.amount_paid), _ZERO)).join(
         Sale, SellReturn.sale_id == Sale.id
-    ).where(Sale.recorded_by == user_id)
+    ).where(
+        Sale.recorded_by == user_id,
+        Sale.status == SaleStatus.COMPLETED,
+    )
+    if location_id:
+        q_srp = q_srp.where(Sale.location_id == location_id)
     if date_from:
         q_srp = q_srp.where(SellReturn.return_date >= date_from)
     if date_to:

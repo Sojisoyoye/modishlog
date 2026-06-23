@@ -1,4 +1,7 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit, DestroyRef } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, EMPTY } from 'rxjs';
+import { switchMap, catchError } from 'rxjs/operators';
 import { DecimalPipe, CurrencyPipe, UpperCasePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Select } from 'primeng/select';
@@ -501,6 +504,8 @@ export class DashboardPageComponent implements OnInit {
   private readonly kpiService = inject(DashboardKpiService);
   private readonly locationsService = inject(LocationsService);
   private readonly authService = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly kpiTrigger$ = new Subject<{ locationId: string | null; dateFrom: string | null; dateTo: string | null }>();
 
   // KPI state
   kpi = signal<DashboardKpiSummary | null>(null);
@@ -564,24 +569,16 @@ export class DashboardPageComponent implements OnInit {
   }
 
   loadKpi(): void {
-    this.kpiError.set(false);
-    this.kpiLoading.set(true);
-    const dateFrom = this.dateRange?.[0]
-      ? this.dateRange[0].toISOString().slice(0, 10)
-      : null;
-    const dateTo = this.dateRange?.[1]
-      ? this.dateRange[1].toISOString().slice(0, 10)
-      : null;
-    this.kpiService.getSummary(this.selectedLocationId, dateFrom, dateTo).subscribe({
-      next: (data) => {
-        this.kpi.set(data);
-        this.kpiLoading.set(false);
-      },
-      error: () => {
-        this.kpiLoading.set(false);
-        this.kpiError.set(true);
-      },
-    });
+    const dateFrom = this.dateRange?.[0] ? this.toLocalDateString(this.dateRange[0]) : null;
+    const dateTo = this.dateRange?.[1] ? this.toLocalDateString(this.dateRange[1]) : null;
+    this.kpiTrigger$.next({ locationId: this.selectedLocationId, dateFrom, dateTo });
+  }
+
+  private toLocalDateString(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   }
 
   onLocationChange(): void {
@@ -593,6 +590,24 @@ export class DashboardPageComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.kpiTrigger$.pipe(
+      switchMap(({ locationId, dateFrom, dateTo }) => {
+        this.kpiLoading.set(true);
+        this.kpiError.set(false);
+        return this.kpiService.getSummary(locationId, dateFrom, dateTo).pipe(
+          catchError(() => {
+            this.kpiLoading.set(false);
+            this.kpiError.set(true);
+            return EMPTY;
+          }),
+        );
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(data => {
+      this.kpi.set(data);
+      this.kpiLoading.set(false);
+    });
+
     this.loadKpi();
 
     this.authService.checkSession().subscribe({
