@@ -1,23 +1,22 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { ApiService } from '../../../core/services/api.service';
 import { DashboardKpiSummary } from '../models/dashboard-kpi.model';
 
 @Injectable({ providedIn: 'root' })
 export class DashboardKpiService {
-  private readonly http = inject(HttpClient);
-  private readonly base = '/api/v1/dashboard';
+  private readonly api = inject(ApiService);
 
   getSummary(
     locationId: string | null,
     dateFrom: string | null,
     dateTo: string | null,
   ): Observable<DashboardKpiSummary> {
-    let params = new HttpParams();
-    if (locationId) params = params.set('location_id', locationId);
-    if (dateFrom) params = params.set('date_from', dateFrom);
-    if (dateTo) params = params.set('date_to', dateTo);
+    const params: Record<string, string> = {};
+    if (locationId) params['location_id'] = locationId;
+    if (dateFrom) params['date_from'] = dateFrom;
+    if (dateTo) params['date_to'] = dateTo;
 
-    return this.http.get<DashboardKpiSummary>(`${this.base}/summary`, { params });
+    return this.api.get<DashboardKpiSummary>('/dashboard/summary', params);
   }
 }

@@ -87,10 +87,50 @@ export interface LiveRateResponse {
   cached: boolean;
 }
 
+export interface FxExposureEntry {
+  pair: string;
+  total_exposure: number;
+  locked_amount: number;
+  locked_pct: number;
+  floating_amount: number;
+  floating_pct: number;
+  weighted_locked_rate: number;
+  current_market_rate: number;
+  unrealized_pnl: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class FxService {
   private readonly api = inject(ApiService);
   private readonly http = inject(HttpClient);
+
+  getExposureSummary(): Observable<FxExposureEntry[]> {
+    return this.api.get<{
+      pair: string;
+      total_exposure: string;
+      locked_amount: string;
+      locked_pct: string;
+      floating_amount: string;
+      floating_pct: string;
+      weighted_locked_rate: string;
+      current_market_rate: string;
+      unrealized_pnl: string;
+    }[]>('/fx/exposure').pipe(
+      map((items) =>
+        items.map((e) => ({
+          pair: e.pair,
+          total_exposure: Number(e.total_exposure),
+          locked_amount: Number(e.locked_amount),
+          locked_pct: Number(e.locked_pct),
+          floating_amount: Number(e.floating_amount),
+          floating_pct: Number(e.floating_pct),
+          weighted_locked_rate: Number(e.weighted_locked_rate),
+          current_market_rate: Number(e.current_market_rate),
+          unrealized_pnl: Number(e.unrealized_pnl),
+        })),
+      ),
+    );
+  }
 
   getLiveRate(): Observable<LiveRateResponse> {
     return this.api.get<LiveRateResponse>('/fx/live').pipe(

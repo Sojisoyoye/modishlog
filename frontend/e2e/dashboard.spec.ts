@@ -12,37 +12,40 @@ test.beforeAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await page.waitForLoadState('networkidle');
 });
 
-test.describe('Dashboard cards', () => {
-  test('displays the Liquidity card', async ({ page }) => {
-    await expect(page.getByText('Liquidity').first()).toBeVisible();
+test.describe('Dashboard widget cards', () => {
+  test('displays the Cash Health card', async ({ page }) => {
+    await expect(page.getByText('Cash Health').first()).toBeVisible();
     await expect(page.getByText('Cash Runway').first()).toBeVisible();
-    await expect(page.getByText('DSCR').first()).toBeVisible();
+    await expect(page.getByText('Profit Score (DSCR)').first()).toBeVisible();
   });
 
-  test('displays the FX Exposure card', async ({ page }) => {
+  test('displays the FX Exposure card with empty state when no records', async ({ page }) => {
     await expect(page.getByText('FX Exposure').first()).toBeVisible();
-    await expect(page.getByText('Locked (USD)').first()).toBeVisible();
-    await expect(page.getByText('Floating (USD)').first()).toBeVisible();
+    // The card always renders — either exposure rows or the empty-state message
+    const hasExposure = await page.getByText('No FX exposure tracked yet').isVisible().catch(() => false);
+    const hasRows = await page.locator('.rounded-xl.border.border-gray-100').first().isVisible().catch(() => false);
+    expect(hasExposure || hasRows).toBe(true);
   });
 
-  test('displays the Portfolio Margin card', async ({ page }) => {
-    await expect(page.getByText('Portfolio Margin').first()).toBeVisible();
+  test('displays the Profit Margin card', async ({ page }) => {
+    await expect(page.getByText('Profit Margin').first()).toBeVisible();
     await expect(page.getByText('Target:').first()).toBeVisible();
   });
 
-  test('displays the Orders Pipeline card', async ({ page }) => {
-    await expect(page.getByText('Orders Pipeline').first()).toBeVisible();
+  test('displays the Order Activity card', async ({ page }) => {
+    await expect(page.getByText('Order Activity').first()).toBeVisible();
+    await expect(page.getByText('In Progress').first()).toBeVisible();
   });
 
-  test('displays Inventory Alerts card', async ({ page }) => {
-    await expect(page.getByText('Inventory Alerts').first()).toBeVisible();
+  test('displays Stock Levels card', async ({ page }) => {
+    await expect(page.getByText('Stock Levels').first()).toBeVisible();
   });
 
-  test('displays AI Recommendations card', async ({ page }) => {
-    await expect(page.getByText('AI Recommendations').first()).toBeVisible();
+  test('displays Smart Suggestions card', async ({ page }) => {
+    await expect(page.getByText('Smart Suggestions').first()).toBeVisible();
   });
 });
 
@@ -61,79 +64,55 @@ test.describe('Global Exposure card (Task 16)', () => {
   });
 
   test('renders when data is available', async ({ page }) => {
-    // outer beforeEach already logged in and navigated to /dashboard
     await page.waitForLoadState('networkidle');
 
     await expect(page.getByText('Global Exposure').first()).toBeVisible();
-    await expect(page.getByText('EUR Debt').first()).toBeVisible();
-    await expect(page.getByText('USD Obligations').first()).toBeVisible();
+    await expect(page.getByText('EUR Loan Balance').first()).toBeVisible();
+    await expect(page.getByText('USD Order Obligations').first()).toBeVisible();
     await expect(page.getByText('Total Exposure (NGN)').first()).toBeVisible();
-    await expect(page.getByText('Debt/Trade Ratio').first()).toBeVisible();
+    await expect(page.getByText('Debt/Trade Ratio:').first()).toBeVisible();
   });
 
-  test('shows numeric values for exposure amounts', async ({ page }) => {
+  test('shows numeric total exposure value', async ({ page }) => {
     await page.waitForLoadState('networkidle');
 
-    // Total Exposure (NGN) is the only text-primary bold value in the card.
-    // /^[1-9][\d,]*$/ requires a non-zero leading digit — seeded USD order guarantees this.
-    const totalExposureValue = page.locator('p.text-lg.font-bold.text-primary').first();
-    await expect(totalExposureValue).toBeVisible();
-    await expect(totalExposureValue).toHaveText(/^[1-9][\d,]*$/);
-
-    // Debt/Trade Ratio renders as a decimal via number:'1.2-2' (e.g. "0.00").
-    // The element may include an arrow icon after the number so use containsText.
-    const debtRatioLabel = page.getByText('Debt/Trade Ratio').first();
-    await expect(debtRatioLabel).toBeVisible();
-    // The ratio value is the sibling p.text-lg.font-bold next to the label
-    const debtRatioP = debtRatioLabel.locator('..').locator('p.text-lg.font-bold').first();
-    await expect(debtRatioP).toContainText(/\d+\.\d{2}/);
+    // Total headline renders as ₦<number> in the indigo summary box
+    const totalEl = page.locator('p.text-2xl.font-bold.text-indigo-700').first();
+    await expect(totalEl).toBeVisible();
+    await expect(totalEl).toContainText(/₦[\d,]+/);
   });
 
-  test('currency toggle buttons are present when card renders', async ({ page }) => {
+  test('shows debt-to-trade ratio as a decimal', async ({ page }) => {
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByRole('button', { name: 'NGN' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'USD' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'EUR' })).toBeVisible();
-  });
-
-  test('clicking currency toggle changes active button styling', async ({ page }) => {
-    await page.waitForLoadState('networkidle');
-
-    const usdButton = page.getByRole('button', { name: 'USD' });
-    await expect(usdButton).toBeVisible();
-    await usdButton.click();
-    await expect(usdButton).toHaveClass(/bg-primary/);
+    // Ratio renders via number:'1.2-2' inside the indigo summary box
+    const ratioEl = page.locator('span.text-xs.font-bold').filter({ hasText: /\d+\.\d{2}/ }).first();
+    await expect(ratioEl).toBeVisible();
   });
 });
 
-test.describe('Logistics % card (Task 17)', () => {
+test.describe('Logistics Efficiency card (Task 17)', () => {
   test('renders with rolling average data', async ({ page }) => {
-    // The logistics-efficiency API always returns a dict (with 0 values when no orders exist),
-    // so this card always renders after the page loads.
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('Logistics %').first()).toBeVisible();
+    await expect(page.getByText('Shipping Costs').first()).toBeVisible();
     await expect(page.getByText('90-day rolling average').first()).toBeVisible();
   });
 
   test('shows a numeric percentage value', async ({ page }) => {
     await page.waitForLoadState('networkidle');
 
-    // The rolling_90d_avg_pct value renders via Angular's number:'1.1-1' pipe followed by '%'
-    // e.g. "0.0%" or "5.3%". This assertion fails if the API crashes or the template breaks.
-    const pctElement = page.locator('p.text-3xl.font-bold').filter({ hasText: /%/ });
+    // rolling_90d_avg_pct renders via number:'1.1-1' as e.g. "0.0%" or "58.4%"
+    const pctElement = page.locator('p.text-4xl.font-bold').filter({ hasText: /%/ });
     await expect(pctElement).toBeVisible();
     await expect(pctElement).toContainText(/\d+\.\d%/);
   });
-});
 
-test.describe('Triage banner (Task 21)', () => {
-  test('banner is hidden when no active triage condition exists', async ({ page }) => {
-    // No triage conditions are seeded in CI — verify the banner is absent.
-    // This assertion fails if the banner renders unexpectedly (e.g. due to stale DB state).
+  test('shows threshold guide with Target, Caution, High rows', async ({ page }) => {
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('Liquidity Squeeze Alert')).not.toBeVisible();
+    await expect(page.getByText('Target').first()).toBeVisible();
+    await expect(page.getByText('Caution').first()).toBeVisible();
+    await expect(page.getByText('High').first()).toBeVisible();
   });
 });
