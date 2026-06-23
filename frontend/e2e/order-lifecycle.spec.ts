@@ -28,18 +28,23 @@ test.afterAll(async () => {
   }
 });
 
+/** Locate status from the info-card paragraph (reliable across whitespace differences). */
+function statusText(page: import('@playwright/test').Page, status: string) {
+  return page.locator('p').filter({ hasText: status }).first();
+}
+
 test('ORDERED → PENDING: advance status and assert badge updates', async ({ page }) => {
   await loginViaUI(page);
   await page.goto(`/orders/${orderId}`);
   await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
   await page.waitForLoadState('networkidle');
 
-  await expect(page.locator('span').filter({ hasText: /^ORDERED$/ }).first()).toBeVisible();
+  await expect(statusText(page, 'ORDERED')).toBeVisible({ timeout: 10_000 });
 
   await page.getByRole('button', { name: 'PENDING' }).click();
   await page.screenshot({ path: 'e2e-screenshots/lifecycle-01-pending.png' });
 
-  await expect(page.locator('span').filter({ hasText: /^PENDING$/ }).first()).toBeVisible();
+  await expect(statusText(page, 'PENDING')).toBeVisible();
 });
 
 test('PENDING → IN_PRODUCTION: advance status and assert badge updates', async ({ page }) => {
@@ -48,12 +53,12 @@ test('PENDING → IN_PRODUCTION: advance status and assert badge updates', async
   await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
   await page.waitForLoadState('networkidle');
 
-  await expect(page.locator('span').filter({ hasText: /^PENDING$/ }).first()).toBeVisible();
+  await expect(statusText(page, 'PENDING')).toBeVisible();
 
   await page.getByRole('button', { name: 'IN_PRODUCTION' }).click();
   await page.screenshot({ path: 'e2e-screenshots/lifecycle-02-in-production.png' });
 
-  await expect(page.locator('span').filter({ hasText: /^IN_PRODUCTION$/ }).first()).toBeVisible();
+  await expect(statusText(page, 'IN_PRODUCTION')).toBeVisible();
 });
 
 test('IN_PRODUCTION → SHIPPING: advance status and assert badge updates', async ({ page }) => {
@@ -62,12 +67,12 @@ test('IN_PRODUCTION → SHIPPING: advance status and assert badge updates', asyn
   await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
   await page.waitForLoadState('networkidle');
 
-  await expect(page.locator('span').filter({ hasText: /^IN_PRODUCTION$/ }).first()).toBeVisible();
+  await expect(statusText(page, 'IN_PRODUCTION')).toBeVisible();
 
   await page.getByRole('button', { name: 'SHIPPING' }).click();
   await page.screenshot({ path: 'e2e-screenshots/lifecycle-03-shipping.png' });
 
-  await expect(page.locator('span').filter({ hasText: /^SHIPPING$/ }).first()).toBeVisible();
+  await expect(statusText(page, 'SHIPPING')).toBeVisible();
 });
 
 test('SHIPPING → CLEARED: advance status and assert badge updates', async ({ page }) => {
@@ -76,12 +81,12 @@ test('SHIPPING → CLEARED: advance status and assert badge updates', async ({ p
   await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
   await page.waitForLoadState('networkidle');
 
-  await expect(page.locator('span').filter({ hasText: /^SHIPPING$/ }).first()).toBeVisible();
+  await expect(statusText(page, 'SHIPPING')).toBeVisible();
 
   await page.getByRole('button', { name: 'CLEARED' }).click();
   await page.screenshot({ path: 'e2e-screenshots/lifecycle-04-cleared.png' });
 
-  await expect(page.locator('span').filter({ hasText: /^CLEARED$/ }).first()).toBeVisible();
+  await expect(statusText(page, 'CLEARED')).toBeVisible();
 });
 
 test('CLEARED → DELIVERED: fill FX rate, advance status, assert badge and In Stock column', async ({ page }) => {
@@ -90,7 +95,7 @@ test('CLEARED → DELIVERED: fill FX rate, advance status, assert badge and In S
   await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
   await page.waitForLoadState('networkidle');
 
-  await expect(page.locator('span').filter({ hasText: /^CLEARED$/ }).first()).toBeVisible();
+  await expect(statusText(page, 'CLEARED')).toBeVisible();
 
   // DELIVERED transition requires FX rate at delivery
   const fxInput = page.locator('input[placeholder="e.g. 1600"]');
@@ -100,7 +105,7 @@ test('CLEARED → DELIVERED: fill FX rate, advance status, assert badge and In S
   await page.getByRole('button', { name: 'DELIVERED' }).click();
   await page.screenshot({ path: 'e2e-screenshots/lifecycle-05-delivered.png' });
 
-  await expect(page.locator('span').filter({ hasText: /^DELIVERED$/ }).first()).toBeVisible();
+  await expect(statusText(page, 'DELIVERED')).toBeVisible();
 
   // After DELIVERED the line items table gains an 'In Stock' column header
   await expect(page.getByTestId('line-items-table').getByText('In Stock')).toBeVisible();

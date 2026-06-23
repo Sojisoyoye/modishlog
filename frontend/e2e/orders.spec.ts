@@ -68,8 +68,8 @@ test.describe('New Order dialog', () => {
     // At least 3 timeline inputs + item qty/cost inputs
     expect(await numberInputs.count()).toBeGreaterThanOrEqual(3);
 
-    // Create Order button
-    await expect(dialog.getByRole('button', { name: 'Create Order' })).toBeVisible();
+    // Create Order button (text varies: 'Create Purchase Order' or 'Create Purchase')
+    await expect(dialog.getByRole('button', { name: /Create Purchase/ })).toBeVisible();
   });
 
   test('can add additional item rows', async ({ page }) => {
@@ -107,7 +107,7 @@ test.describe('Inline product creation in New Order dialog', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Order detail dialog', () => {
-  test('clicking an order row opens detail dialog with line items section', async ({ page }) => {
+  test('clicking an order row navigates to detail page with line items section', async ({ page }) => {
     const product = await ensureProduct('Detail Dialog Product');
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
@@ -118,31 +118,30 @@ test.describe('Order detail dialog', () => {
     await expect(createDialog).toBeVisible({ timeout: 10_000 });
 
     await createDialog.getByPlaceholder('Supplier name').fill('Detail Test Supplier');
-    const productSelect = createDialog.locator('select').first();
+    // Wait for the product to appear in the line-item select, then select it
+    // (the dialog also has a Pay Term select first — use :has() to target the correct one)
     await expect(createDialog.locator(`select option[value="${product.id}"]`)).toBeAttached({ timeout: 10_000 });
+    const productSelect = createDialog.locator(`select:has(option[value="${product.id}"])`);
     await productSelect.selectOption(product.id);
     await createDialog.locator('input[placeholder="Qty"]').first().fill('10');
     await createDialog.locator('input[placeholder="$/unit"]').first().fill('15');
-    await createDialog.getByRole('button', { name: 'Create Order' }).click();
+    await createDialog.getByRole('button', { name: /Create Purchase/i }).click();
     await expect(createDialog).not.toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Order created successfully')).toBeVisible({ timeout: 5_000 });
 
-    // Click the newly created order row in the table
+    // Click the newly created order row — navigates to the order detail page
     const orderRow = page.getByRole('row').filter({ hasText: 'Detail Test Supplier' }).first();
     await orderRow.click();
+    await expect(page).toHaveURL(/\/orders\//, { timeout: 10_000 });
 
-    // Order detail dialog should open
-    const detailDialog = page.locator('[role="dialog"]').filter({ hasText: 'Order Details' });
-    await expect(detailDialog).toBeVisible({ timeout: 10_000 });
-
-    // Line items section must be present
-    await expect(detailDialog.getByText('Line Items')).toBeVisible();
+    // Line items section must be present on the detail page
+    await expect(page.getByText('Line Items')).toBeVisible();
 
     // The product name should appear in the line items table
-    await expect(detailDialog.getByText('Detail Dialog Product')).toBeVisible();
+    await expect(page.getByText('Detail Dialog Product')).toBeVisible();
 
-    // Qty and unit cost should be displayed
-    await expect(detailDialog.getByText('10')).toBeVisible();
+    // Qty should be displayed
+    await expect(page.getByText('10').first()).toBeVisible();
   });
 });
 
@@ -165,10 +164,10 @@ test.describe('Create Order flow', () => {
     // Fill supplier
     await dialog.getByPlaceholder('Supplier name').fill('E2E Test Supplier');
 
-    // Wait for product to appear in the select, then choose it
-    const productOption = dialog.locator(`select option[value="${product.id}"]`);
-    await expect(productOption).toBeAttached({ timeout: 10_000 });
-    const productSelect = dialog.locator('select').first();
+    // Wait for product to appear in the line-item select, then choose it
+    // (the dialog also has a Pay Term select first — use :has() to target the correct one)
+    await expect(dialog.locator(`select option[value="${product.id}"]`)).toBeAttached({ timeout: 10_000 });
+    const productSelect = dialog.locator(`select:has(option[value="${product.id}"])`);
     await productSelect.selectOption(product.id);
 
     // Fill quantity and unit cost
@@ -178,8 +177,8 @@ test.describe('Create Order flow', () => {
     const costInput = dialog.locator('input[placeholder="$/unit"]').first();
     await costInput.fill('25');
 
-    // Click "Create Order"
-    await dialog.getByRole('button', { name: 'Create Order' }).click();
+    // Click "Create Purchase Order" / "Create Purchase" (text varies by order type)
+    await dialog.getByRole('button', { name: /Create Purchase/i }).click();
 
     // Dialog should close after successful creation
     await expect(dialog).not.toBeVisible({ timeout: 10_000 });
@@ -188,6 +187,6 @@ test.describe('Create Order flow', () => {
     await expect(page.getByText('Order created successfully')).toBeVisible({ timeout: 5_000 });
 
     // The order should now appear in the "All Orders" table
-    await expect(page.getByText('E2E Test Supplier')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('E2E Test Supplier').first()).toBeVisible({ timeout: 5_000 });
   });
 });

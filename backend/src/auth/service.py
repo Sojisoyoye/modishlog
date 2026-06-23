@@ -80,8 +80,8 @@ async def authenticate_user(
     if not user:
         raise InvalidCredentialsError()
 
-    # Check lockout
-    now = datetime.now(timezone.utc)
+    # Check lockout — use naive UTC throughout to match the DB column (TIMESTAMP WITHOUT TIME ZONE)
+    now = datetime.utcnow()
     if user.locked_until and user.locked_until > now:
         await logger.awarn(
             "login_locked", email=email, locked_until=str(user.locked_until)
@@ -94,6 +94,7 @@ async def authenticate_user(
             user.locked_until = now + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
             await logger.awarn("account_locked", email=email)
         await db.flush()
+        await db.commit()  # Commit before raising so the counter persists despite the error path rollback
         raise InvalidCredentialsError()
 
     # Successful login — reset counters

@@ -18,7 +18,7 @@ test.beforeEach(async ({ page }) => {
 
 test('shows Inventory heading and stock levels table', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible();
-  await expect(page.getByText('Current Stock Levels')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Current Stock Levels' })).toBeVisible();
   await expect(page.getByText('Recent Movements')).toBeVisible();
 });
 

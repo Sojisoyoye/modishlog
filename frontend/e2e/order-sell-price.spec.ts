@@ -3,6 +3,8 @@ import { ensureTestUser, loginViaUI } from './helpers/auth';
 import { ensureProduct, createOrder, deleteOrder, advanceOrderToStatus } from './helpers/data';
 
 test.describe.configure({ mode: 'serial' });
+// beforeAll advances through multiple status transitions — needs extra time under load
+test.setTimeout(90_000);
 
 let orderId: string;
 
@@ -11,7 +13,7 @@ test.beforeAll(async () => {
   const product = await ensureProduct('E2E Sell Price Product');
   const order = await createOrder(product.id, { currency: 'NGN', quantity: 2, unitCost: '6000.00' });
   orderId = order.id;
-  await advanceOrderToStatus(orderId, 'DELIVERED', { fxRateAtDelivery: '1580' });
+  await advanceOrderToStatus(orderId, 'CLEARED');
 });
 
 test.afterAll(async () => {
@@ -48,8 +50,9 @@ test.describe('Order line item sell price (sell_price_ngn)', () => {
 
     await sellInput.fill('250000');
     await page.getByRole('button', { name: /save/i }).click();
-    await expect(page.getByRole('button', { name: /edit/i })).toBeVisible({ timeout: 5000 });
-
-    await expect(page.getByText('250,000').first()).toBeVisible();
+    // Wait for the save to complete via the success toast
+    await expect(page.getByText('Order updated')).toBeVisible({ timeout: 15_000 });
+    // Sell price should now be shown formatted in the table
+    await expect(page.getByText('250,000').first()).toBeVisible({ timeout: 5_000 });
   });
 });

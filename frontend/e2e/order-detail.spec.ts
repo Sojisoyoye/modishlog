@@ -41,19 +41,22 @@ test.describe('Order detail page', () => {
   test('clicking an order row navigates to /orders/:id', async ({ page }) => {
     await page.goto('/orders');
     await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
-    // Find the seeded order row and click it
+    // Wait for orders to load, then find the seeded order row
+    await page.waitForLoadState('networkidle');
     const orderRow = page.locator('table tbody tr').filter({ hasText: orderNumber });
-    await expect(orderRow).toBeVisible();
+    await expect(orderRow).toBeVisible({ timeout: 10_000 });
     await orderRow.click();
     await expect(page).toHaveURL(/\/orders\//);
-    await expect(page.getByText(orderNumber)).toBeVisible();
+    // Use heading to avoid strict-mode violation (PO number appears in both span and h2)
+    await expect(page.getByRole('heading', { name: orderNumber })).toBeVisible();
   });
 
   test('detail page shows order header fields', async ({ page }) => {
     await page.goto(`/orders/${orderId}`);
     await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
-    await expect(page.getByText('Supplier')).toBeVisible();
-    await expect(page.getByText('Status')).toBeVisible();
+    // Use exact:true to avoid matching 'Suppliers' nav link or 'E2E Test Supplier' text
+    await expect(page.getByText('Supplier', { exact: true })).toBeVisible();
+    await expect(page.getByText('Status', { exact: true })).toBeVisible();
   });
 
   test('detail page has a Back to Orders link', async ({ page }) => {
@@ -75,6 +78,7 @@ test.describe('Order detail page', () => {
 
   test('direct URL navigation to /orders/:id works', async ({ page }) => {
     await page.goto(`/orders/${orderId}`);
-    await expect(page.getByText(orderNumber)).toBeVisible();
+    // Use heading to avoid strict-mode: order number appears in both span and h2
+    await expect(page.getByRole('heading', { name: orderNumber })).toBeVisible();
   });
 });

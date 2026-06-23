@@ -57,9 +57,10 @@ test('Upload CSV with unknown SKU shows error table', async ({ page }) => {
   await page.getByRole('button', { name: 'Import Orders' }).click();
   const fileInput = page.locator('input[type="file"]');
   await fileInput.setInputFiles(tmpFile);
-  await page.getByRole('button', { name: /submit|import/i }).click();
+  await page.getByRole('button', { name: /Submit Import/i }).click();
 
-  await expect(page.getByText(/error/i)).toBeVisible({ timeout: 5000 });
+  // Use a more specific locator: the error summary paragraph (not the table header)
+  await expect(page.getByText(/Import failed/i).first()).toBeVisible({ timeout: 5000 });
 
   fs.unlinkSync(tmpFile);
 });

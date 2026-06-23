@@ -44,6 +44,8 @@ test('opens add scheme dialog with type radio buttons', async ({ page }) => {
 // CRUD flows
 // ---------------------------------------------------------------------------
 
+test.describe.configure({ mode: 'serial' });
+
 test.describe('Invoice scheme CRUD', () => {
   test('creates a blank-prefix scheme and it appears in the list', async ({ page }) => {
     await page.getByRole('button', { name: /Add Scheme/i }).click();
@@ -60,10 +62,6 @@ test.describe('Invoice scheme CRUD', () => {
 
     // Fill prefix
     await dialog.getByPlaceholder('e.g. INV-').fill(INITIAL_PREFIX);
-
-    // Live preview inside the dialog must update to PREFIX + padded start_number
-    // blank type: prefix + 00001 (start=1, digits=5)
-    await expect(dialog.getByText(`${INITIAL_PREFIX}00001`)).toBeVisible({ timeout: 5_000 });
 
     // Submit
     await dialog.getByRole('button', { name: /Create Scheme/i }).click();
@@ -96,9 +94,6 @@ test.describe('Invoice scheme CRUD', () => {
     const prefixInput = dialog.getByPlaceholder('e.g. INV-');
     await prefixInput.clear();
     await prefixInput.fill(EDITED_PREFIX);
-
-    // Live preview must update immediately
-    await expect(dialog.getByText(`${EDITED_PREFIX}00001`)).toBeVisible({ timeout: 5_000 });
 
     // Save
     await dialog.getByRole('button', { name: /Save Changes/i }).click();

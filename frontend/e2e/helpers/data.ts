@@ -25,6 +25,17 @@ async function ensureE2ECategory(): Promise<string> {
       headers: { Authorization: `Bearer ${token}` },
       data: { name: 'E2E Test Category', description: 'Created by E2E helpers' },
     });
+    if (resp.status() === 409) {
+      // Race condition: another worker created it — re-query
+      const retryResp = await ctx.get(`${API}/products/categories`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (retryResp.ok()) {
+        const cats: { id: string; name: string }[] = await retryResp.json();
+        const found = cats.find((c) => c.name === 'E2E Test Category');
+        if (found) return found.id;
+      }
+    }
     if (!resp.ok()) throw new Error(`Create category failed: ${resp.status()} ${await resp.text()}`);
     return (await resp.json()).id;
   } finally {
@@ -66,6 +77,28 @@ export async function ensureProduct(
         category_id: categoryId,
       },
     });
+    if (resp.status() === 409) {
+      // Slug conflict — product exists but wasn't found by initial search; retry with name search
+      const retryResp = await ctx.get(`${API}/products?search=${encodeURIComponent(name)}&page_size=25`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (retryResp.ok()) {
+        const data = await retryResp.json();
+        const items: { id: string; name: string }[] = Array.isArray(data) ? data : (data.items ?? data.products ?? []);
+        const found = items.find((p) => p.name === name);
+        if (found) return { id: found.id, name: found.name };
+      }
+      // Product might be inactive (soft-deleted) — slug still blocks creation
+      const inactiveResp = await ctx.get(`${API}/products?search=${encodeURIComponent(name)}&page_size=25&is_active=false`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (inactiveResp.ok()) {
+        const data = await inactiveResp.json();
+        const items: { id: string; name: string }[] = Array.isArray(data) ? data : (data.items ?? data.products ?? []);
+        const found = items.find((p) => p.name === name);
+        if (found) return { id: found.id, name: found.name };
+      }
+    }
     if (!resp.ok()) throw new Error(`Create product failed: ${resp.status()} ${await resp.text()}`);
     const product = await resp.json();
     return { id: product.id, name: product.name };
@@ -83,10 +116,30 @@ export async function ensureCategory(
   const token = await getAPIToken();
   const ctx = await request.newContext();
   try {
+    // Check if category already exists
+    const listResp = await ctx.get(`${API}/products/categories`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (listResp.ok()) {
+      const cats: { id: string; name: string }[] = await listResp.json();
+      const found = cats.find((c) => c.name === name);
+      if (found) return { id: found.id, name: found.name };
+    }
     const resp = await ctx.post(`${API}/products/categories`, {
       headers: { Authorization: `Bearer ${token}` },
       data: { name, description: 'Created by E2E test' },
     });
+    if (resp.status() === 409) {
+      // Race condition — re-fetch
+      const retryResp = await ctx.get(`${API}/products/categories`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (retryResp.ok()) {
+        const cats: { id: string; name: string }[] = await retryResp.json();
+        const found = cats.find((c) => c.name === name);
+        if (found) return { id: found.id, name: found.name };
+      }
+    }
     if (!resp.ok()) {
       throw new Error(`Failed to create category: ${resp.status()} ${await resp.text()}`);
     }
@@ -136,27 +189,36 @@ export async function ensureProductInCategory(
  */
 export async function createOrder(
   productId: string,
-  options: { currency?: string; quantity?: number; unitCost?: string; supplierId?: string } = {},
-): Promise<{ id: string }> {
-  const { currency = 'USD', quantity = 10, unitCost = '100.00', supplierId } = options;
+  options: { currency?: string; quantity?: number; unitCost?: string; supplierId?: string; isPurchaseOrder?: boolean } = {},
+): Promise<{ id: string; order_number?: string }> {
+  const { currency = 'USD', quantity = 10, unitCost = '100.00', supplierId, isPurchaseOrder = true } = options;
   const token = await getAPIToken();
-  const ctx = await request.newContext();
-  try {
-    const body: Record<string, unknown> = {
-      supplier_name: 'E2E Test Supplier',
-      currency,
-      line_items: [{ product_id: productId, quantity, unit_cost: unitCost }],
-    };
-    if (supplierId) body['supplier_id'] = supplierId;
-    const resp = await ctx.post(`${API}/orders`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: body,
-    });
-    if (!resp.ok()) throw new Error(`Create order failed: ${resp.status()} ${await resp.text()}`);
-    return { id: (await resp.json()).id };
-  } finally {
-    await ctx.dispose();
+  const body: Record<string, unknown> = {
+    supplier_name: 'E2E Test Supplier',
+    currency,
+    is_purchase_order: isPurchaseOrder,
+    line_items: [{ product_id: productId, quantity, unit_cost: unitCost }],
+  };
+  if (supplierId) body['supplier_id'] = supplierId;
+  // Retry up to 3 times on transient 5xx errors (backend can return 500 under concurrent load)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ctx = await request.newContext();
+    try {
+      const resp = await ctx.post(`${API}/orders`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: body,
+      });
+      if (resp.ok()) return await resp.json();
+      if (resp.status() >= 500 && attempt < 2) {
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      throw new Error(`Create order failed: ${resp.status()} ${await resp.text()}`);
+    } finally {
+      await ctx.dispose();
+    }
   }
+  throw new Error('Create order failed after 3 attempts');
 }
 
 /**
@@ -210,11 +272,20 @@ export async function advanceOrderToStatus(
       if (next === 'DELIVERED' && options.fxRateAtDelivery) {
         body['fx_rate_at_delivery'] = options.fxRateAtDelivery;
       }
-      const resp = await ctx.put(`${API}/orders/${orderId}/status`, {
-        headers: { Authorization: `Bearer ${token}` },
-        data: body,
-      });
-      if (!resp.ok()) throw new Error(`Status transition to ${next} failed: ${resp.status()} ${await resp.text()}`);
+      // Retry each transition up to 3 times on transient 5xx errors
+      let lastErr = '';
+      let ok = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const resp = await ctx.put(`${API}/orders/${orderId}/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+          data: body,
+        });
+        if (resp.ok()) { ok = true; break; }
+        lastErr = `${resp.status()} ${await resp.text()}`;
+        if (resp.status() < 500 || attempt === 2) break;
+        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+      }
+      if (!ok) throw new Error(`Status transition to ${next} failed: ${lastErr}`);
     }
   } finally {
     await ctx.dispose();
@@ -227,18 +298,45 @@ export async function advanceOrderToStatus(
  */
 export async function createSale(
   productId: string,
-  options: { quantity?: number; unitPrice?: string; saleDate?: string } = {},
+  options: { quantity?: number; unitPrice?: string; saleDate?: string; channel?: string } = {},
 ): Promise<{ id: string }> {
-  const { quantity = 1, unitPrice = '8000.00', saleDate = new Date().toISOString().split('T')[0] } = options;
+  const { quantity = 1, unitPrice = '8000.00', saleDate = new Date().toISOString().split('T')[0], channel = 'retail' } = options;
   const token = await getAPIToken();
   const ctx = await request.newContext();
   try {
     const resp = await ctx.post(`${API}/sales`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { product_id: productId, quantity, unit_price: unitPrice, sale_date: saleDate },
+      data: { product_id: productId, quantity, unit_price: unitPrice, sale_date: saleDate, channel },
     });
     if (!resp.ok()) throw new Error(`Create sale failed: ${resp.status()} ${await resp.text()}`);
     return { id: (await resp.json()).id };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Create a sale via the daily-entry endpoint so it gets a transaction_id and
+ * appears in the All Sales transactions list.
+ * Returns the sale's id AND transaction_id.
+ */
+export async function createDailySale(
+  productId: string,
+  options: { quantity?: number } = {},
+): Promise<{ id: string; transaction_id: string }> {
+  const { quantity = 1 } = options;
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.post(`${API}/sales/daily-entry`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        entries: [{ product_id: productId, quantity, sale_date: new Date().toISOString().split('T')[0] }],
+      },
+    });
+    if (!resp.ok()) throw new Error(`Create daily sale failed: ${resp.status()} ${await resp.text()}`);
+    const sales: { id: string; transaction_id: string }[] = await resp.json();
+    return sales[0];
   } finally {
     await ctx.dispose();
   }

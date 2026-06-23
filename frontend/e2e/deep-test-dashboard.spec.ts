@@ -36,9 +36,10 @@ test('dashboard – Liquidity card shows Cash Runway and DSCR', async ({ page })
   await page.goto('/dashboard');
   await page.waitForLoadState('networkidle');
   await shot(page, '03-liquidity-card');
-  await expect(page.getByText('Liquidity')).toBeVisible();
-  await expect(page.getByText('Cash Runway')).toBeVisible();
-  await expect(page.getByText('DSCR')).toBeVisible();
+  // Use .first() to avoid strict-mode if triage alert also shows "Liquidity Squeeze Alert"
+  await expect(page.getByText('Liquidity').first()).toBeVisible();
+  await expect(page.getByText('Cash Runway').first()).toBeVisible();
+  await expect(page.getByText('DSCR').first()).toBeVisible();
 });
 
 // ── 4. FX Exposure card ───────────────────────────────────────────────────────

@@ -81,12 +81,12 @@ test.describe('Global Exposure card (Task 16)', () => {
     await expect(totalExposureValue).toHaveText(/^[1-9][\d,]*$/);
 
     // Debt/Trade Ratio renders as a decimal via number:'1.2-2' (e.g. "0.00").
-    // Scoped to the section containing the "Debt/Trade Ratio" label to avoid false matches
-    // from other decimal values elsewhere on the page.
-    const debtRatioSection = page.locator('div').filter({
-      has: page.getByText('Debt/Trade Ratio'),
-    });
-    await expect(debtRatioSection.locator('p.text-lg.font-bold').first()).toHaveText(/^\d+\.\d{2}$/);
+    // The element may include an arrow icon after the number so use containsText.
+    const debtRatioLabel = page.getByText('Debt/Trade Ratio').first();
+    await expect(debtRatioLabel).toBeVisible();
+    // The ratio value is the sibling p.text-lg.font-bold next to the label
+    const debtRatioP = debtRatioLabel.locator('..').locator('p.text-lg.font-bold').first();
+    await expect(debtRatioP).toContainText(/\d+\.\d{2}/);
   });
 
   test('currency toggle buttons are present when card renders', async ({ page }) => {
@@ -124,7 +124,7 @@ test.describe('Logistics % card (Task 17)', () => {
     // e.g. "0.0%" or "5.3%". This assertion fails if the API crashes or the template breaks.
     const pctElement = page.locator('p.text-3xl.font-bold').filter({ hasText: /%/ });
     await expect(pctElement).toBeVisible();
-    await expect(pctElement).toHaveText(/^\d+\.\d%$/);
+    await expect(pctElement).toContainText(/\d+\.\d%/);
   });
 });
 

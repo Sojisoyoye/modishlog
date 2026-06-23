@@ -3,6 +3,8 @@ import { ensureTestUser, loginViaUI } from './helpers/auth';
 import { ensureProduct, createOrder, deleteOrder, advanceOrderToStatus } from './helpers/data';
 
 test.describe.configure({ mode: 'serial' });
+// beforeAll advances through 5 status transitions — needs extra time under load
+test.setTimeout(90_000);
 
 let deliveredOrderId: string;
 let orderedOrderId: string;

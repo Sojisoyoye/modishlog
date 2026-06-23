@@ -229,7 +229,8 @@ class TestAuthenticateUser:
 
     @pytest.mark.asyncio
     async def test_locked_account_raises(self):
-        locked_until = datetime.now(timezone.utc) + timedelta(minutes=10)
+        # Use naive UTC to match the DB column (TIMESTAMP WITHOUT TIME ZONE)
+        locked_until = datetime.utcnow() + timedelta(minutes=10)
         user = _make_user(locked_until=locked_until)
         db = _mock_db(user=user)
         with pytest.raises(AccountLockedError) as exc_info:
@@ -238,7 +239,8 @@ class TestAuthenticateUser:
 
     @pytest.mark.asyncio
     async def test_expired_lockout_allows_login(self):
-        expired = datetime.now(timezone.utc) - timedelta(minutes=1)
+        # Use naive UTC to match the DB column (TIMESTAMP WITHOUT TIME ZONE)
+        expired = datetime.utcnow() - timedelta(minutes=1)
         user = _make_user(locked_until=expired)
         db = _mock_db(user=user)
         result = await authenticate_user(db, user.email, VALID_PASSWORD)
@@ -417,7 +419,8 @@ class TestAuthEndpoints:
         assert resp.status_code == 401
 
     def test_login_locked_account_429(self):
-        locked_until = datetime.now(timezone.utc) + timedelta(minutes=10)
+        # Use naive UTC to match the DB column (TIMESTAMP WITHOUT TIME ZONE)
+        locked_until = datetime.utcnow() + timedelta(minutes=10)
         user = _make_user(locked_until=locked_until)
         db = _mock_db(user=user)
         self._override_db(db)
@@ -431,7 +434,8 @@ class TestAuthEndpoints:
 
     def test_login_locked_returns_locked_until(self):
         """429 response body should include locked_until ISO timestamp."""
-        locked_until = datetime.now(timezone.utc) + timedelta(minutes=10)
+        # Use naive UTC to match the DB column (TIMESTAMP WITHOUT TIME ZONE)
+        locked_until = datetime.utcnow() + timedelta(minutes=10)
         user = _make_user(locked_until=locked_until)
         db = _mock_db(user=user)
         self._override_db(db)
@@ -1470,7 +1474,8 @@ class TestAdminUnlockEndpoint:
 
     def test_admin_unlock_resets_lockout(self):
         """PATCH /admin/unlock must clear failed_login_attempts and locked_until."""
-        locked_until = datetime.now(timezone.utc) + timedelta(minutes=10)
+        # Use naive UTC to match the DB column (TIMESTAMP WITHOUT TIME ZONE)
+        locked_until = datetime.utcnow() + timedelta(minutes=10)
         locked_user = _make_user(
             email="locked@example.com",
             failed_login_attempts=3,

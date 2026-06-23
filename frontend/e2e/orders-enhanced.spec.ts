@@ -8,11 +8,11 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/orders');
-  await expect(page.getByRole('heading', { name: 'Orders' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
 });
 
 test('shows Orders heading, New Order button, and filter row', async ({ page }) => {
-  await expect(page.getByRole('heading', { name: 'Orders' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /New Order/ })).toBeVisible();
 });
 
@@ -30,12 +30,14 @@ test('new order dialog has supplier name field', async ({ page }) => {
 
 test('new order dialog has shipping charges field', async ({ page }) => {
   await page.getByRole('button', { name: /New Order/ }).click();
-  await expect(page.getByLabel(/Shipping/)).toBeVisible();
+  // Shipping Charges label has no `for` attr — use getByText to locate it
+  await expect(page.getByText('Shipping Charges').first()).toBeVisible();
 });
 
 test('new order dialog has pay terms fields', async ({ page }) => {
   await page.getByRole('button', { name: /New Order/ }).click();
-  await expect(page.getByLabel(/Pay Term/)).toBeVisible();
+  // Pay Term label has no `for` attr — use getByText to locate it
+  await expect(page.getByText('Pay Term').first()).toBeVisible();
 });
 
 test('creates a purchase order and shows ORDERED status badge', async ({ page }) => {

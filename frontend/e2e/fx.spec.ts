@@ -34,7 +34,8 @@ test.describe('FX page layout', () => {
   });
 
   test('displays the 30-Day Forecast section', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: '30-Day Forecast' })).toBeVisible();
+    // The forecast heading is dynamic (defaults to 180-Day Forecast)
+    await expect(page.locator('h3').filter({ hasText: /\d+-Day Forecast/ })).toBeVisible();
   });
 });
 

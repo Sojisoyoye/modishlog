@@ -22,8 +22,8 @@ async function getStock(productId: string): Promise<number> {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!resp.ok()) return 0;
-    const data: { current_stock: number } = await resp.json();
-    return data.current_stock;
+    const data: { quantity_on_hand: number } = await resp.json();
+    return data.quantity_on_hand;
   } finally {
     await ctx.dispose();
   }
@@ -70,7 +70,7 @@ test.describe('Golden path — full MVP business cycle', () => {
     await page.waitForLoadState('networkidle');
 
     // --- ORDERED → PENDING ---
-    await expect(page.getByText('ORDERED')).toBeVisible();
+    await expect(page.getByText('ORDERED').first()).toBeVisible();
     await page.getByRole('button', { name: 'PENDING' }).click();
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('PENDING').first()).toBeVisible();
@@ -108,19 +108,25 @@ test.describe('Golden path — full MVP business cycle', () => {
 
     await loginViaUI(page);
     await page.goto('/sales');
+    // Wait for page heading — sales.spec.ts requires this before interacting with the form
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 10_000 });
 
-    // Switch to Record Sales tab
+    // Switch to Record Sales tab (already the default, but click to ensure the form is shown)
     await page.getByTestId('tab-record-sales').click();
-    await page.waitForLoadState('networkidle');
 
-    // Select product in the first row's dropdown
-    await page.locator('select[name="product_0"]').selectOption({ label: productName });
+    // Use the same pattern as sales.spec.ts — filter by placeholder text to find the product select
+    const productSelect = page.locator('select').filter({ hasText: 'Select product' }).first();
+    await expect(productSelect).toBeVisible({ timeout: 15_000 });
 
-    // Set quantity to 3
-    await page.locator('input[name="qty_0"]').fill('3');
+    // Wait for products to load into the dropdown
+    await expect(productSelect.locator('option').nth(1)).toBeAttached({ timeout: 10_000 });
+    await productSelect.selectOption({ label: productName });
 
-    // Submit
-    await page.getByRole('button', { name: 'Record Sales' }).click();
+    // Set quantity to 3 — use first number input in the record sales form
+    await page.locator('input[type="number"]').first().fill('3');
+
+    // Submit — use last() because the "Record Sales" tab button also matches
+    await page.getByRole('button', { name: 'Record Sales' }).last().click();
     await page.waitForLoadState('networkidle');
 
     // Success toast — summary 'Success', detail 'Sales recorded successfully'
@@ -148,6 +154,6 @@ test.describe('Golden path — full MVP business cycle', () => {
     await expect(page.getByText('Net Profit')).toBeVisible({ timeout: 10000 });
 
     // Revenue is present and non-zero (the sale we just recorded contributes)
-    await expect(page.getByText('Total Revenue')).toBeVisible();
+    await expect(page.getByText('Total Sales')).toBeVisible();
   });
 });
