@@ -25,6 +25,13 @@ export const routes: Routes = [
           import('./features/sales/pages/sales-page.component').then((m) => m.SalesPageComponent),
       },
       {
+        path: 'sales/transactions/:id',
+        loadComponent: () =>
+          import('./features/sales/pages/transaction-detail-page.component').then(
+            (m) => m.TransactionDetailPageComponent,
+          ),
+      },
+      {
         path: 'inventory',
         loadComponent: () =>
           import('./features/inventory/pages/inventory-page.component').then(

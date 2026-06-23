@@ -1,6 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, CurrencyPipe } from '@angular/common';
+import { Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
@@ -8,10 +9,8 @@ import {
   SalesService,
   SaleRecord,
   SaleTransaction,
-  SaleTransactionItem,
   AuditEntry,
   SaleUpdatePayload,
-  SaleTransactionUpdatePayload,
   BulkUploadResponse,
   QuickQuote,
 } from '../../../core/services/sales.service';
@@ -801,210 +800,6 @@ interface TransactionMeta {
       }
     </p-dialog>
 
-    <!-- Transaction Detail Dialog -->
-    <p-dialog
-      header="Transaction Detail"
-      [(visible)]="transactionDetailVisible"
-      [modal]="true"
-      [style]="{ width: '600px' }"
-      [breakpoints]="{ '960px': '90vw', '640px': '95vw' }"
-    >
-      @if (viewingTransaction()) {
-        <div class="space-y-4">
-
-          <!-- Transaction-level summary: payment + notes -->
-          <div class="flex flex-wrap gap-4 rounded-xl bg-gray-50 px-4 py-3 text-sm">
-            <div>
-              <span class="font-medium text-muted">Payment: </span>
-              <span class="text-text">{{ formatPaymentMethod(viewingTransaction()!.payment_method) || '—' }}</span>
-            </div>
-            <div>
-              <span class="font-medium text-muted">Status: </span>
-              <span class="text-text">{{ viewingTransaction()!.payment_status || 'paid' }}</span>
-            </div>
-            @if (viewingTransaction()!.notes) {
-              <div class="w-full">
-                <span class="font-medium text-muted">Note: </span>
-                <span class="text-text">{{ viewingTransaction()!.notes }}</span>
-              </div>
-            }
-          </div>
-
-          <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200 text-sm">
-              <caption class="sr-only">Transaction items</caption>
-              <thead>
-                <tr class="bg-gray-50/80">
-                  <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Product</th>
-                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Qty</th>
-                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Unit Price</th>
-                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Discount</th>
-                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Line Total</th>
-                  <th class="px-3 py-2 text-center text-xs font-semibold uppercase text-muted">Actions</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-100">
-                @for (item of viewingTransaction()!.items; track item.id) {
-                  <tr data-testid="transaction-item-row">
-                    <td class="px-3 py-2 font-medium">{{ getProductName(item.product_id) }}</td>
-                    <td class="px-3 py-2 text-right">{{ item.quantity }}</td>
-                    <td class="px-3 py-2 text-right">
-                      {{ item.unit_price | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                    </td>
-                    <td class="px-3 py-2 text-right text-muted">
-                      @if (item.discount_amount) {
-                        {{ item.discount_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                      } @else {
-                        —
-                      }
-                    </td>
-                    <td class="px-3 py-2 text-right font-semibold">
-                      {{ item.total_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                    </td>
-                    <td class="px-3 py-2 text-center">
-                      <div class="flex items-center justify-center gap-1">
-                        @if (item.status !== 'voided') {
-                          <button
-                            data-testid="txn-item-edit-btn"
-                            (click)="$event.stopPropagation(); openEditDialog(itemToSaleRecord(item, viewingTransaction()!))"
-                            class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary"
-                            title="Edit sale"
-                            type="button"
-                          >
-                            <i class="pi pi-pencil text-xs"></i>
-                          </button>
-                          <button
-                            data-testid="txn-item-void-btn"
-                            (click)="$event.stopPropagation(); openVoidDialog(itemToSaleRecord(item, viewingTransaction()!))"
-                            class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
-                            title="Void sale"
-                            type="button"
-                          >
-                            <i class="pi pi-trash text-xs"></i>
-                          </button>
-                        }
-                        <button
-                          data-testid="txn-item-audit-btn"
-                          (click)="$event.stopPropagation(); openAuditDialog(itemToSaleRecord(item, viewingTransaction()!))"
-                          class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text"
-                          title="View audit trail"
-                          type="button"
-                        >
-                          <i class="pi pi-clock text-xs"></i>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                }
-              </tbody>
-              <tfoot>
-                <tr class="border-t-2 border-gray-300 bg-gray-50/80">
-                  <td colspan="5" class="px-3 py-2.5 text-right text-sm font-semibold text-text">Grand Total</td>
-                  <td class="px-3 py-2.5 text-right text-base font-bold text-primary">
-                    {{ viewingTransaction()!.total_amount | currency: (viewingTransaction()!.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <div class="flex justify-end gap-2 pt-2">
-            @if (viewingTransaction()!.status !== 'voided') {
-              <button
-                data-testid="edit-transaction-btn"
-                (click)="openEditTransactionDialog(viewingTransaction()!)"
-                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
-                type="button"
-              >
-                <i class="pi pi-pencil text-xs"></i> Edit Transaction
-              </button>
-            }
-            <button
-              (click)="transactionDetailVisible = false"
-              class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50"
-              type="button"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      }
-    </p-dialog>
-
-    <!-- Edit Transaction Dialog -->
-    <p-dialog
-      header="Edit Transaction"
-      [(visible)]="editTransactionDialogVisible"
-      [modal]="true"
-      [style]="{ width: '440px' }"
-      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
-    >
-      @if (editingTransaction()) {
-        <div class="space-y-4">
-          <div>
-            <label for="txn-payment-method" class="mb-1.5 block text-xs font-medium text-muted">Payment Method</label>
-            <select
-              id="txn-payment-method"
-              [(ngModel)]="txnEditForm.payment_method"
-              data-testid="txn-payment-method-select"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            >
-              <option value="">— None —</option>
-              <option value="cash">Cash</option>
-              <option value="transfer">Bank Transfer</option>
-              <option value="pos">POS</option>
-              <option value="credit">Credit</option>
-              <option value="cheque">Cheque</option>
-            </select>
-          </div>
-          <div>
-            <label for="txn-payment-status" class="mb-1.5 block text-xs font-medium text-muted">Payment Status</label>
-            <select
-              id="txn-payment-status"
-              [(ngModel)]="txnEditForm.payment_status"
-              data-testid="txn-payment-status-select"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            >
-              <option value="paid">Paid</option>
-              <option value="credit">Credit (Owed)</option>
-              <option value="partial">Partial</option>
-            </select>
-          </div>
-          <div>
-            <label for="txn-notes" class="mb-1.5 block text-xs font-medium text-muted">Sale Note</label>
-            <textarea
-              id="txn-notes"
-              [(ngModel)]="txnEditForm.notes"
-              rows="3"
-              data-testid="txn-notes-input"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-              placeholder="Optional note for this transaction..."
-            ></textarea>
-          </div>
-          <div class="flex justify-end gap-2 pt-2">
-            <button
-              (click)="editTransactionDialogVisible = false"
-              class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50"
-              type="button"
-            >
-              Cancel
-            </button>
-            <button
-              (click)="submitTransactionEdit()"
-              [disabled]="saving()"
-              data-testid="save-txn-edit-btn"
-              class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
-            >
-              @if (saving()) {
-                <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
-              } @else {
-                <i class="pi pi-check text-sm"></i> Save
-              }
-            </button>
-          </div>
-        </div>
-      }
-    </p-dialog>
-
     <!-- New Customer Dialog -->
     <p-dialog
       header="Add New Customer"
@@ -1135,6 +930,7 @@ export class SalesPageComponent implements OnInit {
   private readonly inventoryService = inject(InventoryService);
   private readonly messageService = inject(MessageService);
   private readonly customerService = inject(CustomerService);
+  private readonly router = inject(Router);
 
   products = signal<Product[]>([]);
   history = signal<SaleRecord[]>([]);
@@ -1164,18 +960,11 @@ export class SalesPageComponent implements OnInit {
 
   // Transaction state
   transactions = signal<SaleTransaction[]>([]);
-  transactionDetailVisible = false;
-  viewingTransaction = signal<SaleTransaction | null>(null);
 
   // Edit dialog state
   editDialogVisible = false;
   editingsale = signal<SaleRecord | null>(null);
   editForm: SaleUpdatePayload = {};
-
-  // Edit transaction dialog state
-  editTransactionDialogVisible = false;
-  editingTransaction = signal<SaleTransaction | null>(null);
-  txnEditForm: { payment_method: string; payment_status: string; notes: string } = { payment_method: '', payment_status: 'paid', notes: '' };
 
   // Void dialog state
   voidDialogVisible = false;
@@ -1288,27 +1077,7 @@ export class SalesPageComponent implements OnInit {
   }
 
   openTransactionDetail(txn: SaleTransaction): void {
-    this.viewingTransaction.set(txn);
-    this.transactionDetailVisible = true;
-  }
-
-  itemToSaleRecord(item: SaleTransactionItem, txn: SaleTransaction): SaleRecord {
-    return {
-      id: item.id,
-      product_id: item.product_id,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      total_amount: item.total_amount,
-      discount_amount: item.discount_amount ?? null,
-      currency: item.currency,
-      sale_date: txn.sale_date,
-      channel: 'retail',
-      status: item.status,
-      notes: item.notes,
-      recorded_by: '',
-      created_at: txn.created_at,
-      updated_at: txn.created_at,
-    };
+    this.router.navigate(['/sales/transactions', txn.transaction_id]);
   }
 
   getStock(productId: string): number | undefined {
@@ -1449,7 +1218,6 @@ export class SalesPageComponent implements OnInit {
         this.saving.set(false);
         this.editDialogVisible = false;
         this.editingsale.set(null);
-        this.transactionDetailVisible = false;
         this.messageService.add({
           severity: 'success',
           summary: 'Updated',
@@ -1466,44 +1234,6 @@ export class SalesPageComponent implements OnInit {
           summary: 'Error',
           detail: 'Failed to update sale',
         });
-      },
-    });
-  }
-
-  // ---- Edit Transaction ----
-
-  openEditTransactionDialog(txn: SaleTransaction): void {
-    this.editingTransaction.set(txn);
-    this.txnEditForm = {
-      payment_method: txn.payment_method || '',
-      payment_status: txn.payment_status || 'paid',
-      notes: txn.notes || '',
-    };
-    this.editTransactionDialogVisible = true;
-  }
-
-  submitTransactionEdit(): void {
-    const txn = this.editingTransaction();
-    if (!txn) return;
-
-    this.saving.set(true);
-    const payload: SaleTransactionUpdatePayload = {
-      payment_method: this.txnEditForm.payment_method || null,
-      payment_status: this.txnEditForm.payment_status || null,
-      notes: this.txnEditForm.notes || null,
-    };
-    this.salesService.updateTransaction(txn.transaction_id, payload).subscribe({
-      next: () => {
-        this.saving.set(false);
-        this.editTransactionDialogVisible = false;
-        this.editingTransaction.set(null);
-        this.transactionDetailVisible = false;
-        this.messageService.add({ severity: 'success', summary: 'Updated', detail: 'Transaction updated successfully' });
-        this.loadTransactions();
-      },
-      error: () => {
-        this.saving.set(false);
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to update transaction' });
       },
     });
   }
@@ -1527,7 +1257,6 @@ export class SalesPageComponent implements OnInit {
         this.saving.set(false);
         this.voidDialogVisible = false;
         this.voidingSaleRecord.set(null);
-        this.transactionDetailVisible = false;
         this.messageService.add({
           severity: 'success',
           summary: 'Voided',
