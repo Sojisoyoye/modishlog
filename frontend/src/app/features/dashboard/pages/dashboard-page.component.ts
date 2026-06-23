@@ -84,7 +84,7 @@ import { AuthService } from '../../../core/services/auth.service';
       <!-- ============================================================
            KPI Cards — 8 business metrics
            ============================================================ -->
-      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <app-kpi-card label="Total Sales"        iconClass="pi pi-chart-bar"    iconBgColor="#0EA5E9" [value]="kpi()?.total_sales          ?? '0.00'" [loading]="kpiLoading()" tooltipText="All completed sales in the selected period" />
         <app-kpi-card label="Net Profit"         iconClass="pi pi-trending-up"  iconBgColor="#22C55E" [value]="kpi()?.net                  ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales Revenue − Cost of Goods Sold − Expenses" />
         <app-kpi-card label="Unpaid Sales"       iconClass="pi pi-clock"        iconBgColor="#F59E0B" [value]="kpi()?.invoice_due           ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales where payment hasn't been received yet" />
