@@ -55,11 +55,8 @@ def _make_summary(**overrides):
     return DashboardSummaryResponse(**defaults)
 
 
-_saved_overrides: dict = {}
-
-
-def _setup_app(user, summary_override=None, svc_mock=None):
-    """Return a TestClient with db and auth dependencies overridden."""
+def _setup_app(user):
+    """Return (app, db_mock, original_overrides) with db and auth dependencies overridden."""
     from src.main import app
     from src.core.database import get_db
     from src.auth.dependencies import get_current_user, get_current_active_user
@@ -72,15 +69,15 @@ def _setup_app(user, summary_override=None, svc_mock=None):
     async def _fake_auth():
         return user
 
-    _saved_overrides[id(app)] = app.dependency_overrides.copy()
+    original = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = _fake_db
     app.dependency_overrides[get_current_user] = _fake_auth
     app.dependency_overrides[get_current_active_user] = _fake_auth
-    return app, db_mock
+    return app, db_mock, original
 
 
-def _teardown_app(app):
-    app.dependency_overrides = _saved_overrides.pop(id(app), {})
+def _teardown_app(app, original_overrides):
+    app.dependency_overrides = original_overrides
 
 
 def _auth_headers(user):
@@ -99,7 +96,7 @@ def test_summary_happy_path():
 
     user = _make_user()
     summary = _make_summary()
-    app_inst, _ = _setup_app(user)
+    app_inst, _, orig = _setup_app(user)
 
     try:
         import src.dashboard.router as dash_router
@@ -113,7 +110,7 @@ def test_summary_happy_path():
             )
     finally:
         dash_router.get_dashboard_summary = original
-        _teardown_app(app_inst)
+        _teardown_app(app_inst, orig)
 
     assert resp.status_code == 200
     data = resp.json()
@@ -140,7 +137,7 @@ def test_summary_location_filter():
     user = _make_user()
     loc_id = uuid.uuid4()
     summary = _make_summary(total_sales=Decimal("300.00"))
-    app_inst, _ = _setup_app(user)
+    app_inst, _, orig = _setup_app(user)
     mock_svc = AsyncMock(return_value=summary)
 
     try:
@@ -155,7 +152,7 @@ def test_summary_location_filter():
             )
     finally:
         dash_router.get_dashboard_summary = original
-        _teardown_app(app_inst)
+        _teardown_app(app_inst, orig)
 
     assert resp.status_code == 200
     call_kwargs = mock_svc.call_args.kwargs
@@ -172,7 +169,7 @@ def test_summary_date_filter():
 
     user = _make_user()
     summary = _make_summary()
-    app_inst, _ = _setup_app(user)
+    app_inst, _, orig = _setup_app(user)
     mock_svc = AsyncMock(return_value=summary)
 
     try:
@@ -187,7 +184,7 @@ def test_summary_date_filter():
             )
     finally:
         dash_router.get_dashboard_summary = original
-        _teardown_app(app_inst)
+        _teardown_app(app_inst, orig)
 
     assert resp.status_code == 200
     call_kwargs = mock_svc.call_args.kwargs
@@ -211,7 +208,7 @@ def test_summary_empty_state():
             "total_purchase_return", "total_purchase_return_paid", "expense",
         ]
     })
-    app_inst, _ = _setup_app(user)
+    app_inst, _, orig = _setup_app(user)
 
     try:
         import src.dashboard.router as dash_router
@@ -225,7 +222,7 @@ def test_summary_empty_state():
             )
     finally:
         dash_router.get_dashboard_summary = original
-        _teardown_app(app_inst)
+        _teardown_app(app_inst, orig)
 
     assert resp.status_code == 200
     data = resp.json()
@@ -260,7 +257,7 @@ def test_summary_scoped_to_user():
 
     user = _make_user()
     summary = _make_summary()
-    app_inst, _ = _setup_app(user)
+    app_inst, _, orig = _setup_app(user)
     mock_svc = AsyncMock(return_value=summary)
 
     try:
@@ -275,7 +272,7 @@ def test_summary_scoped_to_user():
             )
     finally:
         dash_router.get_dashboard_summary = original
-        _teardown_app(app_inst)
+        _teardown_app(app_inst, orig)
 
     call_kwargs = mock_svc.call_args.kwargs
     assert call_kwargs["user_id"] == user.id

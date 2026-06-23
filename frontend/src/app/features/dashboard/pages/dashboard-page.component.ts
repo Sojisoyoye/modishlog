@@ -586,11 +586,15 @@ export class DashboardPageComponent implements OnInit {
   }
 
   onDateChange(): void {
-    if (!this.dateRange?.[0] || !this.dateRange?.[1]) return;
+    // Fire immediately when the date is cleared (dateRange becomes null).
+    // Guard against mid-selection state where only the start date has been picked.
+    if (this.dateRange !== null && !this.dateRange[1]) return;
     this.loadKpi();
   }
 
   ngOnInit(): void {
+    // Debounced pipeline for filter changes and manual retry — avoids
+    // firing on every intermediate state while a user picks a date range.
     this.kpiTrigger$.pipe(
       debounceTime(300),
       switchMap(({ locationId, dateFrom, dateTo }) => {
@@ -610,11 +614,23 @@ export class DashboardPageComponent implements OnInit {
       this.kpiLoading.set(false);
     });
 
-    this.loadKpi();
+    // Initial load bypasses the debounce so the first paint has no delay.
+    this.kpiLoading.set(true);
+    this.kpiService.getSummary(null, null, null).pipe(
+      takeUntilDestroyed(this.destroyRef),
+      catchError(() => {
+        this.kpiLoading.set(false);
+        this.kpiError.set(true);
+        return EMPTY;
+      }),
+    ).subscribe(data => {
+      this.kpi.set(data);
+      this.kpiLoading.set(false);
+    });
 
     this.authService.checkSession().subscribe({
       next: (user) => {
-        if (user) this.userName.set(user.full_name.split(' ')[0]);
+        if (user) this.userName.set(user.full_name?.split(' ')?.[0] ?? '');
       },
     });
 
