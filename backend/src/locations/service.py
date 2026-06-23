@@ -71,14 +71,19 @@ async def get_location(
 async def list_locations(
     db: AsyncSession,
     *,
+    user_id: uuid.UUID | None = None,
     search: str | None = None,
     active_only: bool = False,
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[BusinessLocation], int]:
-    """List locations with optional search and active filter."""
+    """List locations owned by user_id with optional search and active filter."""
     query = select(BusinessLocation)
     count_query = select(func.count()).select_from(BusinessLocation)
+
+    if user_id is not None:
+        query = query.where(BusinessLocation.created_by == user_id)
+        count_query = count_query.where(BusinessLocation.created_by == user_id)
 
     if search:
         like = f"%{search}%"

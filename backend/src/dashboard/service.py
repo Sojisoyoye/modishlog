@@ -9,7 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
 from src.dashboard.schemas import DashboardSummaryResponse
-from src.orders.models import OrderPaymentStatus, PurchaseOrder, PurchaseReturn
+from src.orders.models import (
+    OrderPayment,
+    OrderPaymentStatus,
+    PaymentStatus,
+    PurchaseOrder,
+    PurchaseReturn,
+)
 from src.sales.models import Sale, SaleStatus, SellReturn
 
 
@@ -97,12 +103,35 @@ async def get_dashboard_summary(
     if date_to is not None:
         q_po = q_po.where(PurchaseOrder.order_date <= date_to)
 
-    # Include PARTIAL orders: they still carry an outstanding balance.
-    q_pd = select(func.coalesce(func.sum(PurchaseOrder.total_amount), _ZERO)).where(
-        PurchaseOrder.created_by == user_id,
-        PurchaseOrder.payment_status.in_(
-            [OrderPaymentStatus.UNPAID, OrderPaymentStatus.PARTIAL]
-        ),
+    # purchase_due = remaining balance per order (total_amount − completed payments).
+    # UNPAID orders have no payments so full total_amount is due.
+    # PARTIAL orders have some payments; only the remainder is outstanding.
+    _paid_subq = (
+        select(
+            OrderPayment.order_id.label("order_id"),
+            func.coalesce(func.sum(OrderPayment.amount), _ZERO).label("paid"),
+        )
+        .where(OrderPayment.status == PaymentStatus.COMPLETED)
+        .group_by(OrderPayment.order_id)
+        .subquery()
+    )
+    q_pd = (
+        select(
+            func.coalesce(
+                func.sum(
+                    PurchaseOrder.total_amount
+                    - func.coalesce(_paid_subq.c.paid, _ZERO)
+                ),
+                _ZERO,
+            )
+        )
+        .outerjoin(_paid_subq, _paid_subq.c.order_id == PurchaseOrder.id)
+        .where(
+            PurchaseOrder.created_by == user_id,
+            PurchaseOrder.payment_status.in_(
+                [OrderPaymentStatus.UNPAID, OrderPaymentStatus.PARTIAL]
+            ),
+        )
     )
     if location_id is not None:
         q_pd = q_pd.where(PurchaseOrder.location_id == location_id)

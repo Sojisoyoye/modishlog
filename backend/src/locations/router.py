@@ -50,7 +50,7 @@ async def list_locations_endpoint(
 ):
     """List business locations, optionally filtered by name search."""
     items, total = await list_locations(
-        db, search=search, active_only=active_only, page=page, page_size=page_size
+        db, user_id=current_user.id, search=search, active_only=active_only, page=page, page_size=page_size
     )
     return LocationListResponse(items=items, total=total)
 
