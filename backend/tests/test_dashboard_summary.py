@@ -55,6 +55,9 @@ def _make_summary(**overrides):
     return DashboardSummaryResponse(**defaults)
 
 
+_saved_overrides: dict = {}
+
+
 def _setup_app(user, summary_override=None, svc_mock=None):
     """Return a TestClient with db and auth dependencies overridden."""
     from src.main import app
@@ -69,13 +72,14 @@ def _setup_app(user, summary_override=None, svc_mock=None):
     async def _fake_auth():
         return user
 
+    _saved_overrides[id(app)] = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = _fake_db
     app.dependency_overrides[get_current_user] = _fake_auth
     return app, db_mock
 
 
 def _teardown_app(app):
-    app.dependency_overrides.clear()
+    app.dependency_overrides = _saved_overrides.pop(id(app), {})
 
 
 def _auth_headers(user):

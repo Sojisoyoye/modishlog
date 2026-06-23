@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
@@ -67,7 +67,7 @@ async def get_dashboard_summary(
     q_inv = select(func.coalesce(func.sum(Sale.total_amount), _ZERO)).where(
         Sale.recorded_by == user_id,
         Sale.status == SaleStatus.COMPLETED,
-        Sale.payment_status != "paid",
+        or_(Sale.payment_status.is_(None), Sale.payment_status != "paid"),
     )
     if location_id:
         q_inv = q_inv.where(Sale.location_id == location_id)

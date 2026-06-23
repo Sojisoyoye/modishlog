@@ -59,11 +59,11 @@ test.describe('Location filter', () => {
 
 test.describe('Date filter', () => {
   test('Filter by date button is visible', async ({ page }) => {
-    await expect(page.getByText('Filter by date')).toBeVisible();
+    await expect(page.getByPlaceholder('Filter by date')).toBeVisible();
   });
 
   test('clicking Filter by date opens a calendar picker', async ({ page }) => {
-    await page.getByText('Filter by date').click();
+    await page.getByPlaceholder('Filter by date').click();
     // PrimeNG calendar panel becomes visible
     await expect(page.locator('.p-datepicker')).toBeVisible();
   });
