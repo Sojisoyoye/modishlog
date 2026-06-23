@@ -1372,3 +1372,25 @@ class TestUpdateTransaction:
             await update_transaction(
                 db, txn_id, SaleTransactionUpdate(payment_method="transfer"), uuid.uuid4()
             )
+
+    @pytest.mark.asyncio
+    async def test_payment_amount_propagated_to_all_items(self):
+        from decimal import Decimal as D
+        from src.sales.schemas import SaleTransactionUpdate
+        from src.sales.service import update_transaction
+
+        txn_id = uuid.uuid4()
+        sale1 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None)
+        sale2 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None)
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [sale1, sale2]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await update_transaction(db, txn_id, SaleTransactionUpdate(payment_amount=D("5000.00")), uuid.uuid4())
+
+        assert sale1.payment_amount == D("5000.00")
+        assert sale2.payment_amount == D("5000.00")

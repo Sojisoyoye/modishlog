@@ -95,6 +95,19 @@ import { ProductsService } from '../../../core/services/products.service';
                 {{ transaction()!.payment_status || 'paid' }}
               </span>
             </div>
+            @if (transaction()!.payment_amount != null) {
+              <div>
+                <span class="font-medium text-muted">Amount paid: </span>
+                <span class="font-semibold text-text">
+                  {{ transaction()!.payment_amount | currency: (transaction()!.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                </span>
+                @if ((transaction()!.total_amount - (transaction()!.payment_amount ?? 0)) > 0) {
+                  <span class="ml-2 text-xs text-orange-600">
+                    ({{ (transaction()!.total_amount - (transaction()!.payment_amount ?? 0)) | currency: (transaction()!.currency || 'NGN') : 'symbol' : '1.0-0' }} outstanding)
+                  </span>
+                }
+              </div>
+            }
             @if (transaction()!.notes) {
               <div class="w-full">
                 <span class="font-medium text-muted">Note: </span>
@@ -375,6 +388,22 @@ import { ProductsService } from '../../../core/services/products.service';
           </select>
         </div>
         <div>
+          <label for="txn-payment-amount" class="mb-1.5 block text-xs font-medium text-muted">
+            Amount Paid
+            <span class="ml-1 font-normal text-muted/70">(leave blank if fully paid or unknown)</span>
+          </label>
+          <input
+            id="txn-payment-amount"
+            type="number"
+            [(ngModel)]="txnEditForm.payment_amount"
+            min="0"
+            step="0.01"
+            data-testid="txn-payment-amount-input"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            placeholder="e.g. 5000.00"
+          />
+        </div>
+        <div>
           <label for="txn-notes" class="mb-1.5 block text-xs font-medium text-muted">Sale Note</label>
           <textarea
             id="txn-notes"
@@ -487,9 +516,10 @@ export class TransactionDetailPageComponent implements OnInit {
 
   // Edit transaction dialog
   editTransactionDialogVisible = false;
-  txnEditForm: { payment_method: string; payment_status: string; notes: string } = {
+  txnEditForm: { payment_method: string; payment_status: string; payment_amount: string; notes: string } = {
     payment_method: '',
     payment_status: 'paid',
+    payment_amount: '',
     notes: '',
   };
 
@@ -620,6 +650,7 @@ export class TransactionDetailPageComponent implements OnInit {
     this.txnEditForm = {
       payment_method: txn.payment_method || '',
       payment_status: txn.payment_status || 'paid',
+      payment_amount: txn.payment_amount != null ? String(txn.payment_amount) : '',
       notes: txn.notes || '',
     };
     this.editTransactionDialogVisible = true;
@@ -629,9 +660,11 @@ export class TransactionDetailPageComponent implements OnInit {
     const txn = this.transaction();
     if (!txn) return;
     this.saving.set(true);
+    const rawAmount = this.txnEditForm.payment_amount.trim();
     const payload: SaleTransactionUpdatePayload = {
       payment_method: this.txnEditForm.payment_method || null,
       payment_status: this.txnEditForm.payment_status || null,
+      payment_amount: rawAmount !== '' ? parseFloat(rawAmount) : null,
       notes: this.txnEditForm.notes || null,
     };
     this.salesService.updateTransaction(txn.transaction_id, payload).subscribe({

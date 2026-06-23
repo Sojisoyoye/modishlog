@@ -210,6 +210,7 @@ class SaleTransactionRead(BaseModel):
     contact_number: str | None = None
     payment_method: str | None = None
     payment_status: str | None = None
+    payment_amount: Decimal | None = None
     notes: str | None = None
     items: list[SaleTransactionItemRead]
     created_at: datetime
@@ -218,6 +219,7 @@ class SaleTransactionRead(BaseModel):
 class SaleTransactionUpdate(BaseModel):
     payment_method: str | None = Field(None, pattern=r"^(cash|transfer|pos|credit|cheque)$")
     payment_status: str | None = Field(None, pattern=r"^(paid|credit|partial)$")
+    payment_amount: Decimal | None = Field(None, ge=0)
     notes: str | None = None
 
 

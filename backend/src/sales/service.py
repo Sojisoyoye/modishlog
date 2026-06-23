@@ -735,6 +735,7 @@ def _build_transaction_read(
     contact_number = first.contact_number if first else None
     payment_method = first.payment_method if first else None
     payment_status = first.payment_status if first else None
+    payment_amount = first.payment_amount if first else None
     notes = first.notes if first else None
 
     statuses = {s.status for s in items}
@@ -777,6 +778,7 @@ def _build_transaction_read(
         contact_number=contact_number,
         payment_method=payment_method,
         payment_status=payment_status,
+        payment_amount=payment_amount,
         notes=notes,
         items=item_reads,
         created_at=created_at,
