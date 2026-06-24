@@ -19,6 +19,7 @@ from src.sales.exceptions import (
     InvalidCSVFormatError,
     SaleAlreadyVoidedError,
     SaleNotFoundError,
+    SalePermissionError,
 )
 from src.sales.models import (
     Sale,
@@ -335,6 +336,7 @@ async def update_transaction(
     transaction_id: uuid.UUID,
     data: "SaleTransactionUpdate",
     user_id: uuid.UUID,
+    is_admin: bool = False,
 ) -> list[Sale]:
     """Update transaction-level fields (payment_method, payment_status, notes) across all Sale records in a group."""
     result = await db.execute(
@@ -344,6 +346,10 @@ async def update_transaction(
 
     if not sales:
         raise SaleNotFoundError(transaction_id)
+
+    owner_id: uuid.UUID = sales[0].recorded_by
+    if not is_admin and owner_id != user_id:
+        raise SalePermissionError(transaction_id)
 
     active_sales = [s for s in sales if s.status != SaleStatus.VOIDED]
     if not active_sales:

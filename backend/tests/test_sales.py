@@ -1288,8 +1288,8 @@ class TestUpdateTransaction:
 
         txn_id = uuid.uuid4()
         user_id = uuid.uuid4()
-        sale1 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None)
-        sale2 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None)
+        sale1 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None, recorded_by=user_id)
+        sale2 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None, recorded_by=user_id)
 
         db = _mock_db()
         result_mock = MagicMock()
@@ -1331,9 +1331,9 @@ class TestUpdateTransaction:
 
         txn_id = uuid.uuid4()
         user_id = uuid.uuid4()
-        active = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None)
+        active = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None, recorded_by=user_id)
         voided = _make_sale(
-            transaction_id=txn_id, payment_method="cash", notes=None, status=SaleStatus.VOIDED
+            transaction_id=txn_id, payment_method="cash", notes=None, status=SaleStatus.VOIDED, recorded_by=user_id
         )
 
         db = _mock_db()
@@ -1354,11 +1354,12 @@ class TestUpdateTransaction:
         from src.sales.service import update_transaction
 
         txn_id = uuid.uuid4()
+        user_id = uuid.uuid4()
         voided1 = _make_sale(
-            transaction_id=txn_id, payment_method="cash", notes=None, status=SaleStatus.VOIDED
+            transaction_id=txn_id, payment_method="cash", notes=None, status=SaleStatus.VOIDED, recorded_by=user_id
         )
         voided2 = _make_sale(
-            transaction_id=txn_id, payment_method="cash", notes=None, status=SaleStatus.VOIDED
+            transaction_id=txn_id, payment_method="cash", notes=None, status=SaleStatus.VOIDED, recorded_by=user_id
         )
 
         db = _mock_db()
@@ -1370,7 +1371,7 @@ class TestUpdateTransaction:
 
         with pytest.raises(SaleAlreadyVoidedError):
             await update_transaction(
-                db, txn_id, SaleTransactionUpdate(payment_method="transfer"), uuid.uuid4()
+                db, txn_id, SaleTransactionUpdate(payment_method="transfer"), user_id
             )
 
     @pytest.mark.asyncio
@@ -1380,8 +1381,9 @@ class TestUpdateTransaction:
         from src.sales.service import update_transaction
 
         txn_id = uuid.uuid4()
-        sale1 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None)
-        sale2 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None)
+        user_id = uuid.uuid4()
+        sale1 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None, recorded_by=user_id)
+        sale2 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None, recorded_by=user_id)
 
         db = _mock_db()
         result_mock = MagicMock()
@@ -1390,7 +1392,170 @@ class TestUpdateTransaction:
         result_mock.scalars.return_value = scalars_mock
         db.execute = AsyncMock(return_value=result_mock)
 
-        await update_transaction(db, txn_id, SaleTransactionUpdate(payment_amount=D("5000.00")), uuid.uuid4())
+        await update_transaction(db, txn_id, SaleTransactionUpdate(payment_amount=D("5000.00")), user_id)
 
         assert sale1.payment_amount == D("5000.00")
         assert sale2.payment_amount == D("5000.00")
+
+    @pytest.mark.asyncio
+    async def test_permission_denied_for_non_owner(self):
+        from src.sales.exceptions import SalePermissionError
+        from src.sales.schemas import SaleTransactionUpdate
+        from src.sales.service import update_transaction
+
+        txn_id = uuid.uuid4()
+        owner_id = uuid.uuid4()
+        requester_id = uuid.uuid4()
+        sale = _make_sale(transaction_id=txn_id, recorded_by=owner_id)
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [sale]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        with pytest.raises(SalePermissionError):
+            await update_transaction(
+                db, txn_id, SaleTransactionUpdate(payment_method="cash"), requester_id
+            )
+
+    @pytest.mark.asyncio
+    async def test_admin_bypasses_ownership_check(self):
+        from src.sales.schemas import SaleTransactionUpdate
+        from src.sales.service import update_transaction
+
+        txn_id = uuid.uuid4()
+        owner_id = uuid.uuid4()
+        admin_id = uuid.uuid4()
+        sale = _make_sale(transaction_id=txn_id, recorded_by=owner_id, payment_method="cash")
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [sale]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await update_transaction(db, txn_id, SaleTransactionUpdate(payment_method="transfer"), admin_id, is_admin=True)
+        assert sale.payment_method == "transfer"
+
+
+# ---------------------------------------------------------------------------
+# HTTP endpoint tests - update_transaction_endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateTransactionEndpoint:
+    """HTTP-level tests for PUT /api/v1/sales/transactions/{transaction_id}."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _override_auth_as(self, user):
+        from src.auth.dependencies import get_current_active_user
+
+        async def _fake_auth():
+            return user
+
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
+    def _make_scalars_execute(self, sales):
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = sales
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+        return db
+
+    def test_returns_404_when_transaction_not_found(self):
+        from src.auth.models import UserRole
+
+        owner = _make_user(role=UserRole.ADMIN)
+        db = self._make_scalars_execute([])
+        self._override_db(db)
+        self._override_auth_as(owner)
+
+        with TestClient(self.app) as client:
+            resp = client.put(
+                f"/api/v1/sales/transactions/{uuid.uuid4()}",
+                json={"payment_method": "cash"},
+            )
+        assert resp.status_code == 404
+
+    def test_returns_403_when_user_does_not_own_transaction(self):
+        from src.auth.models import UserRole
+
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        requester = _make_user(role=UserRole.SALES_MANAGER)
+        txn_id = uuid.uuid4()
+        sale = _make_sale(transaction_id=txn_id, recorded_by=owner.id)
+
+        db = self._make_scalars_execute([sale])
+        self._override_db(db)
+        self._override_auth_as(requester)
+
+        with TestClient(self.app) as client:
+            resp = client.put(
+                f"/api/v1/sales/transactions/{txn_id}",
+                json={"payment_method": "cash"},
+            )
+        assert resp.status_code == 403
+
+    def test_admin_can_update_any_transaction(self):
+        """Admin bypasses ownership check."""
+        from src.auth.models import UserRole
+
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        admin = _make_user(role=UserRole.ADMIN)
+        txn_id = uuid.uuid4()
+        sale = _make_sale(transaction_id=txn_id, recorded_by=owner.id)
+
+        # First execute call: update_transaction query
+        # Second execute call: get_transaction query
+        db = _mock_db()
+        result_with_sale = MagicMock()
+        scalars_with_sale = MagicMock()
+        scalars_with_sale.all.return_value = [sale]
+        result_with_sale.scalars.return_value = scalars_with_sale
+        db.execute = AsyncMock(return_value=result_with_sale)
+        self._override_db(db)
+        self._override_auth_as(admin)
+
+        with TestClient(self.app) as client:
+            resp = client.put(
+                f"/api/v1/sales/transactions/{txn_id}",
+                json={"payment_method": "transfer"},
+            )
+        # 200 (not 403) — admin bypasses ownership
+        assert resp.status_code == 200
+
+    def test_invalid_payment_method_returns_422(self):
+        from src.auth.models import UserRole
+
+        admin = _make_user(role=UserRole.ADMIN)
+        db = _mock_db()
+        self._override_db(db)
+        self._override_auth_as(admin)
+
+        with TestClient(self.app) as client:
+            resp = client.put(
+                f"/api/v1/sales/transactions/{uuid.uuid4()}",
+                json={"payment_method": "bitcoin"},
+            )
+        assert resp.status_code == 422

@@ -590,7 +590,6 @@ export class TransactionDetailPageComponent implements OnInit {
       quantity: item.quantity,
       unit_price: parseFloat(String(item.unit_price ?? 0)),
       channel: 'retail',
-      notes: item.notes || '',
     };
     this.editDialogVisible = true;
   }
@@ -661,10 +660,11 @@ export class TransactionDetailPageComponent implements OnInit {
     if (!txn) return;
     this.saving.set(true);
     const rawAmount = this.txnEditForm.payment_amount.trim();
+    const parsedAmount = rawAmount !== '' ? parseFloat(rawAmount) : null;
     const payload: SaleTransactionUpdatePayload = {
       payment_method: this.txnEditForm.payment_method || null,
       payment_status: this.txnEditForm.payment_status || null,
-      payment_amount: rawAmount !== '' ? parseFloat(rawAmount) : null,
+      payment_amount: parsedAmount !== null && !isNaN(parsedAmount) ? parsedAmount : null,
       notes: this.txnEditForm.notes || null,
     };
     this.salesService.updateTransaction(txn.transaction_id, payload).subscribe({
