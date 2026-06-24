@@ -51,7 +51,16 @@ export interface SaleUpdatePayload {
   unit_price?: number;
   sale_date?: string;
   channel?: string;
-  notes?: string;
+  payment_method?: string | null;
+  payment_status?: string | null;
+  notes?: string | null;
+}
+
+export interface SaleTransactionUpdatePayload {
+  payment_method?: string | null;
+  payment_status?: string | null;
+  payment_amount?: number | null;
+  notes?: string | null;
 }
 
 export interface AuditEntry {
@@ -114,6 +123,8 @@ export interface SaleTransaction {
   contact_number?: string | null;
   payment_method?: string | null;
   payment_status?: string | null;
+  payment_amount?: number | null;
+  notes?: string | null;
   items: SaleTransactionItem[];
   created_at: string;
 }
@@ -148,6 +159,10 @@ export class SalesService {
 
   update(id: string, body: SaleUpdatePayload): Observable<SaleRecord> {
     return this.api.put<SaleRecord>(`/sales/${id}`, body);
+  }
+
+  updateTransaction(transactionId: string, body: SaleTransactionUpdatePayload): Observable<SaleTransaction> {
+    return this.api.put<SaleTransaction>(`/sales/transactions/${transactionId}`, body);
   }
 
   voidSale(id: string, reason: string): Observable<SaleRecord> {

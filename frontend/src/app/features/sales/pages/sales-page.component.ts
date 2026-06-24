@@ -1,6 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, CurrencyPipe } from '@angular/common';
+import { Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
@@ -8,7 +9,6 @@ import {
   SalesService,
   SaleRecord,
   SaleTransaction,
-  SaleTransactionItem,
   AuditEntry,
   SaleUpdatePayload,
   BulkUploadResponse,
@@ -720,17 +720,6 @@ interface TransactionMeta {
               <option value="wholesale">Wholesale</option>
             </select>
           </div>
-          <div>
-            <label for="edit-sale-notes" class="mb-1.5 block text-xs font-medium text-muted">Notes</label>
-            <textarea
-              id="edit-sale-notes"
-              [(ngModel)]="editForm.notes"
-              rows="3"
-              data-testid="edit-notes-input"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-              placeholder="Optional notes..."
-            ></textarea>
-          </div>
           <div class="flex justify-end gap-2 pt-2">
             <button
               (click)="editDialogVisible = false"
@@ -805,106 +794,6 @@ interface TransactionMeta {
               } @else {
                 <i class="pi pi-trash text-sm"></i> Void Sale
               }
-            </button>
-          </div>
-        </div>
-      }
-    </p-dialog>
-
-    <!-- Transaction Detail Dialog -->
-    <p-dialog
-      header="Transaction Detail"
-      [(visible)]="transactionDetailVisible"
-      [modal]="true"
-      [style]="{ width: '600px' }"
-      [breakpoints]="{ '960px': '90vw', '640px': '95vw' }"
-    >
-      @if (viewingTransaction()) {
-        <div class="space-y-4">
-          <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200 text-sm">
-              <caption class="sr-only">Transaction items</caption>
-              <thead>
-                <tr class="bg-gray-50/80">
-                  <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Product</th>
-                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Qty</th>
-                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Unit Price</th>
-                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Discount</th>
-                  <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Line Total</th>
-                  <th class="px-3 py-2 text-center text-xs font-semibold uppercase text-muted">Actions</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-100">
-                @for (item of viewingTransaction()!.items; track item.id) {
-                  <tr data-testid="transaction-item-row">
-                    <td class="px-3 py-2 font-medium">{{ getProductName(item.product_id) }}</td>
-                    <td class="px-3 py-2 text-right">{{ item.quantity }}</td>
-                    <td class="px-3 py-2 text-right">
-                      {{ item.unit_price | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                    </td>
-                    <td class="px-3 py-2 text-right text-muted">
-                      @if (item.discount_amount) {
-                        {{ item.discount_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                      } @else {
-                        —
-                      }
-                    </td>
-                    <td class="px-3 py-2 text-right font-semibold">
-                      {{ item.total_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                    </td>
-                    <td class="px-3 py-2 text-center">
-                      <div class="flex items-center justify-center gap-1">
-                        @if (item.status !== 'voided') {
-                          <button
-                            data-testid="txn-item-edit-btn"
-                            (click)="$event.stopPropagation(); openEditDialog(itemToSaleRecord(item, viewingTransaction()!))"
-                            class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary"
-                            title="Edit sale"
-                            type="button"
-                          >
-                            <i class="pi pi-pencil text-xs"></i>
-                          </button>
-                          <button
-                            data-testid="txn-item-void-btn"
-                            (click)="$event.stopPropagation(); openVoidDialog(itemToSaleRecord(item, viewingTransaction()!))"
-                            class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
-                            title="Void sale"
-                            type="button"
-                          >
-                            <i class="pi pi-trash text-xs"></i>
-                          </button>
-                        }
-                        <button
-                          data-testid="txn-item-audit-btn"
-                          (click)="$event.stopPropagation(); openAuditDialog(itemToSaleRecord(item, viewingTransaction()!))"
-                          class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text"
-                          title="View audit trail"
-                          type="button"
-                        >
-                          <i class="pi pi-clock text-xs"></i>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                }
-              </tbody>
-              <tfoot>
-                <tr class="border-t-2 border-gray-300 bg-gray-50/80">
-                  <td colspan="5" class="px-3 py-2.5 text-right text-sm font-semibold text-text">Grand Total</td>
-                  <td class="px-3 py-2.5 text-right text-base font-bold text-primary">
-                    {{ viewingTransaction()!.total_amount | currency: (viewingTransaction()!.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          <div class="flex justify-end pt-2">
-            <button
-              (click)="transactionDetailVisible = false"
-              class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50"
-              type="button"
-            >
-              Close
             </button>
           </div>
         </div>
@@ -1041,6 +930,7 @@ export class SalesPageComponent implements OnInit {
   private readonly inventoryService = inject(InventoryService);
   private readonly messageService = inject(MessageService);
   private readonly customerService = inject(CustomerService);
+  private readonly router = inject(Router);
 
   products = signal<Product[]>([]);
   history = signal<SaleRecord[]>([]);
@@ -1070,8 +960,6 @@ export class SalesPageComponent implements OnInit {
 
   // Transaction state
   transactions = signal<SaleTransaction[]>([]);
-  transactionDetailVisible = false;
-  viewingTransaction = signal<SaleTransaction | null>(null);
 
   // Edit dialog state
   editDialogVisible = false;
@@ -1189,27 +1077,7 @@ export class SalesPageComponent implements OnInit {
   }
 
   openTransactionDetail(txn: SaleTransaction): void {
-    this.viewingTransaction.set(txn);
-    this.transactionDetailVisible = true;
-  }
-
-  itemToSaleRecord(item: SaleTransactionItem, txn: SaleTransaction): SaleRecord {
-    return {
-      id: item.id,
-      product_id: item.product_id,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      total_amount: item.total_amount,
-      discount_amount: item.discount_amount ?? null,
-      currency: item.currency,
-      sale_date: txn.sale_date,
-      channel: 'retail',
-      status: item.status,
-      notes: item.notes,
-      recorded_by: '',
-      created_at: txn.created_at,
-      updated_at: txn.created_at,
-    };
+    this.router.navigate(['/sales/transactions', txn.transaction_id]);
   }
 
   getStock(productId: string): number | undefined {
@@ -1350,7 +1218,6 @@ export class SalesPageComponent implements OnInit {
         this.saving.set(false);
         this.editDialogVisible = false;
         this.editingsale.set(null);
-        this.transactionDetailVisible = false;
         this.messageService.add({
           severity: 'success',
           summary: 'Updated',
@@ -1390,7 +1257,6 @@ export class SalesPageComponent implements OnInit {
         this.saving.set(false);
         this.voidDialogVisible = false;
         this.voidingSaleRecord.set(null);
-        this.transactionDetailVisible = false;
         this.messageService.add({
           severity: 'success',
           summary: 'Voided',

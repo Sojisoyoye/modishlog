@@ -34,6 +34,8 @@ class SaleUpdate(BaseModel):
     unit_price: Decimal | None = Field(None, gt=0)
     sale_date: date | None = None
     channel: str | None = Field(None, pattern="^(online|retail|wholesale)$")
+    payment_method: str | None = Field(None, pattern=r"^(cash|transfer|pos|credit|cheque)$")
+    payment_status: str | None = Field(None, pattern=r"^(paid|credit|partial)$")
     notes: str | None = None
 
 
@@ -208,8 +210,17 @@ class SaleTransactionRead(BaseModel):
     contact_number: str | None = None
     payment_method: str | None = None
     payment_status: str | None = None
+    payment_amount: Decimal | None = None
+    notes: str | None = None
     items: list[SaleTransactionItemRead]
     created_at: datetime
+
+
+class SaleTransactionUpdate(BaseModel):
+    payment_method: str | None = Field(None, pattern=r"^(cash|transfer|pos|credit|cheque)$")
+    payment_status: str | None = Field(None, pattern=r"^(paid|credit|partial)$")
+    payment_amount: Decimal | None = Field(None, ge=0)
+    notes: str | None = None
 
 
 class SaleTransactionListResponse(BaseModel):

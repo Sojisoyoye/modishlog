@@ -19,6 +19,7 @@ from src.sales.exceptions import (
     InvalidCSVFormatError,
     SaleAlreadyVoidedError,
     SaleNotFoundError,
+    SalePermissionError,
 )
 from src.sales.models import (
     Sale,
@@ -35,6 +36,7 @@ from src.sales.schemas import (
     SalesSummary,
     SaleTransactionItemRead,
     SaleTransactionRead,
+    SaleTransactionUpdate,
     SaleUpdate,
 )
 from src.inventory.models import InventoryBatch
@@ -328,6 +330,60 @@ async def update_sale(
 
     await logger.ainfo("sale_updated", sale_id=str(sale_id), changes=field_changes)
     return sale
+
+
+async def update_transaction(
+    db: AsyncSession,
+    transaction_id: uuid.UUID,
+    data: SaleTransactionUpdate,
+    user_id: uuid.UUID,
+    is_admin: bool = False,
+) -> list[Sale]:
+    """Update transaction-level fields (payment_method, payment_status, notes) across all Sale records in a group."""
+    result = await db.execute(
+        select(Sale).where(Sale.transaction_id == transaction_id).order_by(Sale.created_at)
+    )
+    sales = list(result.scalars().all())
+
+    if not sales:
+        raise SaleNotFoundError(transaction_id)
+
+    owner_id: uuid.UUID = sales[0].recorded_by
+    if not is_admin and owner_id != user_id:
+        raise SalePermissionError(transaction_id)
+
+    active_sales = [s for s in sales if s.status != SaleStatus.VOIDED]
+    if not active_sales:
+        raise SaleAlreadyVoidedError(transaction_id)
+
+    update_fields = data.model_dump(exclude_unset=True)
+    if not update_fields:
+        return sales
+
+    for sale in active_sales:
+        field_changes = {}
+        for field, value in update_fields.items():
+            old_value = getattr(sale, field)
+            if old_value != value:
+                field_changes[field] = {
+                    "old": str(old_value) if old_value is not None else None,
+                    "new": str(value) if value is not None else None,
+                }
+                setattr(sale, field, value)
+        if field_changes:
+            audit = SaleAuditEntry(
+                sale_id=sale.id,
+                action="transaction_updated",
+                field_changes=field_changes,
+                performed_by=user_id,
+                reason=None,
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(audit)
+
+    await db.flush()
+    await logger.ainfo("transaction_updated", transaction_id=str(transaction_id))
+    return sales
 
 
 async def void_sale(
@@ -686,6 +742,8 @@ def _build_transaction_read(
     contact_number = first.contact_number if first else None
     payment_method = first.payment_method if first else None
     payment_status = first.payment_status if first else None
+    payment_amount = first.payment_amount if first else None
+    notes = first.notes if first else None
 
     statuses = {s.status for s in items}
     if statuses == {SaleStatus.VOIDED}:
@@ -727,6 +785,8 @@ def _build_transaction_read(
         contact_number=contact_number,
         payment_method=payment_method,
         payment_status=payment_status,
+        payment_amount=payment_amount,
+        notes=notes,
         items=item_reads,
         created_at=created_at,
     )
@@ -760,7 +820,9 @@ async def list_transactions(
 
     transactions = []
     for txn_id in txn_ids:
-        result = await db.execute(select(Sale).where(Sale.transaction_id == txn_id))
+        result = await db.execute(
+            select(Sale).where(Sale.transaction_id == txn_id).order_by(Sale.created_at)
+        )
         items = list(result.scalars().all())
         transactions.append(_build_transaction_read(txn_id, items))
 
@@ -772,7 +834,9 @@ async def get_transaction(
     transaction_id: uuid.UUID,
 ) -> "SaleTransactionRead":
     """Get all Sale records for a given transaction_id."""
-    result = await db.execute(select(Sale).where(Sale.transaction_id == transaction_id))
+    result = await db.execute(
+        select(Sale).where(Sale.transaction_id == transaction_id).order_by(Sale.created_at)
+    )
     items = list(result.scalars().all())
     if not items:
         raise SaleNotFoundError(transaction_id)

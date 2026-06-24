@@ -89,6 +89,9 @@ class Sale(UUIDMixin, TimestampMixin, Base):
     payment_status: Mapped[str | None] = mapped_column(
         String(20), nullable=True, default="paid"
     )
+    payment_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 2), nullable=True, default=None
+    )
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     location_id: Mapped[uuid.UUID | None] = mapped_column(

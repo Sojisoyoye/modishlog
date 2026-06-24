@@ -36,6 +36,14 @@ class InvalidCSVFormatError(Exception):
         super().__init__(f"Invalid CSV format in '{filename}': {details}")
 
 
+class SalePermissionError(Exception):
+    """Raised when a user attempts to access a sale they do not own."""
+
+    def __init__(self, sale_id: uuid.UUID) -> None:
+        self.sale_id = sale_id
+        super().__init__(f"Access denied for sale {sale_id}")
+
+
 class SaleValidationError(Exception):
     """Raised when sale data fails validation."""
 
