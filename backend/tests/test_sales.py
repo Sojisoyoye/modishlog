@@ -1559,3 +1559,23 @@ class TestUpdateTransactionEndpoint:
                 json={"payment_method": "bitcoin"},
             )
         assert resp.status_code == 422
+
+    def test_returns_409_when_all_items_voided(self):
+        from src.auth.models import UserRole
+
+        user = _make_user(role=UserRole.SALES_MANAGER)
+        txn_id = uuid.uuid4()
+        voided = _make_sale(
+            transaction_id=txn_id, recorded_by=user.id, status=SaleStatus.VOIDED
+        )
+
+        db = self._make_scalars_execute([voided])
+        self._override_db(db)
+        self._override_auth_as(user)
+
+        with TestClient(self.app) as client:
+            resp = client.put(
+                f"/api/v1/sales/transactions/{txn_id}",
+                json={"payment_method": "cash"},
+            )
+        assert resp.status_code == 409

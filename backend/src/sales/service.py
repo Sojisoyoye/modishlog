@@ -36,6 +36,7 @@ from src.sales.schemas import (
     SalesSummary,
     SaleTransactionItemRead,
     SaleTransactionRead,
+    SaleTransactionUpdate,
     SaleUpdate,
 )
 from src.inventory.models import InventoryBatch
@@ -334,7 +335,7 @@ async def update_sale(
 async def update_transaction(
     db: AsyncSession,
     transaction_id: uuid.UUID,
-    data: "SaleTransactionUpdate",
+    data: SaleTransactionUpdate,
     user_id: uuid.UUID,
     is_admin: bool = False,
 ) -> list[Sale]:
@@ -365,8 +366,8 @@ async def update_transaction(
             old_value = getattr(sale, field)
             if old_value != value:
                 field_changes[field] = {
-                    "old": old_value if old_value is not None else None,
-                    "new": value,
+                    "old": str(old_value) if old_value is not None else None,
+                    "new": str(value) if value is not None else None,
                 }
                 setattr(sale, field, value)
         if field_changes:
