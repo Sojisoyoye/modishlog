@@ -289,8 +289,8 @@ async def update_sale(
         else:
             setattr(sale, field, value)
 
-    # Recalculate total if quantity or price changed (preserve discount)
-    if "quantity" in update_fields or "unit_price" in update_fields:
+    # Recalculate total if quantity, price, or discount changed
+    if "quantity" in update_fields or "unit_price" in update_fields or "discount_amount" in update_fields:
         sale.total_amount = sale.unit_price * sale.quantity - (
             sale.discount_amount or Decimal("0")
         )

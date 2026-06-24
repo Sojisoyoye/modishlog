@@ -49,6 +49,7 @@ export interface SalesHistoryResponse {
 export interface SaleUpdatePayload {
   quantity?: number;
   unit_price?: number;
+  discount_amount?: number | null;
   sale_date?: string;
   channel?: string;
   payment_method?: string | null;

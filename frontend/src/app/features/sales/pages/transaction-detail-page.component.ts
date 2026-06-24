@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { CurrencyPipe, DatePipe } from '@angular/common';
@@ -7,11 +7,9 @@ import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
 import {
   SalesService,
-  SaleRecord,
   SaleTransaction,
   SaleTransactionItem,
   AuditEntry,
-  SaleUpdatePayload,
   SaleTransactionUpdatePayload,
 } from '../../../core/services/sales.service';
 import { ProductsService } from '../../../core/services/products.service';
@@ -139,60 +137,142 @@ import { ProductsService } from '../../../core/services/products.service';
                 @for (item of transaction()!.items; track item.id) {
                   <tr
                     data-testid="transaction-item-row"
-                    class="transition-colors hover:bg-gray-50/50"
+                    class="transition-colors"
                     [class.opacity-50]="item.status === 'voided'"
+                    [class.bg-blue-50]="editingRowId() === item.id"
+                    [class.hover:bg-gray-50]="editingRowId() !== item.id && item.status !== 'voided'"
                   >
-                    <td class="px-4 py-3 font-medium text-text">
+                    <!-- Product name — click to activate inline edit -->
+                    <td
+                      class="px-4 py-3 font-medium text-text"
+                      [class.cursor-pointer]="item.status !== 'voided' && editingRowId() !== item.id"
+                      (click)="item.status !== 'voided' && editingRowId() !== item.id && openInlineEdit(item)"
+                    >
                       {{ getProductName(item.product_id) }}
                       @if (item.status === 'voided') {
                         <span class="ml-2 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">voided</span>
                       }
+                      @if (item.status !== 'voided' && editingRowId() !== item.id) {
+                        <span class="ml-2 text-[10px] text-muted/60">(click to edit)</span>
+                      }
                     </td>
-                    <td class="px-4 py-3 text-right text-muted">{{ item.quantity }}</td>
-                    <td class="px-4 py-3 text-right text-muted">
-                      {{ item.unit_price | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+
+                    <!-- Qty -->
+                    <td class="px-4 py-2 text-right text-muted">
+                      @if (editingRowId() === item.id) {
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          [(ngModel)]="rowDraft().quantity"
+                          (ngModelChange)="patchDraft({ quantity: $event })"
+                          data-testid="inline-qty-input"
+                          class="w-20 rounded border border-primary px-2 py-1 text-right text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      } @else {
+                        {{ item.quantity }}
+                      }
                     </td>
-                    <td class="px-4 py-3 text-right text-muted">
-                      @if (item.discount_amount) {
+
+                    <!-- Unit Price -->
+                    <td class="px-4 py-2 text-right text-muted">
+                      @if (editingRowId() === item.id) {
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          [(ngModel)]="rowDraft().unit_price"
+                          (ngModelChange)="patchDraft({ unit_price: $event })"
+                          data-testid="inline-price-input"
+                          class="w-28 rounded border border-primary px-2 py-1 text-right text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      } @else {
+                        {{ item.unit_price | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                      }
+                    </td>
+
+                    <!-- Discount -->
+                    <td class="px-4 py-2 text-right text-muted">
+                      @if (editingRowId() === item.id) {
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          [ngModel]="rowDraft().discount_amount ?? ''"
+                          (ngModelChange)="patchDraft({ discount_amount: $event === '' || $event === null ? null : +$event })"
+                          data-testid="inline-discount-input"
+                          placeholder="0.00"
+                          class="w-24 rounded border border-primary px-2 py-1 text-right text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      } @else if (item.discount_amount) {
                         {{ item.discount_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
                       } @else {
                         —
                       }
                     </td>
-                    <td class="px-4 py-3 text-right font-semibold text-text">
-                      {{ item.total_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+
+                    <!-- Line Total -->
+                    <td class="px-4 py-2 text-right font-semibold text-text">
+                      @if (editingRowId() === item.id) {
+                        <span class="text-primary">
+                          {{ inlineLineTotal() | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                        </span>
+                      } @else {
+                        {{ item.total_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                      }
                     </td>
-                    <td class="px-4 py-3 text-center">
+
+                    <!-- Actions -->
+                    <td class="px-4 py-2 text-center">
                       <div class="flex items-center justify-center gap-1">
-                        @if (item.status !== 'voided') {
+                        @if (editingRowId() === item.id) {
+                          <!-- Save -->
                           <button
-                            data-testid="txn-item-edit-btn"
-                            (click)="openEditDialog(item)"
-                            class="rounded p-1.5 text-muted transition-colors hover:bg-blue-50 hover:text-secondary"
-                            title="Edit sale"
+                            data-testid="inline-save-btn"
+                            (click)="submitInlineEdit()"
+                            [disabled]="saving()"
+                            class="rounded p-1.5 text-green-600 transition-colors hover:bg-green-50 disabled:opacity-50"
+                            title="Save"
                             type="button"
                           >
-                            <i class="pi pi-pencil text-xs"></i>
+                            @if (saving()) {
+                              <i class="pi pi-spinner pi-spin text-xs"></i>
+                            } @else {
+                              <i class="pi pi-check text-xs"></i>
+                            }
                           </button>
+                          <!-- Cancel -->
                           <button
-                            data-testid="txn-item-void-btn"
-                            (click)="openVoidDialog(item)"
-                            class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
-                            title="Void sale"
+                            data-testid="inline-cancel-btn"
+                            (click)="cancelInlineEdit()"
+                            class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100"
+                            title="Cancel"
                             type="button"
                           >
-                            <i class="pi pi-trash text-xs"></i>
+                            <i class="pi pi-times text-xs"></i>
+                          </button>
+                        } @else {
+                          @if (item.status !== 'voided') {
+                            <button
+                              data-testid="txn-item-void-btn"
+                              (click)="openVoidDialog(item)"
+                              class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                              title="Void sale"
+                              type="button"
+                            >
+                              <i class="pi pi-trash text-xs"></i>
+                            </button>
+                          }
+                          <button
+                            data-testid="txn-item-audit-btn"
+                            (click)="openAuditDialog(item.id)"
+                            class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text"
+                            title="View audit trail"
+                            type="button"
+                          >
+                            <i class="pi pi-clock text-xs"></i>
                           </button>
                         }
-                        <button
-                          data-testid="txn-item-audit-btn"
-                          (click)="openAuditDialog(item.id)"
-                          class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text"
-                          title="View audit trail"
-                          type="button"
-                        >
-                          <i class="pi pi-clock text-xs"></i>
-                        </button>
                       </div>
                     </td>
                   </tr>
@@ -226,75 +306,6 @@ import { ProductsService } from '../../../core/services/products.service';
 
       </div>
     }
-
-    <!-- Edit Sale Item Dialog -->
-    <p-dialog
-      header="Edit Sale"
-      [(visible)]="editDialogVisible"
-      [modal]="true"
-      [style]="{ width: '450px' }"
-      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
-    >
-      @if (editingItem()) {
-        <div class="space-y-4">
-          <div>
-            <label for="detail-edit-qty" class="mb-1.5 block text-xs font-medium text-muted">Quantity</label>
-            <input
-              id="detail-edit-qty"
-              type="number"
-              [(ngModel)]="editForm.quantity"
-              min="1"
-              data-testid="edit-quantity-input"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            />
-          </div>
-          <div>
-            <label for="detail-edit-price" class="mb-1.5 block text-xs font-medium text-muted">Unit Price</label>
-            <input
-              id="detail-edit-price"
-              type="number"
-              [(ngModel)]="editForm.unit_price"
-              min="0"
-              step="0.01"
-              data-testid="edit-price-input"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            />
-          </div>
-          <div>
-            <label for="detail-edit-channel" class="mb-1.5 block text-xs font-medium text-muted">Channel</label>
-            <select
-              id="detail-edit-channel"
-              [(ngModel)]="editForm.channel"
-              data-testid="edit-channel-select"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            >
-              <option value="online">Online</option>
-              <option value="retail">Retail</option>
-              <option value="wholesale">Wholesale</option>
-            </select>
-          </div>
-          <div class="flex justify-end gap-2 pt-2">
-            <button
-              (click)="editDialogVisible = false"
-              class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50"
-              type="button"
-            >Cancel</button>
-            <button
-              (click)="submitEdit()"
-              [disabled]="saving()"
-              data-testid="save-edit-btn"
-              class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
-            >
-              @if (saving()) {
-                <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
-              } @else {
-                <i class="pi pi-check text-sm"></i> Save Changes
-              }
-            </button>
-          </div>
-        </div>
-      }
-    </p-dialog>
 
     <!-- Void Sale Dialog -->
     <p-dialog
@@ -504,10 +515,15 @@ export class TransactionDetailPageComponent implements OnInit {
   saving = signal(false);
   productMap = signal<Map<string, string>>(new Map());
 
-  // Edit item dialog
-  editDialogVisible = false;
-  editingItem = signal<SaleTransactionItem | null>(null);
-  editForm: SaleUpdatePayload = {};
+  // Inline row editing
+  editingRowId = signal<string | null>(null);
+  rowDraft = signal<{ quantity: number; unit_price: number; discount_amount: number | null }>({
+    quantity: 1, unit_price: 0, discount_amount: null,
+  });
+  inlineLineTotal = computed(() => {
+    const d = this.rowDraft();
+    return Math.max(0, d.quantity * d.unit_price - (d.discount_amount ?? 0));
+  });
 
   // Void dialog
   voidDialogVisible = false;
@@ -582,27 +598,38 @@ export class TransactionDetailPageComponent implements OnInit {
     return Object.keys(obj);
   }
 
-  // ---- Edit item ----
+  // ---- Inline row editing ----
 
-  openEditDialog(item: SaleTransactionItem): void {
-    this.editingItem.set(item);
-    this.editForm = {
+  openInlineEdit(item: SaleTransactionItem): void {
+    this.editingRowId.set(item.id);
+    this.rowDraft.set({
       quantity: item.quantity,
       unit_price: parseFloat(String(item.unit_price ?? 0)),
-      channel: 'retail',
-    };
-    this.editDialogVisible = true;
+      discount_amount: item.discount_amount ?? null,
+    });
   }
 
-  submitEdit(): void {
-    const item = this.editingItem();
-    if (!item) return;
+  patchDraft(patch: Partial<{ quantity: number; unit_price: number; discount_amount: number | null }>): void {
+    this.rowDraft.set({ ...this.rowDraft(), ...patch });
+  }
+
+  cancelInlineEdit(): void {
+    this.editingRowId.set(null);
+  }
+
+  submitInlineEdit(): void {
+    const id = this.editingRowId();
+    if (!id) return;
+    const d = this.rowDraft();
     this.saving.set(true);
-    this.salesService.update(item.id, this.editForm).subscribe({
+    this.salesService.update(id, {
+      quantity: d.quantity,
+      unit_price: d.unit_price,
+      discount_amount: d.discount_amount ?? undefined,
+    }).subscribe({
       next: () => {
         this.saving.set(false);
-        this.editDialogVisible = false;
-        this.editingItem.set(null);
+        this.editingRowId.set(null);
         this.messageService.add({ severity: 'success', summary: 'Updated', detail: 'Sale updated' });
         this.loadTransaction(this.transaction()!.transaction_id);
       },

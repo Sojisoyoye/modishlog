@@ -32,6 +32,7 @@ class SaleCreate(BaseModel):
 class SaleUpdate(BaseModel):
     quantity: int | None = Field(None, gt=0)
     unit_price: Decimal | None = Field(None, gt=0)
+    discount_amount: Decimal | None = Field(None, ge=0)
     sale_date: date | None = None
     channel: str | None = Field(None, pattern="^(online|retail|wholesale)$")
     payment_method: str | None = Field(None, pattern=r"^(cash|transfer|pos|credit|cheque)$")
