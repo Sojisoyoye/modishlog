@@ -24,35 +24,20 @@ test.describe('Edit Sale price decimal display', () => {
   test('unit price input in edit dialog shows at most 2 decimal places', async ({ page }) => {
     const product = await ensureProduct('E2E Sale Decimal Product');
     await addStock(product.id, 50);
-    await page.reload();
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
 
-    // Switch to Record tab then fill in the form
-    await page.getByTestId('tab-record-sales').click();
-    await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
-    const productSelect = page.locator('select').filter({ hasText: 'Select product' }).first();
-    await productSelect.selectOption(product.id);
-    const qtyInput = page.locator('input[type="number"]').first();
-    await qtyInput.fill('2');
-    await page.getByRole('button', { name: /Record Sales/i }).last().click();
-    await expect(page.getByText(/recorded/i)).toBeVisible({ timeout: 8_000 });
+    // Create sale via API to get transaction_id for direct navigation
+    const sale = await createDailySale(product.id, { quantity: 2 });
 
-    // The Recent Sales table shows grouped transactions — product names are not
-    // visible directly. Switch to All Sales tab, open the first transaction row,
-    // then open the edit dialog for the item inside the Transaction Detail dialog.
-    await page.getByTestId('tab-all-sales').click();
-    const firstTxnRow = page.locator('[data-testid="transaction-row"]').first();
-    await expect(firstTxnRow).toBeVisible({ timeout: 10_000 });
-    await firstTxnRow.click();
+    // Navigate directly to the transaction detail page (clicking a row navigates here, not a dialog)
+    await page.goto(`/sales/transactions/${sale.transaction_id}`);
+    await expect(page.locator('[data-testid="transaction-item-row"]').first()).toBeVisible({ timeout: 10_000 });
 
-    const txnDetailDialog = page.locator('[role="dialog"]').filter({ hasText: 'Transaction Detail' });
-    await expect(txnDetailDialog).toBeVisible({ timeout: 5_000 });
-    await txnDetailDialog.locator('[data-testid="txn-item-edit-btn"]').first().click();
+    // Click the product name cell to activate inline editing
+    await page.locator('[data-testid="transaction-item-row"]').first().locator('td').first().click();
 
-    const dialog = page.locator('[role="dialog"]').filter({ hasText: /edit sale/i });
-    await expect(dialog).toBeVisible({ timeout: 5_000 });
-
-    const priceVal = await dialog.locator('[data-testid="edit-price-input"]').inputValue();
+    const priceInput = page.locator('[data-testid="inline-price-input"]').first();
+    await expect(priceInput).toBeVisible({ timeout: 5_000 });
+    const priceVal = await priceInput.inputValue();
 
     // Must not show 6 trailing decimal zeros like "5000.000000"
     expect(priceVal).not.toMatch(/\.\d{3,}/);
@@ -127,7 +112,7 @@ test.describe('Stock-level validation', () => {
       await productSelect.selectOption({ index: 1 });
       const stockIndicator = formCard.locator('[data-testid="stock-indicator"]').first();
       await expect(stockIndicator).toBeVisible();
-      await expect(stockIndicator).toHaveText(/Stock:\s*\d+/);
+      await expect(stockIndicator).toHaveText(/\d+\s+in stock/);
     }
   });
 
@@ -143,7 +128,7 @@ test.describe('Stock-level validation', () => {
       await qtyInput.fill('999999');
       const warning = formCard.locator('[data-testid="stock-warning"]').first();
       await expect(warning).toBeVisible();
-      await expect(warning).toHaveText(/Exceeds available stock/);
+      await expect(warning).toHaveText(/Exceeds stock/);
     }
   });
 
@@ -380,14 +365,15 @@ test.describe('Transaction grouping in All Sales tab', () => {
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
 
+    // Switch to Record tab first — form is inside @if(activeTab() === 'record') so options
+    // only exist in DOM after the tab is active
+    await page.getByTestId('tab-record-sales').click();
+    await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
+
     // Wait for products to load in the select
     await expect(
       page.locator(`select option[value="${productA.id}"]`),
     ).toBeAttached({ timeout: 10_000 });
-
-    // Switch to Record tab
-    await page.getByTestId('tab-record-sales').click();
-    await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
 
     // Fill first row
     const productSelects = page.locator('select').filter({ hasText: 'Select product' });
@@ -424,13 +410,14 @@ test.describe('Transaction grouping in All Sales tab', () => {
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
 
+    // Switch to Record tab first — form is inside @if(activeTab() === 'record') so options
+    // only exist in DOM after the tab is active
+    await page.getByTestId('tab-record-sales').click();
+    await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
+
     await expect(
       page.locator(`select option[value="${productA.id}"]`),
     ).toBeAttached({ timeout: 10_000 });
-
-    // Switch to Record tab to fill the form
-    await page.getByTestId('tab-record-sales').click();
-    await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
 
     await page.locator('select').filter({ hasText: 'Select product' }).first().selectOption(productA.id);
     await page.locator('input[type="number"]').first().fill('1');
