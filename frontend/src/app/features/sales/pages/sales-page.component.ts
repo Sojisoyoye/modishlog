@@ -228,6 +228,7 @@ interface TransactionMeta {
                   <input
                     type="number"
                     [(ngModel)]="row.quantity"
+                    (ngModelChange)="refreshRows()"
                     [name]="'qty_' + $index"
                     min="1"
                     class="h-8 w-14 shrink-0 rounded border px-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
@@ -251,6 +252,7 @@ interface TransactionMeta {
                   <input
                     type="number"
                     [(ngModel)]="row.discount_amount"
+                    (ngModelChange)="refreshRows()"
                     [name]="'discount_' + $index"
                     min="0"
                     step="0.01"
@@ -1111,10 +1113,17 @@ export class SalesPageComponent implements OnInit {
   onProductChange(row: EntryRow): void {
     if (!row.product_id) {
       row.unit_price = null;
-      return;
+    } else {
+      const product = this.products().find((p) => p.id === row.product_id);
+      row.unit_price = product ? product.selling_price : null;
     }
-    const product = this.products().find((p) => p.id === row.product_id);
-    row.unit_price = product ? product.selling_price : null;
+    // Mutating a property on the row object doesn't change the signal reference.
+    // Spread the array so computed(grandTotal) re-evaluates.
+    this.entryRows.update(rows => [...rows]);
+  }
+
+  refreshRows(): void {
+    this.entryRows.update(rows => [...rows]);
   }
 
   lineTotal(row: EntryRow): number {
