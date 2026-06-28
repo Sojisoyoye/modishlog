@@ -532,10 +532,10 @@ export class TransactionDetailPageComponent implements OnInit {
 
   // Edit transaction dialog
   editTransactionDialogVisible = false;
-  txnEditForm: { payment_method: string; payment_status: string; payment_amount: string; notes: string } = {
+  txnEditForm: { payment_method: string; payment_status: string; payment_amount: number | null; notes: string } = {
     payment_method: '',
     payment_status: 'paid',
-    payment_amount: '',
+    payment_amount: null,
     notes: '',
   };
 
@@ -676,7 +676,7 @@ export class TransactionDetailPageComponent implements OnInit {
     this.txnEditForm = {
       payment_method: txn.payment_method || '',
       payment_status: txn.payment_status || 'paid',
-      payment_amount: txn.payment_amount != null ? String(txn.payment_amount) : '',
+      payment_amount: txn.payment_amount ?? null,
       notes: txn.notes || '',
     };
     this.editTransactionDialogVisible = true;
@@ -686,12 +686,11 @@ export class TransactionDetailPageComponent implements OnInit {
     const txn = this.transaction();
     if (!txn) return;
     this.saving.set(true);
-    const rawAmount = this.txnEditForm.payment_amount.trim();
-    const parsedAmount = rawAmount !== '' ? parseFloat(rawAmount) : null;
+    const parsedAmount = this.txnEditForm.payment_amount;
     const payload: SaleTransactionUpdatePayload = {
       payment_method: this.txnEditForm.payment_method || null,
       payment_status: this.txnEditForm.payment_status || null,
-      payment_amount: parsedAmount !== null && !isNaN(parsedAmount) ? parsedAmount : null,
+      payment_amount: parsedAmount != null && !isNaN(parsedAmount) ? parsedAmount : null,
       notes: this.txnEditForm.notes || null,
     };
     this.salesService.updateTransaction(txn.transaction_id, payload).subscribe({
