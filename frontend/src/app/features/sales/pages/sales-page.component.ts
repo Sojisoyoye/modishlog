@@ -411,7 +411,34 @@ interface TransactionMeta {
                 class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
               >
                 <i class="pi pi-download text-xs"></i>
-                Export CSV
+                CSV
+              </button>
+              <button
+                type="button"
+                data-testid="export-sales-excel"
+                (click)="exportSalesExcel()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              >
+                <i class="pi pi-file-excel text-xs"></i>
+                Excel
+              </button>
+              <button
+                type="button"
+                data-testid="export-sales-pdf"
+                (click)="exportSalesPdf()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              >
+                <i class="pi pi-file-pdf text-xs"></i>
+                PDF
+              </button>
+              <button
+                type="button"
+                data-testid="export-sales-print"
+                (click)="printSales()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              >
+                <i class="pi pi-print text-xs"></i>
+                Print
               </button>
               <button
                 type="button"
@@ -1615,6 +1642,51 @@ export class SalesPageComponent implements OnInit {
         });
       },
     });
+  }
+
+  private txnExportRows() {
+    return this.transactions().map((txn) => ({
+      Date: txn.sale_date,
+      'Invoice No.': this.invoiceNo(txn.transaction_id),
+      Customer: txn.customer_name ?? '',
+      Contact: txn.contact_number ?? '',
+      'Payment Status': txn.payment_status ?? 'paid',
+      'Total Amount': Number(txn.total_amount),
+      Method: this.formatPaymentMethod(txn.payment_method),
+      'Total Paid': Number(txn.total_paid),
+      'Sale Due': Number(txn.sale_due),
+      Items: txn.item_count,
+    }));
+  }
+
+  exportSalesExcel(): void {
+    import('xlsx').then(({ utils, writeFile }) => {
+      const ws = utils.json_to_sheet(this.txnExportRows());
+      const wb = utils.book_new();
+      utils.book_append_sheet(wb, ws, 'Sales');
+      writeFile(wb, 'sales_export.xlsx');
+    });
+  }
+
+  exportSalesPdf(): void {
+    import('jspdf').then(({ jsPDF }) => {
+      import('jspdf-autotable').then(() => {
+        const doc = new jsPDF({ orientation: 'landscape' });
+        const rows = this.txnExportRows();
+        const cols = Object.keys(rows[0] ?? {});
+        (doc as any).autoTable({
+          head: [cols],
+          body: rows.map((r) => cols.map((c) => (r as any)[c])),
+          styles: { fontSize: 8 },
+          margin: { top: 10 },
+        });
+        doc.save('sales_export.pdf');
+      });
+    });
+  }
+
+  printSales(): void {
+    window.print();
   }
 
   formatFileSize(bytes: number): string {
