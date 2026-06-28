@@ -25,6 +25,8 @@ html {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Reserve scrollbar gutter so overlays appended to body never cause a layout shift */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -109,7 +111,7 @@ textarea:focus-visible {
   outline: none;
 }
 
-/* Compact PrimeNG DatePicker calendar — matches size of native date inputs */
+/* Compact PrimeNG DatePicker calendar popup */
 .p-datepicker-panel {
   font-size: 0.8rem;
 }
@@ -123,4 +125,14 @@ textarea:focus-visible {
   width: 1.8rem;
   height: 1.8rem;
   min-width: unset;
+}
+
+/* Strip Aura theme padding from the datepicker input so it matches
+   the height of the filter selects beside it */
+.p-datepicker .p-datepicker-input {
+  padding: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  font-size: inherit !important;
 }

@@ -460,7 +460,7 @@ interface TransactionMeta {
                   [(ngModel)]="filterDateRange"
                   selectionMode="range"
                   [readonlyInput]="true"
-                  placeholder="From – To"
+                  placeholder="dd/mm/yy – dd/mm/yy"
                   [showButtonBar]="true"
                   [iconDisplay]="'input'"
                   [showIcon]="true"
