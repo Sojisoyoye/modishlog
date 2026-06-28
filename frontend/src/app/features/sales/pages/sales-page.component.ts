@@ -137,13 +137,19 @@ interface TransactionMeta {
           <div class="grid grid-cols-2 gap-4 border-b border-gray-100 px-5 py-4">
             <div>
               <label class="mb-1 block text-xs font-medium text-muted">Sale Date</label>
-              <input
-                type="date"
-                [ngModel]="saleDate()"
-                (ngModelChange)="saleDate.set($event)"
-                name="sale_date"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-              />
+              <p-datepicker
+                [ngModel]="saleDateObj()"
+                (ngModelChange)="onSaleDateChange($event)"
+                [showIcon]="true"
+                [iconDisplay]="'input'"
+                appendTo="body"
+                dateFormat="dd/mm/yy"
+                inputStyleClass="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
+                  <i class="pi pi-calendar cursor-pointer text-muted" (click)="clickCallBack($event)"></i>
+                </ng-template>
+              </p-datepicker>
             </div>
             <div>
               <label class="mb-1 block text-xs font-medium text-muted">Customer</label>
@@ -337,12 +343,19 @@ interface TransactionMeta {
               <!-- Payment Date -->
               <div>
                 <label class="mb-1 block text-xs font-medium text-muted">Payment Date</label>
-                <input
-                  type="date"
-                  [(ngModel)]="txnMeta.payment_date"
-                  name="payment_date"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                />
+                <p-datepicker
+                  [ngModel]="paymentDateObj"
+                  (ngModelChange)="onPaymentDateChange($event)"
+                  [showIcon]="true"
+                  [iconDisplay]="'input'"
+                  appendTo="body"
+                  dateFormat="dd/mm/yy"
+                  inputStyleClass="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
+                    <i class="pi pi-calendar cursor-pointer text-muted" (click)="clickCallBack($event)"></i>
+                  </ng-template>
+                </p-datepicker>
               </div>
 
               <!-- Payment Status -->
@@ -1111,9 +1124,14 @@ export class SalesPageComponent implements OnInit {
 
   // Shared sale date for all line items in one submission
   saleDate = signal<string>(new Date().toISOString().split('T')[0]);
+  saleDateObj = computed(() => {
+    const s = this.saleDate();
+    return s ? new Date(s + 'T00:00:00') : new Date();
+  });
 
   // Transaction-level customer + payment meta (shared across all rows in one submission)
   txnMeta: TransactionMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_date: null, payment_status: 'paid' };
+  paymentDateObj: Date | null = null;
 
   // CSV upload state
   selectedFile = signal<File | null>(null);
@@ -1313,6 +1331,15 @@ export class SalesPageComponent implements OnInit {
     this.loadTransactions();
   }
 
+  onSaleDateChange(d: Date | null): void {
+    if (d) this.saleDate.set(this.toLocalDateString(d));
+  }
+
+  onPaymentDateChange(d: Date | null): void {
+    this.paymentDateObj = d;
+    this.txnMeta.payment_date = d ? this.toLocalDateString(d) : null;
+  }
+
   private toLocalDateString(d: Date): string {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -1445,6 +1472,7 @@ export class SalesPageComponent implements OnInit {
         this.submitting.set(false);
         this.entryRows.set([this.newRow()]);
         this.txnMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_date: null, payment_status: 'paid' };
+        this.paymentDateObj = null;
         this.messageService.add({
           severity: 'success',
           summary: 'Success',
