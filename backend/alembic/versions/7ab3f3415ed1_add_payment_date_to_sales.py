@@ -18,8 +18,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('sales', sa.Column('payment_date', sa.Date(), nullable=True))
+    op.add_column('sales', sa.Column('payment_date', sa.Date(), nullable=True), schema='public')
 
 
 def downgrade() -> None:
-    op.drop_column('sales', 'payment_date')
+    op.drop_column('sales', 'payment_date', schema='public')

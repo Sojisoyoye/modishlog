@@ -775,7 +775,7 @@ def _build_transaction_read(
     return SaleTransactionRead(
         transaction_id=transaction_id,
         sale_date=sale_date,
-        item_count=len(items),
+        item_count=len(active_items),
         total_amount=total_amount,
         total_paid=total_paid,
         sale_due=sale_due,

@@ -4,6 +4,7 @@ import csv
 import io
 import uuid
 from datetime import date, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -247,7 +248,7 @@ async def list_transactions_endpoint(
     page_size: int = 20,
     location_id: uuid.UUID | None = None,
     customer_id: uuid.UUID | None = None,
-    payment_status: str | None = None,
+    payment_status: Literal["paid", "partial", "credit"] | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     db: AsyncSession = Depends(get_db),

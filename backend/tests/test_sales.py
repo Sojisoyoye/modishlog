@@ -1494,7 +1494,7 @@ class TestUpdateTransaction:
         result_mock.scalars.return_value = scalars_mock
         db.execute = AsyncMock(return_value=result_mock)
 
-        payment_date = date_type(2026, 6, 30)
+        payment_date = date_type(2026, 6, 1)
         await update_transaction(db, txn_id, SaleTransactionUpdate(payment_date=payment_date), user_id)
 
         assert sale1.payment_date == payment_date

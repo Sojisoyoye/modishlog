@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, ChangeDetectorRef, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, CurrencyPipe } from '@angular/common';
 import { Router } from '@angular/router';
@@ -1083,6 +1083,7 @@ export class SalesPageComponent implements OnInit {
   private readonly messageService = inject(MessageService);
   private readonly customerService = inject(CustomerService);
   private readonly locationsService = inject(LocationsService);
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly router = inject(Router);
 
   products = signal<Product[]>([]);
@@ -1262,6 +1263,13 @@ export class SalesPageComponent implements OnInit {
         this.transactions.set(r.items ?? []);
         this.txnTotal.set(r.total ?? 0);
       },
+      error: () => {
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Failed to load transactions',
+        });
+      },
     });
   }
 
@@ -1277,6 +1285,7 @@ export class SalesPageComponent implements OnInit {
     this.filterDateFrom = '';
     this.filterDateTo = '';
     this.txnPage.set(1);
+    this.cdr.markForCheck();
     this.loadTransactions();
   }
 
@@ -1660,20 +1669,31 @@ export class SalesPageComponent implements OnInit {
   }
 
   exportSalesExcel(): void {
+    const rows = this.txnExportRows();
+    if (rows.length === 0) {
+      this.messageService.add({ severity: 'warn', summary: 'No data', detail: 'Nothing to export' });
+      return;
+    }
     import('xlsx').then(({ utils, writeFile }) => {
-      const ws = utils.json_to_sheet(this.txnExportRows());
+      const ws = utils.json_to_sheet(rows);
       const wb = utils.book_new();
       utils.book_append_sheet(wb, ws, 'Sales');
       writeFile(wb, 'sales_export.xlsx');
+    }).catch(() => {
+      this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to export Excel' });
     });
   }
 
   exportSalesPdf(): void {
-    import('jspdf').then(({ jsPDF }) => {
+    const rows = this.txnExportRows();
+    if (rows.length === 0) {
+      this.messageService.add({ severity: 'warn', summary: 'No data', detail: 'Nothing to export' });
+      return;
+    }
+    const cols = Object.keys(rows[0]);
+    import('jspdf').then(({ jsPDF }) =>
       import('jspdf-autotable').then(() => {
         const doc = new jsPDF({ orientation: 'landscape' });
-        const rows = this.txnExportRows();
-        const cols = Object.keys(rows[0] ?? {});
         (doc as any).autoTable({
           head: [cols],
           body: rows.map((r) => cols.map((c) => (r as any)[c])),
@@ -1681,7 +1701,9 @@ export class SalesPageComponent implements OnInit {
           margin: { top: 10 },
         });
         doc.save('sales_export.pdf');
-      });
+      })
+    ).catch(() => {
+      this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to export PDF' });
     });
   }
 

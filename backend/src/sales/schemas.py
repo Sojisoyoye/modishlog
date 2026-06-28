@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -29,6 +29,13 @@ class SaleCreate(BaseModel):
     payment_amount: Decimal | None = Field(None, ge=0)
     payment_date: date | None = None
     location_id: uuid.UUID | None = None
+
+    @field_validator("payment_date")
+    @classmethod
+    def payment_date_not_future(cls, v: date | None) -> date | None:
+        if v is not None and v > date.today():
+            raise ValueError("payment_date cannot be in the future")
+        return v
 
 
 class SaleUpdate(BaseModel):
@@ -230,6 +237,13 @@ class SaleTransactionUpdate(BaseModel):
     payment_amount: Decimal | None = Field(None, ge=0)
     payment_date: date | None = None
     notes: str | None = None
+
+    @field_validator("payment_date")
+    @classmethod
+    def payment_date_not_future(cls, v: date | None) -> date | None:
+        if v is not None and v > date.today():
+            raise ValueError("payment_date cannot be in the future")
+        return v
 
 
 class SaleTransactionListResponse(BaseModel):
