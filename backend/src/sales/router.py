@@ -132,6 +132,8 @@ async def daily_entry_endpoint(
             contact_number=entry.contact_number,
             payment_method=entry.payment_method,
             payment_status=entry.payment_status,
+            payment_amount=entry.payment_amount,
+            payment_date=entry.payment_date,
             location_id=entry.location_id,
         )
         try:

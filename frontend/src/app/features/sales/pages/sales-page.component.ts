@@ -29,6 +29,7 @@ interface TransactionMeta {
   customer_id: string;
   payment_method: string;
   payment_amount: number | null;
+  payment_date: string | null;
   payment_status: string;
 }
 
@@ -203,7 +204,7 @@ interface TransactionMeta {
                       [(ngModel)]="row.product_id"
                       [name]="'product_' + $index"
                       (change)="onProductChange(row)"
-                      class="h-8 w-full rounded border border-gray-300 px-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                      class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm font-medium text-text transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                     >
                       <option value="">Select product</option>
                       @for (p of products(); track p.id) {
@@ -297,7 +298,7 @@ interface TransactionMeta {
 
           <!-- Payment & submit footer -->
           <div class="border-t border-gray-200 bg-gray-50/40 px-5 py-4">
-            <div class="grid grid-cols-3 gap-3">
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <!-- Payment Method -->
               <div>
                 <label class="mb-1 block text-xs font-medium text-muted">Payment Method</label>
@@ -326,6 +327,17 @@ interface TransactionMeta {
                   step="0.01"
                   placeholder="0.00"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <!-- Payment Date -->
+              <div>
+                <label class="mb-1 block text-xs font-medium text-muted">Payment Date</label>
+                <input
+                  type="date"
+                  [(ngModel)]="txnMeta.payment_date"
+                  name="payment_date"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                 />
               </div>
 
@@ -937,7 +949,7 @@ export class SalesPageComponent implements OnInit {
   saleDate = signal<string>(new Date().toISOString().split('T')[0]);
 
   // Transaction-level customer + payment meta (shared across all rows in one submission)
-  txnMeta: TransactionMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_status: 'paid' };
+  txnMeta: TransactionMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_date: null, payment_status: 'paid' };
 
   // CSV upload state
   selectedFile = signal<File | null>(null);
@@ -1160,6 +1172,7 @@ export class SalesPageComponent implements OnInit {
         customer_id: meta.customer_id || null,
         payment_method: meta.payment_method || null,
         payment_amount: meta.payment_amount ?? null,
+        payment_date: meta.payment_date || null,
         payment_status: meta.payment_status || 'paid',
       }));
     if (valid.length === 0) return;
@@ -1169,7 +1182,7 @@ export class SalesPageComponent implements OnInit {
       next: () => {
         this.submitting.set(false);
         this.entryRows.set([this.newRow()]);
-        this.txnMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_status: 'paid' };
+        this.txnMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_date: null, payment_status: 'paid' };
         this.messageService.add({
           severity: 'success',
           summary: 'Success',

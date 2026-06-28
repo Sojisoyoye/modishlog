@@ -156,6 +156,8 @@ async def create_sale(
         contact_number=resolved_contact_number,
         payment_method=data.payment_method,
         payment_status=data.payment_status or "paid",
+        payment_amount=data.payment_amount,
+        payment_date=data.payment_date,
         notes=data.notes,
         location_id=data.location_id,
         recorded_by=user_id,
@@ -743,6 +745,7 @@ def _build_transaction_read(
     payment_method = first.payment_method if first else None
     payment_status = first.payment_status if first else None
     payment_amount = first.payment_amount if first else None
+    payment_date = first.payment_date if first else None
     notes = first.notes if first else None
 
     statuses = {s.status for s in items}
@@ -786,6 +789,7 @@ def _build_transaction_read(
         payment_method=payment_method,
         payment_status=payment_status,
         payment_amount=payment_amount,
+        payment_date=payment_date,
         notes=notes,
         items=item_reads,
         created_at=created_at,

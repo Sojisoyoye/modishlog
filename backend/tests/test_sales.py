@@ -1398,6 +1398,47 @@ class TestUpdateTransaction:
         assert sale2.payment_amount == D("5000.00")
 
     @pytest.mark.asyncio
+    async def test_payment_date_propagated_to_all_items(self):
+        from datetime import date as date_type
+        from src.sales.schemas import SaleTransactionUpdate
+        from src.sales.service import update_transaction
+
+        txn_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        sale1 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None, recorded_by=user_id)
+        sale2 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None, recorded_by=user_id)
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [sale1, sale2]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        payment_date = date_type(2026, 6, 30)
+        await update_transaction(db, txn_id, SaleTransactionUpdate(payment_date=payment_date), user_id)
+
+        assert sale1.payment_date == payment_date
+        assert sale2.payment_date == payment_date
+
+    @pytest.mark.asyncio
+    def test_payment_date_defaults_to_none_on_sale_create(self):
+        """SaleCreate without payment_date should leave the field as None."""
+        from datetime import date as date2
+        from src.sales.schemas import SaleCreate
+        import uuid as _uuid
+
+        data = SaleCreate(
+            product_id=_uuid.uuid4(),
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            sale_date=date2.today(),
+            channel="retail",
+        )
+        assert data.payment_date is None
+        assert data.payment_amount is None
+
+    @pytest.mark.asyncio
     async def test_permission_denied_for_non_owner(self):
         from src.sales.exceptions import SalePermissionError
         from src.sales.schemas import SaleTransactionUpdate

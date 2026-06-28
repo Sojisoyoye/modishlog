@@ -26,6 +26,8 @@ class SaleCreate(BaseModel):
     contact_number: str | None = None
     payment_method: str | None = None
     payment_status: str | None = "paid"
+    payment_amount: Decimal | None = Field(None, ge=0)
+    payment_date: date | None = None
     location_id: uuid.UUID | None = None
 
 
@@ -50,6 +52,8 @@ class DailyEntryItem(BaseModel):
     contact_number: str | None = None
     payment_method: str | None = None
     payment_status: str | None = "paid"
+    payment_amount: Decimal | None = Field(None, ge=0)
+    payment_date: date | None = None
     location_id: uuid.UUID | None = None
 
 
@@ -76,6 +80,8 @@ class SaleRead(BaseModel):
     contact_number: str | None = None
     payment_method: str | None = None
     payment_status: str | None = None
+    payment_amount: Decimal | None = None
+    payment_date: date | None = None
     notes: str | None = None
     location_id: uuid.UUID | None = None
     recorded_by: uuid.UUID
@@ -212,6 +218,7 @@ class SaleTransactionRead(BaseModel):
     payment_method: str | None = None
     payment_status: str | None = None
     payment_amount: Decimal | None = None
+    payment_date: date | None = None
     notes: str | None = None
     items: list[SaleTransactionItemRead]
     created_at: datetime
@@ -221,6 +228,7 @@ class SaleTransactionUpdate(BaseModel):
     payment_method: str | None = Field(None, pattern=r"^(cash|transfer|pos|credit|cheque)$")
     payment_status: str | None = Field(None, pattern=r"^(paid|credit|partial)$")
     payment_amount: Decimal | None = Field(None, ge=0)
+    payment_date: date | None = None
     notes: str | None = None
 
 
