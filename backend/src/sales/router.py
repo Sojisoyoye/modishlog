@@ -4,6 +4,7 @@ import csv
 import io
 import uuid
 from datetime import date, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -132,6 +133,8 @@ async def daily_entry_endpoint(
             contact_number=entry.contact_number,
             payment_method=entry.payment_method,
             payment_status=entry.payment_status,
+            payment_amount=entry.payment_amount,
+            payment_date=entry.payment_date,
             location_id=entry.location_id,
         )
         try:
@@ -243,10 +246,24 @@ async def upload_status_endpoint(
 async def list_transactions_endpoint(
     page: int = 1,
     page_size: int = 20,
+    location_id: uuid.UUID | None = None,
+    customer_id: uuid.UUID | None = None,
+    payment_status: Literal["paid", "partial", "credit"] | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """List sales grouped by transaction (most recent first)."""
-    items, total = await list_transactions(db, page=page, page_size=page_size)
+    items, total = await list_transactions(
+        db,
+        page=page,
+        page_size=page_size,
+        location_id=location_id,
+        customer_id=customer_id,
+        payment_status=payment_status,
+        date_from=date_from,
+        date_to=date_to,
+    )
     return SaleTransactionListResponse(
         items=items, total=total, page=page, page_size=page_size
     )

@@ -4393,23 +4393,69 @@
         "description": "Sale payment method and payment status should be editable after creation. Sale notes should belong to the transaction group (shared across all items in a transaction), not to individual sale items.",
         "details": "## Backend\n\n### 1. New schema — SaleTransactionUpdate (schemas.py)\n- `payment_method: Optional[str]`\n- `payment_status: Optional[str]`\n- `status: Optional[SaleStatus]` — allow PENDING↔COMPLETED only; reject VOIDED (use void endpoint for that)\n- `notes: Optional[str]`\n\n### 2. New service function — update_transaction() (service.py)\n- Accept `transaction_id: str`, `payload: SaleTransactionUpdate`, `current_user`\n- Fetch all Sale records WHERE transaction_id = ? AND business_id = current_user.business_id\n- 404 if no records found; 403 if business mismatch\n- Reject payload.status == VOIDED with 422\n- Update each Sale record with non-None payload fields\n- Create one audit entry per updated Sale record\n- Return updated records\n\n### 3. New router endpoint (router.py)\n- `PUT /sales/transactions/{transaction_id}` — must be registered BEFORE `PUT /sales/{sale_id}` (static segment before parameterized)\n- Body: SaleTransactionUpdate\n- Auth: require current_user\n\n### 4. Existing SaleUpdate schema — add payment_method + payment_status\n- Also add these two fields to SaleUpdate so individual-item edits can update them too\n\n## Frontend\n\n### 1. sales.service.ts\n- Add `SaleTransactionUpdatePayload` interface: `payment_method?`, `payment_status?`, `status?`, `notes?`\n- Add `updateTransaction(transactionId: string, payload)` method calling `PUT /sales/transactions/{transactionId}`\n\n### 2. sales-page.component.ts\n- Add \"Edit transaction\" button at the TRANSACTION header level (next to Void)\n- New transaction-level edit dialog: fields for payment_method (dropdown), payment_status (dropdown), notes (textarea)\n- Remove `notes` from the per-item SaleUpdatePayload and edit dialog — notes now live at transaction level only\n- On save, call `updateTransaction(transaction.transaction_id, payload)` — this updates all items in the group\n\n## Route ordering check\nVerify `PUT /sales/transactions/{transaction_id}` is declared BEFORE `PUT /sales/{sale_id}` in router.py to avoid FastAPI matching \"transactions\" as a sale_id.",
         "testStrategy": "**Backend (pytest — TDD: write tests FIRST)**\n1. Happy path: PUT /sales/transactions/{id} updates payment_method, payment_status, notes on all items in group\n2. Status transition: PENDING → COMPLETED succeeds; VOIDED → anything via this endpoint returns 422\n3. Auth guard: unauthenticated returns 401\n4. Cross-business isolation: cannot update another business's transaction (404)\n5. Not found: unknown transaction_id returns 404\n\n**Frontend (Playwright E2E — TDD: write tests FIRST)**\n1. Edit transaction button is visible on the transaction header\n2. Opening edit dialog shows payment_method, payment_status, notes fields\n3. Saving updated payment_method reflects in the transaction view\n4. Notes field appears at transaction level, not per-item",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-06-24T12:16:54.053Z"
+      },
+      {
+        "id": 128,
+        "title": "Inline editing for transaction detail line items",
+        "description": "Replace the per-item Edit dialog on the Transaction Detail page with inline cell editing. Quantity, unit price, and discount cells should be editable directly in the table row. The edit (pencil) button should be removed from the Actions column; only void (trash) and audit (clock) remain.",
+        "details": "Frontend only — transaction-detail-page.component.ts:\n\n1. Remove the Edit Sale Item p-dialog and all state that drives it (editDialogVisible, editingItem, editForm, openEditDialog, submitEdit).\n\n2. Add per-row edit state:\n   - Signal: `editingRowId = signal<string | null>(null)` — tracks which row (by sale id) is being edited\n   - Signal: `rowDraft = signal<{ quantity: number; unit_price: number; discount_amount: number | null }>({ ... })` — holds the in-progress values\n\n3. In the table, for each non-voided row:\n   - Qty cell: when editingRowId() === item.id show `<input type=\"number\" min=\"1\">` bound to rowDraft().quantity, else show plain text\n   - Unit Price cell: when editing show `<input type=\"number\" min=\"0\" step=\"0.01\">` bound to rowDraft().unit_price, else show currency pipe\n   - Discount cell: when editing show `<input type=\"number\" min=\"0\" step=\"0.01\">` bound to rowDraft().discount_amount (nullable), else existing display\n   - Line Total cell: always computed from rowDraft when editing: quantity * unit_price - discount_amount\n   - Actions cell: remove edit button. Add a save (check) and cancel (x) button when editingRowId() === item.id. Show only void+audit when not editing.\n   - Clicking anywhere on a non-voided row (or a dedicated \"click to edit\" affordance on the product name cell) activates inline edit for that row.\n\n4. openInlineEdit(item): set editingRowId(item.id), set rowDraft to current values.\n5. cancelInlineEdit(): set editingRowId(null).\n6. submitInlineEdit(): call salesService.update(editingRowId(), { quantity, unit_price, discount_amount }), on success reload transaction, on error show toast.\n7. Computed lineTotalForRow(): quantity * unit_price - (discount_amount ?? 0).\n\nActions column should only ever contain: [save+cancel when editing] OR [void + audit when not editing]. No edit pencil button at any time.\n\nTests: update/add Playwright E2E in frontend/e2e/transaction-detail.spec.ts — clicking a qty cell activates edit, changing value and saving reflects in the table.",
+        "testStrategy": "Playwright E2E: activate inline edit on a row, change quantity, save, verify updated quantity shown in table without page reload. Also verify no edit (pencil) button is present in action cells.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-06-24T12:16:54.144Z"
+      },
+      {
+        "id": 129,
+        "title": "All Sales table — filter bar",
+        "description": "Add a filter bar above the transactions table on /sales (All Sales tab) with: Business Location (dropdown), Customer (dropdown/search), Payment Status (paid/partial/credit), Date Range (from/to). Wire filters as query params to GET /sales/transactions. Backend list_transactions service and router need these filter params added.",
+        "details": "Backend: add optional query params (location_id, customer_id, payment_status, date_from, date_to) to list_transactions in service.py and router.py. Frontend: add filter bar component above p-table in transactions-list or sales page, populate location and customer dropdowns from existing API endpoints, wire filter changes to reload loadTransactions() with updated params.",
+        "testStrategy": "Backend: pytest tests for list_transactions with each filter param (happy path + no-match). Frontend: Playwright E2E test that sets a filter and verifies the table rows are filtered.",
         "status": "pending",
         "dependencies": [],
         "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 130,
+        "title": "All Sales table — pagination page-size selector",
+        "description": "Add \"Show 25 / 100 / 500 entries\" page-size selector to the All Sales table. Currently hardcoded to page_size: '20' in loadTransactions(). Match the pattern used on the Products page.",
+        "details": "Frontend: add a p-select or native select for rows-per-page (options: 25, 100, 500) bound to a signal. On change, reset to page 1 and reload loadTransactions(). Persist the choice in localStorage so it survives navigation. Backend already supports page_size param so no backend changes needed.",
+        "testStrategy": "Playwright E2E: change selector to 100, verify table loads up to 100 rows and the selector value persists after navigating away and back.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 131,
+        "title": "All Sales table — export (CSV, Excel, PDF, Print)",
+        "description": "Add export buttons to the All Sales table: CSV (already exists), Excel (.xlsx via SheetJS/xlsx npm package), PDF (via jsPDF + jspdf-autotable), Print (browser window.print() with print-specific CSS). Buttons export whatever the current filter/page shows.",
+        "details": "Install xlsx and jspdf + jspdf-autotable npm packages. Reuse or extend the existing CSV export button. Add Excel export that builds a workbook from current table data. Add PDF export using jspdf-autotable. Add Print button that calls window.print(); add @media print CSS to show only the table. All exports use the currently filtered dataset (pass current filter params to a dedicated fetch-all call or use already-loaded rows).",
+        "testStrategy": "Manual verification of each export format. Playwright E2E: click CSV export, verify file download. No automated test needed for PDF/Print.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
         "subtasks": []
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-06-23T19:06:09.984Z",
-      "taskCount": 126,
-      "completedCount": 126,
+      "lastModified": "2026-06-24T12:16:54.144Z",
+      "taskCount": 128,
+      "completedCount": 128,
       "tags": [
         "master"
       ],
-      "created": "2026-06-23T21:45:11.358Z",
+      "created": "2026-06-28T16:56:18.628Z",
       "description": "Tasks for master context",
-      "updated": "2026-06-23T21:45:11.431Z"
+      "updated": "2026-06-28T16:56:29.276Z"
     }
   }
 }

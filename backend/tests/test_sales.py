@@ -1041,6 +1041,85 @@ class TestSaleTransactions:
             await get_transaction(db, uuid.uuid4())
 
     @pytest.mark.asyncio
+    async def test_list_transactions_filter_by_payment_status(self):
+        """list_transactions passes payment_status filter and returns matching results."""
+        from src.sales.service import list_transactions
+
+        txn_id = uuid.uuid4()
+        sale = _make_sale(transaction_id=txn_id, payment_status="credit", total_amount=Decimal("500"))
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar.return_value = 1
+            elif call_count == 2:
+                result.all.return_value = [(txn_id,)]
+            elif call_count == 3:
+                scalars_mock = MagicMock()
+                scalars_mock.all.return_value = [sale]
+                result.scalars.return_value = scalars_mock
+            return result
+
+        db.execute = mock_execute
+        transactions, total = await list_transactions(db, payment_status="credit")
+        assert total == 1
+        assert transactions[0].payment_status == "credit"
+
+    @pytest.mark.asyncio
+    async def test_list_transactions_filter_no_results(self):
+        """list_transactions returns empty list when COUNT is 0 for a filter."""
+        from src.sales.service import list_transactions
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar.return_value = 0
+            elif call_count == 2:
+                result.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+        transactions, total = await list_transactions(db, payment_status="nonexistent")
+        assert total == 0
+        assert transactions == []
+
+    @pytest.mark.asyncio
+    async def test_list_transactions_filter_by_date_range(self):
+        """list_transactions accepts date_from / date_to without raising."""
+        from src.sales.service import list_transactions
+        from datetime import date as dt_date
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar.return_value = 0
+            elif call_count == 2:
+                result.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+        transactions, total = await list_transactions(
+            db, date_from=dt_date(2026, 1, 1), date_to=dt_date(2026, 12, 31)
+        )
+        assert total == 0
+        assert transactions == []
+
+    @pytest.mark.asyncio
     async def test_create_sale_stores_transaction_id(self):
         """create_sale stores transaction_id on the Sale when provided."""
         product = _make_product(id=uuid.uuid4())
@@ -1398,6 +1477,47 @@ class TestUpdateTransaction:
         assert sale2.payment_amount == D("5000.00")
 
     @pytest.mark.asyncio
+    async def test_payment_date_propagated_to_all_items(self):
+        from datetime import date as date_type
+        from src.sales.schemas import SaleTransactionUpdate
+        from src.sales.service import update_transaction
+
+        txn_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        sale1 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None, recorded_by=user_id)
+        sale2 = _make_sale(transaction_id=txn_id, payment_method="cash", notes=None, recorded_by=user_id)
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [sale1, sale2]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        payment_date = date_type(2026, 6, 1)
+        await update_transaction(db, txn_id, SaleTransactionUpdate(payment_date=payment_date), user_id)
+
+        assert sale1.payment_date == payment_date
+        assert sale2.payment_date == payment_date
+
+    @pytest.mark.asyncio
+    def test_payment_date_defaults_to_none_on_sale_create(self):
+        """SaleCreate without payment_date should leave the field as None."""
+        from datetime import date as date2
+        from src.sales.schemas import SaleCreate
+        import uuid as _uuid
+
+        data = SaleCreate(
+            product_id=_uuid.uuid4(),
+            quantity=1,
+            unit_price=Decimal("100.00"),
+            sale_date=date2.today(),
+            channel="retail",
+        )
+        assert data.payment_date is None
+        assert data.payment_amount is None
+
+    @pytest.mark.asyncio
     async def test_permission_denied_for_non_owner(self):
         from src.sales.exceptions import SalePermissionError
         from src.sales.schemas import SaleTransactionUpdate
@@ -1579,3 +1699,150 @@ class TestUpdateTransactionEndpoint:
                 json={"payment_method": "cash"},
             )
         assert resp.status_code == 409
+
+
+class TestListTransactionsEndpointFilters:
+    """HTTP-level tests for GET /api/v1/sales/transactions filter params."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db_with_txn(self, txn_id, sales):
+        from src.core.database import get_db
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar.return_value = len(sales)
+            elif call_count == 2:
+                result.all.return_value = [(txn_id,)] if sales else []
+            elif call_count == 3:
+                sm = MagicMock()
+                sm.all.return_value = sales
+                result.scalars.return_value = sm
+            return result
+
+        db.execute = mock_execute
+
+        async def _fake_db():
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+        u = _make_user()
+        async def _fake():
+            return u
+        self.app.dependency_overrides[get_current_active_user] = _fake
+
+    def test_filter_by_payment_status_accepted(self):
+        """GET /transactions?payment_status=credit returns 200 with matching items."""
+        txn_id = uuid.uuid4()
+        sale = _make_sale(transaction_id=txn_id, payment_status="credit", total_amount=Decimal("1000"))
+        self._override_db_with_txn(txn_id, [sale])
+        self._override_auth()
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/sales/transactions?payment_status=credit")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+
+    def test_filter_by_date_range_accepted(self):
+        """GET /transactions?date_from=...&date_to=... returns 200."""
+        txn_id = uuid.uuid4()
+        sale = _make_sale(transaction_id=txn_id, total_amount=Decimal("500"))
+        self._override_db_with_txn(txn_id, [sale])
+        self._override_auth()
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/sales/transactions?date_from=2026-01-01&date_to=2026-12-31")
+        assert resp.status_code == 200
+
+    def test_filter_by_customer_id_accepted(self):
+        """GET /transactions?customer_id=<uuid> returns 200."""
+        txn_id = uuid.uuid4()
+        customer_id = uuid.uuid4()
+        sale = _make_sale(transaction_id=txn_id, customer_id=customer_id, total_amount=Decimal("500"))
+        self._override_db_with_txn(txn_id, [sale])
+        self._override_auth()
+        with TestClient(self.app) as client:
+            resp = client.get(f"/api/v1/sales/transactions?customer_id={customer_id}")
+        assert resp.status_code == 200
+
+
+class TestBuildTransactionReadTotalPaid:
+    """Unit tests for _build_transaction_read total_paid / sale_due logic."""
+
+    def _run(self, items):
+        from src.sales.service import _build_transaction_read
+        import uuid as _uuid
+        return _build_transaction_read(_uuid.uuid4(), items)
+
+    def test_explicit_payment_amount_used_as_total_paid(self):
+        """When payment_amount is set, total_paid equals it regardless of total_amount."""
+        txn_id = uuid.uuid4()
+        sale = _make_sale(
+            transaction_id=txn_id,
+            total_amount=Decimal("10000"),
+            payment_status="partial",
+            payment_amount=Decimal("4000"),
+        )
+        result = self._run([sale])
+        assert result.total_paid == Decimal("4000")
+        assert result.sale_due == Decimal("6000")
+
+    def test_paid_status_no_payment_amount_infers_full_total(self):
+        """payment_status='paid' with no payment_amount → total_paid = total_amount."""
+        txn_id = uuid.uuid4()
+        sale = _make_sale(
+            transaction_id=txn_id,
+            total_amount=Decimal("5000"),
+            payment_status="paid",
+            payment_amount=None,
+        )
+        result = self._run([sale])
+        assert result.total_paid == Decimal("5000")
+        assert result.sale_due == Decimal("0")
+
+    def test_credit_status_no_payment_amount_gives_zero_paid(self):
+        """payment_status='credit' with no payment_amount → total_paid = 0."""
+        txn_id = uuid.uuid4()
+        sale = _make_sale(
+            transaction_id=txn_id,
+            total_amount=Decimal("8000"),
+            payment_status="credit",
+            payment_amount=None,
+        )
+        result = self._run([sale])
+        assert result.total_paid == Decimal("0")
+        assert result.sale_due == Decimal("8000")
+
+    def test_voided_items_excluded_from_total_amount(self):
+        """Voided items are not counted in total_amount or total_paid."""
+        txn_id = uuid.uuid4()
+        active = _make_sale(
+            transaction_id=txn_id,
+            total_amount=Decimal("3000"),
+            payment_status="paid",
+            payment_amount=None,
+        )
+        voided = _make_sale(
+            transaction_id=txn_id,
+            total_amount=Decimal("2000"),
+            status=SaleStatus.VOIDED,
+            payment_status="paid",
+            payment_amount=None,
+        )
+        result = self._run([active, voided])
+        assert result.total_amount == Decimal("3000")
+        assert result.total_paid == Decimal("3000")
+        assert result.sale_due == Decimal("0")

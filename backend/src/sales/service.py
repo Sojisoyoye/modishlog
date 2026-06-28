@@ -156,6 +156,8 @@ async def create_sale(
         contact_number=resolved_contact_number,
         payment_method=data.payment_method,
         payment_status=data.payment_status or "paid",
+        payment_amount=data.payment_amount,
+        payment_date=data.payment_date,
         notes=data.notes,
         location_id=data.location_id,
         recorded_by=user_id,
@@ -715,35 +717,34 @@ def _build_transaction_read(
 ) -> "SaleTransactionRead":
     """Build a SaleTransactionRead from a list of Sale records."""
 
-    total_amount = sum((s.total_amount for s in items), Decimal("0"))
-    # Credit sales: nothing collected yet — full amount is outstanding
-    is_credit = any(
-        s.payment_status == "credit" for s in items if s.status != SaleStatus.VOIDED
-    )
-    if is_credit:
-        total_paid = Decimal("0")
-    else:
-        total_paid = sum(
-            (s.total_amount for s in items if s.status != SaleStatus.VOIDED),
-            Decimal("0"),
-        )
-    sale_due = total_amount - total_paid
+    active_items = [s for s in items if s.status != SaleStatus.VOIDED]
+    total_amount = sum((s.total_amount for s in active_items), Decimal("0"))
     sale_date = items[0].sale_date if items else date.today()
     created_at = (
         min(s.created_at for s in items) if items else datetime.now(timezone.utc)
     )
     currency = items[0].currency if items else "NGN"
+
     # Use customer/payment info from the first non-voided item (consistent per txn)
-    first = next(
-        (s for s in items if s.status != SaleStatus.VOIDED), items[0] if items else None
-    )
+    first = next(iter(active_items), items[0] if items else None)
     customer_id = first.customer_id if first else None
     customer_name = first.customer_name if first else None
     contact_number = first.contact_number if first else None
     payment_method = first.payment_method if first else None
     payment_status = first.payment_status if first else None
     payment_amount = first.payment_amount if first else None
+    payment_date = first.payment_date if first else None
     notes = first.notes if first else None
+
+    # total_paid: use the recorded payment_amount when available;
+    # fall back to inferring from payment_status (paid → full amount, else → 0).
+    if payment_amount is not None:
+        total_paid = payment_amount
+    elif payment_status == "paid":
+        total_paid = total_amount
+    else:
+        total_paid = Decimal("0")
+    sale_due = max(Decimal("0"), total_amount - total_paid)
 
     statuses = {s.status for s in items}
     if statuses == {SaleStatus.VOIDED}:
@@ -774,7 +775,7 @@ def _build_transaction_read(
     return SaleTransactionRead(
         transaction_id=transaction_id,
         sale_date=sale_date,
-        item_count=len(items),
+        item_count=len(active_items),
         total_amount=total_amount,
         total_paid=total_paid,
         sale_due=sale_due,
@@ -786,6 +787,7 @@ def _build_transaction_read(
         payment_method=payment_method,
         payment_status=payment_status,
         payment_amount=payment_amount,
+        payment_date=payment_date,
         notes=notes,
         items=item_reads,
         created_at=created_at,
@@ -797,20 +799,35 @@ async def list_transactions(
     *,
     page: int = 1,
     page_size: int = 20,
+    location_id: uuid.UUID | None = None,
+    customer_id: uuid.UUID | None = None,
+    payment_status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> tuple[list, int]:
     """List sales grouped by transaction_id (most recent first)."""
 
+    base_where = [Sale.transaction_id.isnot(None)]
+    if location_id is not None:
+        base_where.append(Sale.location_id == location_id)
+    if customer_id is not None:
+        base_where.append(Sale.customer_id == customer_id)
+    if payment_status is not None:
+        base_where.append(Sale.payment_status == payment_status)
+    if date_from is not None:
+        base_where.append(Sale.sale_date >= date_from)
+    if date_to is not None:
+        base_where.append(Sale.sale_date <= date_to)
+
     count_result = await db.execute(
-        select(func.count(func.distinct(Sale.transaction_id))).where(
-            Sale.transaction_id.isnot(None)
-        )
+        select(func.count(func.distinct(Sale.transaction_id))).where(*base_where)
     )
     total = count_result.scalar() or 0
 
     offset = (page - 1) * page_size
     txn_id_rows = await db.execute(
         select(Sale.transaction_id)
-        .where(Sale.transaction_id.isnot(None))
+        .where(*base_where)
         .group_by(Sale.transaction_id)
         .order_by(func.min(Sale.created_at).desc())
         .offset(offset)

@@ -153,7 +153,7 @@ import { ProductsService } from '../../../core/services/products.service';
                         <span class="ml-2 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">voided</span>
                       }
                       @if (item.status !== 'voided' && editingRowId() !== item.id) {
-                        <span class="ml-2 text-[10px] text-muted/60">(click to edit)</span>
+                        <i class="pi pi-pencil ml-2 text-[10px] text-muted/50"></i>
                       }
                     </td>
 
@@ -415,6 +415,16 @@ import { ProductsService } from '../../../core/services/products.service';
           />
         </div>
         <div>
+          <label for="txn-payment-date" class="mb-1.5 block text-xs font-medium text-muted">Payment Date</label>
+          <input
+            id="txn-payment-date"
+            type="date"
+            [(ngModel)]="txnEditForm.payment_date"
+            data-testid="txn-payment-date-input"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+          />
+        </div>
+        <div>
           <label for="txn-notes" class="mb-1.5 block text-xs font-medium text-muted">Sale Note</label>
           <textarea
             id="txn-notes"
@@ -532,10 +542,11 @@ export class TransactionDetailPageComponent implements OnInit {
 
   // Edit transaction dialog
   editTransactionDialogVisible = false;
-  txnEditForm: { payment_method: string; payment_status: string; payment_amount: number | null; notes: string } = {
+  txnEditForm: { payment_method: string; payment_status: string; payment_amount: number | null; payment_date: string; notes: string } = {
     payment_method: '',
     payment_status: 'paid',
     payment_amount: null,
+    payment_date: '',
     notes: '',
   };
 
@@ -677,6 +688,7 @@ export class TransactionDetailPageComponent implements OnInit {
       payment_method: txn.payment_method || '',
       payment_status: txn.payment_status || 'paid',
       payment_amount: txn.payment_amount ?? null,
+      payment_date: txn.payment_date || '',
       notes: txn.notes || '',
     };
     this.editTransactionDialogVisible = true;
@@ -691,6 +703,7 @@ export class TransactionDetailPageComponent implements OnInit {
       payment_method: this.txnEditForm.payment_method || null,
       payment_status: this.txnEditForm.payment_status || null,
       payment_amount: parsedAmount != null && !isNaN(parsedAmount) ? parsedAmount : null,
+      payment_date: this.txnEditForm.payment_date || null,
       notes: this.txnEditForm.notes || null,
     };
     this.salesService.updateTransaction(txn.transaction_id, payload).subscribe({

@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, ChangeDetectorRef, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, CurrencyPipe } from '@angular/common';
 import { Router } from '@angular/router';
@@ -17,11 +17,11 @@ import {
 import { ProductsService, Product } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
 import { CustomerService, Customer } from '../../../core/services/customer.service';
+import { LocationsService, Location } from '../../../core/services/locations.service';
 
 interface EntryRow {
   product_id: string;
   quantity: number;
-  sale_date: string;
   unit_price: number | null;
   discount_amount: number | null;
 }
@@ -29,6 +29,8 @@ interface EntryRow {
 interface TransactionMeta {
   customer_id: string;
   payment_method: string;
+  payment_amount: number | null;
+  payment_date: string | null;
   payment_status: string;
 }
 
@@ -116,7 +118,7 @@ interface TransactionMeta {
 
       <!-- Record Sales Tab -->
       @if (activeTab() === 'record') {
-        <div class="mx-auto max-w-2xl">
+        <div class="mx-auto max-w-3xl">
         <div data-testid="add-sale-form-card" class="rounded-xl border border-gray-200 bg-white shadow-sm">
 
           <!-- Card header -->
@@ -130,175 +132,183 @@ interface TransactionMeta {
             </div>
           </div>
 
-          <!-- Line items — card-per-row (no horizontal scroll) -->
-          <div class="divide-y divide-gray-100">
-            @for (row of entryRows(); track $index) {
-              <div class="px-5 py-4" [class.bg-red-50]="exceedsStock(row)">
+          <!-- Top meta: Date + Customer -->
+          <div class="grid grid-cols-2 gap-4 border-b border-gray-100 px-5 py-4">
+            <div>
+              <label class="mb-1 block text-xs font-medium text-muted">Sale Date</label>
+              <input
+                type="date"
+                [ngModel]="saleDate()"
+                (ngModelChange)="saleDate.set($event)"
+                name="sale_date"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-muted">Customer</label>
+              <div class="flex gap-2">
+                <select
+                  [(ngModel)]="txnMeta.customer_id"
+                  name="customer_id"
+                  (change)="onCustomerSelected()"
+                  class="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">— Select —</option>
+                  @for (c of customers(); track c.id) {
+                    <option [value]="c.id">{{ c.name }}{{ c.contact_number ? ' · ' + c.contact_number : '' }}</option>
+                  }
+                </select>
+                <button
+                  type="button"
+                  (click)="newCustomerDialogVisible = true"
+                  title="Add new customer"
+                  class="flex shrink-0 items-center gap-1 rounded-lg border border-primary/40 bg-white px-2.5 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/5"
+                >
+                  <i class="pi pi-plus text-xs"></i> New
+                </button>
+              </div>
+            </div>
+          </div>
 
-                <!-- Product selector row -->
-                <div class="mb-3 flex items-start gap-2">
-                  <div class="flex-1">
-                    <label class="mb-1 block text-xs font-medium text-muted">
-                      Product <span class="text-red-400">*</span>
-                    </label>
+          <!-- Products section header + Add button -->
+          <div class="flex items-center justify-between border-b border-gray-100 px-5 py-2.5">
+            <span class="text-[11px] font-semibold uppercase tracking-wide text-muted">Products</span>
+            <button
+              (click)="addRow()"
+              class="flex items-center gap-1 rounded-lg border border-dashed border-primary/40 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/5"
+              type="button"
+            >
+              <i class="pi pi-plus text-[10px]"></i> Add Product
+            </button>
+          </div>
+
+          <!-- Column headers -->
+          <div class="flex items-center gap-2 bg-gray-50/60 px-5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+            <div class="min-w-0 flex-1">Product</div>
+            <div class="w-14 shrink-0 text-right">Qty</div>
+            <div class="w-24 shrink-0 text-right">Unit Price</div>
+            <div class="w-20 shrink-0 text-right">Discount</div>
+            <div class="w-24 shrink-0 text-right">Total</div>
+            <div class="w-6 shrink-0"></div>
+          </div>
+
+          <!-- Product rows — compact inline -->
+          <div class="divide-y divide-gray-50">
+            @for (row of entryRows(); track $index) {
+              <div class="px-5 py-2" [class.bg-red-50]="exceedsStock(row)">
+                <!-- items-start so fixed-height stock slot below product doesn't shift other cells -->
+                <div class="flex items-start gap-2">
+
+                  <!-- Product dropdown + fixed-height stock slot (row height stays constant) -->
+                  <div class="min-w-0 flex-1">
                     <select
                       [(ngModel)]="row.product_id"
                       [name]="'product_' + $index"
                       (change)="onProductChange(row)"
-                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                      class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm font-medium text-text transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                     >
                       <option value="">Select product</option>
                       @for (p of products(); track p.id) {
                         <option [value]="p.id">{{ p.name }}</option>
                       }
                     </select>
-                    @if (exceedsStock(row)) {
-                      <p data-testid="stock-warning" class="mt-1 text-[11px] font-medium text-red-600">
-                        Exceeds available stock
-                      </p>
-                    }
-                  </div>
-                  @if (row.product_id && getStock(row.product_id) !== undefined) {
-                    <div class="mt-6 shrink-0">
-                      <span
-                        data-testid="stock-indicator"
-                        class="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium"
-                        [class.bg-red-100]="exceedsStock(row)"
-                        [class.text-red-700]="exceedsStock(row)"
-                        [class.bg-gray-100]="!exceedsStock(row)"
-                        [class.text-muted]="!exceedsStock(row)"
-                      >{{ getStock(row.product_id) }} in stock</span>
-                    </div>
-                  }
-                  @if (entryRows().length > 1) {
-                    <button
-                      (click)="removeRow($index)"
-                      class="mt-6 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
-                      type="button"
-                      title="Remove row"
-                    >
-                      <i class="pi pi-times text-xs"></i>
-                    </button>
-                  }
-                </div>
-
-                <!-- Qty / Unit Price / Discount / Date grid -->
-                <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <div>
-                    <label class="mb-1 block text-xs font-medium text-muted">Qty</label>
-                    <input
-                      type="number"
-                      [(ngModel)]="row.quantity"
-                      [name]="'qty_' + $index"
-                      min="1"
-                      class="w-full rounded-lg border px-3 py-2.5 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                      [class.border-red-400]="exceedsStock(row)"
-                      [class.border-gray-300]="!exceedsStock(row)"
-                    />
-                  </div>
-                  <div>
-                    <label class="mb-1 block text-xs font-medium text-muted">Unit Price</label>
-                    <div
-                      data-testid="entry-price-input"
-                      class="flex h-[42px] items-center justify-end rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-text"
-                    >
-                      @if (row.unit_price !== null) {
-                        {{ row.unit_price | currency: 'NGN' : 'symbol' : '1.2-2' }}
-                      } @else {
-                        <span class="text-muted">—</span>
+                    <!-- Fixed slot — always h-3.5 so all rows are the same height -->
+                    <div class="h-3.5 mt-0.5">
+                      @if (exceedsStock(row)) {
+                        <p data-testid="stock-warning" class="text-[10px] font-medium leading-none text-red-600">Exceeds stock</p>
+                      } @else if (row.product_id && getStock(row.product_id) !== undefined) {
+                        <span
+                          data-testid="stock-indicator"
+                          class="text-[10px] font-medium leading-none text-muted"
+                        >{{ getStock(row.product_id) }} in stock</span>
                       }
                     </div>
                   </div>
-                  <div>
-                    <label class="mb-1 block text-xs font-medium text-muted">Discount (₦)</label>
-                    <input
-                      type="number"
-                      [(ngModel)]="row.discount_amount"
-                      [name]="'discount_' + $index"
-                      min="0"
-                      step="0.01"
-                      data-testid="entry-discount-input"
-                      placeholder="0.00"
-                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                    />
-                  </div>
-                  <div>
-                    <label class="mb-1 block text-xs font-medium text-muted">Date</label>
-                    <input
-                      type="date"
-                      [(ngModel)]="row.sale_date"
-                      [name]="'date_' + $index"
-                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                    />
-                  </div>
-                </div>
 
-                <!-- Line total -->
-                <div class="mt-2.5 flex items-center justify-end gap-1.5 text-sm">
-                  <span class="text-muted">Line total:</span>
-                  <span
+                  <!-- Qty -->
+                  <input
+                    type="number"
+                    [(ngModel)]="row.quantity"
+                    (ngModelChange)="refreshRows()"
+                    [name]="'qty_' + $index"
+                    min="1"
+                    class="h-8 w-14 shrink-0 rounded border px-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    [class.border-red-400]="exceedsStock(row)"
+                    [class.border-gray-300]="!exceedsStock(row)"
+                  />
+
+                  <!-- Unit Price (read-only) -->
+                  <div
+                    data-testid="entry-price-input"
+                    class="flex h-8 w-24 shrink-0 items-center justify-end rounded border border-gray-200 bg-gray-50 px-2 text-sm text-text"
+                  >
+                    @if (row.unit_price !== null) {
+                      {{ row.unit_price | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                    } @else {
+                      <span class="text-muted">—</span>
+                    }
+                  </div>
+
+                  <!-- Discount -->
+                  <input
+                    type="number"
+                    [(ngModel)]="row.discount_amount"
+                    (ngModelChange)="refreshRows()"
+                    [name]="'discount_' + $index"
+                    min="0"
+                    step="0.01"
+                    data-testid="entry-discount-input"
+                    placeholder="0"
+                    class="h-8 w-20 shrink-0 rounded border border-gray-300 px-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  />
+
+                  <!-- Line Total -->
+                  <div
                     data-testid="entry-line-total"
-                    class="font-semibold text-text"
-                  >{{ lineTotal(row) | currency: 'NGN' : 'symbol' : '1.2-2' }}</span>
-                </div>
+                    class="flex h-8 w-24 shrink-0 items-center justify-end rounded border border-gray-200 bg-gray-50 px-2 text-sm font-semibold text-text"
+                  >
+                    {{ lineTotal(row) | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                  </div>
 
+                  <!-- Remove -->
+                  @if (entryRows().length > 1) {
+                    <button
+                      (click)="removeRow($index)"
+                      class="flex h-8 w-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                      type="button"
+                      title="Remove row"
+                    >
+                      <i class="pi pi-times text-[10px]"></i>
+                    </button>
+                  } @else {
+                    <div class="w-6 shrink-0"></div>
+                  }
+
+                </div>
               </div>
             }
           </div>
 
-          <!-- Grand total bar -->
-          <div class="flex items-center justify-between border-t-2 border-gray-200 bg-gray-50/60 px-5 py-3">
-            <span class="text-sm font-semibold text-text">Grand Total</span>
-            <span class="text-base font-bold text-primary">{{ grandTotal() | currency: 'NGN' : 'symbol' : '1.2-2' }}</span>
+          <!-- Grand total — value aligned with the Total column -->
+          <div class="flex items-center gap-2 border-t-2 border-gray-200 bg-gray-50/60 px-5 py-2.5">
+            <div class="min-w-0 flex-1"></div>
+            <div class="w-14 shrink-0"></div>
+            <div class="w-24 shrink-0"></div>
+            <div class="w-20 shrink-0 text-right text-xs font-semibold text-text">Grand Total</div>
+            <div class="w-24 shrink-0 text-right text-sm font-bold text-primary">{{ grandTotal() | currency: 'NGN' : 'symbol' : '1.0-0' }}</div>
+            <div class="w-6 shrink-0"></div>
           </div>
 
-          <!-- Add row button -->
-          <div class="border-t border-gray-100 px-6 py-3">
-            <button
-              (click)="addRow()"
-              class="flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
-              type="button"
-            >
-              <i class="pi pi-plus text-xs"></i> Add Product Row
-            </button>
-          </div>
-
-          <!-- Customer, payment & submit -->
-          <div class="border-t border-gray-200 bg-gray-50/40 px-6 py-5">
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <!-- Customer -->
-              <div class="lg:col-span-2">
-                <label class="mb-1.5 block text-xs font-medium text-muted">Customer</label>
-                <div class="flex gap-2">
-                  <select
-                    [(ngModel)]="txnMeta.customer_id"
-                    name="customer_id"
-                    (change)="onCustomerSelected()"
-                    class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                  >
-                    <option value="">— Select Customer —</option>
-                    @for (c of customers(); track c.id) {
-                      <option [value]="c.id">{{ c.name }}{{ c.contact_number ? ' · ' + c.contact_number : '' }}</option>
-                    }
-                  </select>
-                  <button
-                    type="button"
-                    (click)="newCustomerDialogVisible = true"
-                    title="Add new customer"
-                    class="flex shrink-0 items-center gap-1 rounded-lg border border-primary/40 bg-white px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/5 whitespace-nowrap"
-                  >
-                    <i class="pi pi-plus text-xs"></i> New
-                  </button>
-                </div>
-              </div>
-
+          <!-- Payment & submit footer -->
+          <div class="border-t border-gray-200 bg-gray-50/40 px-5 py-4">
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <!-- Payment Method -->
               <div>
-                <label class="mb-1.5 block text-xs font-medium text-muted">Payment Method</label>
+                <label class="mb-1 block text-xs font-medium text-muted">Payment Method</label>
                 <select
                   [(ngModel)]="txnMeta.payment_method"
                   name="payment_method"
-                  class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                 >
                   <option value="">— Select —</option>
                   <option value="cash">Cash</option>
@@ -309,13 +319,38 @@ interface TransactionMeta {
                 </select>
               </div>
 
+              <!-- Payment Amount -->
+              <div>
+                <label class="mb-1 block text-xs font-medium text-muted">Amount Paid (₦)</label>
+                <input
+                  type="number"
+                  [(ngModel)]="txnMeta.payment_amount"
+                  name="payment_amount"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <!-- Payment Date -->
+              <div>
+                <label class="mb-1 block text-xs font-medium text-muted">Payment Date</label>
+                <input
+                  type="date"
+                  [(ngModel)]="txnMeta.payment_date"
+                  name="payment_date"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
               <!-- Payment Status -->
               <div>
-                <label class="mb-1.5 block text-xs font-medium text-muted">Payment Status</label>
+                <label class="mb-1 block text-xs font-medium text-muted">Payment Status</label>
                 <select
                   [(ngModel)]="txnMeta.payment_status"
                   name="payment_status"
-                  class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                 >
                   <option value="paid">Paid</option>
                   <option value="partial">Partial</option>
@@ -325,7 +360,7 @@ interface TransactionMeta {
             </div>
 
             <!-- Submit -->
-            <div class="mt-4 flex items-center justify-end gap-3">
+            <div class="mt-4 flex items-center justify-end">
               <button
                 (click)="submitEntries()"
                 [disabled]="submitting() || hasStockExceeded()"
@@ -354,23 +389,136 @@ interface TransactionMeta {
               </div>
               <h3 class="text-base font-semibold text-text">All Sales</h3>
             </div>
+            <div class="flex items-center gap-3">
+              <div class="flex items-center gap-1.5 text-sm text-muted">
+                Show
+                <select
+                  data-testid="txn-page-size-select"
+                  [ngModel]="txnPageSize()"
+                  (ngModelChange)="onTxnPageSizeChange(+$event)"
+                  class="rounded-lg border border-gray-300 py-1 pl-2.5 pr-6 text-sm focus:border-primary focus:outline-none"
+                >
+                  <option [value]="25">25</option>
+                  <option [value]="100">100</option>
+                  <option [value]="500">500</option>
+                </select>
+                entries
+              </div>
+              <button
+                type="button"
+                data-testid="export-sales-csv"
+                (click)="exportSalesCsv()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              >
+                <i class="pi pi-download text-xs"></i>
+                CSV
+              </button>
+              <button
+                type="button"
+                data-testid="export-sales-excel"
+                (click)="exportSalesExcel()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              >
+                <i class="pi pi-file-excel text-xs"></i>
+                Excel
+              </button>
+              <button
+                type="button"
+                data-testid="export-sales-pdf"
+                (click)="exportSalesPdf()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              >
+                <i class="pi pi-file-pdf text-xs"></i>
+                PDF
+              </button>
+              <button
+                type="button"
+                data-testid="export-sales-print"
+                (click)="printSales()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              >
+                <i class="pi pi-print text-xs"></i>
+                Print
+              </button>
+              <button
+                type="button"
+                data-testid="add-sale-btn"
+                (click)="activeTab.set('record')"
+                class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
+              >
+                <i class="pi pi-plus text-xs"></i>
+                Add Sale
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter bar -->
+          <div class="mb-4 flex flex-wrap items-end gap-3">
+            <div class="flex flex-col gap-1">
+              <label class="text-xs font-medium text-muted">Location</label>
+              <select
+                [(ngModel)]="filterLocationId"
+                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
+              >
+                <option value="">All locations</option>
+                @for (loc of allLocations(); track loc.id) {
+                  <option [value]="loc.id">{{ loc.name }}</option>
+                }
+              </select>
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs font-medium text-muted">Customer</label>
+              <select
+                [(ngModel)]="filterCustomerId"
+                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
+              >
+                <option value="">All customers</option>
+                @for (c of customers(); track c.id) {
+                  <option [value]="c.id">{{ c.name }}</option>
+                }
+              </select>
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs font-medium text-muted">Payment Status</label>
+              <select
+                [(ngModel)]="filterPaymentStatus"
+                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
+              >
+                <option value="">All statuses</option>
+                <option value="paid">Paid</option>
+                <option value="partial">Partial</option>
+                <option value="credit">Credit</option>
+              </select>
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs font-medium text-muted">From</label>
+              <input
+                type="date"
+                [(ngModel)]="filterDateFrom"
+                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
+              />
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs font-medium text-muted">To</label>
+              <input
+                type="date"
+                [(ngModel)]="filterDateTo"
+                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
+              />
+            </div>
             <button
               type="button"
-              data-testid="export-sales-csv"
-              (click)="exportSalesCsv()"
-              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              (click)="applyFilters()"
+              class="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary/90"
             >
-              <i class="pi pi-download text-xs"></i>
-              Export CSV
+              Apply
             </button>
             <button
               type="button"
-              data-testid="add-sale-btn"
-              (click)="activeTab.set('record')"
-              class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
+              (click)="clearFilters()"
+              class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted hover:bg-gray-50 hover:text-text"
             >
-              <i class="pi pi-plus text-xs"></i>
-              Add Sale
+              Clear
             </button>
           </div>
 
@@ -438,6 +586,46 @@ interface TransactionMeta {
               </tbody>
             </table>
           </div>
+
+          <!-- Pagination controls -->
+          @if (txnTotalPages() > 1) {
+            <div class="mt-4 flex items-center justify-between text-sm text-muted">
+              <span>
+                Showing {{ (txnPage() - 1) * txnPageSize() + 1 }}–{{ [txnPage() * txnPageSize(), txnTotal()].sort((a,b)=>a-b)[0] }} of {{ txnTotal() }}
+              </span>
+              <div class="flex items-center gap-1">
+                <button
+                  type="button"
+                  (click)="txnGoToPage(1)"
+                  [disabled]="txnPage() === 1"
+                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="First page"
+                ><i class="pi pi-angle-double-left text-xs"></i></button>
+                <button
+                  type="button"
+                  (click)="txnGoToPage(txnPage() - 1)"
+                  [disabled]="txnPage() === 1"
+                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Previous page"
+                ><i class="pi pi-angle-left text-xs"></i></button>
+                <span class="px-2 font-medium text-text">{{ txnPage() }} / {{ txnTotalPages() }}</span>
+                <button
+                  type="button"
+                  (click)="txnGoToPage(txnPage() + 1)"
+                  [disabled]="txnPage() === txnTotalPages()"
+                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Next page"
+                ><i class="pi pi-angle-right text-xs"></i></button>
+                <button
+                  type="button"
+                  (click)="txnGoToPage(txnTotalPages())"
+                  [disabled]="txnPage() === txnTotalPages()"
+                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Last page"
+                ><i class="pi pi-angle-double-right text-xs"></i></button>
+              </div>
+            </div>
+          }
         </div>
       }
 
@@ -894,6 +1082,8 @@ export class SalesPageComponent implements OnInit {
   private readonly inventoryService = inject(InventoryService);
   private readonly messageService = inject(MessageService);
   private readonly customerService = inject(CustomerService);
+  private readonly locationsService = inject(LocationsService);
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly router = inject(Router);
 
   products = signal<Product[]>([]);
@@ -913,8 +1103,11 @@ export class SalesPageComponent implements OnInit {
   // Tab state
   activeTab = signal<'all' | 'record' | 'upload' | 'quick-quote'>('all');
 
+  // Shared sale date for all line items in one submission
+  saleDate = signal<string>(new Date().toISOString().split('T')[0]);
+
   // Transaction-level customer + payment meta (shared across all rows in one submission)
-  txnMeta: TransactionMeta = { customer_id: '', payment_method: '', payment_status: 'paid' };
+  txnMeta: TransactionMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_date: null, payment_status: 'paid' };
 
   // CSV upload state
   selectedFile = signal<File | null>(null);
@@ -924,6 +1117,18 @@ export class SalesPageComponent implements OnInit {
 
   // Transaction state
   transactions = signal<SaleTransaction[]>([]);
+  txnTotal = signal(0);
+  txnPage = signal(1);
+  txnPageSize = signal(25);
+  txnTotalPages = computed(() => Math.max(1, Math.ceil(this.txnTotal() / this.txnPageSize())));
+
+  // All Sales filter state
+  allLocations = signal<Location[]>([]);
+  filterLocationId = '';
+  filterCustomerId = '';
+  filterPaymentStatus = '';
+  filterDateFrom = '';
+  filterDateTo = '';
 
   // Edit dialog state
   editDialogVisible = false;
@@ -981,6 +1186,7 @@ export class SalesPageComponent implements OnInit {
     this.loadInventory();
     this.loadTransactions();
     this.loadCustomers();
+    this.loadLocations();
   }
 
   private loadInventory(): void {
@@ -1043,8 +1249,61 @@ export class SalesPageComponent implements OnInit {
   }
 
   private loadTransactions(): void {
-    this.salesService.getTransactions({ page_size: '20' }).subscribe({
-      next: (r) => this.transactions.set(r.items ?? []),
+    const params: Record<string, string> = {
+      page: String(this.txnPage()),
+      page_size: String(this.txnPageSize()),
+    };
+    if (this.filterLocationId) params['location_id'] = this.filterLocationId;
+    if (this.filterCustomerId) params['customer_id'] = this.filterCustomerId;
+    if (this.filterPaymentStatus) params['payment_status'] = this.filterPaymentStatus;
+    if (this.filterDateFrom) params['date_from'] = this.filterDateFrom;
+    if (this.filterDateTo) params['date_to'] = this.filterDateTo;
+    this.salesService.getTransactions(params).subscribe({
+      next: (r) => {
+        this.transactions.set(r.items ?? []);
+        this.txnTotal.set(r.total ?? 0);
+      },
+      error: () => {
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Failed to load transactions',
+        });
+      },
+    });
+  }
+
+  applyFilters(): void {
+    this.txnPage.set(1);
+    this.loadTransactions();
+  }
+
+  clearFilters(): void {
+    this.filterLocationId = '';
+    this.filterCustomerId = '';
+    this.filterPaymentStatus = '';
+    this.filterDateFrom = '';
+    this.filterDateTo = '';
+    this.txnPage.set(1);
+    this.cdr.markForCheck();
+    this.loadTransactions();
+  }
+
+  txnGoToPage(page: number): void {
+    const p = Math.max(1, Math.min(page, this.txnTotalPages()));
+    this.txnPage.set(p);
+    this.loadTransactions();
+  }
+
+  onTxnPageSizeChange(size: number): void {
+    this.txnPageSize.set(size);
+    this.txnPage.set(1);
+    this.loadTransactions();
+  }
+
+  private loadLocations(): void {
+    this.locationsService.getAll(undefined, true).subscribe({
+      next: (r) => this.allLocations.set(r.items ?? []),
     });
   }
 
@@ -1076,10 +1335,17 @@ export class SalesPageComponent implements OnInit {
   onProductChange(row: EntryRow): void {
     if (!row.product_id) {
       row.unit_price = null;
-      return;
+    } else {
+      const product = this.products().find((p) => p.id === row.product_id);
+      row.unit_price = product ? product.selling_price : null;
     }
-    const product = this.products().find((p) => p.id === row.product_id);
-    row.unit_price = product ? product.selling_price : null;
+    // Mutating a property on the row object doesn't change the signal reference.
+    // Spread the array so computed(grandTotal) re-evaluates.
+    this.entryRows.update(rows => [...rows]);
+  }
+
+  refreshRows(): void {
+    this.entryRows.update(rows => [...rows]);
   }
 
   lineTotal(row: EntryRow): number {
@@ -1111,7 +1377,6 @@ export class SalesPageComponent implements OnInit {
     return {
       product_id: '',
       quantity: 1,
-      sale_date: new Date().toISOString().split('T')[0],
       unit_price: null,
       discount_amount: null,
     };
@@ -1127,15 +1392,18 @@ export class SalesPageComponent implements OnInit {
 
   submitEntries(): void {
     const meta = this.txnMeta;
+    const date = this.saleDate();
     const valid = this.entryRows()
       .filter((r) => r.product_id && r.quantity > 0)
       .map((r) => ({
         product_id: r.product_id,
         quantity: r.quantity,
-        sale_date: r.sale_date,
+        sale_date: date,
         discount_amount: r.discount_amount ?? null,
         customer_id: meta.customer_id || null,
         payment_method: meta.payment_method || null,
+        payment_amount: meta.payment_amount ?? null,
+        payment_date: meta.payment_date || null,
         payment_status: meta.payment_status || 'paid',
       }));
     if (valid.length === 0) return;
@@ -1145,7 +1413,7 @@ export class SalesPageComponent implements OnInit {
       next: () => {
         this.submitting.set(false);
         this.entryRows.set([this.newRow()]);
-        this.txnMeta = { customer_id: '', payment_method: '', payment_status: 'paid' };
+        this.txnMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_date: null, payment_status: 'paid' };
         this.messageService.add({
           severity: 'success',
           summary: 'Success',
@@ -1383,6 +1651,64 @@ export class SalesPageComponent implements OnInit {
         });
       },
     });
+  }
+
+  private txnExportRows() {
+    return this.transactions().map((txn) => ({
+      Date: txn.sale_date,
+      'Invoice No.': this.invoiceNo(txn.transaction_id),
+      Customer: txn.customer_name ?? '',
+      Contact: txn.contact_number ?? '',
+      'Payment Status': txn.payment_status ?? 'paid',
+      'Total Amount': Number(txn.total_amount),
+      Method: this.formatPaymentMethod(txn.payment_method),
+      'Total Paid': Number(txn.total_paid),
+      'Sale Due': Number(txn.sale_due),
+      Items: txn.item_count,
+    }));
+  }
+
+  exportSalesExcel(): void {
+    const rows = this.txnExportRows();
+    if (rows.length === 0) {
+      this.messageService.add({ severity: 'warn', summary: 'No data', detail: 'Nothing to export' });
+      return;
+    }
+    import('xlsx').then(({ utils, writeFile }) => {
+      const ws = utils.json_to_sheet(rows);
+      const wb = utils.book_new();
+      utils.book_append_sheet(wb, ws, 'Sales');
+      writeFile(wb, 'sales_export.xlsx');
+    }).catch(() => {
+      this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to export Excel' });
+    });
+  }
+
+  exportSalesPdf(): void {
+    const rows = this.txnExportRows();
+    if (rows.length === 0) {
+      this.messageService.add({ severity: 'warn', summary: 'No data', detail: 'Nothing to export' });
+      return;
+    }
+    const cols = Object.keys(rows[0]);
+    import('jspdf').then(({ jsPDF }) =>
+      import('jspdf-autotable').then(() => {
+        const doc = new jsPDF({ orientation: 'landscape' });
+        (doc as any).autoTable({
+          head: [cols],
+          body: rows.map((r) => cols.map((c) => (r as any)[c])),
+          styles: { fontSize: 8 },
+          margin: { top: 10 },
+        });
+        doc.save('sales_export.pdf');
+      })
+    ).catch(() => {
+      this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to export PDF' });
+    });
+  }
+
+  printSales(): void {
+    window.print();
   }
 
   formatFileSize(bytes: number): string {

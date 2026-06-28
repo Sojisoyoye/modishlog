@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +26,16 @@ class SaleCreate(BaseModel):
     contact_number: str | None = None
     payment_method: str | None = None
     payment_status: str | None = "paid"
+    payment_amount: Decimal | None = Field(None, ge=0)
+    payment_date: date | None = None
     location_id: uuid.UUID | None = None
+
+    @field_validator("payment_date")
+    @classmethod
+    def payment_date_not_future(cls, v: date | None) -> date | None:
+        if v is not None and v > date.today():
+            raise ValueError("payment_date cannot be in the future")
+        return v
 
 
 class SaleUpdate(BaseModel):
@@ -50,6 +59,8 @@ class DailyEntryItem(BaseModel):
     contact_number: str | None = None
     payment_method: str | None = None
     payment_status: str | None = "paid"
+    payment_amount: Decimal | None = Field(None, ge=0)
+    payment_date: date | None = None
     location_id: uuid.UUID | None = None
 
 
@@ -76,6 +87,8 @@ class SaleRead(BaseModel):
     contact_number: str | None = None
     payment_method: str | None = None
     payment_status: str | None = None
+    payment_amount: Decimal | None = None
+    payment_date: date | None = None
     notes: str | None = None
     location_id: uuid.UUID | None = None
     recorded_by: uuid.UUID
@@ -212,6 +225,7 @@ class SaleTransactionRead(BaseModel):
     payment_method: str | None = None
     payment_status: str | None = None
     payment_amount: Decimal | None = None
+    payment_date: date | None = None
     notes: str | None = None
     items: list[SaleTransactionItemRead]
     created_at: datetime
@@ -221,7 +235,15 @@ class SaleTransactionUpdate(BaseModel):
     payment_method: str | None = Field(None, pattern=r"^(cash|transfer|pos|credit|cheque)$")
     payment_status: str | None = Field(None, pattern=r"^(paid|credit|partial)$")
     payment_amount: Decimal | None = Field(None, ge=0)
+    payment_date: date | None = None
     notes: str | None = None
+
+    @field_validator("payment_date")
+    @classmethod
+    def payment_date_not_future(cls, v: date | None) -> date | None:
+        if v is not None and v > date.today():
+            raise ValueError("payment_date cannot be in the future")
+        return v
 
 
 class SaleTransactionListResponse(BaseModel):
