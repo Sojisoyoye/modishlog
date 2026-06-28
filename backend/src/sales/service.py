@@ -717,28 +717,16 @@ def _build_transaction_read(
 ) -> "SaleTransactionRead":
     """Build a SaleTransactionRead from a list of Sale records."""
 
-    total_amount = sum((s.total_amount for s in items), Decimal("0"))
-    # Credit sales: nothing collected yet — full amount is outstanding
-    is_credit = any(
-        s.payment_status == "credit" for s in items if s.status != SaleStatus.VOIDED
-    )
-    if is_credit:
-        total_paid = Decimal("0")
-    else:
-        total_paid = sum(
-            (s.total_amount for s in items if s.status != SaleStatus.VOIDED),
-            Decimal("0"),
-        )
-    sale_due = total_amount - total_paid
+    active_items = [s for s in items if s.status != SaleStatus.VOIDED]
+    total_amount = sum((s.total_amount for s in active_items), Decimal("0"))
     sale_date = items[0].sale_date if items else date.today()
     created_at = (
         min(s.created_at for s in items) if items else datetime.now(timezone.utc)
     )
     currency = items[0].currency if items else "NGN"
+
     # Use customer/payment info from the first non-voided item (consistent per txn)
-    first = next(
-        (s for s in items if s.status != SaleStatus.VOIDED), items[0] if items else None
-    )
+    first = next(iter(active_items), items[0] if items else None)
     customer_id = first.customer_id if first else None
     customer_name = first.customer_name if first else None
     contact_number = first.contact_number if first else None
@@ -747,6 +735,16 @@ def _build_transaction_read(
     payment_amount = first.payment_amount if first else None
     payment_date = first.payment_date if first else None
     notes = first.notes if first else None
+
+    # total_paid: use the recorded payment_amount when available;
+    # fall back to inferring from payment_status (paid → full amount, else → 0).
+    if payment_amount is not None:
+        total_paid = payment_amount
+    elif payment_status == "paid":
+        total_paid = total_amount
+    else:
+        total_paid = Decimal("0")
+    sale_due = max(Decimal("0"), total_amount - total_paid)
 
     statuses = {s.status for s in items}
     if statuses == {SaleStatus.VOIDED}:

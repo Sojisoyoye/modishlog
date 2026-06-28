@@ -1620,3 +1620,72 @@ class TestUpdateTransactionEndpoint:
                 json={"payment_method": "cash"},
             )
         assert resp.status_code == 409
+
+
+class TestBuildTransactionReadTotalPaid:
+    """Unit tests for _build_transaction_read total_paid / sale_due logic."""
+
+    def _run(self, items):
+        from src.sales.service import _build_transaction_read
+        import uuid as _uuid
+        return _build_transaction_read(_uuid.uuid4(), items)
+
+    def test_explicit_payment_amount_used_as_total_paid(self):
+        """When payment_amount is set, total_paid equals it regardless of total_amount."""
+        txn_id = uuid.uuid4()
+        sale = _make_sale(
+            transaction_id=txn_id,
+            total_amount=Decimal("10000"),
+            payment_status="partial",
+            payment_amount=Decimal("4000"),
+        )
+        result = self._run([sale])
+        assert result.total_paid == Decimal("4000")
+        assert result.sale_due == Decimal("6000")
+
+    def test_paid_status_no_payment_amount_infers_full_total(self):
+        """payment_status='paid' with no payment_amount → total_paid = total_amount."""
+        txn_id = uuid.uuid4()
+        sale = _make_sale(
+            transaction_id=txn_id,
+            total_amount=Decimal("5000"),
+            payment_status="paid",
+            payment_amount=None,
+        )
+        result = self._run([sale])
+        assert result.total_paid == Decimal("5000")
+        assert result.sale_due == Decimal("0")
+
+    def test_credit_status_no_payment_amount_gives_zero_paid(self):
+        """payment_status='credit' with no payment_amount → total_paid = 0."""
+        txn_id = uuid.uuid4()
+        sale = _make_sale(
+            transaction_id=txn_id,
+            total_amount=Decimal("8000"),
+            payment_status="credit",
+            payment_amount=None,
+        )
+        result = self._run([sale])
+        assert result.total_paid == Decimal("0")
+        assert result.sale_due == Decimal("8000")
+
+    def test_voided_items_excluded_from_total_amount(self):
+        """Voided items are not counted in total_amount or total_paid."""
+        txn_id = uuid.uuid4()
+        active = _make_sale(
+            transaction_id=txn_id,
+            total_amount=Decimal("3000"),
+            payment_status="paid",
+            payment_amount=None,
+        )
+        voided = _make_sale(
+            transaction_id=txn_id,
+            total_amount=Decimal("2000"),
+            status=SaleStatus.VOIDED,
+            payment_status="paid",
+            payment_amount=None,
+        )
+        result = self._run([active, voided])
+        assert result.total_amount == Decimal("3000")
+        assert result.total_paid == Decimal("3000")
+        assert result.sale_due == Decimal("0")
