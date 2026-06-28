@@ -137,3 +137,29 @@ textarea:focus-visible {
   min-width: unset;
 }
 
+/* Align p-datepicker input field with native <select> controls (border, radius, height).
+   !important is required because PrimeNG injects Aura theme styles dynamically after
+   styles.css loads, giving them same-specificity precedence in the cascade. */
+.p-datepicker-input {
+  border-radius: 0.5rem !important;       /* rounded-lg */
+  border-color: #d1d5db !important;       /* border-gray-300 */
+  padding-top: 0.5rem !important;         /* py-2 */
+  padding-bottom: 0.5rem !important;
+  padding-inline-start: 0.625rem !important; /* pl-2.5 */
+  font-size: 0.875rem !important;         /* text-sm */
+  line-height: 1.25rem !important;
+}
+.p-datepicker-input:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 1px var(--color-primary) !important;
+  outline: none !important;
+}
+/* Ensure the datepicker component wrapper is at least as wide as the adjacent selects */
+p-datepicker {
+  min-width: 160px;
+  display: inline-flex;
+}
+p-datepicker .p-datepicker {
+  flex: 1;
+}
+
