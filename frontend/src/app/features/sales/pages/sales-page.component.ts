@@ -144,7 +144,6 @@ interface TransactionMeta {
                 [iconDisplay]="'input'"
                 appendTo="body"
                 dateFormat="dd/mm/yy"
-                inputStyleClass="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
                   <i class="pi pi-calendar cursor-pointer text-muted" (click)="clickCallBack($event)"></i>
@@ -350,7 +349,6 @@ interface TransactionMeta {
                   [iconDisplay]="'input'"
                   appendTo="body"
                   dateFormat="dd/mm/yy"
-                  inputStyleClass="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
                     <i class="pi pi-calendar cursor-pointer text-muted" (click)="clickCallBack($event)"></i>
@@ -466,7 +464,6 @@ interface TransactionMeta {
                   [showIcon]="true"
                   dateFormat="dd/mm/yy"
                   appendTo="body"
-                  inputStyleClass="rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
                     <i class="pi pi-calendar cursor-pointer text-muted" (click)="clickCallBack($event)"></i>
