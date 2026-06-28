@@ -4417,10 +4417,11 @@
         "description": "Add a filter bar above the transactions table on /sales (All Sales tab) with: Business Location (dropdown), Customer (dropdown/search), Payment Status (paid/partial/credit), Date Range (from/to). Wire filters as query params to GET /sales/transactions. Backend list_transactions service and router need these filter params added.",
         "details": "Backend: add optional query params (location_id, customer_id, payment_status, date_from, date_to) to list_transactions in service.py and router.py. Frontend: add filter bar component above p-table in transactions-list or sales page, populate location and customer dropdowns from existing API endpoints, wire filter changes to reload loadTransactions() with updated params.",
         "testStrategy": "Backend: pytest tests for list_transactions with each filter param (happy path + no-match). Frontend: Playwright E2E test that sets a filter and verifies the table rows are filtered.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "high",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-06-28T17:03:03.549Z"
       },
       {
         "id": 130,
@@ -4428,10 +4429,11 @@
         "description": "Add \"Show 25 / 100 / 500 entries\" page-size selector to the All Sales table. Currently hardcoded to page_size: '20' in loadTransactions(). Match the pattern used on the Products page.",
         "details": "Frontend: add a p-select or native select for rows-per-page (options: 25, 100, 500) bound to a signal. On change, reset to page 1 and reload loadTransactions(). Persist the choice in localStorage so it survives navigation. Backend already supports page_size param so no backend changes needed.",
         "testStrategy": "Playwright E2E: change selector to 100, verify table loads up to 100 rows and the selector value persists after navigating away and back.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-06-28T17:04:29.234Z"
       },
       {
         "id": 131,
@@ -4439,6 +4441,18 @@
         "description": "Add export buttons to the All Sales table: CSV (already exists), Excel (.xlsx via SheetJS/xlsx npm package), PDF (via jsPDF + jspdf-autotable), Print (browser window.print() with print-specific CSS). Buttons export whatever the current filter/page shows.",
         "details": "Install xlsx and jspdf + jspdf-autotable npm packages. Reuse or extend the existing CSV export button. Add Excel export that builds a workbook from current table data. Add PDF export using jspdf-autotable. Add Print button that calls window.print(); add @media print CSS to show only the table. All exports use the currently filtered dataset (pass current filter params to a dedicated fetch-all call or use already-loaded rows).",
         "testStrategy": "Manual verification of each export format. Playwright E2E: click CSV export, verify file download. No automated test needed for PDF/Print.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-06-28T17:06:13.106Z"
+      },
+      {
+        "id": 132,
+        "title": "All Sales table — match Products page UI pattern",
+        "description": "Redesign the All Sales tab in sales-page.component.ts to match the Products page UI/UX pattern: collapsible filter panel with toggle button, toolbar with Show-entries selector on left and export buttons on right, rounded-xl table wrapper with shadow, tracking-wider table headers, numbered pagination buttons, and improved empty state.",
+        "details": "",
+        "testStrategy": "",
         "status": "pending",
         "dependencies": [],
         "priority": "medium",
@@ -4447,15 +4461,15 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-06-24T12:16:54.144Z",
-      "taskCount": 128,
-      "completedCount": 128,
+      "lastModified": "2026-06-28T17:06:13.107Z",
+      "taskCount": 131,
+      "completedCount": 131,
       "tags": [
         "master"
       ],
-      "created": "2026-06-28T16:56:18.628Z",
+      "created": "2026-06-28T19:12:05.384Z",
       "description": "Tasks for master context",
-      "updated": "2026-06-28T16:56:29.276Z"
+      "updated": "2026-06-28T19:12:05.405Z"
     }
   }
 }

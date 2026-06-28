@@ -25,12 +25,24 @@ html {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Reserve scrollbar gutter so overlays appended to body never cause a layout shift */
+  scrollbar-gutter: stable;
 }
 
 body {
   margin: 0;
   background-color: var(--color-background);
   color: var(--color-text);
+  /* Body never needs its own scrollbar — <main> is the scroll container.
+     Hiding overflow here prevents the body scrollbar from flashing when
+     PrimeNG overlays are appended to body, which was causing the page shake. */
+  overflow: hidden;
+}
+
+/* Reserve the scrollbar gutter on the real scroll container so that
+   adding/removing the scrollbar never causes a content-width shift. */
+#main-content {
+  scrollbar-gutter: stable;
 }
 
 /* Remove number input spinners */
@@ -108,3 +120,55 @@ select:focus-visible,
 textarea:focus-visible {
   outline: none;
 }
+
+/* Compact PrimeNG DatePicker calendar popup */
+.p-datepicker-panel {
+  font-size: 0.8rem;
+}
+.p-datepicker-panel .p-datepicker-header {
+  padding: 0.375rem 0.5rem;
+}
+.p-datepicker-panel .p-datepicker-day-cell {
+  padding: 0.1rem;
+}
+.p-datepicker-panel .p-datepicker-day {
+  width: 1.8rem;
+  height: 1.8rem;
+  min-width: unset;
+}
+
+/* Align p-datepicker input field with native <select> controls (border, radius, height).
+   !important is required because PrimeNG injects Aura theme styles dynamically after
+   styles.css loads, giving them same-specificity precedence in the cascade.
+   height:100% propagates the host's locked height down through .p-datepicker → input. */
+.p-datepicker-input {
+  border-radius: 0.5rem !important;       /* rounded-lg */
+  border-color: #d1d5db !important;       /* border-gray-300 */
+  padding-top: 0.5rem !important;         /* py-2 */
+  padding-bottom: 0.5rem !important;
+  padding-inline-start: 0.625rem !important; /* pl-2.5 */
+  font-size: 0.875rem !important;         /* text-sm */
+  line-height: 1.25rem !important;
+  box-shadow: none !important;            /* remove PrimeNG's inset shadow */
+  height: 100% !important;               /* fill the .p-datepicker wrapper */
+  box-sizing: border-box !important;
+}
+.p-datepicker-input:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 1px var(--color-primary) !important;
+  outline: none !important;
+}
+/* Lock the datepicker host to exactly the same height as py-2 text-sm border selects
+   (1px border + 8px padding + 20px line-height + 8px padding + 1px border = 38px).
+   display:flex (not inline-flex) eliminates the baseline strut.
+   height propagates down: host → .p-datepicker wrapper → input. */
+p-datepicker {
+  min-width: 160px;
+  display: flex;
+  height: 2.375rem;
+}
+p-datepicker .p-datepicker {
+  flex: 1;
+  height: 100%;
+}
+
