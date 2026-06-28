@@ -63,6 +63,7 @@ export interface SaleTransactionUpdatePayload {
   payment_method?: string | null;
   payment_status?: string | null;
   payment_amount?: number | null;
+  payment_date?: string | null;
   notes?: string | null;
 }
 
@@ -127,6 +128,7 @@ export interface SaleTransaction {
   payment_method?: string | null;
   payment_status?: string | null;
   payment_amount?: number | null;
+  payment_date?: string | null;
   notes?: string | null;
   items: SaleTransactionItem[];
   created_at: string;
