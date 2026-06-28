@@ -212,19 +212,16 @@ test.describe('Add-sale form card layout', () => {
 
   test('add-sale form card contains a date input', async ({ page }) => {
     const formCard = page.locator('[data-testid="add-sale-form-card"]');
-    const dateInput = formCard.locator('input[type="date"]').first();
+    // p-datepicker renders an input with class p-datepicker-input (no type="date")
+    const dateInput = formCard.locator('.p-datepicker-input').first();
     await expect(dateInput).toBeVisible();
   });
 
-  test('add-sale form card contains "Add Row" and submit buttons', async ({ page }) => {
+  test('add-sale form card contains "Add Product" and submit buttons', async ({ page }) => {
     const formCard = page.locator('[data-testid="add-sale-form-card"]');
-    await expect(formCard.getByRole('button', { name: /Add Product Row/i })).toBeVisible();
-    // The submit button text may have changed to "Add Sale" or remain "Record Sales"
-    const submitBtn = formCard
-      .getByRole('button', { name: /Add Sale/i })
-      .or(formCard.getByRole('button', { name: /Record Sales/i }))
-      .last();
-    await expect(submitBtn).toBeVisible();
+    await expect(formCard.getByRole('button', { name: /Add Product/i })).toBeVisible();
+    // Submit button reads "Record Sales"
+    await expect(formCard.getByRole('button', { name: /Record Sales/i })).toBeVisible();
   });
 
   test('add-sale form card is centered with a max-width constraint', async ({ page }) => {

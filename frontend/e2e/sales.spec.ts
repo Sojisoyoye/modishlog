@@ -24,33 +24,20 @@ test.describe('Edit Sale price decimal display', () => {
   test('unit price input in edit dialog shows at most 2 decimal places', async ({ page }) => {
     const product = await ensureProduct('E2E Sale Decimal Product');
     await addStock(product.id, 50);
-    await page.reload();
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
 
-    // Record a sale via the form
-    const productSelect = page.locator('select').filter({ hasText: 'Select product' }).first();
-    await productSelect.selectOption(product.id);
-    const qtyInput = page.locator('input[type="number"]').first();
-    await qtyInput.fill('2');
-    await page.getByRole('button', { name: /Record Sales/i }).last().click();
-    await expect(page.getByText(/recorded/i)).toBeVisible({ timeout: 8_000 });
+    // Create sale via API to get transaction_id for direct navigation
+    const sale = await createDailySale(product.id, { quantity: 2 });
 
-    // The Recent Sales table shows grouped transactions — product names are not
-    // visible directly. Switch to All Sales tab, open the first transaction row,
-    // then open the edit dialog for the item inside the Transaction Detail dialog.
-    await page.getByTestId('tab-all-sales').click();
-    const firstTxnRow = page.locator('[data-testid="transaction-row"]').first();
-    await expect(firstTxnRow).toBeVisible({ timeout: 10_000 });
-    await firstTxnRow.click();
+    // Navigate directly to the transaction detail page (clicking a row navigates here, not a dialog)
+    await page.goto(`/sales/transactions/${sale.transaction_id}`);
+    await expect(page.locator('[data-testid="transaction-item-row"]').first()).toBeVisible({ timeout: 10_000 });
 
-    const txnDetailDialog = page.locator('[role="dialog"]').filter({ hasText: 'Transaction Detail' });
-    await expect(txnDetailDialog).toBeVisible({ timeout: 5_000 });
-    await txnDetailDialog.locator('[data-testid="txn-item-edit-btn"]').first().click();
+    // Click the product name cell to activate inline editing
+    await page.locator('[data-testid="transaction-item-row"]').first().locator('td').first().click();
 
-    const dialog = page.locator('[role="dialog"]').filter({ hasText: /edit sale/i });
-    await expect(dialog).toBeVisible({ timeout: 5_000 });
-
-    const priceVal = await dialog.locator('[data-testid="edit-price-input"]').inputValue();
+    const priceInput = page.locator('[data-testid="inline-price-input"]').first();
+    await expect(priceInput).toBeVisible({ timeout: 5_000 });
+    const priceVal = await priceInput.inputValue();
 
     // Must not show 6 trailing decimal zeros like "5000.000000"
     expect(priceVal).not.toMatch(/\.\d{3,}/);
@@ -60,91 +47,102 @@ test.describe('Edit Sale price decimal display', () => {
 });
 
 test.describe('Sales page layout', () => {
-  test('displays the Record Sales section', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: 'Record Sales' })).toBeVisible();
+  test('displays the Add Sale tab', async ({ page }) => {
+    await expect(page.getByTestId('tab-record-sales')).toBeVisible();
   });
 
-  test('displays the Recent Sales section', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: 'Recent Sales' })).toBeVisible();
+  test('All Sales tab is active by default and shows transaction content', async ({ page }) => {
+    const allSalesTab = page.getByTestId('tab-all-sales');
+    await expect(allSalesTab).toBeVisible();
+    const txnRow = page.locator('[data-testid="transaction-row"]').first();
+    const emptyText = page.getByText(/no transactions/i).first();
+    await expect(txnRow.or(emptyText)).toBeVisible({ timeout: 10_000 });
   });
 
   test('Record Sales form has product dropdown, quantity, and date fields', async ({ page }) => {
+    await page.getByTestId('tab-record-sales').click();
+    const formCard = page.locator('[data-testid="add-sale-form-card"]');
+    await expect(formCard).toBeVisible({ timeout: 5_000 });
+
     // Product dropdown
-    const productSelect = page.locator('select').filter({ hasText: 'Select product' }).first();
+    const productSelect = formCard.locator('select').filter({ hasText: 'Select product' }).first();
     await expect(productSelect).toBeVisible();
 
     // Quantity input
-    const qtyInput = page.locator('input[type="number"]').first();
+    const qtyInput = formCard.locator('input[type="number"]').first();
     await expect(qtyInput).toBeVisible();
 
-    // Date input
-    const dateInput = page.locator('input[type="date"]').first();
+    // Date input (p-datepicker renders an input with class p-datepicker-input)
+    const dateInput = formCard.locator('.p-datepicker-input').first();
     await expect(dateInput).toBeVisible();
   });
 
-  test('has "Add Row" and "Record Sales" buttons', async ({ page }) => {
-    await expect(page.getByRole('button', { name: /Add Row/i })).toBeVisible();
-    // Use last() to avoid strict mode: both the tab and submit button match
-    await expect(page.getByRole('button', { name: /Record Sales/i }).last()).toBeVisible();
+  test('has "Add Product" and "Record Sales" buttons', async ({ page }) => {
+    await page.getByTestId('tab-record-sales').click();
+    const formCard = page.locator('[data-testid="add-sale-form-card"]');
+    await expect(formCard).toBeVisible({ timeout: 5_000 });
+    await expect(formCard.getByRole('button', { name: /Add Product/i })).toBeVisible();
+    await expect(formCard.getByRole('button', { name: /Record Sales/i })).toBeVisible();
   });
 
-  test('clicking "Add Row" adds another entry row', async ({ page }) => {
-    const selects = page.locator('select');
+  test('clicking "Add Product" adds another entry row', async ({ page }) => {
+    await page.getByTestId('tab-record-sales').click();
+    const formCard = page.locator('[data-testid="add-sale-form-card"]');
+    await expect(formCard).toBeVisible({ timeout: 5_000 });
+    const selects = formCard.locator('select');
     const initialCount = await selects.count();
-    await page.getByRole('button', { name: /Add Row/i }).click();
-    // Use auto-retrying assertion to wait for DOM update
+    await formCard.getByRole('button', { name: /Add Product/i }).click();
     await expect(selects).toHaveCount(initialCount + 1);
   });
 });
 
 test.describe('Stock-level validation', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.getByTestId('tab-record-sales').click();
+    await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
+  });
+
   test('displays stock count next to product dropdown', async ({ page }) => {
-    // Stock indicator only appears after selecting a product
-    const productSelect = page.locator('select').first();
+    const formCard = page.locator('[data-testid="add-sale-form-card"]');
+    const productSelect = formCard.locator('select').filter({ hasText: 'Select product' }).first();
     const options = productSelect.locator('option');
     const optionCount = await options.count();
 
     if (optionCount > 1) {
       await productSelect.selectOption({ index: 1 });
-      const stockIndicator = page.locator('[data-testid="stock-indicator"]').first();
+      const stockIndicator = formCard.locator('[data-testid="stock-indicator"]').first();
       await expect(stockIndicator).toBeVisible();
-      await expect(stockIndicator).toHaveText(/Stock:\s*\d+/);
+      await expect(stockIndicator).toHaveText(/\d+\s+in stock/);
     }
   });
 
   test('shows stock warning when quantity exceeds available stock', async ({ page }) => {
-    // Select the first product (if available)
-    const productSelect = page.locator('select').first();
+    const formCard = page.locator('[data-testid="add-sale-form-card"]');
+    const productSelect = formCard.locator('select').filter({ hasText: 'Select product' }).first();
     const options = productSelect.locator('option');
     const optionCount = await options.count();
 
     if (optionCount > 1) {
-      // Select the first real product
       await productSelect.selectOption({ index: 1 });
-
-      // Enter a very large quantity to trigger the warning
-      const qtyInput = page.locator('input[type="number"]').first();
+      const qtyInput = formCard.locator('input[type="number"]').first();
       await qtyInput.fill('999999');
-
-      // Expect the exceeds-stock warning to appear
-      const warning = page.locator('[data-testid="stock-warning"]').first();
+      const warning = formCard.locator('[data-testid="stock-warning"]').first();
       await expect(warning).toBeVisible();
-      await expect(warning).toHaveText(/Exceeds available stock/);
+      await expect(warning).toHaveText(/Exceeds stock/);
     }
   });
 
   test('disables Record Sales button when quantity exceeds stock', async ({ page }) => {
-    const productSelect = page.locator('select').first();
+    const formCard = page.locator('[data-testid="add-sale-form-card"]');
+    const productSelect = formCard.locator('select').filter({ hasText: 'Select product' }).first();
     const options = productSelect.locator('option');
     const optionCount = await options.count();
 
     if (optionCount > 1) {
       await productSelect.selectOption({ index: 1 });
-
-      const qtyInput = page.locator('input[type="number"]').first();
+      const qtyInput = formCard.locator('input[type="number"]').first();
       await qtyInput.fill('999999');
-
-      const submitBtn = page.getByRole('button', { name: /Record Sales/i }).last();
+      const submitBtn = formCard.getByRole('button', { name: /Record Sales/i });
       await expect(submitBtn).toBeDisabled();
     }
   });
@@ -266,10 +264,13 @@ test.describe('Unit price and discount in Record Sales form', () => {
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
 
+    await page.getByTestId('tab-record-sales').click();
+    await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
+
     const productOption = page.locator(`select option[value="${product.id}"]`);
     await expect(productOption).toBeAttached({ timeout: 10_000 });
 
-    const productSelect = page.locator('select').first();
+    const productSelect = page.locator('select').filter({ hasText: 'Select product' }).first();
     await productSelect.selectOption(product.id);
 
     // Unit price display should be populated (product selling_price = 5000 from ensureProduct)
@@ -287,10 +288,13 @@ test.describe('Unit price and discount in Record Sales form', () => {
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
 
+    await page.getByTestId('tab-record-sales').click();
+    await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
+
     const productOption = page.locator(`select option[value="${product.id}"]`);
     await expect(productOption).toBeAttached({ timeout: 10_000 });
 
-    const productSelect = page.locator('select').first();
+    const productSelect = page.locator('select').filter({ hasText: 'Select product' }).first();
     await productSelect.selectOption(product.id);
 
     const qtyInput = page.locator('input[type="number"]').first();
@@ -312,26 +316,29 @@ test.describe('Unit price and discount in Record Sales form', () => {
 
 test.describe('Create Sale flow', () => {
   test('fills form and records a sale successfully', async ({ page }) => {
-    // Create product and add stock via API, then reload page to pick it up
     const product = await ensureProduct('Sale Flow Product');
     await addStock(product.id, 100);
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+
+    // Switch to Record tab
+    await page.getByTestId('tab-record-sales').click();
+    await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
 
     // Wait for products to load into the dropdown
     const productOption = page.locator(`select option[value="${product.id}"]`);
     await expect(productOption).toBeAttached({ timeout: 10_000 });
 
     // Select product
-    const productSelect = page.locator('select').first();
+    const productSelect = page.locator('select').filter({ hasText: 'Select product' }).first();
     await productSelect.selectOption(product.id);
 
     // Set quantity
     const qtyInput = page.locator('input[type="number"]').first();
     await qtyInput.fill('3');
 
-    // Click "Record Sales" submit button (last to avoid tab match)
-    await page.getByRole('button', { name: /Record Sales/i }).last().click();
+    // Click "Record Sales" submit button
+    await page.getByRole('button', { name: /Record Sales/i }).click();
 
     // Success toast should appear
     await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 10_000 });
@@ -358,26 +365,31 @@ test.describe('Transaction grouping in All Sales tab', () => {
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
 
+    // Switch to Record tab first — form is inside @if(activeTab() === 'record') so options
+    // only exist in DOM after the tab is active
+    await page.getByTestId('tab-record-sales').click();
+    await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
+
     // Wait for products to load in the select
     await expect(
       page.locator(`select option[value="${productA.id}"]`),
     ).toBeAttached({ timeout: 10_000 });
 
-    // Fill first row — use the first product select (filter by 'Select product' placeholder option)
+    // Fill first row
     const productSelects = page.locator('select').filter({ hasText: 'Select product' });
     await productSelects.first().selectOption(productA.id);
     await page.locator('input[type="number"]').first().fill('1');
 
     // Add a second row
-    await page.getByRole('button', { name: /Add Row/i }).click();
+    await page.locator('[data-testid="add-sale-form-card"]').getByRole('button', { name: /Add Product/i }).click();
 
-    // Fill second row — the second 'Select product' dropdown is now visible
+    // Fill second row
     await expect(productSelects.nth(1)).toBeVisible({ timeout: 5_000 });
     await productSelects.nth(1).selectOption(productB.id);
     await page.locator('input[type="number"]').nth(1).fill('2');
 
     // Submit
-    await page.getByRole('button', { name: /Record Sales/i }).last().click();
+    await page.getByRole('button', { name: /Record Sales/i }).click();
     await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 10_000 });
 
     // Switch to All Sales tab
@@ -398,13 +410,18 @@ test.describe('Transaction grouping in All Sales tab', () => {
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
 
+    // Switch to Record tab first — form is inside @if(activeTab() === 'record') so options
+    // only exist in DOM after the tab is active
+    await page.getByTestId('tab-record-sales').click();
+    await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
+
     await expect(
       page.locator(`select option[value="${productA.id}"]`),
     ).toBeAttached({ timeout: 10_000 });
 
-    await page.locator('select').first().selectOption(productA.id);
+    await page.locator('select').filter({ hasText: 'Select product' }).first().selectOption(productA.id);
     await page.locator('input[type="number"]').first().fill('1');
-    await page.getByRole('button', { name: /Record Sales/i }).last().click();
+    await page.getByRole('button', { name: /Record Sales/i }).click();
     await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 10_000 });
 
     // Switch to All Sales tab
