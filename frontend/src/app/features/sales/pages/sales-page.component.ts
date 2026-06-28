@@ -455,7 +455,8 @@ interface TransactionMeta {
               <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium text-muted">Date Range</label>
                 <p-datepicker
-                  [(ngModel)]="filterDateRange"
+                  [ngModel]="filterDateRange"
+                  (ngModelChange)="onFilterDateRangeChange($event)"
                   selectionMode="range"
                   [readonlyInput]="true"
                   placeholder="Select date range"
@@ -576,6 +577,8 @@ interface TransactionMeta {
                       class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
                       [class.bg-green-100]="txn.payment_status === 'paid' || !txn.payment_status"
                       [class.text-green-700]="txn.payment_status === 'paid' || !txn.payment_status"
+                      [class.bg-yellow-100]="txn.payment_status === 'partial'"
+                      [class.text-yellow-700]="txn.payment_status === 'partial'"
                       [class.bg-amber-100]="txn.payment_status === 'credit'"
                       [class.text-amber-700]="txn.payment_status === 'credit'"
                     >{{ txn.payment_status || 'paid' }}</span>
@@ -1120,7 +1123,7 @@ export class SalesPageComponent implements OnInit {
   activeTab = signal<'all' | 'record' | 'upload' | 'quick-quote'>('all');
 
   // Shared sale date for all line items in one submission
-  saleDate = signal<string>(new Date().toISOString().split('T')[0]);
+  saleDate = signal<string>(new Date().toLocaleDateString('en-CA'));
   saleDateObj = computed(() => {
     const s = this.saleDate();
     return s ? new Date(s + 'T00:00:00') : new Date();
@@ -1308,6 +1311,14 @@ export class SalesPageComponent implements OnInit {
     });
   }
 
+  onFilterDateRangeChange(range: Date[] | null): void {
+    this.filterDateRange = range;
+    if (!range) {
+      this.filterDateFrom = '';
+      this.filterDateTo = '';
+    }
+  }
+
   applyFilters(): void {
     const range = this.filterDateRange;
     this.filterDateFrom = range?.[0] ? this.toLocalDateString(range[0]) : '';
@@ -1421,9 +1432,10 @@ export class SalesPageComponent implements OnInit {
     if (!method) return '—';
     const map: Record<string, string> = {
       cash: 'Cash',
-      card: 'Card',
-      bank_transfer: 'Bank Transfer',
-      other: 'Other',
+      transfer: 'Bank Transfer',
+      pos: 'POS',
+      credit: 'Credit',
+      cheque: 'Cheque',
     };
     return map[method] ?? method;
   }
@@ -1656,18 +1668,18 @@ export class SalesPageComponent implements OnInit {
             summary: 'Upload Complete',
             detail: result.message,
           });
-          // Auto-switch to All Sales tab and reload
           this.activeTab.set('all');
-          this.loadHistory();
           this.loadInventory();
+          this.loadTransactions();
         } else if (result.status === 'partial') {
           this.messageService.add({
             severity: 'warn',
             summary: 'Partial Upload',
             detail: result.message,
           });
-          this.loadHistory();
+          this.activeTab.set('all');
           this.loadInventory();
+          this.loadTransactions();
         } else {
           this.messageService.add({
             severity: 'error',
