@@ -49,23 +49,9 @@ interface TransactionMeta {
         <nav class="-mb-px flex gap-4" aria-label="Sales tabs">
           <button
             type="button"
-            data-testid="tab-record-sales"
-            (click)="activeTab.set('record')"
-            class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
-            [class.border-primary]="activeTab() === 'record'"
-            [class.text-primary]="activeTab() === 'record'"
-            [class.border-transparent]="activeTab() !== 'record'"
-            [class.text-muted]="activeTab() !== 'record'"
-            [class.hover:border-gray-300]="activeTab() !== 'record'"
-            [class.hover:text-text]="activeTab() !== 'record'"
-          >
-            <i class="pi pi-plus-circle mr-1.5 text-xs"></i>
-            Record Sales
-          </button>
-          <button
-            type="button"
             data-testid="tab-all-sales"
             (click)="activeTab.set('all')"
+            [attr.aria-selected]="activeTab() === 'all'"
             class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
             [class.border-primary]="activeTab() === 'all'"
             [class.text-primary]="activeTab() === 'all'"
@@ -81,6 +67,7 @@ interface TransactionMeta {
             type="button"
             data-testid="tab-upload-csv"
             (click)="activeTab.set('upload')"
+            [attr.aria-selected]="activeTab() === 'upload'"
             class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
             [class.border-primary]="activeTab() === 'upload'"
             [class.text-primary]="activeTab() === 'upload'"
@@ -96,6 +83,7 @@ interface TransactionMeta {
             type="button"
             data-testid="tab-quick-quote"
             (click)="activeTab.set('quick-quote')"
+            [attr.aria-selected]="activeTab() === 'quick-quote'"
             class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
             [class.border-primary]="activeTab() === 'quick-quote'"
             [class.text-primary]="activeTab() === 'quick-quote'"
@@ -107,12 +95,29 @@ interface TransactionMeta {
             <i class="pi pi-calculator mr-1.5 text-xs"></i>
             Quick Quote
           </button>
+          <button
+            type="button"
+            data-testid="tab-record-sales"
+            (click)="activeTab.set('record')"
+            [attr.aria-selected]="activeTab() === 'record'"
+            class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+            [class.border-primary]="activeTab() === 'record'"
+            [class.text-primary]="activeTab() === 'record'"
+            [class.border-transparent]="activeTab() !== 'record'"
+            [class.text-muted]="activeTab() !== 'record'"
+            [class.hover:border-gray-300]="activeTab() !== 'record'"
+            [class.hover:text-text]="activeTab() !== 'record'"
+          >
+            <i class="pi pi-plus-circle mr-1.5 text-xs"></i>
+            Add Sale
+          </button>
         </nav>
       </div>
 
       <!-- Record Sales Tab -->
       @if (activeTab() === 'record') {
-        <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div class="mx-auto max-w-2xl">
+        <div data-testid="add-sale-form-card" class="rounded-xl border border-gray-200 bg-white shadow-sm">
 
           <!-- Card header -->
           <div class="flex items-center gap-3 border-b border-gray-100 px-6 py-4">
@@ -348,6 +353,7 @@ interface TransactionMeta {
           </div>
 
         </div>
+        </div>
       }
 
       <!-- All Sales Tab — grouped transactions -->
@@ -368,6 +374,15 @@ interface TransactionMeta {
             >
               <i class="pi pi-download text-xs"></i>
               Export CSV
+            </button>
+            <button
+              type="button"
+              data-testid="add-sale-btn"
+              (click)="activeTab.set('record')"
+              class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
+            >
+              <i class="pi pi-plus text-xs"></i>
+              Add Sale
             </button>
           </div>
 
@@ -908,7 +923,7 @@ export class SalesPageComponent implements OnInit {
   savingCustomer = signal(false);
 
   // Tab state
-  activeTab = signal<'record' | 'all' | 'upload' | 'quick-quote'>('record');
+  activeTab = signal<'all' | 'record' | 'upload' | 'quick-quote'>('all');
 
   // Transaction-level customer + payment meta (shared across all rows in one submission)
   txnMeta: TransactionMeta = { customer_id: '', payment_method: '', payment_status: 'paid' };

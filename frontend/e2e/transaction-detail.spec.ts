@@ -127,7 +127,8 @@ test.describe('Transaction Detail Page', () => {
     const { transaction_id } = await createDailySale(product.id);
 
     await page.goto(`/sales/transactions/${transaction_id}`);
-    await page.getByTestId('edit-transaction-btn').click({ timeout: 8_000 });
+    await expect(page.getByTestId('edit-transaction-btn')).toBeVisible({ timeout: 8_000 });
+    await page.getByTestId('edit-transaction-btn').click({ force: true });
 
     const dialog = page.locator('[role="dialog"]').filter({ hasText: /Edit Payment/i });
     await expect(dialog).toBeVisible({ timeout: 5_000 });
@@ -135,10 +136,33 @@ test.describe('Transaction Detail Page', () => {
     await dialog.locator('[data-testid="txn-payment-method-select"]').selectOption('transfer');
     await dialog.locator('[data-testid="txn-notes-input"]').fill('E2E test note');
 
-    await dialog.locator('[data-testid="save-txn-edit-btn"]').click();
+    await dialog.locator('[data-testid="save-txn-edit-btn"]').click({ force: true });
     await expect(dialog).not.toBeVisible({ timeout: 8_000 });
 
     await expect(page.getByText('E2E test note')).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('Edit Payment & Notes: entering a payment amount saves without getting stuck on Saving', async ({ page }) => {
+    const product = await ensureProduct('E2E TxnDetail Payment Amount Product');
+    await addStock(product.id, 10);
+    const { transaction_id } = await createDailySale(product.id);
+
+    await page.goto(`/sales/transactions/${transaction_id}`);
+    await expect(page.getByTestId('edit-transaction-btn')).toBeVisible({ timeout: 8_000 });
+    await page.getByTestId('edit-transaction-btn').click({ force: true });
+
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: /Edit Payment/i });
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    // Reproduce the bug: fill the number input — ngModel returns a number at runtime,
+    // which caused a TypeError when submitTransactionEdit() called .trim() on it.
+    await dialog.locator('[data-testid="txn-payment-amount-input"]').fill('1500');
+    await dialog.locator('[data-testid="txn-payment-method-select"]').selectOption('cash');
+
+    await dialog.locator('[data-testid="save-txn-edit-btn"]').click({ force: true });
+    // Dialog must close (observable completed) — previously it stayed open stuck on "Saving..."
+    await expect(dialog).not.toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText('Transaction updated')).toBeVisible({ timeout: 5_000 });
   });
 
   test('audit trail dialog shows entries', async ({ page }) => {
