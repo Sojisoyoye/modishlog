@@ -47,19 +47,12 @@ test.describe('Default tab — All Sales is first and active', () => {
   });
 
   test('All Sales content (transactions table or empty-state) is shown by default', async ({ page }) => {
-    // Either the transactions table or an empty-state message should be visible
-    // without the user having to click any tab.
-    const tableOrEmpty = page
-      .locator('[data-testid="transaction-row"], [data-testid="all-sales-empty"]')
-      .first();
-    // Allow a reasonable timeout for the API call to complete
-    await expect(
-      page.locator('[data-testid="transaction-row"]').first().or(
-        page.getByText(/no sales/i)
-      )
-    ).toBeVisible({ timeout: 10_000 }).catch(() => {
-      // If neither is visible, the tab content container itself should be present
-    });
+    // The All Sales tab panel must be visible immediately (no click required).
+    // Either a transaction row or the "no sales" empty-state text will appear
+    // once the API call resolves; both are acceptable — we just need content.
+    const txnRow = page.locator('[data-testid="transaction-row"]').first();
+    const emptyText = page.getByText(/no sales/i).first();
+    await expect(txnRow.or(emptyText)).toBeVisible({ timeout: 10_000 });
   });
 });
 
