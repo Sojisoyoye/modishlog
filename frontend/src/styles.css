@@ -127,11 +127,3 @@ textarea:focus-visible {
   min-width: unset;
 }
 
-/* Align PrimeNG datepicker input appearance with native select/input fields */
-.p-datepicker .p-datepicker-input {
-  border-radius: 0.5rem !important;   /* rounded-lg to match selects */
-  border-color: #d1d5db !important;   /* gray-300 to match selects */
-  padding-top: 0.5rem !important;     /* py-2 */
-  padding-bottom: 0.5rem !important;
-  font-size: 0.875rem !important;     /* text-sm */
-}
