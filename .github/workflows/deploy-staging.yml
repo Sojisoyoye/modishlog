@@ -120,23 +120,28 @@ jobs:
           host: ${{ secrets.HETZNER_HOST }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
+          envs: GHCR_TOKEN,IMAGE_TAG
           script: |
-            # Login to GHCR to pull latest image
-            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u sojisoyoye --password-stdin
+            set -e
 
-            # Pull latest image
+            # Login to GHCR using env var (not inline secret expansion)
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u sojisoyoye --password-stdin
+
             cd ${{ env.DEPLOY_DIR }}
+
+            # Pull the exact SHA-tagged image built by this CI run
             docker-compose pull backend
 
             # Run migrations before swapping container
+            # --no-deps: DB is Neon (external) — no local db service in docker-compose.staging.yml
             docker-compose run --rm --no-deps backend alembic upgrade head
 
             # Restart backend with new image
             docker-compose up -d --no-deps backend
 
-            # Wait for health check
+            # Health-check on port 8000 (backend container host port)
             for i in $(seq 1 24); do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8002/health || echo "000")
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
               if [ "$STATUS" = "200" ]; then
                 echo "✅ Backend healthy"
                 exit 0
@@ -146,3 +151,6 @@ jobs:
             done
             echo "❌ Backend health check failed after 2 min"
             exit 1
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          IMAGE_TAG: ${{ needs.build-backend.outputs.image_tag }}
