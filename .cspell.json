@@ -1,0 +1,35 @@
+{
+  "version": "0.2",
+  "ignorePaths": [
+    "node_modules/**",
+    ".git/**",
+    "frontend/dist/**",
+    "backend/.venv/**",
+    "*.lock",
+    "*.json"
+  ],
+  "words": [
+    "asyncpg",
+    "modishlog",
+    "neondb",
+    "sojisoyoye",
+    "sslmode",
+    "pytest",
+    "alembic",
+    "hetzner",
+    "fastapi",
+    "pydantic",
+    "sqlalchemy",
+    "structlog",
+    "uvicorn",
+    "ghcr",
+    "vercel",
+    "neon",
+    "chokidar",
+    "primeng",
+    "tailwindcss",
+    "passlib",
+    "bcrypt",
+    "fontsource"
+  ]
+}
