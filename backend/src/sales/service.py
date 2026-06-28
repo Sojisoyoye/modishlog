@@ -799,20 +799,35 @@ async def list_transactions(
     *,
     page: int = 1,
     page_size: int = 20,
+    location_id: uuid.UUID | None = None,
+    customer_id: uuid.UUID | None = None,
+    payment_status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> tuple[list, int]:
     """List sales grouped by transaction_id (most recent first)."""
 
+    base_where = [Sale.transaction_id.isnot(None)]
+    if location_id is not None:
+        base_where.append(Sale.location_id == location_id)
+    if customer_id is not None:
+        base_where.append(Sale.customer_id == customer_id)
+    if payment_status is not None:
+        base_where.append(Sale.payment_status == payment_status)
+    if date_from is not None:
+        base_where.append(Sale.sale_date >= date_from)
+    if date_to is not None:
+        base_where.append(Sale.sale_date <= date_to)
+
     count_result = await db.execute(
-        select(func.count(func.distinct(Sale.transaction_id))).where(
-            Sale.transaction_id.isnot(None)
-        )
+        select(func.count(func.distinct(Sale.transaction_id))).where(*base_where)
     )
     total = count_result.scalar() or 0
 
     offset = (page - 1) * page_size
     txn_id_rows = await db.execute(
         select(Sale.transaction_id)
-        .where(Sale.transaction_id.isnot(None))
+        .where(*base_where)
         .group_by(Sale.transaction_id)
         .order_by(func.min(Sale.created_at).desc())
         .offset(offset)

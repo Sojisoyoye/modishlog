@@ -245,10 +245,24 @@ async def upload_status_endpoint(
 async def list_transactions_endpoint(
     page: int = 1,
     page_size: int = 20,
+    location_id: uuid.UUID | None = None,
+    customer_id: uuid.UUID | None = None,
+    payment_status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """List sales grouped by transaction (most recent first)."""
-    items, total = await list_transactions(db, page=page, page_size=page_size)
+    items, total = await list_transactions(
+        db,
+        page=page,
+        page_size=page_size,
+        location_id=location_id,
+        customer_id=customer_id,
+        payment_status=payment_status,
+        date_from=date_from,
+        date_to=date_to,
+    )
     return SaleTransactionListResponse(
         items=items, total=total, page=page, page_size=page_size
     )

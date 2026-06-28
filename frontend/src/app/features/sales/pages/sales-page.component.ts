@@ -17,6 +17,7 @@ import {
 import { ProductsService, Product } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
 import { CustomerService, Customer } from '../../../core/services/customer.service';
+import { LocationsService, Location } from '../../../core/services/locations.service';
 
 interface EntryRow {
   product_id: string;
@@ -405,6 +406,76 @@ interface TransactionMeta {
             >
               <i class="pi pi-plus text-xs"></i>
               Add Sale
+            </button>
+          </div>
+
+          <!-- Filter bar -->
+          <div class="mb-4 flex flex-wrap items-end gap-3">
+            <div class="flex flex-col gap-1">
+              <label class="text-xs font-medium text-muted">Location</label>
+              <select
+                [(ngModel)]="filterLocationId"
+                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
+              >
+                <option value="">All locations</option>
+                @for (loc of allLocations(); track loc.id) {
+                  <option [value]="loc.id">{{ loc.name }}</option>
+                }
+              </select>
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs font-medium text-muted">Customer</label>
+              <select
+                [(ngModel)]="filterCustomerId"
+                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
+              >
+                <option value="">All customers</option>
+                @for (c of customers(); track c.id) {
+                  <option [value]="c.id">{{ c.name }}</option>
+                }
+              </select>
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs font-medium text-muted">Payment Status</label>
+              <select
+                [(ngModel)]="filterPaymentStatus"
+                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
+              >
+                <option value="">All statuses</option>
+                <option value="paid">Paid</option>
+                <option value="partial">Partial</option>
+                <option value="credit">Credit</option>
+              </select>
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs font-medium text-muted">From</label>
+              <input
+                type="date"
+                [(ngModel)]="filterDateFrom"
+                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
+              />
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-xs font-medium text-muted">To</label>
+              <input
+                type="date"
+                [(ngModel)]="filterDateTo"
+                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
+              />
+            </div>
+            <button
+              type="button"
+              (click)="applyFilters()"
+              class="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary/90"
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              (click)="clearFilters()"
+              class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted hover:bg-gray-50 hover:text-text"
+            >
+              Clear
             </button>
           </div>
 
@@ -928,6 +999,7 @@ export class SalesPageComponent implements OnInit {
   private readonly inventoryService = inject(InventoryService);
   private readonly messageService = inject(MessageService);
   private readonly customerService = inject(CustomerService);
+  private readonly locationsService = inject(LocationsService);
   private readonly router = inject(Router);
 
   products = signal<Product[]>([]);
@@ -961,6 +1033,14 @@ export class SalesPageComponent implements OnInit {
 
   // Transaction state
   transactions = signal<SaleTransaction[]>([]);
+
+  // All Sales filter state
+  allLocations = signal<Location[]>([]);
+  filterLocationId = '';
+  filterCustomerId = '';
+  filterPaymentStatus = '';
+  filterDateFrom = '';
+  filterDateTo = '';
 
   // Edit dialog state
   editDialogVisible = false;
@@ -1018,6 +1098,7 @@ export class SalesPageComponent implements OnInit {
     this.loadInventory();
     this.loadTransactions();
     this.loadCustomers();
+    this.loadLocations();
   }
 
   private loadInventory(): void {
@@ -1080,8 +1161,33 @@ export class SalesPageComponent implements OnInit {
   }
 
   private loadTransactions(): void {
-    this.salesService.getTransactions({ page_size: '20' }).subscribe({
+    const params: Record<string, string> = { page_size: '20' };
+    if (this.filterLocationId) params['location_id'] = this.filterLocationId;
+    if (this.filterCustomerId) params['customer_id'] = this.filterCustomerId;
+    if (this.filterPaymentStatus) params['payment_status'] = this.filterPaymentStatus;
+    if (this.filterDateFrom) params['date_from'] = this.filterDateFrom;
+    if (this.filterDateTo) params['date_to'] = this.filterDateTo;
+    this.salesService.getTransactions(params).subscribe({
       next: (r) => this.transactions.set(r.items ?? []),
+    });
+  }
+
+  applyFilters(): void {
+    this.loadTransactions();
+  }
+
+  clearFilters(): void {
+    this.filterLocationId = '';
+    this.filterCustomerId = '';
+    this.filterPaymentStatus = '';
+    this.filterDateFrom = '';
+    this.filterDateTo = '';
+    this.loadTransactions();
+  }
+
+  private loadLocations(): void {
+    this.locationsService.getAll(undefined, true).subscribe({
+      next: (r) => this.allLocations.set(r.items ?? []),
     });
   }
 
