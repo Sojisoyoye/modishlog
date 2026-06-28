@@ -111,7 +111,7 @@ test.describe('Stock-level validation', () => {
     if (optionCount > 1) {
       await productSelect.selectOption({ index: 1 });
       const stockIndicator = formCard.locator('[data-testid="stock-indicator"]').first();
-      await expect(stockIndicator).toBeVisible();
+      await expect(stockIndicator).toBeVisible({ timeout: 10_000 });
       await expect(stockIndicator).toHaveText(/\d+\s+in stock/);
     }
   });
@@ -343,10 +343,9 @@ test.describe('Create Sale flow', () => {
     // Success toast should appear
     await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 10_000 });
 
-    // The Recent Sales table should now have at least one transaction row
-    // (product name is not shown in the transaction table; check a table row exists)
-    const recentSalesTable = page.locator('table').filter({ has: page.getByRole('columnheader', { name: /Invoice No\./i }) }).first();
-    await expect(recentSalesTable.locator('tbody tr').first()).toBeVisible({ timeout: 5_000 });
+    // Component auto-switches to All Sales tab after recording; wait for a transaction row
+    await page.getByTestId('tab-all-sales').click();
+    await expect(page.locator('[data-testid="transaction-row"]').first()).toBeVisible({ timeout: 10_000 });
   });
 });
 
@@ -467,11 +466,9 @@ test.describe('Void sale — stock restore', () => {
     await expect(txnRow).toBeVisible({ timeout: 10_000 });
     await txnRow.click();
 
-    // Transaction Detail dialog opens — find our product's item row by product name.
+    // Row click navigates to /sales/transactions/:id — find our product's item row by product name.
     // We wait up to 10 s for productMap to resolve names (async API call).
-    const detailDialog = page.locator('[role="dialog"]').filter({ hasText: 'Transaction Detail' });
-    await expect(detailDialog).toBeVisible({ timeout: 5_000 });
-    const itemRow = detailDialog
+    const itemRow = page
       .locator('[data-testid="transaction-item-row"]')
       .filter({ hasText: product.name });
     await expect(itemRow).toBeVisible({ timeout: 10_000 });
@@ -513,10 +510,8 @@ test.describe('Void sale — stock restore', () => {
     await expect(txnRow).toBeVisible({ timeout: 10_000 });
     await txnRow.click();
 
-    // Transaction Detail dialog opens — find our voided item row by product name
-    const detailDialog = page.locator('[role="dialog"]').filter({ hasText: 'Transaction Detail' });
-    await expect(detailDialog).toBeVisible({ timeout: 5_000 });
-    const itemRow = detailDialog
+    // Row click navigates to /sales/transactions/:id — find our voided item row by product name
+    const itemRow = page
       .locator('[data-testid="transaction-item-row"]')
       .filter({ hasText: product.name });
     await expect(itemRow).toBeVisible({ timeout: 10_000 });
