@@ -449,7 +449,7 @@ interface TransactionMeta {
                   <option value="">All statuses</option>
                   <option value="paid">Paid</option>
                   <option value="partial">Partial</option>
-                  <option value="credit">Credit</option>
+                  <option value="credit">Due</option>
                 </select>
               </div>
               <div class="flex flex-col gap-1">
@@ -581,7 +581,7 @@ interface TransactionMeta {
                       [class.text-yellow-700]="txn.payment_status === 'partial'"
                       [class.bg-amber-100]="txn.payment_status === 'credit'"
                       [class.text-amber-700]="txn.payment_status === 'credit'"
-                    >{{ txn.payment_status || 'paid' }}</span>
+                    >{{ txn.payment_status === 'credit' ? 'Due' : (txn.payment_status || 'paid') }}</span>
                   </td>
                   <td class="whitespace-nowrap px-4 py-3 text-right font-semibold">
                     {{ txn.total_amount | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}

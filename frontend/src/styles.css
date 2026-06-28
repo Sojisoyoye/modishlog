@@ -139,7 +139,8 @@ textarea:focus-visible {
 
 /* Align p-datepicker input field with native <select> controls (border, radius, height).
    !important is required because PrimeNG injects Aura theme styles dynamically after
-   styles.css loads, giving them same-specificity precedence in the cascade. */
+   styles.css loads, giving them same-specificity precedence in the cascade.
+   height:100% propagates the host's locked height down through .p-datepicker → input. */
 .p-datepicker-input {
   border-radius: 0.5rem !important;       /* rounded-lg */
   border-color: #d1d5db !important;       /* border-gray-300 */
@@ -148,20 +149,26 @@ textarea:focus-visible {
   padding-inline-start: 0.625rem !important; /* pl-2.5 */
   font-size: 0.875rem !important;         /* text-sm */
   line-height: 1.25rem !important;
+  box-shadow: none !important;            /* remove PrimeNG's inset shadow */
+  height: 100% !important;               /* fill the .p-datepicker wrapper */
+  box-sizing: border-box !important;
 }
 .p-datepicker-input:focus {
   border-color: var(--color-primary) !important;
   box-shadow: 0 0 0 1px var(--color-primary) !important;
   outline: none !important;
 }
-/* Ensure the datepicker component wrapper is at least as wide as the adjacent selects.
-   display:flex (not inline-flex) eliminates the baseline strut that made the host
-   element taller than the native <select> controls beside it. */
+/* Lock the datepicker host to exactly the same height as py-2 text-sm border selects
+   (1px border + 8px padding + 20px line-height + 8px padding + 1px border = 38px).
+   display:flex (not inline-flex) eliminates the baseline strut.
+   height propagates down: host → .p-datepicker wrapper → input. */
 p-datepicker {
   min-width: 160px;
   display: flex;
+  height: 2.375rem;
 }
 p-datepicker .p-datepicker {
   flex: 1;
+  height: 100%;
 }
 
