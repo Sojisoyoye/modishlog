@@ -381,252 +381,254 @@ interface TransactionMeta {
 
       <!-- All Sales Tab — grouped transactions -->
       @if (activeTab() === 'all') {
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div class="mb-5 flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
-                <i class="pi pi-list text-sm text-success"></i>
-              </div>
-              <h3 class="text-base font-semibold text-text">All Sales</h3>
-            </div>
-            <div class="flex items-center gap-3">
-              <div class="flex items-center gap-1.5 text-sm text-muted">
-                Show
-                <select
-                  data-testid="txn-page-size-select"
-                  [ngModel]="txnPageSize()"
-                  (ngModelChange)="onTxnPageSizeChange(+$event)"
-                  class="rounded-lg border border-gray-300 py-1 pl-2.5 pr-6 text-sm focus:border-primary focus:outline-none"
-                >
-                  <option [value]="25">25</option>
-                  <option [value]="100">100</option>
-                  <option [value]="500">500</option>
-                </select>
-                entries
-              </div>
-              <button
-                type="button"
-                data-testid="export-sales-csv"
-                (click)="exportSalesCsv()"
-                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
-              >
-                <i class="pi pi-download text-xs"></i>
-                CSV
-              </button>
-              <button
-                type="button"
-                data-testid="export-sales-excel"
-                (click)="exportSalesExcel()"
-                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
-              >
-                <i class="pi pi-file-excel text-xs"></i>
-                Excel
-              </button>
-              <button
-                type="button"
-                data-testid="export-sales-pdf"
-                (click)="exportSalesPdf()"
-                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
-              >
-                <i class="pi pi-file-pdf text-xs"></i>
-                PDF
-              </button>
-              <button
-                type="button"
-                data-testid="export-sales-print"
-                (click)="printSales()"
-                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
-              >
-                <i class="pi pi-print text-xs"></i>
-                Print
-              </button>
-              <button
-                type="button"
-                data-testid="add-sale-btn"
-                (click)="activeTab.set('record')"
-                class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
-              >
-                <i class="pi pi-plus text-xs"></i>
-                Add Sale
-              </button>
-            </div>
-          </div>
 
-          <!-- Filter bar -->
-          <div class="mb-4 flex flex-wrap items-end gap-3">
-            <div class="flex flex-col gap-1">
-              <label class="text-xs font-medium text-muted">Location</label>
-              <select
-                [(ngModel)]="filterLocationId"
-                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
-              >
-                <option value="">All locations</option>
-                @for (loc of allLocations(); track loc.id) {
-                  <option [value]="loc.id">{{ loc.name }}</option>
-                }
-              </select>
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-xs font-medium text-muted">Customer</label>
-              <select
-                [(ngModel)]="filterCustomerId"
-                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
-              >
-                <option value="">All customers</option>
-                @for (c of customers(); track c.id) {
-                  <option [value]="c.id">{{ c.name }}</option>
-                }
-              </select>
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-xs font-medium text-muted">Payment Status</label>
-              <select
-                [(ngModel)]="filterPaymentStatus"
-                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
-              >
-                <option value="">All statuses</option>
-                <option value="paid">Paid</option>
-                <option value="partial">Partial</option>
-                <option value="credit">Credit</option>
-              </select>
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-xs font-medium text-muted">From</label>
-              <input
-                type="date"
-                [(ngModel)]="filterDateFrom"
-                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
-              />
-            </div>
-            <div class="flex flex-col gap-1">
-              <label class="text-xs font-medium text-muted">To</label>
-              <input
-                type="date"
-                [(ngModel)]="filterDateTo"
-                class="rounded-lg border border-gray-300 px-2.5 py-1.5 text-sm text-text focus:border-primary focus:outline-none"
-              />
-            </div>
-            <button
-              type="button"
-              (click)="applyFilters()"
-              class="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary/90"
-            >
-              Apply
+        <!-- Filter toggle -->
+        <div class="mb-3 flex items-center gap-3">
+          <button
+            (click)="showSalesFilters = !showSalesFilters"
+            class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+          >
+            <i class="pi pi-filter text-xs"></i> Filters
+            @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateFrom || filterDateTo) {
+              <span class="ml-0.5 h-1.5 w-1.5 rounded-full bg-primary"></span>
+            }
+          </button>
+          @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateFrom || filterDateTo) {
+            <button (click)="clearFilters()" class="flex items-center gap-1 text-xs text-muted hover:text-danger">
+              <i class="pi pi-times text-[10px]"></i> Clear filters
             </button>
-            <button
-              type="button"
-              (click)="clearFilters()"
-              class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted hover:bg-gray-50 hover:text-text"
-            >
-              Clear
-            </button>
-          </div>
-
-          <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200 text-sm">
-              <caption class="sr-only">All sales transactions</caption>
-              <thead>
-                <tr class="bg-gray-50/80">
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Invoice No.</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Customer</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Contact</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Payment Status</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total Amount</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Method</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Total Paid</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Sale Due</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Items</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-100">
-                @for (txn of transactions(); track txn.transaction_id) {
-                  <tr
-                    data-testid="transaction-row"
-                    class="cursor-pointer transition-colors hover:bg-gray-50/50"
-                    (click)="openTransactionDetail(txn)"
-                    title="Click to view product details"
-                  >
-                    <td class="whitespace-nowrap px-3 py-2.5 text-muted">{{ txn.sale_date | date: 'mediumDate' }}</td>
-                    <td class="whitespace-nowrap px-3 py-2.5 font-mono text-xs text-secondary">{{ invoiceNo(txn.transaction_id) }}</td>
-                    <td class="px-3 py-2.5 font-medium text-text">{{ txn.customer_name || '—' }}</td>
-                    <td class="whitespace-nowrap px-3 py-2.5 text-muted">{{ txn.contact_number || '—' }}</td>
-                    <td class="px-3 py-2.5">
-                      <span
-                        class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
-                        [class.bg-green-100]="txn.payment_status === 'paid' || !txn.payment_status"
-                        [class.text-green-700]="txn.payment_status === 'paid' || !txn.payment_status"
-                        [class.bg-amber-100]="txn.payment_status === 'credit'"
-                        [class.text-amber-700]="txn.payment_status === 'credit'"
-                      >{{ txn.payment_status || 'paid' }}</span>
-                    </td>
-                    <td class="whitespace-nowrap px-3 py-2.5 text-right font-semibold">
-                      {{ txn.total_amount | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
-                    </td>
-                    <td class="px-3 py-2.5 text-muted">{{ formatPaymentMethod(txn.payment_method) }}</td>
-                    <td class="whitespace-nowrap px-3 py-2.5 text-right font-medium text-success">
-                      {{ txn.total_paid | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
-                    </td>
-                    <td class="whitespace-nowrap px-3 py-2.5 text-right font-medium"
-                      [class.text-danger]="txn.sale_due > 0"
-                      [class.text-muted]="txn.sale_due <= 0"
-                    >
-                      {{ txn.sale_due | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
-                    </td>
-                    <td class="px-3 py-2.5 text-right text-muted">{{ txn.item_count }}</td>
-                  </tr>
-                } @empty {
-                  <tr>
-                    <td colspan="10" class="px-3 py-10 text-center text-sm text-muted">
-                      <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
-                      No transactions recorded yet
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Pagination controls -->
-          @if (txnTotalPages() > 1) {
-            <div class="mt-4 flex items-center justify-between text-sm text-muted">
-              <span>
-                Showing {{ (txnPage() - 1) * txnPageSize() + 1 }}–{{ [txnPage() * txnPageSize(), txnTotal()].sort((a,b)=>a-b)[0] }} of {{ txnTotal() }}
-              </span>
-              <div class="flex items-center gap-1">
-                <button
-                  type="button"
-                  (click)="txnGoToPage(1)"
-                  [disabled]="txnPage() === 1"
-                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="First page"
-                ><i class="pi pi-angle-double-left text-xs"></i></button>
-                <button
-                  type="button"
-                  (click)="txnGoToPage(txnPage() - 1)"
-                  [disabled]="txnPage() === 1"
-                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Previous page"
-                ><i class="pi pi-angle-left text-xs"></i></button>
-                <span class="px-2 font-medium text-text">{{ txnPage() }} / {{ txnTotalPages() }}</span>
-                <button
-                  type="button"
-                  (click)="txnGoToPage(txnPage() + 1)"
-                  [disabled]="txnPage() === txnTotalPages()"
-                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Next page"
-                ><i class="pi pi-angle-right text-xs"></i></button>
-                <button
-                  type="button"
-                  (click)="txnGoToPage(txnTotalPages())"
-                  [disabled]="txnPage() === txnTotalPages()"
-                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Last page"
-                ><i class="pi pi-angle-double-right text-xs"></i></button>
-              </div>
-            </div>
           }
         </div>
+
+        <!-- Filter panel -->
+        @if (showSalesFilters) {
+          <div class="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div class="flex flex-wrap items-end gap-3">
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-muted">Location</label>
+                <select
+                  [(ngModel)]="filterLocationId"
+                  class="rounded-lg border border-gray-300 px-2.5 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">All locations</option>
+                  @for (loc of allLocations(); track loc.id) {
+                    <option [value]="loc.id">{{ loc.name }}</option>
+                  }
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-muted">Customer</label>
+                <select
+                  [(ngModel)]="filterCustomerId"
+                  class="rounded-lg border border-gray-300 px-2.5 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">All customers</option>
+                  @for (c of customers(); track c.id) {
+                    <option [value]="c.id">{{ c.name }}</option>
+                  }
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-muted">Payment Status</label>
+                <select
+                  [(ngModel)]="filterPaymentStatus"
+                  class="rounded-lg border border-gray-300 px-2.5 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">All statuses</option>
+                  <option value="paid">Paid</option>
+                  <option value="partial">Partial</option>
+                  <option value="credit">Credit</option>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-muted">From</label>
+                <input
+                  type="date"
+                  [(ngModel)]="filterDateFrom"
+                  class="rounded-lg border border-gray-300 px-2.5 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-muted">To</label>
+                <input
+                  type="date"
+                  [(ngModel)]="filterDateTo"
+                  class="rounded-lg border border-gray-300 px-2.5 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <button
+                type="button"
+                (click)="applyFilters()"
+                class="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        }
+
+        <!-- Toolbar -->
+        <div class="mb-3 flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-2 text-sm text-muted">
+            Show
+            <select
+              data-testid="txn-page-size-select"
+              [ngModel]="txnPageSize()"
+              (ngModelChange)="onTxnPageSizeChange(+$event)"
+              class="rounded-lg border border-gray-300 py-1 pl-3 pr-7 text-sm focus:border-primary focus:outline-none"
+            >
+              <option [value]="25">25</option>
+              <option [value]="100">100</option>
+              <option [value]="500">500</option>
+            </select>
+            entries
+          </div>
+
+          <div class="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="export-sales-csv"
+              (click)="exportSalesCsv()"
+              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+            >
+              <i class="pi pi-download text-xs"></i> CSV
+            </button>
+            <button
+              type="button"
+              data-testid="export-sales-excel"
+              (click)="exportSalesExcel()"
+              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+            >
+              <i class="pi pi-file-excel text-xs"></i> Excel
+            </button>
+            <button
+              type="button"
+              data-testid="export-sales-pdf"
+              (click)="exportSalesPdf()"
+              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+            >
+              <i class="pi pi-file-pdf text-xs"></i> PDF
+            </button>
+            <button
+              type="button"
+              data-testid="export-sales-print"
+              (click)="printSales()"
+              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+            >
+              <i class="pi pi-print text-xs"></i> Print
+            </button>
+            <button
+              type="button"
+              data-testid="add-sale-btn"
+              (click)="activeTab.set('record')"
+              class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
+            >
+              <i class="pi pi-plus text-xs"></i> Add Sale
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+          <table class="min-w-full text-sm">
+            <caption class="sr-only">All sales transactions</caption>
+            <thead>
+              <tr class="border-b border-gray-200 bg-gray-50">
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Date</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Invoice No.</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Customer</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Contact</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Payment Status</th>
+                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Total Amount</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Method</th>
+                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Total Paid</th>
+                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Sale Due</th>
+                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Items</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              @for (txn of transactions(); track txn.transaction_id) {
+                <tr
+                  data-testid="transaction-row"
+                  class="cursor-pointer transition-colors hover:bg-gray-50"
+                  (click)="openTransactionDetail(txn)"
+                  title="Click to view product details"
+                >
+                  <td class="whitespace-nowrap px-4 py-3 text-muted">{{ txn.sale_date | date: 'mediumDate' }}</td>
+                  <td class="whitespace-nowrap px-4 py-3 font-mono text-xs text-secondary">{{ invoiceNo(txn.transaction_id) }}</td>
+                  <td class="px-4 py-3 font-medium text-text">{{ txn.customer_name || '—' }}</td>
+                  <td class="whitespace-nowrap px-4 py-3 text-muted">{{ txn.contact_number || '—' }}</td>
+                  <td class="px-4 py-3">
+                    <span
+                      class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+                      [class.bg-green-100]="txn.payment_status === 'paid' || !txn.payment_status"
+                      [class.text-green-700]="txn.payment_status === 'paid' || !txn.payment_status"
+                      [class.bg-amber-100]="txn.payment_status === 'credit'"
+                      [class.text-amber-700]="txn.payment_status === 'credit'"
+                    >{{ txn.payment_status || 'paid' }}</span>
+                  </td>
+                  <td class="whitespace-nowrap px-4 py-3 text-right font-semibold">
+                    {{ txn.total_amount | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
+                  </td>
+                  <td class="px-4 py-3 text-muted">{{ formatPaymentMethod(txn.payment_method) }}</td>
+                  <td class="whitespace-nowrap px-4 py-3 text-right font-medium text-success">
+                    {{ txn.total_paid | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
+                  </td>
+                  <td class="whitespace-nowrap px-4 py-3 text-right font-medium"
+                    [class.text-danger]="txn.sale_due > 0"
+                    [class.text-muted]="txn.sale_due <= 0"
+                  >
+                    {{ txn.sale_due | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
+                  </td>
+                  <td class="px-4 py-3 text-right text-muted">{{ txn.item_count }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="10" class="py-16 text-center text-muted">
+                    <i class="pi pi-list mb-3 block text-4xl text-gray-300"></i>
+                    No transactions recorded yet.
+                    <button (click)="activeTab.set('record')" class="mt-2 block mx-auto text-primary hover:underline">
+                      Record your first sale
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination controls -->
+        @if (txnTotal() > 0) {
+          <div class="mt-4 flex items-center justify-between text-sm text-muted">
+            <span>Showing {{ txnShowingFrom() }}–{{ txnShowingTo() }} of {{ txnTotal() }} transactions</span>
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                (click)="txnGoToPage(txnPage() - 1)"
+                [disabled]="txnPage() === 1"
+                class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+              >
+                <i class="pi pi-chevron-left text-xs"></i>
+              </button>
+              @for (n of txnPageNumbers(); track n) {
+                <button
+                  type="button"
+                  (click)="txnGoToPage(n)"
+                  [class]="n === txnPage() ? 'rounded bg-primary px-2.5 py-1 text-xs font-semibold text-white' : 'rounded px-2.5 py-1 text-xs hover:bg-gray-100'"
+                >
+                  {{ n }}
+                </button>
+              }
+              <button
+                type="button"
+                (click)="txnGoToPage(txnPage() + 1)"
+                [disabled]="txnPage() === txnTotalPages()"
+                class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+              >
+                <i class="pi pi-chevron-right text-xs"></i>
+              </button>
+            </div>
+          </div>
+        }
       }
 
       <!-- Upload CSV Tab -->
@@ -1129,6 +1131,19 @@ export class SalesPageComponent implements OnInit {
   filterPaymentStatus = '';
   filterDateFrom = '';
   filterDateTo = '';
+  showSalesFilters = false;
+
+  txnShowingFrom = computed(() => this.txnTotal() === 0 ? 0 : (this.txnPage() - 1) * this.txnPageSize() + 1);
+  txnShowingTo = computed(() => Math.min(this.txnPage() * this.txnPageSize(), this.txnTotal()));
+  txnPageNumbers = computed(() => {
+    const total = this.txnTotalPages();
+    const current = this.txnPage();
+    const start = Math.max(1, Math.min(current - 2, total - 4));
+    const end = Math.min(total, start + 4);
+    const pages: number[] = [];
+    for (let i = start; i <= end; i++) pages.push(i);
+    return pages;
+  });
 
   // Edit dialog state
   editDialogVisible = false;
