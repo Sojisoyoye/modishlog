@@ -130,138 +130,126 @@ interface TransactionMeta {
             </div>
           </div>
 
-          <!-- Line items table -->
-          <div class="overflow-x-auto">
-            <table class="min-w-full">
-              <caption class="sr-only">Sale line items</caption>
-              <thead>
-                <tr class="border-b border-gray-100 bg-gray-50/60">
-                  <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">Product</th>
-                  <th class="w-24 px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Qty</th>
-                  <th class="w-36 px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Unit Price</th>
-                  <th class="w-36 px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Discount</th>
-                  <th class="w-36 px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Line Total</th>
-                  <th class="w-36 px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted">Date</th>
-                  <th class="w-10 px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-50">
-                @for (row of entryRows(); track $index) {
-                  <tr [class.bg-red-50]="exceedsStock(row)">
-                    <!-- Product -->
-                    <td class="px-4 py-3">
-                      <div class="flex items-center gap-2">
-                        <select
-                          [(ngModel)]="row.product_id"
-                          [name]="'product_' + $index"
-                          (change)="onProductChange(row)"
-                          class="min-w-[180px] flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                        >
-                          <option value="">Select product</option>
-                          @for (p of products(); track p.id) {
-                            <option [value]="p.id">{{ p.name }}</option>
-                          }
-                        </select>
-                        @if (row.product_id && getStock(row.product_id) !== undefined) {
-                          <span
-                            data-testid="stock-indicator"
-                            class="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium"
-                            [class.bg-red-100]="exceedsStock(row)"
-                            [class.text-red-700]="exceedsStock(row)"
-                            [class.bg-gray-100]="!exceedsStock(row)"
-                            [class.text-muted]="!exceedsStock(row)"
-                          >{{ getStock(row.product_id) }} in stock</span>
-                        }
-                      </div>
-                      @if (exceedsStock(row)) {
-                        <p data-testid="stock-warning" class="mt-1 text-[11px] font-medium text-red-600">
-                          Exceeds available stock
-                        </p>
+          <!-- Line items — card-per-row (no horizontal scroll) -->
+          <div class="divide-y divide-gray-100">
+            @for (row of entryRows(); track $index) {
+              <div class="px-5 py-4" [class.bg-red-50]="exceedsStock(row)">
+
+                <!-- Product selector row -->
+                <div class="mb-3 flex items-start gap-2">
+                  <div class="flex-1">
+                    <label class="mb-1 block text-xs font-medium text-muted">
+                      Product <span class="text-red-400">*</span>
+                    </label>
+                    <select
+                      [(ngModel)]="row.product_id"
+                      [name]="'product_' + $index"
+                      (change)="onProductChange(row)"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="">Select product</option>
+                      @for (p of products(); track p.id) {
+                        <option [value]="p.id">{{ p.name }}</option>
                       }
-                    </td>
-                    <!-- Qty -->
-                    <td class="px-4 py-3">
-                      <input
-                        type="number"
-                        [(ngModel)]="row.quantity"
-                        [name]="'qty_' + $index"
-                        min="1"
-                        class="w-full rounded-lg border px-3 py-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                        [class.border-red-400]="exceedsStock(row)"
-                        [class.border-gray-300]="!exceedsStock(row)"
-                      />
-                    </td>
-                    <!-- Unit Price (read-only) -->
-                    <td class="px-4 py-3">
-                      <div
-                        data-testid="entry-price-input"
-                        class="flex h-9 items-center justify-end rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-text"
-                      >
-                        @if (row.unit_price !== null) {
-                          {{ row.unit_price | currency: 'NGN' : 'symbol' : '1.2-2' }}
-                        } @else {
-                          <span class="text-muted">—</span>
-                        }
-                      </div>
-                    </td>
-                    <!-- Discount -->
-                    <td class="px-4 py-3">
-                      <input
-                        type="number"
-                        [(ngModel)]="row.discount_amount"
-                        [name]="'discount_' + $index"
-                        min="0"
-                        step="0.01"
-                        data-testid="entry-discount-input"
-                        placeholder="0.00"
-                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                      />
-                    </td>
-                    <!-- Line Total -->
-                    <td class="px-4 py-3">
-                      <div
-                        data-testid="entry-line-total"
-                        class="flex h-9 items-center justify-end rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-text"
-                      >
-                        {{ lineTotal(row) | currency: 'NGN' : 'symbol' : '1.2-2' }}
-                      </div>
-                    </td>
-                    <!-- Date -->
-                    <td class="px-4 py-3">
-                      <input
-                        type="date"
-                        [(ngModel)]="row.sale_date"
-                        [name]="'date_' + $index"
-                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                      />
-                    </td>
-                    <!-- Remove -->
-                    <td class="px-4 py-3 text-center">
-                      @if (entryRows().length > 1) {
-                        <button
-                          (click)="removeRow($index)"
-                          class="rounded-lg p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
-                          type="button"
-                          title="Remove row"
-                        >
-                          <i class="pi pi-times text-xs"></i>
-                        </button>
+                    </select>
+                    @if (exceedsStock(row)) {
+                      <p data-testid="stock-warning" class="mt-1 text-[11px] font-medium text-red-600">
+                        Exceeds available stock
+                      </p>
+                    }
+                  </div>
+                  @if (row.product_id && getStock(row.product_id) !== undefined) {
+                    <div class="mt-6 shrink-0">
+                      <span
+                        data-testid="stock-indicator"
+                        class="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium"
+                        [class.bg-red-100]="exceedsStock(row)"
+                        [class.text-red-700]="exceedsStock(row)"
+                        [class.bg-gray-100]="!exceedsStock(row)"
+                        [class.text-muted]="!exceedsStock(row)"
+                      >{{ getStock(row.product_id) }} in stock</span>
+                    </div>
+                  }
+                  @if (entryRows().length > 1) {
+                    <button
+                      (click)="removeRow($index)"
+                      class="mt-6 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                      type="button"
+                      title="Remove row"
+                    >
+                      <i class="pi pi-times text-xs"></i>
+                    </button>
+                  }
+                </div>
+
+                <!-- Qty / Unit Price / Discount / Date grid -->
+                <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-muted">Qty</label>
+                    <input
+                      type="number"
+                      [(ngModel)]="row.quantity"
+                      [name]="'qty_' + $index"
+                      min="1"
+                      class="w-full rounded-lg border px-3 py-2.5 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                      [class.border-red-400]="exceedsStock(row)"
+                      [class.border-gray-300]="!exceedsStock(row)"
+                    />
+                  </div>
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-muted">Unit Price</label>
+                    <div
+                      data-testid="entry-price-input"
+                      class="flex h-[42px] items-center justify-end rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-text"
+                    >
+                      @if (row.unit_price !== null) {
+                        {{ row.unit_price | currency: 'NGN' : 'symbol' : '1.2-2' }}
+                      } @else {
+                        <span class="text-muted">—</span>
                       }
-                    </td>
-                  </tr>
-                }
-              </tbody>
-              <!-- Grand total row -->
-              <tfoot>
-                <tr class="border-t-2 border-gray-200 bg-gray-50/60">
-                  <td colspan="4" class="px-4 py-3 text-right text-sm font-semibold text-text">Grand Total</td>
-                  <td class="px-4 py-3 text-right text-base font-bold text-primary">
-                    {{ grandTotal() | currency: 'NGN' : 'symbol' : '1.2-2' }}
-                  </td>
-                  <td colspan="2"></td>
-                </tr>
-              </tfoot>
-            </table>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-muted">Discount (₦)</label>
+                    <input
+                      type="number"
+                      [(ngModel)]="row.discount_amount"
+                      [name]="'discount_' + $index"
+                      min="0"
+                      step="0.01"
+                      data-testid="entry-discount-input"
+                      placeholder="0.00"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-muted">Date</label>
+                    <input
+                      type="date"
+                      [(ngModel)]="row.sale_date"
+                      [name]="'date_' + $index"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+
+                <!-- Line total -->
+                <div class="mt-2.5 flex items-center justify-end gap-1.5 text-sm">
+                  <span class="text-muted">Line total:</span>
+                  <span
+                    data-testid="entry-line-total"
+                    class="font-semibold text-text"
+                  >{{ lineTotal(row) | currency: 'NGN' : 'symbol' : '1.2-2' }}</span>
+                </div>
+
+              </div>
+            }
+          </div>
+
+          <!-- Grand total bar -->
+          <div class="flex items-center justify-between border-t-2 border-gray-200 bg-gray-50/60 px-5 py-3">
+            <span class="text-sm font-semibold text-text">Grand Total</span>
+            <span class="text-base font-bold text-primary">{{ grandTotal() | currency: 'NGN' : 'symbol' : '1.2-2' }}</span>
           </div>
 
           <!-- Add row button -->
