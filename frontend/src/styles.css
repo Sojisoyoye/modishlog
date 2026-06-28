@@ -154,10 +154,12 @@ textarea:focus-visible {
   box-shadow: 0 0 0 1px var(--color-primary) !important;
   outline: none !important;
 }
-/* Ensure the datepicker component wrapper is at least as wide as the adjacent selects */
+/* Ensure the datepicker component wrapper is at least as wide as the adjacent selects.
+   display:flex (not inline-flex) eliminates the baseline strut that made the host
+   element taller than the native <select> controls beside it. */
 p-datepicker {
   min-width: 160px;
-  display: inline-flex;
+  display: flex;
 }
 p-datepicker .p-datepicker {
   flex: 1;
