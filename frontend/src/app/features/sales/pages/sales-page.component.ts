@@ -21,7 +21,6 @@ import { CustomerService, Customer } from '../../../core/services/customer.servi
 interface EntryRow {
   product_id: string;
   quantity: number;
-  sale_date: string;
   unit_price: number | null;
   discount_amount: number | null;
 }
@@ -29,6 +28,7 @@ interface EntryRow {
 interface TransactionMeta {
   customer_id: string;
   payment_method: string;
+  payment_amount: number | null;
   payment_status: string;
 }
 
@@ -130,118 +130,158 @@ interface TransactionMeta {
             </div>
           </div>
 
-          <!-- Line items — card-per-row (no horizontal scroll) -->
-          <div class="divide-y divide-gray-100">
-            @for (row of entryRows(); track $index) {
-              <div class="px-5 py-4" [class.bg-red-50]="exceedsStock(row)">
+          <!-- Top meta: Date + Customer -->
+          <div class="grid grid-cols-2 gap-4 border-b border-gray-100 px-5 py-4">
+            <div>
+              <label class="mb-1 block text-xs font-medium text-muted">Sale Date</label>
+              <input
+                type="date"
+                [ngModel]="saleDate()"
+                (ngModelChange)="saleDate.set($event)"
+                name="sale_date"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium text-muted">Customer</label>
+              <div class="flex gap-2">
+                <select
+                  [(ngModel)]="txnMeta.customer_id"
+                  name="customer_id"
+                  (change)="onCustomerSelected()"
+                  class="min-w-0 flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">— Select —</option>
+                  @for (c of customers(); track c.id) {
+                    <option [value]="c.id">{{ c.name }}{{ c.contact_number ? ' · ' + c.contact_number : '' }}</option>
+                  }
+                </select>
+                <button
+                  type="button"
+                  (click)="newCustomerDialogVisible = true"
+                  title="Add new customer"
+                  class="flex shrink-0 items-center gap-1 rounded-lg border border-primary/40 bg-white px-2.5 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/5"
+                >
+                  <i class="pi pi-plus text-xs"></i> New
+                </button>
+              </div>
+            </div>
+          </div>
 
-                <!-- Product selector row -->
-                <div class="mb-3 flex items-start gap-2">
-                  <div class="flex-1">
-                    <label class="mb-1 block text-xs font-medium text-muted">
-                      Product <span class="text-red-400">*</span>
-                    </label>
+          <!-- Products section header + Add button -->
+          <div class="flex items-center justify-between border-b border-gray-100 px-5 py-2.5">
+            <span class="text-[11px] font-semibold uppercase tracking-wide text-muted">Products</span>
+            <button
+              (click)="addRow()"
+              class="flex items-center gap-1 rounded-lg border border-dashed border-primary/40 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/5"
+              type="button"
+            >
+              <i class="pi pi-plus text-[10px]"></i> Add Product
+            </button>
+          </div>
+
+          <!-- Column headers -->
+          <div class="flex items-center gap-2 bg-gray-50/60 px-5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+            <div class="min-w-0 flex-1">Product</div>
+            <div class="w-14 shrink-0 text-right">Qty</div>
+            <div class="w-24 shrink-0 text-right">Unit Price</div>
+            <div class="w-20 shrink-0 text-right">Discount</div>
+            <div class="w-24 shrink-0 text-right">Total</div>
+            <div class="w-6 shrink-0"></div>
+          </div>
+
+          <!-- Product rows — compact inline -->
+          <div class="divide-y divide-gray-50">
+            @for (row of entryRows(); track $index) {
+              <div class="px-5 py-2" [class.bg-red-50]="exceedsStock(row)">
+                <div class="flex items-center gap-2">
+
+                  <!-- Product dropdown -->
+                  <div class="min-w-0 flex-1">
                     <select
                       [(ngModel)]="row.product_id"
                       [name]="'product_' + $index"
                       (change)="onProductChange(row)"
-                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                      class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                     >
                       <option value="">Select product</option>
                       @for (p of products(); track p.id) {
                         <option [value]="p.id">{{ p.name }}</option>
                       }
                     </select>
+                    @if (row.product_id && getStock(row.product_id) !== undefined) {
+                      <span
+                        data-testid="stock-indicator"
+                        class="mt-0.5 block text-[10px] font-medium"
+                        [class.text-red-600]="exceedsStock(row)"
+                        [class.text-muted]="!exceedsStock(row)"
+                      >{{ getStock(row.product_id) }} in stock</span>
+                    }
                     @if (exceedsStock(row)) {
-                      <p data-testid="stock-warning" class="mt-1 text-[11px] font-medium text-red-600">
-                        Exceeds available stock
+                      <p data-testid="stock-warning" class="text-[10px] font-medium text-red-600">
+                        Exceeds stock
                       </p>
                     }
                   </div>
-                  @if (row.product_id && getStock(row.product_id) !== undefined) {
-                    <div class="mt-6 shrink-0">
-                      <span
-                        data-testid="stock-indicator"
-                        class="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium"
-                        [class.bg-red-100]="exceedsStock(row)"
-                        [class.text-red-700]="exceedsStock(row)"
-                        [class.bg-gray-100]="!exceedsStock(row)"
-                        [class.text-muted]="!exceedsStock(row)"
-                      >{{ getStock(row.product_id) }} in stock</span>
-                    </div>
-                  }
+
+                  <!-- Qty -->
+                  <input
+                    type="number"
+                    [(ngModel)]="row.quantity"
+                    [name]="'qty_' + $index"
+                    min="1"
+                    class="w-14 shrink-0 rounded border px-2 py-1.5 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    [class.border-red-400]="exceedsStock(row)"
+                    [class.border-gray-300]="!exceedsStock(row)"
+                  />
+
+                  <!-- Unit Price (read-only) -->
+                  <div
+                    data-testid="entry-price-input"
+                    class="flex h-8 w-24 shrink-0 items-center justify-end rounded border border-gray-200 bg-gray-50 px-2 text-sm text-text"
+                  >
+                    @if (row.unit_price !== null) {
+                      {{ row.unit_price | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                    } @else {
+                      <span class="text-muted">—</span>
+                    }
+                  </div>
+
+                  <!-- Discount -->
+                  <input
+                    type="number"
+                    [(ngModel)]="row.discount_amount"
+                    [name]="'discount_' + $index"
+                    min="0"
+                    step="0.01"
+                    data-testid="entry-discount-input"
+                    placeholder="0"
+                    class="w-20 shrink-0 rounded border border-gray-300 px-2 py-1.5 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  />
+
+                  <!-- Line Total -->
+                  <div
+                    data-testid="entry-line-total"
+                    class="flex h-8 w-24 shrink-0 items-center justify-end rounded border border-gray-200 bg-gray-50 px-2 text-sm font-semibold text-text"
+                  >
+                    {{ lineTotal(row) | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                  </div>
+
+                  <!-- Remove -->
                   @if (entryRows().length > 1) {
                     <button
                       (click)="removeRow($index)"
-                      class="mt-6 shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-red-50 hover:text-danger"
                       type="button"
                       title="Remove row"
                     >
-                      <i class="pi pi-times text-xs"></i>
+                      <i class="pi pi-times text-[10px]"></i>
                     </button>
+                  } @else {
+                    <div class="w-6 shrink-0"></div>
                   }
-                </div>
 
-                <!-- Qty / Unit Price / Discount / Date grid -->
-                <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <div>
-                    <label class="mb-1 block text-xs font-medium text-muted">Qty</label>
-                    <input
-                      type="number"
-                      [(ngModel)]="row.quantity"
-                      [name]="'qty_' + $index"
-                      min="1"
-                      class="w-full rounded-lg border px-3 py-2.5 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                      [class.border-red-400]="exceedsStock(row)"
-                      [class.border-gray-300]="!exceedsStock(row)"
-                    />
-                  </div>
-                  <div>
-                    <label class="mb-1 block text-xs font-medium text-muted">Unit Price</label>
-                    <div
-                      data-testid="entry-price-input"
-                      class="flex h-[42px] items-center justify-end rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-text"
-                    >
-                      @if (row.unit_price !== null) {
-                        {{ row.unit_price | currency: 'NGN' : 'symbol' : '1.2-2' }}
-                      } @else {
-                        <span class="text-muted">—</span>
-                      }
-                    </div>
-                  </div>
-                  <div>
-                    <label class="mb-1 block text-xs font-medium text-muted">Discount (₦)</label>
-                    <input
-                      type="number"
-                      [(ngModel)]="row.discount_amount"
-                      [name]="'discount_' + $index"
-                      min="0"
-                      step="0.01"
-                      data-testid="entry-discount-input"
-                      placeholder="0.00"
-                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                    />
-                  </div>
-                  <div>
-                    <label class="mb-1 block text-xs font-medium text-muted">Date</label>
-                    <input
-                      type="date"
-                      [(ngModel)]="row.sale_date"
-                      [name]="'date_' + $index"
-                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                    />
-                  </div>
                 </div>
-
-                <!-- Line total -->
-                <div class="mt-2.5 flex items-center justify-end gap-1.5 text-sm">
-                  <span class="text-muted">Line total:</span>
-                  <span
-                    data-testid="entry-line-total"
-                    class="font-semibold text-text"
-                  >{{ lineTotal(row) | currency: 'NGN' : 'symbol' : '1.2-2' }}</span>
-                </div>
-
               </div>
             }
           </div>
@@ -249,56 +289,19 @@ interface TransactionMeta {
           <!-- Grand total bar -->
           <div class="flex items-center justify-between border-t-2 border-gray-200 bg-gray-50/60 px-5 py-3">
             <span class="text-sm font-semibold text-text">Grand Total</span>
-            <span class="text-base font-bold text-primary">{{ grandTotal() | currency: 'NGN' : 'symbol' : '1.2-2' }}</span>
+            <span class="text-base font-bold text-primary">{{ grandTotal() | currency: 'NGN' : 'symbol' : '1.0-0' }}</span>
           </div>
 
-          <!-- Add row button -->
-          <div class="border-t border-gray-100 px-6 py-3">
-            <button
-              (click)="addRow()"
-              class="flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
-              type="button"
-            >
-              <i class="pi pi-plus text-xs"></i> Add Product Row
-            </button>
-          </div>
-
-          <!-- Customer, payment & submit -->
-          <div class="border-t border-gray-200 bg-gray-50/40 px-6 py-5">
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <!-- Customer -->
-              <div class="lg:col-span-2">
-                <label class="mb-1.5 block text-xs font-medium text-muted">Customer</label>
-                <div class="flex gap-2">
-                  <select
-                    [(ngModel)]="txnMeta.customer_id"
-                    name="customer_id"
-                    (change)="onCustomerSelected()"
-                    class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                  >
-                    <option value="">— Select Customer —</option>
-                    @for (c of customers(); track c.id) {
-                      <option [value]="c.id">{{ c.name }}{{ c.contact_number ? ' · ' + c.contact_number : '' }}</option>
-                    }
-                  </select>
-                  <button
-                    type="button"
-                    (click)="newCustomerDialogVisible = true"
-                    title="Add new customer"
-                    class="flex shrink-0 items-center gap-1 rounded-lg border border-primary/40 bg-white px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/5 whitespace-nowrap"
-                  >
-                    <i class="pi pi-plus text-xs"></i> New
-                  </button>
-                </div>
-              </div>
-
+          <!-- Payment & submit footer -->
+          <div class="border-t border-gray-200 bg-gray-50/40 px-5 py-4">
+            <div class="grid grid-cols-3 gap-3">
               <!-- Payment Method -->
               <div>
-                <label class="mb-1.5 block text-xs font-medium text-muted">Payment Method</label>
+                <label class="mb-1 block text-xs font-medium text-muted">Payment Method</label>
                 <select
                   [(ngModel)]="txnMeta.payment_method"
                   name="payment_method"
-                  class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                 >
                   <option value="">— Select —</option>
                   <option value="cash">Cash</option>
@@ -309,13 +312,27 @@ interface TransactionMeta {
                 </select>
               </div>
 
+              <!-- Payment Amount -->
+              <div>
+                <label class="mb-1 block text-xs font-medium text-muted">Amount Paid (₦)</label>
+                <input
+                  type="number"
+                  [(ngModel)]="txnMeta.payment_amount"
+                  name="payment_amount"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
               <!-- Payment Status -->
               <div>
-                <label class="mb-1.5 block text-xs font-medium text-muted">Payment Status</label>
+                <label class="mb-1 block text-xs font-medium text-muted">Payment Status</label>
                 <select
                   [(ngModel)]="txnMeta.payment_status"
                   name="payment_status"
-                  class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                 >
                   <option value="paid">Paid</option>
                   <option value="partial">Partial</option>
@@ -325,7 +342,7 @@ interface TransactionMeta {
             </div>
 
             <!-- Submit -->
-            <div class="mt-4 flex items-center justify-end gap-3">
+            <div class="mt-4 flex items-center justify-end">
               <button
                 (click)="submitEntries()"
                 [disabled]="submitting() || hasStockExceeded()"
@@ -913,8 +930,11 @@ export class SalesPageComponent implements OnInit {
   // Tab state
   activeTab = signal<'all' | 'record' | 'upload' | 'quick-quote'>('all');
 
+  // Shared sale date for all line items in one submission
+  saleDate = signal<string>(new Date().toISOString().split('T')[0]);
+
   // Transaction-level customer + payment meta (shared across all rows in one submission)
-  txnMeta: TransactionMeta = { customer_id: '', payment_method: '', payment_status: 'paid' };
+  txnMeta: TransactionMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_status: 'paid' };
 
   // CSV upload state
   selectedFile = signal<File | null>(null);
@@ -1111,7 +1131,6 @@ export class SalesPageComponent implements OnInit {
     return {
       product_id: '',
       quantity: 1,
-      sale_date: new Date().toISOString().split('T')[0],
       unit_price: null,
       discount_amount: null,
     };
@@ -1127,15 +1146,17 @@ export class SalesPageComponent implements OnInit {
 
   submitEntries(): void {
     const meta = this.txnMeta;
+    const date = this.saleDate();
     const valid = this.entryRows()
       .filter((r) => r.product_id && r.quantity > 0)
       .map((r) => ({
         product_id: r.product_id,
         quantity: r.quantity,
-        sale_date: r.sale_date,
+        sale_date: date,
         discount_amount: r.discount_amount ?? null,
         customer_id: meta.customer_id || null,
         payment_method: meta.payment_method || null,
+        payment_amount: meta.payment_amount ?? null,
         payment_status: meta.payment_status || 'paid',
       }));
     if (valid.length === 0) return;
@@ -1145,7 +1166,7 @@ export class SalesPageComponent implements OnInit {
       next: () => {
         this.submitting.set(false);
         this.entryRows.set([this.newRow()]);
-        this.txnMeta = { customer_id: '', payment_method: '', payment_status: 'paid' };
+        this.txnMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_status: 'paid' };
         this.messageService.add({
           severity: 'success',
           summary: 'Success',
