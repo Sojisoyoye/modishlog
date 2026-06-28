@@ -51,6 +51,7 @@ interface TransactionMeta {
             type="button"
             data-testid="tab-all-sales"
             (click)="activeTab.set('all')"
+            [attr.aria-selected]="activeTab() === 'all'"
             class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
             [class.border-primary]="activeTab() === 'all'"
             [class.text-primary]="activeTab() === 'all'"
@@ -66,6 +67,7 @@ interface TransactionMeta {
             type="button"
             data-testid="tab-upload-csv"
             (click)="activeTab.set('upload')"
+            [attr.aria-selected]="activeTab() === 'upload'"
             class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
             [class.border-primary]="activeTab() === 'upload'"
             [class.text-primary]="activeTab() === 'upload'"
@@ -81,6 +83,7 @@ interface TransactionMeta {
             type="button"
             data-testid="tab-quick-quote"
             (click)="activeTab.set('quick-quote')"
+            [attr.aria-selected]="activeTab() === 'quick-quote'"
             class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
             [class.border-primary]="activeTab() === 'quick-quote'"
             [class.text-primary]="activeTab() === 'quick-quote'"
@@ -96,6 +99,7 @@ interface TransactionMeta {
             type="button"
             data-testid="tab-record-sales"
             (click)="activeTab.set('record')"
+            [attr.aria-selected]="activeTab() === 'record'"
             class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
             [class.border-primary]="activeTab() === 'record'"
             [class.text-primary]="activeTab() === 'record'"
@@ -113,7 +117,7 @@ interface TransactionMeta {
       <!-- Record Sales Tab -->
       @if (activeTab() === 'record') {
         <div class="mx-auto max-w-2xl">
-        <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div data-testid="add-sale-form-card" class="rounded-xl border border-gray-200 bg-white shadow-sm">
 
           <!-- Card header -->
           <div class="flex items-center gap-3 border-b border-gray-100 px-6 py-4">

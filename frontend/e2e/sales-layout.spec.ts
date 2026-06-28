@@ -120,13 +120,7 @@ test.describe('Clicking "Add Sale" button switches to the add-sale tab', () => {
       .or(page.locator('[data-testid="tab-record-sales"]'));
     await expect(addSaleTab).toBeVisible({ timeout: 5_000 });
 
-    const isSelected = await addSaleTab.getAttribute('aria-selected');
-    const classList = await addSaleTab.getAttribute('class');
-    const isActiveByAria = isSelected === 'true';
-    const isActiveByClass =
-      classList !== null &&
-      (classList.includes('active') || classList.includes('p-highlight') || classList.includes('selected'));
-    expect(isActiveByAria || isActiveByClass).toBeTruthy();
+    await expect(addSaleTab).toHaveAttribute('aria-selected', 'true', { timeout: 5_000 });
   });
 
   test('clicking "Add Sale" button reveals product dropdown in the form', async ({ page }) => {
@@ -231,7 +225,7 @@ test.describe('Add-sale form card layout', () => {
 
   test('add-sale form card contains "Add Row" and submit buttons', async ({ page }) => {
     const formCard = page.locator('[data-testid="add-sale-form-card"]');
-    await expect(formCard.getByRole('button', { name: /Add Row/i })).toBeVisible();
+    await expect(formCard.getByRole('button', { name: /Add Product Row/i })).toBeVisible();
     // The submit button text may have changed to "Add Sale" or remain "Record Sales"
     const submitBtn = formCard
       .getByRole('button', { name: /Add Sale/i })
