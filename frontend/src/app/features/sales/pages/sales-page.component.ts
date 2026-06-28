@@ -116,7 +116,7 @@ interface TransactionMeta {
 
       <!-- Record Sales Tab -->
       @if (activeTab() === 'record') {
-        <div class="mx-auto max-w-2xl">
+        <div class="mx-auto max-w-3xl">
         <div data-testid="add-sale-form-card" class="rounded-xl border border-gray-200 bg-white shadow-sm">
 
           <!-- Card header -->
@@ -194,34 +194,33 @@ interface TransactionMeta {
           <div class="divide-y divide-gray-50">
             @for (row of entryRows(); track $index) {
               <div class="px-5 py-2" [class.bg-red-50]="exceedsStock(row)">
-                <div class="flex items-center gap-2">
+                <!-- items-start so fixed-height stock slot below product doesn't shift other cells -->
+                <div class="flex items-start gap-2">
 
-                  <!-- Product dropdown -->
+                  <!-- Product dropdown + fixed-height stock slot (row height stays constant) -->
                   <div class="min-w-0 flex-1">
                     <select
                       [(ngModel)]="row.product_id"
                       [name]="'product_' + $index"
                       (change)="onProductChange(row)"
-                      class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                      class="h-8 w-full rounded border border-gray-300 px-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                     >
                       <option value="">Select product</option>
                       @for (p of products(); track p.id) {
                         <option [value]="p.id">{{ p.name }}</option>
                       }
                     </select>
-                    @if (row.product_id && getStock(row.product_id) !== undefined) {
-                      <span
-                        data-testid="stock-indicator"
-                        class="mt-0.5 block text-[10px] font-medium"
-                        [class.text-red-600]="exceedsStock(row)"
-                        [class.text-muted]="!exceedsStock(row)"
-                      >{{ getStock(row.product_id) }} in stock</span>
-                    }
-                    @if (exceedsStock(row)) {
-                      <p data-testid="stock-warning" class="text-[10px] font-medium text-red-600">
-                        Exceeds stock
-                      </p>
-                    }
+                    <!-- Fixed slot — always h-3.5 so all rows are the same height -->
+                    <div class="h-3.5 mt-0.5">
+                      @if (exceedsStock(row)) {
+                        <p data-testid="stock-warning" class="text-[10px] font-medium leading-none text-red-600">Exceeds stock</p>
+                      } @else if (row.product_id && getStock(row.product_id) !== undefined) {
+                        <span
+                          data-testid="stock-indicator"
+                          class="text-[10px] font-medium leading-none text-muted"
+                        >{{ getStock(row.product_id) }} in stock</span>
+                      }
+                    </div>
                   </div>
 
                   <!-- Qty -->
@@ -230,7 +229,7 @@ interface TransactionMeta {
                     [(ngModel)]="row.quantity"
                     [name]="'qty_' + $index"
                     min="1"
-                    class="w-14 shrink-0 rounded border px-2 py-1.5 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    class="h-8 w-14 shrink-0 rounded border px-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                     [class.border-red-400]="exceedsStock(row)"
                     [class.border-gray-300]="!exceedsStock(row)"
                   />
@@ -256,7 +255,7 @@ interface TransactionMeta {
                     step="0.01"
                     data-testid="entry-discount-input"
                     placeholder="0"
-                    class="w-20 shrink-0 rounded border border-gray-300 px-2 py-1.5 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    class="h-8 w-20 shrink-0 rounded border border-gray-300 px-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
                   />
 
                   <!-- Line Total -->
@@ -271,7 +270,7 @@ interface TransactionMeta {
                   @if (entryRows().length > 1) {
                     <button
                       (click)="removeRow($index)"
-                      class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                      class="flex h-8 w-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-red-50 hover:text-danger"
                       type="button"
                       title="Remove row"
                     >
@@ -286,10 +285,14 @@ interface TransactionMeta {
             }
           </div>
 
-          <!-- Grand total bar -->
-          <div class="flex items-center justify-between border-t-2 border-gray-200 bg-gray-50/60 px-5 py-3">
-            <span class="text-sm font-semibold text-text">Grand Total</span>
-            <span class="text-base font-bold text-primary">{{ grandTotal() | currency: 'NGN' : 'symbol' : '1.0-0' }}</span>
+          <!-- Grand total — value aligned with the Total column -->
+          <div class="flex items-center gap-2 border-t-2 border-gray-200 bg-gray-50/60 px-5 py-2.5">
+            <div class="min-w-0 flex-1"></div>
+            <div class="w-14 shrink-0"></div>
+            <div class="w-24 shrink-0"></div>
+            <div class="w-20 shrink-0 text-right text-xs font-semibold text-text">Grand Total</div>
+            <div class="w-24 shrink-0 text-right text-sm font-bold text-primary">{{ grandTotal() | currency: 'NGN' : 'symbol' : '1.0-0' }}</div>
+            <div class="w-6 shrink-0"></div>
           </div>
 
           <!-- Payment & submit footer -->
