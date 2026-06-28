@@ -452,7 +452,7 @@ interface TransactionMeta {
                   [iconDisplay]="'input'"
                   [showIcon]="true"
                   dateFormat="dd/mm/yy"
-                  styleClass="text-sm"
+                  appendTo="body"
                 >
                   <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
                     <i class="pi pi-calendar cursor-pointer" (click)="clickCallBack($event)"></i>
