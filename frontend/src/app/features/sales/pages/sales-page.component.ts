@@ -389,24 +389,40 @@ interface TransactionMeta {
               </div>
               <h3 class="text-base font-semibold text-text">All Sales</h3>
             </div>
-            <button
-              type="button"
-              data-testid="export-sales-csv"
-              (click)="exportSalesCsv()"
-              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
-            >
-              <i class="pi pi-download text-xs"></i>
-              Export CSV
-            </button>
-            <button
-              type="button"
-              data-testid="add-sale-btn"
-              (click)="activeTab.set('record')"
-              class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
-            >
-              <i class="pi pi-plus text-xs"></i>
-              Add Sale
-            </button>
+            <div class="flex items-center gap-3">
+              <div class="flex items-center gap-1.5 text-sm text-muted">
+                Show
+                <select
+                  data-testid="txn-page-size-select"
+                  [ngModel]="txnPageSize()"
+                  (ngModelChange)="onTxnPageSizeChange(+$event)"
+                  class="rounded-lg border border-gray-300 py-1 pl-2.5 pr-6 text-sm focus:border-primary focus:outline-none"
+                >
+                  <option [value]="25">25</option>
+                  <option [value]="100">100</option>
+                  <option [value]="500">500</option>
+                </select>
+                entries
+              </div>
+              <button
+                type="button"
+                data-testid="export-sales-csv"
+                (click)="exportSalesCsv()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              >
+                <i class="pi pi-download text-xs"></i>
+                Export CSV
+              </button>
+              <button
+                type="button"
+                data-testid="add-sale-btn"
+                (click)="activeTab.set('record')"
+                class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
+              >
+                <i class="pi pi-plus text-xs"></i>
+                Add Sale
+              </button>
+            </div>
           </div>
 
           <!-- Filter bar -->
@@ -543,6 +559,46 @@ interface TransactionMeta {
               </tbody>
             </table>
           </div>
+
+          <!-- Pagination controls -->
+          @if (txnTotalPages() > 1) {
+            <div class="mt-4 flex items-center justify-between text-sm text-muted">
+              <span>
+                Showing {{ (txnPage() - 1) * txnPageSize() + 1 }}–{{ [txnPage() * txnPageSize(), txnTotal()].sort((a,b)=>a-b)[0] }} of {{ txnTotal() }}
+              </span>
+              <div class="flex items-center gap-1">
+                <button
+                  type="button"
+                  (click)="txnGoToPage(1)"
+                  [disabled]="txnPage() === 1"
+                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="First page"
+                ><i class="pi pi-angle-double-left text-xs"></i></button>
+                <button
+                  type="button"
+                  (click)="txnGoToPage(txnPage() - 1)"
+                  [disabled]="txnPage() === 1"
+                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Previous page"
+                ><i class="pi pi-angle-left text-xs"></i></button>
+                <span class="px-2 font-medium text-text">{{ txnPage() }} / {{ txnTotalPages() }}</span>
+                <button
+                  type="button"
+                  (click)="txnGoToPage(txnPage() + 1)"
+                  [disabled]="txnPage() === txnTotalPages()"
+                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Next page"
+                ><i class="pi pi-angle-right text-xs"></i></button>
+                <button
+                  type="button"
+                  (click)="txnGoToPage(txnTotalPages())"
+                  [disabled]="txnPage() === txnTotalPages()"
+                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Last page"
+                ><i class="pi pi-angle-double-right text-xs"></i></button>
+              </div>
+            </div>
+          }
         </div>
       }
 
@@ -1033,6 +1089,10 @@ export class SalesPageComponent implements OnInit {
 
   // Transaction state
   transactions = signal<SaleTransaction[]>([]);
+  txnTotal = signal(0);
+  txnPage = signal(1);
+  txnPageSize = signal(25);
+  txnTotalPages = computed(() => Math.max(1, Math.ceil(this.txnTotal() / this.txnPageSize())));
 
   // All Sales filter state
   allLocations = signal<Location[]>([]);
@@ -1161,18 +1221,25 @@ export class SalesPageComponent implements OnInit {
   }
 
   private loadTransactions(): void {
-    const params: Record<string, string> = { page_size: '20' };
+    const params: Record<string, string> = {
+      page: String(this.txnPage()),
+      page_size: String(this.txnPageSize()),
+    };
     if (this.filterLocationId) params['location_id'] = this.filterLocationId;
     if (this.filterCustomerId) params['customer_id'] = this.filterCustomerId;
     if (this.filterPaymentStatus) params['payment_status'] = this.filterPaymentStatus;
     if (this.filterDateFrom) params['date_from'] = this.filterDateFrom;
     if (this.filterDateTo) params['date_to'] = this.filterDateTo;
     this.salesService.getTransactions(params).subscribe({
-      next: (r) => this.transactions.set(r.items ?? []),
+      next: (r) => {
+        this.transactions.set(r.items ?? []);
+        this.txnTotal.set(r.total ?? 0);
+      },
     });
   }
 
   applyFilters(): void {
+    this.txnPage.set(1);
     this.loadTransactions();
   }
 
@@ -1182,6 +1249,19 @@ export class SalesPageComponent implements OnInit {
     this.filterPaymentStatus = '';
     this.filterDateFrom = '';
     this.filterDateTo = '';
+    this.txnPage.set(1);
+    this.loadTransactions();
+  }
+
+  txnGoToPage(page: number): void {
+    const p = Math.max(1, Math.min(page, this.txnTotalPages()));
+    this.txnPage.set(p);
+    this.loadTransactions();
+  }
+
+  onTxnPageSizeChange(size: number): void {
+    this.txnPageSize.set(size);
+    this.txnPage.set(1);
     this.loadTransactions();
   }
 
