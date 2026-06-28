@@ -10,8 +10,9 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 
 ### Core Platform
 - **Authentication** -- JWT-based auth with HttpOnly cookie (XSS-safe; no token in localStorage), role-based access (Admin / Sales Manager), account lockout with countdown timer, forgot password flow. API key stored encrypted in the database, not in the browser.
+- **Dashboard** -- KPI summary banner with 8 metrics (Total Sales, Net Profit, Unpaid Sales, Total Purchased, Amount Owed, Monthly Expenses, Customer Returns, Supplier Refunds) via `GET /dashboard/summary`; location dropdown + date-range filter. Below the KPIs: widget row (Cash Health | Order Activity | Profit Margin), FX row (FX Exposure | Global Exposure), and analytics row (Logistics Efficiency | Stock Levels | Smart Suggestions).
 - **Products** -- Full CRUD with categories (two-level hierarchy: parent → sub-category), SKU auto-generation, auto-generated URL slug field, image upload, search/filter, grid/list views, CSV export. Note: `category_id` is NOT NULL — every product must belong to a category. Includes **Price Suggestion** (action menu → Suggest Price): enter a target margin (20–70%), get a recommended sell price based on current landed cost and live FX rate, with suggestion history.
-- **Sales** -- Daily entry with stock validation, CSV bulk upload, edit/delete with audit trail, FIFO cost tracking. Includes **Quick Quote** tab: enter a product + quantity to instantly calculate the FIFO-based minimum sell price at a configurable floor margin.
+- **Sales** -- Daily entry form with stock validation, CSV bulk upload, edit/delete with audit trail, FIFO cost tracking. Transaction detail lives on a dedicated page (`/sales/transactions/:id`) — breadcrumb, header card (customer, date, status badge), payment summary (including optional `payment_amount` and outstanding balance), inline-editable line items, void and audit per item, and an "Edit Payment & Notes" dialog for transaction-level updates. Includes **Quick Quote** tab: enter a product + quantity to instantly calculate the FIFO-based minimum sell price at a configurable floor margin.
 - **Inventory** -- Stock levels, low-stock alerts, batch tracking (FIFO), editable thresholds, depletion forecast with confidence intervals, liquidation candidates
 - **Stock Counts** (`/stock-counts`) -- Physical inventory counting sessions with variance reporting. Create a full stock take by product (vs system stock) or by lot (vs purchase order units remaining). Enter counted quantities per row; system snapshots live stock at finalisation and shows variance with colour-coded badges (green = surplus, red = shrinkage). Sessions are locked read-only after finalisation to preserve the audit trail.
 - **Orders** -- Full lifecycle pipeline (Ordered → Pending → In Production → Shipping → Cleared → Delivered). Pipeline view at the top of `/orders` acts as a filter — click any status chip to show only those orders in the table; click **All** to reset. All fields (sell price, costs, notes, line items) remain editable even after an order is delivered.
@@ -46,8 +47,8 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 | Frontend | Angular 21 (standalone components, Signals), TailwindCSS v4, PrimeNG v21 |
 | AI/ML | Prophet, NumPy/SciPy (Monte Carlo), scikit-learn |
 | Auth | JWT (python-jose), bcrypt (passlib) |
-| Testing | pytest (713 tests), Playwright E2E (312 tests) |
-| Infra | Docker, Docker Compose, Azure Container Apps, Neon PostgreSQL, Vercel, GitHub Actions |
+| Testing | pytest (722 tests), Playwright E2E (312 tests) |
+| Infra | Docker, Docker Compose, Hetzner (SSH), Neon PostgreSQL, Vercel, GitHub Actions |
 
 ---
 
@@ -69,7 +70,7 @@ modishlog/
 │   │   ├── ai_engine/     # Recommendations, USD strategy, reorder
 │   │   └── core/          # Config, database, security, logging
 │   ├── alembic/           # Database migrations
-│   ├── tests/             # 675 pytest tests
+│   ├── tests/             # 722 pytest tests
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/app/
@@ -104,19 +105,24 @@ src/<domain>/
 - PostgreSQL 16
 - Docker & Docker Compose (optional)
 
-### Option 1: Docker Compose
+### Option 1: Docker Compose (recommended)
+
+**Requires [Colima](https://github.com/abiosoft/colima) on macOS.**
 
 ```bash
-# Start all services
-docker compose up -d
-
-# Run migrations
-docker compose exec backend alembic upgrade head
-
-# Access the app
-# Frontend: http://localhost:4200
-# Backend API: http://localhost:8000/docs
+make up       # start all services + run migrations (~4 seconds if images exist)
+make down     # stop everything
+make build    # rebuild images — only needed after requirements.txt / package.json / Dockerfile changes
+make logs     # tail all service logs
+make test     # run backend pytest suite
+make migrate  # run alembic upgrade head manually
+make shell    # open a bash shell inside the backend container
+make recover  # fix corrupted Docker layers (input/output errors during build) — keeps DB volumes
 ```
+
+`make up` handles everything: starts Colima if it isn't running, starts containers, and runs migrations. It will be slow the first time (pulls and builds images) but fast on every subsequent run.
+
+**Only run `make build` when dependencies change** — not on every startup. Running `docker compose up --build` every time is what causes multi-minute startups.
 
 ### Option 2: Local Development
 
@@ -157,32 +163,30 @@ Staging is **live**. Every push to `main` automatically deploys.
 | Component | Service | URL |
 |-----------|---------|-----|
 | Frontend | Vercel | https://modishlog-staging.vercel.app |
-| Backend API | Azure Container Apps | https://modishlog-backend-staging.braverock-8f81d107.germanywestcentral.azurecontainerapps.io |
-| API Docs | Swagger UI (staging) | https://modishlog-backend-staging.braverock-8f81d107.germanywestcentral.azurecontainerapps.io/docs |
+| Backend API | Hetzner server (Docker Compose over SSH) | Set via `STAGING_API_URL` secret |
+| API Docs | Swagger UI (staging) | `$STAGING_API_URL/docs` |
 | Database | Neon PostgreSQL (staging branch, SSL) | — |
-| Migrations | Azure Container Apps Job (`modishlog-migrate-staging`) | — |
 | Registry | GitHub Container Registry (GHCR) | `ghcr.io/sojisoyoye/modishlog/backend:staging` |
 | CI/CD | GitHub Actions | `.github/workflows/deploy-staging.yml` |
 
 ### Deployment pipeline (triggered on every push to `main`)
 
 1. Run `pytest` against a temporary PostgreSQL container — must pass before any deploy step
-2. Build Docker image → push to `ghcr.io/sojisoyoye/modishlog/backend:staging`
-3. Deploy frontend to Vercel (`npm run build:staging` with `STAGING_API_URL` substituted at build time)
-4. Update Azure Container App to the new image SHA
-5. Run Alembic migration job (`alembic upgrade head`) and wait for completion
-6. Health-check `GET /health` until 200 (handles cold-start — scales from 0)
+2. Build Docker image → push to `ghcr.io/sojisoyoye/modishlog/backend:staging-<sha>`
+3. Deploy frontend to Vercel (`npx vercel --prod` — `STAGING_API_URL` substituted via `sed` at build time by `vercel.json` `buildCommand`)
+4. SSH into the Hetzner server: pull the new image, run `alembic upgrade head`, restart the backend container, health-check `GET /health` until 200
 
 ### Architecture notes
 
 - **Database**: Neon PostgreSQL staging branch. Connection string format: `postgresql+asyncpg://user:pass@ep-xxx-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require`. SSL is auto-configured via `connect_args={"ssl": True}`.
-- **Shared CAE**: Azure Container App uses the `cae-heimpath` shared environment (Azure student tier allows only 1 CAE per region per subscription).
-- **Scale to zero**: Backend scales to 0 replicas when idle. Cold-start after inactivity can take 30–60 s. The CI health-check polls for up to 5 min.
+- **Backend host**: Hetzner root server running Docker Compose. The deploy job SSHs in as root, runs `docker-compose pull backend` then `docker-compose up -d --no-deps backend`. Alembic migrations run as a one-off `docker-compose run --rm` before the container swap.
+- **Health-check**: CI polls `GET /health` up to 24 times (5 s apart = 2 min) before marking the deploy failed.
 - **Frontend env injection**: `STAGING_API_URL` is injected by Vercel's `buildCommand` via `sed` into `environment.staging.ts` at build time — it is not a runtime env var.
+- **Azure provisioning scripts**: `infra/azure/setup-staging.sh` is retained for optional Azure Container Apps provisioning but is not used by the current CI pipeline.
 
 ### Environment variables reference
 
-See `.env.staging.example` for the full list. Required GitHub Actions secrets:
+See `docs/deployment.md` for the full provisioning guide and `.env.staging.example` for the variable list. Required GitHub Actions secrets:
 
 | Secret | Purpose |
 |--------|---------|
@@ -190,7 +194,8 @@ See `.env.staging.example` for the full list. Required GitHub Actions secrets:
 | `STAGING_SECRET_KEY` | JWT signing key (`openssl rand -hex 32`) |
 | `STAGING_CORS_ORIGINS` | Allowed frontend origins |
 | `STAGING_API_URL` | Backend URL (also set in Vercel dashboard env vars) |
-| `AZURE_CREDENTIALS` | Azure service principal JSON |
+| `HETZNER_HOST` | IPv4 address of the Hetzner server |
+| `HETZNER_SSH_KEY` | Private SSH key for root access to the Hetzner server |
 | `GHCR_TOKEN` | GitHub PAT (packages:read + packages:write) |
 | `VERCEL_TOKEN` | Vercel API token |
 | `VERCEL_ORG_ID` | Vercel org ID |
@@ -200,10 +205,9 @@ See `.env.staging.example` for the full list. Required GitHub Actions secrets:
 
 ```bash
 # 1. Create Neon project → staging branch → get pooled connection string
-# 2. Set all GitHub Actions secrets (see table above + .env.staging.example)
-# 3. Set STAGING_API_URL in Vercel project dashboard (Settings → Environment Variables)
-# 4. Provision Azure resources:
-bash infra/azure/setup-staging.sh
+# 2. Provision a Hetzner server, install Docker + Docker Compose, place docker-compose.staging.yml
+# 3. Set all GitHub Actions secrets (see table above + .env.staging.example)
+# 4. Set STAGING_API_URL in Vercel project dashboard (Settings → Environment Variables)
 # 5. Push to main — CI/CD handles the rest
 ```
 
@@ -220,8 +224,9 @@ Interactive API docs are available at:
 | Module | Endpoints |
 |--------|-----------|
 | Auth | `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, `POST /auth/forgot-password`, `POST /auth/reset-password` |
+| Dashboard | `GET /dashboard/summary` |
 | Products | `GET/POST /products`, `PUT/DELETE /products/{id}`, `POST /products/{id}/image`, `GET/POST /products/categories` |
-| Sales | `GET/POST /sales`, `PUT/DELETE /sales/{id}`, `POST /sales/upload`, `POST /sales/quick-quote`, `GET /sales/summary` |
+| Sales | `GET/POST /sales`, `PUT/DELETE /sales/{id}`, `POST /sales/upload`, `POST /sales/quick-quote`, `GET /sales/summary`, `POST /sales/daily-entry`, `GET /sales/transactions/{id}`, `PUT /sales/transactions/{id}` |
 | Inventory | `GET /inventory`, `POST /inventory/{id}/adjust`, `PUT /inventory/{id}/threshold`, `GET /inventory/batches`, `GET /inventory/batches/liquidation-candidates` |
 | Orders | `GET/POST /orders`, `PUT /orders/{id}`, `PUT /orders/{id}/status`, `GET /orders/{id}/lots`, `GET /orders/logistics-efficiency`, `GET /orders/summary` |
 | FX | `POST /fx/rates/ingest`, `GET /fx/rates/current`, `GET /fx/live`, `GET /fx/rates/{pair}/history`, `POST /fx/alerts`, `POST /fx/simulate`, `POST /fx/forecast/generate` |
@@ -259,7 +264,7 @@ Interactive API docs are available at:
 cd backend
 UPLOAD_DIR=/tmp/modishlog_uploads .venv/bin/pytest tests/ -v
 ```
-713 tests covering all services, endpoints, and business logic.
+722 tests covering all services, endpoints, and business logic.
 
 ### Frontend E2E (Playwright)
 ```bash

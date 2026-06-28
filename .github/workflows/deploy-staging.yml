@@ -40,7 +40,7 @@ jobs:
         working-directory: backend
         env:
           DATABASE_URL: postgresql+asyncpg://modishlog:test_password@localhost/modishlog_test
-          SECRET_KEY: test-secret-key-for-ci
+          SECRET_KEY: test-secret-key-for-ci-placeholder-32chars
           ENVIRONMENT: test
           UPLOAD_DIR: /tmp/uploads
 
