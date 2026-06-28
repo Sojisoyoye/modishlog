@@ -5,7 +5,6 @@ import { Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
-import { DatePicker } from 'primeng/datepicker';
 import {
   SalesService,
   SaleRecord,
@@ -38,7 +37,7 @@ interface TransactionMeta {
 @Component({
   selector: 'app-sales-page',
   standalone: true,
-  imports: [FormsModule, DatePipe, CurrencyPipe, Toast, Dialog, DatePicker],
+  imports: [FormsModule, DatePipe, CurrencyPipe, Toast, Dialog],
   template: `
     <p-toast />
     <div>
@@ -390,11 +389,11 @@ interface TransactionMeta {
             class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
           >
             <i class="pi pi-filter text-xs"></i> Filters
-            @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateRange?.length) {
+            @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateFrom || filterDateTo) {
               <span class="ml-0.5 h-1.5 w-1.5 rounded-full bg-primary"></span>
             }
           </button>
-          @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateRange?.length) {
+          @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateFrom || filterDateTo) {
             <button (click)="clearFilters()" class="flex items-center gap-1 text-xs text-muted hover:text-danger">
               <i class="pi pi-times text-[10px]"></i> Clear filters
             </button>
@@ -443,21 +442,19 @@ interface TransactionMeta {
               </div>
               <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium text-muted">Date Range</label>
-                <p-datepicker
-                  [(ngModel)]="filterDateRange"
-                  selectionMode="range"
-                  [readonlyInput]="true"
-                  placeholder="Select date range"
-                  [showButtonBar]="true"
-                  [iconDisplay]="'input'"
-                  [showIcon]="true"
-                  dateFormat="dd/mm/yy"
-                  appendTo="body"
-                >
-                  <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
-                    <i class="pi pi-calendar cursor-pointer" (click)="clickCallBack($event)"></i>
-                  </ng-template>
-                </p-datepicker>
+                <div class="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    [(ngModel)]="filterDateFrom"
+                    class="rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <span class="text-xs text-muted">–</span>
+                  <input
+                    type="date"
+                    [(ngModel)]="filterDateTo"
+                    class="rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
               </div>
               <button
                 type="button"
@@ -1132,10 +1129,8 @@ export class SalesPageComponent implements OnInit {
   filterLocationId = '';
   filterCustomerId = '';
   filterPaymentStatus = '';
-  filterDateRange: Date[] | null = null;
-  // Derived from filterDateRange for API calls
-  private filterDateFrom = '';
-  private filterDateTo = '';
+  filterDateFrom = '';
+  filterDateTo = '';
   showSalesFilters = false;
 
   txnShowingFrom = computed(() => this.txnTotal() === 0 ? 0 : (this.txnPage() - 1) * this.txnPageSize() + 1);
@@ -1294,9 +1289,6 @@ export class SalesPageComponent implements OnInit {
   }
 
   applyFilters(): void {
-    const range = this.filterDateRange;
-    this.filterDateFrom = range?.[0] ? this.toLocalDateString(range[0]) : '';
-    this.filterDateTo = range?.[1] ? this.toLocalDateString(range[1]) : '';
     this.txnPage.set(1);
     this.loadTransactions();
   }
@@ -1305,19 +1297,11 @@ export class SalesPageComponent implements OnInit {
     this.filterLocationId = '';
     this.filterCustomerId = '';
     this.filterPaymentStatus = '';
-    this.filterDateRange = null;
     this.filterDateFrom = '';
     this.filterDateTo = '';
     this.txnPage.set(1);
     this.cdr.markForCheck();
     this.loadTransactions();
-  }
-
-  private toLocalDateString(d: Date): string {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
   }
 
   txnGoToPage(page: number): void {
