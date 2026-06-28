@@ -401,11 +401,11 @@ interface TransactionMeta {
             class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
           >
             <i class="pi pi-filter text-xs"></i> Filters
-            @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateFrom || filterDateTo) {
+            @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateRange?.length) {
               <span class="ml-0.5 h-1.5 w-1.5 rounded-full bg-primary"></span>
             }
           </button>
-          @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateFrom || filterDateTo) {
+          @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateRange?.length) {
             <button (click)="clearFilters()" class="flex items-center gap-1 text-xs text-muted hover:text-danger">
               <i class="pi pi-times text-[10px]"></i> Clear filters
             </button>
@@ -454,19 +454,21 @@ interface TransactionMeta {
               </div>
               <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium text-muted">Date Range</label>
-                <div class="flex min-w-[240px] items-center gap-1 rounded-lg border border-gray-300 bg-white px-2.5 py-2">
-                  <input
-                    type="date"
-                    [(ngModel)]="filterDateFrom"
-                    class="flex-1 border-0 bg-transparent p-0 text-sm text-text focus:outline-none"
-                  />
-                  <span class="shrink-0 text-xs text-muted">–</span>
-                  <input
-                    type="date"
-                    [(ngModel)]="filterDateTo"
-                    class="flex-1 border-0 bg-transparent p-0 text-sm text-text focus:outline-none"
-                  />
-                </div>
+                <p-datepicker
+                  [(ngModel)]="filterDateRange"
+                  selectionMode="range"
+                  [readonlyInput]="true"
+                  placeholder="Select date range"
+                  [showButtonBar]="true"
+                  [iconDisplay]="'input'"
+                  [showIcon]="true"
+                  dateFormat="dd/mm/yy"
+                  appendTo="body"
+                >
+                  <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
+                    <i class="pi pi-calendar cursor-pointer text-muted" (click)="clickCallBack($event)"></i>
+                  </ng-template>
+                </p-datepicker>
               </div>
               <button
                 type="button"
@@ -1146,8 +1148,9 @@ export class SalesPageComponent implements OnInit {
   filterLocationId = '';
   filterCustomerId = '';
   filterPaymentStatus = '';
-  filterDateFrom = '';
-  filterDateTo = '';
+  filterDateRange: Date[] | null = null;
+  private filterDateFrom = '';
+  private filterDateTo = '';
   showSalesFilters = false;
 
   txnShowingFrom = computed(() => this.txnTotal() === 0 ? 0 : (this.txnPage() - 1) * this.txnPageSize() + 1);
@@ -1306,6 +1309,9 @@ export class SalesPageComponent implements OnInit {
   }
 
   applyFilters(): void {
+    const range = this.filterDateRange;
+    this.filterDateFrom = range?.[0] ? this.toLocalDateString(range[0]) : '';
+    this.filterDateTo = range?.[1] ? this.toLocalDateString(range[1]) : '';
     this.txnPage.set(1);
     this.loadTransactions();
   }
@@ -1314,6 +1320,7 @@ export class SalesPageComponent implements OnInit {
     this.filterLocationId = '';
     this.filterCustomerId = '';
     this.filterPaymentStatus = '';
+    this.filterDateRange = null;
     this.filterDateFrom = '';
     this.filterDateTo = '';
     this.txnPage.set(1);

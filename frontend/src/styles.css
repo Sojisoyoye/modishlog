@@ -33,6 +33,16 @@ body {
   margin: 0;
   background-color: var(--color-background);
   color: var(--color-text);
+  /* Body never needs its own scrollbar — <main> is the scroll container.
+     Hiding overflow here prevents the body scrollbar from flashing when
+     PrimeNG overlays are appended to body, which was causing the page shake. */
+  overflow: hidden;
+}
+
+/* Reserve the scrollbar gutter on the real scroll container so that
+   adding/removing the scrollbar never causes a content-width shift. */
+#main-content {
+  scrollbar-gutter: stable;
 }
 
 /* Remove number input spinners */
