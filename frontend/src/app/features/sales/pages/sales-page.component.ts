@@ -581,7 +581,7 @@ interface TransactionMeta {
                       [class.text-yellow-700]="txn.payment_status === 'partial'"
                       [class.bg-amber-100]="txn.payment_status === 'credit'"
                       [class.text-amber-700]="txn.payment_status === 'credit'"
-                    >{{ txn.payment_status === 'credit' ? 'Due' : (txn.payment_status || 'paid') }}</span>
+                    >{{ formatPaymentStatus(txn.payment_status) }}</span>
                   </td>
                   <td class="whitespace-nowrap px-4 py-3 text-right font-semibold">
                     {{ txn.total_amount | currency: (txn.currency || 'NGN') : 'symbol' : '1.0-0' }}
@@ -1131,7 +1131,11 @@ export class SalesPageComponent implements OnInit {
 
   // Transaction-level customer + payment meta (shared across all rows in one submission)
   txnMeta: TransactionMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_date: null, payment_status: 'paid' };
-  paymentDateObj: Date | null = null;
+  paymentDate = signal<string | null>(null);
+  paymentDateObj = computed(() => {
+    const s = this.paymentDate();
+    return s ? new Date(s + 'T00:00:00') : null;
+  });
 
   // CSV upload state
   selectedFile = signal<File | null>(null);
@@ -1152,8 +1156,6 @@ export class SalesPageComponent implements OnInit {
   filterCustomerId = '';
   filterPaymentStatus = '';
   filterDateRange: Date[] | null = null;
-  private filterDateFrom = '';
-  private filterDateTo = '';
   showSalesFilters = false;
 
   txnShowingFrom = computed(() => this.txnTotal() === 0 ? 0 : (this.txnPage() - 1) * this.txnPageSize() + 1);
@@ -1220,7 +1222,6 @@ export class SalesPageComponent implements OnInit {
         this.productMap.set(map);
       },
     });
-    this.loadHistory();
     this.loadInventory();
     this.loadTransactions();
     this.loadCustomers();
@@ -1294,8 +1295,9 @@ export class SalesPageComponent implements OnInit {
     if (this.filterLocationId) params['location_id'] = this.filterLocationId;
     if (this.filterCustomerId) params['customer_id'] = this.filterCustomerId;
     if (this.filterPaymentStatus) params['payment_status'] = this.filterPaymentStatus;
-    if (this.filterDateFrom) params['date_from'] = this.filterDateFrom;
-    if (this.filterDateTo) params['date_to'] = this.filterDateTo;
+    const range = this.filterDateRange;
+    if (range?.[0]) params['date_from'] = this.toLocalDateString(range[0]);
+    if (range?.[1]) params['date_to'] = this.toLocalDateString(range[1]);
     this.salesService.getTransactions(params).subscribe({
       next: (r) => {
         this.transactions.set(r.items ?? []);
@@ -1313,16 +1315,9 @@ export class SalesPageComponent implements OnInit {
 
   onFilterDateRangeChange(range: Date[] | null): void {
     this.filterDateRange = range;
-    if (!range) {
-      this.filterDateFrom = '';
-      this.filterDateTo = '';
-    }
   }
 
   applyFilters(): void {
-    const range = this.filterDateRange;
-    this.filterDateFrom = range?.[0] ? this.toLocalDateString(range[0]) : '';
-    this.filterDateTo = range?.[1] ? this.toLocalDateString(range[1]) : '';
     this.txnPage.set(1);
     this.loadTransactions();
   }
@@ -1332,8 +1327,6 @@ export class SalesPageComponent implements OnInit {
     this.filterCustomerId = '';
     this.filterPaymentStatus = '';
     this.filterDateRange = null;
-    this.filterDateFrom = '';
-    this.filterDateTo = '';
     this.txnPage.set(1);
     this.cdr.markForCheck();
     this.loadTransactions();
@@ -1344,8 +1337,9 @@ export class SalesPageComponent implements OnInit {
   }
 
   onPaymentDateChange(d: Date | null): void {
-    this.paymentDateObj = d;
-    this.txnMeta.payment_date = d ? this.toLocalDateString(d) : null;
+    const s = d ? this.toLocalDateString(d) : null;
+    this.paymentDate.set(s);
+    this.txnMeta.payment_date = s;
   }
 
   private toLocalDateString(d: Date): string {
@@ -1428,6 +1422,11 @@ export class SalesPageComponent implements OnInit {
     return 'INV-' + transactionId.replace(/-/g, '').slice(0, 8).toUpperCase();
   }
 
+  formatPaymentStatus(status?: string | null): string {
+    const map: Record<string, string> = { paid: 'Paid', partial: 'Partial', credit: 'Due' };
+    return map[status ?? 'paid'] ?? status ?? 'Paid';
+  }
+
   formatPaymentMethod(method?: string | null): string {
     if (!method) return '—';
     const map: Record<string, string> = {
@@ -1481,7 +1480,7 @@ export class SalesPageComponent implements OnInit {
         this.submitting.set(false);
         this.entryRows.set([this.newRow()]);
         this.txnMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_date: null, payment_status: 'paid' };
-        this.paymentDateObj = null;
+        this.paymentDate.set(null);
         this.messageService.add({
           severity: 'success',
           summary: 'Success',
@@ -1531,7 +1530,6 @@ export class SalesPageComponent implements OnInit {
           summary: 'Updated',
           detail: 'Sale updated successfully',
         });
-        this.loadHistory();
         this.loadInventory();
         this.loadTransactions();
       },
@@ -1570,7 +1568,6 @@ export class SalesPageComponent implements OnInit {
           summary: 'Voided',
           detail: 'Sale voided and inventory restored',
         });
-        this.loadHistory();
         this.loadInventory();
         this.loadTransactions();
       },
@@ -1727,7 +1724,7 @@ export class SalesPageComponent implements OnInit {
       'Invoice No.': this.invoiceNo(txn.transaction_id),
       Customer: txn.customer_name ?? '',
       Contact: txn.contact_number ?? '',
-      'Payment Status': txn.payment_status ?? 'paid',
+      'Payment Status': this.formatPaymentStatus(txn.payment_status),
       'Total Amount': Number(txn.total_amount),
       Method: this.formatPaymentMethod(txn.payment_method),
       'Total Paid': Number(txn.total_paid),
