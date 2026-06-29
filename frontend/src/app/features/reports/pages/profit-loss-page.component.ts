@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, OnInit, DestroyRef } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { catchError, of } from 'rxjs';
@@ -127,6 +128,7 @@ export class ProfitLossPageComponent implements OnInit {
   private readonly reportsService = inject(ReportsService);
   private readonly settingsService = inject(SettingsService);
   private readonly messageService = inject(MessageService);
+  private readonly destroyRef = inject(DestroyRef);
 
   startDate = '';
   endDate = '';
@@ -136,7 +138,10 @@ export class ProfitLossPageComponent implements OnInit {
   ngOnInit(): void {
     this.settingsService
       .getFiscalYearStart()
-      .pipe(catchError(() => of({ fiscal_year_start_month: null, fiscal_year_start_day: null })))
+      .pipe(
+        catchError(() => of({ fiscal_year_start_month: null, fiscal_year_start_day: null })),
+        takeUntilDestroyed(this.destroyRef),
+      )
       .subscribe((fy) => {
         const { start, end } = computeDefaultDateRange(
           fy.fiscal_year_start_month,

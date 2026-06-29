@@ -1,5 +1,8 @@
 function toDateString(d: Date): string {
-  return d.toISOString().split('T')[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 /**
@@ -13,7 +16,7 @@ export function computeDefaultDateRange(
   const today = new Date();
   const end = toDateString(today);
 
-  if (!month || !day) {
+  if (month === null || day === null) {
     const yearAgo = new Date(today);
     yearAgo.setFullYear(today.getFullYear() - 1);
     return { start: toDateString(yearAgo), end };
