@@ -12,7 +12,7 @@
 | `--color-primary` | `#059669` | CTA buttons, active states, links |
 | `--color-primary-light` | `#ECFDF5` | Button hover tints, icon badge backgrounds |
 | `--color-secondary` | `#047857` | Button hover, secondary actions |
-| `--color-success` | `#059669` | Positive indicators |
+| `--color-success` | `#16a34a` | Positive indicators |
 | `--color-warning` | `#D97706` | Caution states |
 | `--color-danger` | `#DC2626` | Errors, destructive actions |
 | `--color-info` | `#2563EB` | Informational |

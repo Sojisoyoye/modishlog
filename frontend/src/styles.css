@@ -11,7 +11,7 @@
   --color-primary: #059669;
   --color-primary-light: #ECFDF5;
   --color-secondary: #047857;
-  --color-success: #059669;
+  --color-success: #16a34a;
   --color-warning: #D97706;
   --color-danger: #DC2626;
   --color-info: #2563EB;
@@ -69,12 +69,12 @@ input[type="number"] {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #a7f3d0;
+  background: #6b7280;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #6ee7b7;
+  background: #4b5563;
 }
 
 /* Loading skeleton */

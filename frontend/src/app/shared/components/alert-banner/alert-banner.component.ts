@@ -49,21 +49,21 @@ export class AlertBannerComponent {
 
   bannerClass = computed(() => {
     const classes: Record<string, string> = {
-      info: 'border-l-secondary bg-blue-50',
+      info: 'border-l-info bg-blue-50',
       success: 'border-l-success bg-green-50',
       warning: 'border-l-warning bg-amber-50',
       danger: 'border-l-danger bg-red-50',
     };
-    return classes[this.severity()] ?? 'border-l-secondary bg-blue-50';
+    return classes[this.severity()] ?? 'border-l-info bg-blue-50';
   });
 
   iconClass = computed(() => {
     const icons: Record<string, string> = {
-      info: 'pi pi-info-circle text-lg text-secondary',
+      info: 'pi pi-info-circle text-lg text-info',
       success: 'pi pi-check-circle text-lg text-success',
       warning: 'pi pi-exclamation-triangle text-lg text-warning',
       danger: 'pi pi-times-circle text-lg text-danger',
     };
-    return icons[this.severity()] ?? 'pi pi-info-circle text-lg text-secondary';
+    return icons[this.severity()] ?? 'pi pi-info-circle text-lg text-info';
   });
 }
