@@ -1,4 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { forkJoin } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -349,28 +350,20 @@ export class InventoryPageComponent implements OnInit {
 
   private loadData(): void {
     this.pageLoading.set(true);
-    this.productsService.getAll().subscribe({
-      next: (products) => {
+    forkJoin({
+      products: this.productsService.getAll(),
+      inventory: this.inventoryService.getCurrent(),
+      movements: this.inventoryService.getMovements(),
+    }).subscribe({
+      next: ({ products, inventory, movements }) => {
         const nameMap = new Map(products.map((p) => [p.id, p.name]));
-        this.inventoryService.getCurrent().subscribe({
-          next: (items) => {
-            items.forEach((item) => (item.product_name = nameMap.get(item.product_id) ?? 'Unknown'));
-            this.inventory.set(items);
-            this.pageLoading.set(false);
-          },
-          error: () => { this.pageLoading.set(false); },
-        });
-        this.inventoryService.getMovements().subscribe({
-          next: (movements) => {
-            movements.forEach((m) => (m.product_name = nameMap.get(m.product_id) ?? 'Unknown'));
-            this.movements.set(movements);
-          },
-          error: () => {
-            // movements are non-critical; silently clear on failure
-            this.movements.set([]);
-          },
-        });
+        inventory.forEach((item) => (item.product_name = nameMap.get(item.product_id) ?? 'Unknown'));
+        movements.forEach((m) => (m.product_name = nameMap.get(m.product_id) ?? 'Unknown'));
+        this.inventory.set(inventory);
+        this.movements.set(movements);
+        this.pageLoading.set(false);
       },
+      error: () => { this.pageLoading.set(false); },
     });
   }
 

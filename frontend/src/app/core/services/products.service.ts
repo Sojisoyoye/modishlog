@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, forkJoin } from 'rxjs';
-import { map, switchMap } from 'rxjs/operators';
+import { Observable, forkJoin, shareReplay } from 'rxjs';
+import { map, switchMap, tap } from 'rxjs/operators';
 import { ApiService } from './api.service';
 import { environment } from '../../../environments/environment';
 
@@ -80,23 +80,35 @@ export class ProductsService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = environment.apiBaseUrl;
 
+  private allCache$: Observable<Product[]> | null = null;
+  private categoriesCache$: Observable<Category[]> | null = null;
+
+  private invalidateCache(): void {
+    this.allCache$ = null;
+    this.categoriesCache$ = null;
+  }
+
   getAll(): Observable<Product[]> {
-    return this.api
-      .get<ProductListResponse>('/products', { page_size: '100', page: '1' })
-      .pipe(
-        switchMap((first) => {
-          const items = first.items ?? [];
-          const total = first.total ?? items.length;
-          if (total <= 100) return [items];
-          const pageCount = Math.ceil(total / 100);
-          const rest$ = Array.from({ length: pageCount - 1 }, (_, i) =>
-            this.api
-              .get<ProductListResponse>('/products', { page_size: '100', page: String(i + 2) })
-              .pipe(map((r) => r.items ?? [])),
-          );
-          return forkJoin(rest$).pipe(map((pages) => [...items, ...pages.flat()]));
-        }),
-      );
+    if (!this.allCache$) {
+      this.allCache$ = this.api
+        .get<ProductListResponse>('/products', { page_size: '100', page: '1' })
+        .pipe(
+          switchMap((first) => {
+            const items = first.items ?? [];
+            const total = first.total ?? items.length;
+            if (total <= 100) return [items];
+            const pageCount = Math.ceil(total / 100);
+            const rest$ = Array.from({ length: pageCount - 1 }, (_, i) =>
+              this.api
+                .get<ProductListResponse>('/products', { page_size: '100', page: String(i + 2) })
+                .pipe(map((r) => r.items ?? [])),
+            );
+            return forkJoin(rest$).pipe(map((pages) => [...items, ...pages.flat()]));
+          }),
+          shareReplay(1),
+        );
+    }
+    return this.allCache$;
   }
 
   getById(id: string): Observable<Product> {
@@ -104,31 +116,48 @@ export class ProductsService {
   }
 
   getCategories(): Observable<Category[]> {
-    return this.api.get<Category[]>('/products/categories');
+    if (!this.categoriesCache$) {
+      this.categoriesCache$ = this.api
+        .get<Category[]>('/products/categories')
+        .pipe(shareReplay(1));
+    }
+    return this.categoriesCache$;
   }
 
   createCategory(body: CategoryCreate): Observable<Category> {
-    return this.api.post<Category>('/products/categories', body);
+    return this.api.post<Category>('/products/categories', body).pipe(
+      tap(() => this.invalidateCache()),
+    );
   }
 
   deleteCategory(id: string): Observable<void> {
-    return this.api.delete<void>(`/products/categories/${id}`);
+    return this.api.delete<void>(`/products/categories/${id}`).pipe(
+      tap(() => this.invalidateCache()),
+    );
   }
 
   updateCategory(id: string, body: CategoryUpdate): Observable<Category> {
-    return this.api.patch<Category>(`/products/categories/${id}`, body);
+    return this.api.patch<Category>(`/products/categories/${id}`, body).pipe(
+      tap(() => this.invalidateCache()),
+    );
   }
 
   create(body: ProductCreate): Observable<Product> {
-    return this.api.post<Product>('/products', body);
+    return this.api.post<Product>('/products', body).pipe(
+      tap(() => this.invalidateCache()),
+    );
   }
 
   update(id: string, body: ProductUpdate): Observable<Product> {
-    return this.api.put<Product>(`/products/${id}`, body);
+    return this.api.put<Product>(`/products/${id}`, body).pipe(
+      tap(() => this.invalidateCache()),
+    );
   }
 
   delete(id: string): Observable<void> {
-    return this.api.delete<void>(`/products/${id}`);
+    return this.api.delete<void>(`/products/${id}`).pipe(
+      tap(() => this.invalidateCache()),
+    );
   }
 
   bulkUpload(file: File): Observable<BulkUploadResult> {

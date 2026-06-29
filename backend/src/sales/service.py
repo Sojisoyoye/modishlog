@@ -835,14 +835,27 @@ async def list_transactions(
     )
     txn_ids = [row[0] for row in txn_id_rows.all()]
 
-    transactions = []
-    for txn_id in txn_ids:
-        result = await db.execute(
-            select(Sale).where(Sale.transaction_id == txn_id).order_by(Sale.created_at)
-        )
-        items = list(result.scalars().all())
-        transactions.append(_build_transaction_read(txn_id, items))
+    if not txn_ids:
+        return [], total
 
+    # Single IN query instead of one query per transaction (eliminates N+1)
+    bulk_result = await db.execute(
+        select(Sale)
+        .where(Sale.transaction_id.in_(txn_ids))
+        .order_by(Sale.transaction_id, Sale.created_at)
+    )
+    all_items = bulk_result.scalars().all()
+
+    # Group by transaction_id in Python
+    txn_map: dict[uuid.UUID, list[Sale]] = {}
+    for item in all_items:
+        txn_map.setdefault(item.transaction_id, []).append(item)
+
+    # Preserve the page ordering (min created_at desc) from txn_ids
+    transactions = [
+        _build_transaction_read(txn_id, txn_map.get(txn_id, []))
+        for txn_id in txn_ids
+    ]
     return transactions, total
 
 
