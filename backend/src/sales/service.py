@@ -814,7 +814,8 @@ async def list_transactions(
     if customer_id is not None:
         base_where.append(Sale.customer_id == customer_id)
     if customer_name is not None:
-        base_where.append(Sale.customer_name.ilike(f"%{customer_name}%"))
+        escaped = customer_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        base_where.append(Sale.customer_name.ilike(f"%{escaped}%"))
     if payment_status is not None:
         base_where.append(Sale.payment_status == payment_status)
     if date_from is not None:

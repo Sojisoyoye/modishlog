@@ -147,3 +147,42 @@ test('Stock History dialog shows movement type after stock adjustment', async ({
   await expect(dialog).toContainText('Manual Add', { timeout: 15_000 });
   await expect(dialog).toContainText('+10');
 });
+
+// ---------------------------------------------------------------------------
+// Search
+// ---------------------------------------------------------------------------
+
+test('search bar is visible on inventory page', async ({ page }) => {
+  await expect(page.getByPlaceholder('Search product...')).toBeVisible();
+});
+
+test('typing in search filters inventory rows', async ({ page }) => {
+  const product = await ensureProduct(`E2E Search ${Date.now()}`);
+  await addStock(product.id, 5);
+
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible();
+
+  const searchInput = page.getByPlaceholder('Search product...');
+  await expect(searchInput).toBeVisible();
+
+  await searchInput.fill(product.name);
+  await expect(page.getByRole('row').filter({ hasText: product.name })).toBeVisible({ timeout: 5_000 });
+
+  // Rows not matching the search should be hidden
+  await searchInput.fill('zzz_no_match_xyz');
+  await expect(page.getByText('No inventory data')).toBeVisible({ timeout: 5_000 });
+});
+
+// ---------------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------------
+
+test('pagination controls are visible when inventory has items', async ({ page }) => {
+  // The showing text is only rendered when filteredInventory.length > 0
+  const rows = page.getByRole('row').filter({ hasText: /\w/ });
+  const rowCount = await rows.count();
+  if (rowCount > 0) {
+    await expect(page.getByText(/Showing \d+/)).toBeVisible();
+  }
+});

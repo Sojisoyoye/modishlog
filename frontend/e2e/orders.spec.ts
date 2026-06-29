@@ -192,3 +192,27 @@ test.describe('Create Order flow', () => {
     await expect(page.getByText('E2E Test Supplier').first()).toBeVisible({ timeout: 5_000 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------------
+
+test.describe('Orders pagination', () => {
+  test('shows pagination controls when orders exist', async ({ page }) => {
+    const rows = page.getByRole('row').filter({ hasText: /\w/ });
+    const rowCount = await rows.count();
+    if (rowCount > 0) {
+      await expect(page.getByText(/Showing \d+/)).toBeVisible();
+      await expect(page.getByRole('button', { name: /chevron/ }).first()).toBeVisible();
+    }
+  });
+
+  test('previous page button is disabled on page 1', async ({ page }) => {
+    const rows = page.getByRole('row').filter({ hasText: /\w/ });
+    const rowCount = await rows.count();
+    if (rowCount > 0) {
+      const prevButton = page.locator('button:has(.pi-chevron-left)').first();
+      await expect(prevButton).toBeDisabled();
+    }
+  });
+});

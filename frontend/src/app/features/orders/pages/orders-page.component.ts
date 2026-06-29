@@ -70,7 +70,7 @@ import { FxService } from '../../../core/services/fx.service';
               : 'border-gray-200 bg-white text-muted hover:border-secondary/50 hover:text-text'"
           >
             {{ statusLabel[status] }}
-            <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-bold text-text">{{ ordersByStatus(status).length }}</span>
+            <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-bold text-text">{{ statusCounts()[status] ?? 0 }}</span>
           </button>
         }
       </div>
@@ -791,6 +791,7 @@ export class OrdersPageComponent implements OnInit {
 
   pageLoading = signal(true);
   orders = signal<Order[]>([]);
+  statusCounts = signal<Record<string, number>>({});
   ordersTotal = signal(0);
   ordersPage = signal(1);
   ordersPageSize = signal(20);
@@ -904,7 +905,14 @@ export class OrdersPageComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadOrders();
+    this.loadStatusCounts();
     this.productsService.getAll().subscribe({ next: (p) => this.products.set(p) });
+  }
+
+  private loadStatusCounts(): void {
+    this.ordersService.getStatusCounts().subscribe({
+      next: (counts) => this.statusCounts.set(counts),
+    });
   }
 
   private loadOrders(): void {

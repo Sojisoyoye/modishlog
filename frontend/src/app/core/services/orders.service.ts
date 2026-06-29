@@ -159,6 +159,10 @@ export class OrdersService {
     );
   }
 
+  getStatusCounts(): Observable<Record<string, number>> {
+    return this.api.get<Record<string, number>>('/orders/status-counts');
+  }
+
   getById(id: string): Observable<OrderDetail> {
     return this.api.get<OrderDetail>(`/orders/${id}`).pipe(map(coerceOrderDetail));
   }

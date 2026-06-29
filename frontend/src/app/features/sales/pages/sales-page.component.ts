@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy, ChangeDetectorRef, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, ChangeDetectorRef, DestroyRef, inject, signal, computed, OnInit } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, CurrencyPipe } from '@angular/common';
 import { Router } from '@angular/router';
@@ -6,7 +7,7 @@ import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
 import { DatePicker } from 'primeng/datepicker';
-import { forkJoin } from 'rxjs';
+import { Subject, debounceTime, forkJoin } from 'rxjs';
 import {
   SalesService,
   SaleRecord,
@@ -1134,6 +1135,8 @@ export class SalesPageComponent implements OnInit {
   private readonly locationsService = inject(LocationsService);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly searchSubject = new Subject<string>();
 
   products = signal<Product[]>([]);
   history = signal<SaleRecord[]>([]);
@@ -1259,6 +1262,11 @@ export class SalesPageComponent implements OnInit {
     this.loadTransactions();
     this.loadCustomers();
     this.loadLocations();
+    this.searchSubject.pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef)).subscribe((value) => {
+      this.txnSearch.set(value);
+      this.txnPage.set(1);
+      this.loadTransactions();
+    });
   }
 
   private loadInventory(): void {
@@ -1400,9 +1408,7 @@ export class SalesPageComponent implements OnInit {
   }
 
   onTxnSearch(value: string): void {
-    this.txnSearch.set(value);
-    this.txnPage.set(1);
-    this.loadTransactions();
+    this.searchSubject.next(value);
   }
 
   private loadLocations(): void {

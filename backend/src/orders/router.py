@@ -56,6 +56,7 @@ from src.orders.service import (
     create_purchase_return,
     get_logistics_efficiency,
     get_order,
+    get_order_status_counts,
     get_orders_summary,
     get_overdue_orders,
     get_paid_totals_for_orders,
@@ -214,6 +215,12 @@ async def import_orders_endpoint(
     return await import_orders_from_file(
         db, file_bytes, file.filename or "upload.csv", current_user.id
     )
+
+
+@router.get("/status-counts", response_model=dict[str, int])
+async def order_status_counts_endpoint(db: AsyncSession = Depends(get_db)):
+    """Return count of orders per status for pipeline card badges."""
+    return await get_order_status_counts(db)
 
 
 @router.get("/logistics-efficiency", response_model=LogisticsEfficiencyResponse)
