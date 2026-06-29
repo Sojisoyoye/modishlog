@@ -253,6 +253,15 @@ interface ElasticityEntry {
             <i class="pi pi-sparkles text-sm text-warning"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Pricing Recommendations</h3>
+          <button
+            type="button"
+            (click)="refreshPricingRecs()"
+            [disabled]="recsGenerating()"
+            class="ml-auto flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text disabled:opacity-50"
+          >
+            <i class="pi text-xs" [class]="recsGenerating() ? 'pi-spinner pi-spin' : 'pi-refresh'"></i>
+            {{ recsGenerating() ? 'Generating…' : 'Refresh' }}
+          </button>
         </div>
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           @for (rec of pricingRecs(); track rec.id) {
@@ -282,7 +291,13 @@ interface ElasticityEntry {
               </div>
             </div>
           } @empty {
-            <p class="col-span-2 py-4 text-center text-muted">No pricing recommendations</p>
+            <div class="col-span-2 py-8 text-center">
+              <i class="pi pi-sparkles mb-2 block text-2xl text-gray-300"></i>
+              <p class="text-sm text-muted">No recommendations yet.</p>
+              <p class="mt-1 text-xs text-muted">
+                Click <span class="font-medium">Refresh</span> to generate AI pricing suggestions for below-target products.
+              </p>
+            </div>
           }
         </div>
       </div>
@@ -1146,6 +1161,7 @@ export class PricingPageComponent implements OnInit {
   });
 
   pricingRecs = signal<Recommendation[]>([]);
+  recsGenerating = signal(false);
   distributionChart = signal<unknown>(null);
 
   // Task 32: Cross-subsidisation
@@ -1219,28 +1235,29 @@ export class PricingPageComponent implements OnInit {
     const ratio = above.length / total;
     const topProduct = above[0]?.product_name ?? '';
     const worstProduct = below[0]?.product_name ?? '';
+    const worstMargin = below[0] != null ? below[0].margin_pct.toFixed(1) : null;
     const target = this.marginData().target_margin;
     let level: 'high' | 'medium' | 'low';
     let impact: string;
     let action: string;
     if (ratio < 0.2) {
       level = 'high';
-      impact = `Only ${above.length} of your ${total} products are above the ${target}% target — a small drop in sales for these could push your overall margin negative.`;
-      action = worstProduct
-        ? `Urgently review pricing for your ${below.length} below-target products. Start with "${worstProduct}" — it is your biggest drag on portfolio margin.`
-        : `Urgently review pricing for your ${below.length} below-target products.`;
+      impact = `Only ${above.length} of your ${total} products are above the ${target}% target. If sales of these top performers slow down, your overall portfolio margin will turn negative.`;
+      action = topProduct
+        ? `Protect "${topProduct}" and your other top performers — do not discount them. Use the Pricing Recommendations above to close the gap on below-target products${worstProduct ? `, starting with "${worstProduct}" (${worstMargin}% margin)` : ''}.`
+        : `Do not discount your top-margin products. Address below-target pricing urgently using the Pricing Recommendations above.`;
     } else if (ratio < 0.5) {
       level = 'medium';
-      impact = `${above.length} products are subsidising ${below.length} others. Your portfolio is profitable overall but dependent on a minority of products.`;
+      impact = `${above.length} products are subsidising ${below.length} others. Your margin is healthy overall, but you are depending on a minority of products to carry the portfolio.`;
       action = worstProduct
-        ? `Raise selling prices on below-target products, beginning with "${worstProduct}". Even a 5–10% price increase can meaningfully improve your blended margin.`
-        : `Raise selling prices on your ${below.length} below-target products to reduce dependency on top performers.`;
+        ? `Avoid discounting your high-margin products — they are doing the heavy lifting. Your biggest drag is "${worstProduct}" at ${worstMargin}% margin; see Pricing Recommendations above for a suggested price to close that gap.`
+        : `Avoid discounting your top-margin products. Use Pricing Recommendations above to address the ${below.length} below-target products.`;
     } else {
       level = 'low';
-      impact = `${above.length} of your ${total} products are above the ${target}% target — your portfolio margin is well-distributed.`;
+      impact = `${above.length} of your ${total} products are above the ${target}% target — margin is well-spread across your portfolio, reducing reliance on any single product.`;
       action = below.length > 0
-        ? `Monitor the ${below.length} below-target products periodically. Consider small price adjustments before they become a bigger drag.`
-        : `All active products are meeting your margin target. Keep an eye on cost price changes that could shift this.`;
+        ? `Portfolio risk is low. Keep an eye on cost price increases for the ${below.length} below-target products${worstProduct ? ` — "${worstProduct}" (${worstMargin}%) is the closest to becoming a drag` : ''}.`
+        : `All active products are meeting the margin target. Watch for cost price changes that could shift this.`;
     }
     return { level, impact, action, aboveCount: above.length, belowCount: below.length, topProduct, worstProduct };
   });
@@ -1348,6 +1365,29 @@ export class PricingPageComponent implements OnInit {
           borderRadius: 6,
         },
       ],
+    });
+  }
+
+  refreshPricingRecs(): void {
+    this.recsGenerating.set(true);
+    this.recsService.generate().subscribe({
+      next: () => {
+        this.recsService.getAll({ category: 'PRICING' }).subscribe({
+          next: (r) => {
+            this.pricingRecs.set(r.items.filter((i) => i.status === 'PENDING'));
+            this.recsGenerating.set(false);
+            this.messageService.add({
+              severity: 'success',
+              summary: 'Refreshed',
+              detail: `${this.pricingRecs().length} pricing recommendation(s) ready`,
+            });
+          },
+        });
+      },
+      error: () => {
+        this.recsGenerating.set(false);
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Could not generate recommendations' });
+      },
     });
   }
 
