@@ -9,7 +9,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
-from src.settings.service import get_fiscal_year_start
 from src.inventory.models import InventoryBatch, InventoryLevel
 from src.orders.models import PurchaseOrder, PurchaseReturn
 from src.products.models import Product, ProductCategory
@@ -20,6 +19,7 @@ from src.reports.schemas import (
     StockReportItem,
 )
 from src.sales.models import Sale, SaleStatus
+from src.settings.service import get_fiscal_year_start
 
 logger = structlog.get_logger()
 
@@ -35,6 +35,9 @@ async def resolve_default_date_range(
     Falls back to (today - 365 days, today) when no FY is configured.
     """
     effective_today = today if today is not None else date.today()
+    logger.info(
+        "resolving_default_date_range", user_id=user_id, effective_today=effective_today
+    )
     fy = await get_fiscal_year_start(db, user_id)
 
     if fy.fiscal_year_start_month is None or fy.fiscal_year_start_day is None:
