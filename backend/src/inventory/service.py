@@ -90,16 +90,24 @@ async def list_inventory_levels(
     db: AsyncSession,
     *,
     low_stock_only: bool = False,
-) -> list[InventoryLevel]:
-    """List all inventory levels, optionally filtered to low stock only."""
-    query = select(InventoryLevel)
+    page: int = 1,
+    page_size: int = 200,
+) -> tuple[list[InventoryLevel], int]:
+    """List inventory levels with pagination. Returns (items, total)."""
+    base_query = select(InventoryLevel)
     if low_stock_only:
-        query = query.where(
+        base_query = base_query.where(
             InventoryLevel.quantity_on_hand <= InventoryLevel.low_stock_threshold
         )
-    query = query.order_by(InventoryLevel.quantity_on_hand.asc())
-    result = await db.execute(query)
-    return list(result.scalars().all())
+    count_result = await db.execute(
+        select(func.count()).select_from(base_query.subquery())
+    )
+    total = count_result.scalar()
+    offset = (page - 1) * page_size
+    items_result = await db.execute(
+        base_query.order_by(InventoryLevel.quantity_on_hand.asc()).offset(offset).limit(page_size)
+    )
+    return list(items_result.scalars().all()), total
 
 
 # ---------------------------------------------------------------------------

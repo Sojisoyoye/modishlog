@@ -90,6 +90,25 @@ def _mock_db(inventory=None, movements=None, user=None):
     return db
 
 
+def _mock_db_paginated(items: list, total: int, user=None):
+    """Mock db for paginated list_inventory_levels: first execute → count, second → items."""
+    db = AsyncMock()
+    db.flush = AsyncMock()
+    db.add = MagicMock()
+    db.get = AsyncMock(return_value=user)
+
+    count_result = MagicMock()
+    count_result.scalar.return_value = total
+
+    items_result = MagicMock()
+    scalars_mock = MagicMock()
+    scalars_mock.all.return_value = items
+    items_result.scalars.return_value = scalars_mock
+
+    db.execute.side_effect = [count_result, items_result]
+    return db
+
+
 # ---------------------------------------------------------------------------
 # Endpoint test helpers
 # ---------------------------------------------------------------------------
@@ -304,3 +323,60 @@ class TestListMovementsEndpoint(_InventoryEndpointBase):
 
         assert resp.status_code == 200
         assert resp.json() == []
+
+
+# ---------------------------------------------------------------------------
+# GET /inventory  — paginated list
+# ---------------------------------------------------------------------------
+
+
+class TestListInventoryEndpoint(_InventoryEndpointBase):
+    def test_list_inventory_returns_paginated_response(self):
+        """GET /inventory returns items/total/page/page_size structure."""
+        self._override_auth()
+        inv1 = _make_inventory(quantity_on_hand=50)
+        inv2 = _make_inventory(quantity_on_hand=20)
+        db = _mock_db_paginated(items=[inv1, inv2], total=2)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/inventory")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 2
+        assert data["page"] == 1
+        assert data["page_size"] == 200
+        assert len(data["items"]) == 2
+        assert data["items"][0]["quantity_on_hand"] == 50
+
+    def test_list_inventory_page_2(self):
+        """GET /inventory?page=2&page_size=1 returns correct pagination metadata."""
+        self._override_auth()
+        inv = _make_inventory(quantity_on_hand=5)
+        db = _mock_db_paginated(items=[inv], total=5)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/inventory?page=2&page_size=1")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["page"] == 2
+        assert data["page_size"] == 1
+        assert data["total"] == 5
+        assert len(data["items"]) == 1
+
+    def test_list_inventory_empty(self):
+        """GET /inventory with no data returns empty items list with total=0."""
+        self._override_auth()
+        db = _mock_db_paginated(items=[], total=0)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/inventory")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 0
+        assert data["items"] == []
