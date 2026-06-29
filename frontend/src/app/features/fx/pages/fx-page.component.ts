@@ -772,7 +772,7 @@ export class FxPageComponent implements OnInit {
     this.forecasts.set([]);
     this.fxService.getForecast(days, pair).pipe(
       switchMap((fc) => {
-        if (fc.length > 0) return of(fc);
+        if (fc.length >= Math.floor(days * 0.9)) return of(fc);
         this.forecastGenerating.set(true);
         return this.fxService.generateForecast(pair, days).pipe(
           switchMap(() => this.fxService.getForecast(days, pair)),
