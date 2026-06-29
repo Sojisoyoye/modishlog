@@ -49,7 +49,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         <div class="flex items-center gap-3">
           <a
             routerLink="/orders"
-            class="flex items-center gap-1.5 text-sm font-medium text-muted transition-colors hover:text-text"
+            class="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muted transition-colors hover:text-text min-h-[44px]"
           >
             <i class="pi pi-arrow-left text-xs"></i> Back to Orders
           </a>
@@ -61,6 +61,9 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div class="flex items-center gap-3">
+              <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50">
+                <i class="pi pi-truck text-sm text-emerald-700"></i>
+              </div>
               <h2 class="text-2xl font-bold text-text">{{ order()!.order_number }}</h2>
               <app-status-badge
                 [label]="order()!.status"
@@ -79,21 +82,21 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
             @if (!editing()) {
               <button
                 (click)="startEdit()"
-                class="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-text shadow-sm transition-all hover:bg-gray-50"
+                class="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-text shadow-sm transition-all hover:bg-gray-50 min-h-[44px]"
               >
                 <i class="pi pi-pencil text-sm"></i> Edit
               </button>
             } @else {
               <button
                 (click)="cancelEdit()"
-                class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-muted shadow-sm transition-all hover:bg-gray-50"
+                class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-muted shadow-sm transition-all hover:bg-gray-50 min-h-[44px]"
               >
                 Cancel
               </button>
               <button
                 (click)="saveEdit()"
                 [disabled]="saving()"
-                class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+                class="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50 min-h-[44px]"
               >
                 @if (saving()) {
                   <i class="pi pi-spinner pi-spin text-sm"></i> Saving…
@@ -106,7 +109,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         </div>
 
         <!-- Order Metadata Grid -->
-        <div class="grid grid-cols-2 gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:grid-cols-3 lg:grid-cols-4">
+        <div class="grid grid-cols-2 gap-4 rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow sm:grid-cols-3 lg:grid-cols-4">
           <div>
             <p class="text-xs font-medium text-muted">Supplier</p>
             @if (editing()) {
@@ -306,7 +309,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                 @for (ns of nextStatuses(order()!.status); track ns) {
                   <button
                     (click)="transitionStatus(ns)"
-                    class="flex items-center gap-1.5 rounded-lg border border-secondary px-4 py-2 text-sm font-semibold text-secondary transition-all hover:bg-secondary hover:text-white"
+                    class="flex items-center gap-1.5 rounded-lg border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-600 transition-all hover:bg-emerald-600 hover:text-white min-h-[44px]"
                   >
                     <i class="pi pi-arrow-right text-xs"></i> {{ ns }}
                   </button>
@@ -317,7 +320,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         </div>
 
         <!-- Line Items (full width) -->
-        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
               <p class="mb-4 text-xs font-bold uppercase tracking-wider text-muted">Line Items</p>
               <div class="overflow-x-auto">
                 <table
@@ -325,40 +328,40 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                   data-testid="line-items-table"
                 >
                   <thead>
-                    <tr class="bg-gray-50/80">
-                      <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                    <tr class="bg-gray-50">
+                      <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                         Product
                       </th>
-                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                         Qty
                       </th>
-                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                         {{ order()!.currency === 'NGN' ? 'Unit Cost (₦)' : 'Unit Cost ($)' }}
                       </th>
                       @if (order()!.currency === 'USD' && order()!.fx_rate_at_creation) {
-                        <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                        <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                           Unit Cost (₦)
                         </th>
                       }
-                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                         {{ order()!.currency === 'NGN' ? 'Total (₦)' : 'Total ($)' }}
                       </th>
                       @if (order()!.currency === 'USD' && order()!.fx_rate_at_creation) {
-                        <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                        <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                           Total (₦)
                         </th>
                       }
-                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                         Sell (₦)
                       </th>
-                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                         Margin (₦)
                       </th>
-                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                      <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                         Margin (%)
                       </th>
                       @if (order()!.status === 'DELIVERED') {
-                        <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                        <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                           In Stock
                         </th>
                       }
@@ -502,7 +505,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         </div>
 
         <!-- Notes (full width) -->
-        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
           <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Notes</p>
           @if (editing()) {
             <textarea
@@ -521,7 +524,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         <!-- Cost Breakdown + Payments (2-col) -->
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <!-- Cost Breakdown -->
-            <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
               <p class="mb-4 text-xs font-bold uppercase tracking-wider text-muted">
                 Cost Breakdown
               </p>
@@ -623,8 +626,8 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
 
                 <!-- Total landed cost -->
                 <div class="flex justify-between border-t border-gray-200 pt-2">
-                  <dt class="font-bold text-text">Total landed (₦)</dt>
-                  <dd class="font-bold text-text">
+                  <dt class="font-bold text-gray-900">Total landed (₦)</dt>
+                  <dd class="text-xl font-bold text-gray-900">
                     @if (order()!.currency === 'NGN') {
                       ₦{{ goodsTotal() + order()!.shipping_cost | number: '1.0-0' }}
                     } @else if (order()!.fx_rate_at_creation) {
@@ -694,7 +697,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
             </div>
 
             <!-- Payment Panel -->
-            <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm" data-testid="payment-section">
+            <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow" data-testid="payment-section">
               <p class="mb-4 text-xs font-bold uppercase tracking-wider text-muted">
                 Payments
               </p>
@@ -871,7 +874,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                       type="button"
                       (click)="recordPayment()"
                       [disabled]="recordingPayment() || !paymentForm.amount || !paymentForm.payment_date"
-                      class="w-full rounded-lg bg-secondary px-3 py-1.5 text-sm font-semibold text-white transition-all hover:bg-secondary/90 disabled:opacity-50"
+                      class="w-full rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white transition-all hover:bg-emerald-700 disabled:opacity-50 min-h-[44px]"
                       data-testid="record-payment-btn"
                     >
                       @if (recordingPayment()) {
@@ -887,7 +890,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         </div>
 
         <!-- Profit Overview (full width) -->
-        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
           <p class="mb-4 text-xs font-bold uppercase tracking-wider text-muted">Profit Overview</p>
           @if (!canComputeProfitOverview()) {
             <p class="text-sm text-muted">
