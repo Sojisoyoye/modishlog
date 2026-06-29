@@ -43,12 +43,7 @@ services:
       - ./frontend:/frontend
       - /frontend/node_modules
     environment:
-      # Angular 21 uses @parcel/watcher (not Chokidar) for file detection.
-      # On macOS host + Docker/Colima, inotify events don't propagate from
-      # the host into the Linux container, so @parcel/watcher never sees
-      # source file edits. Forcing the brute-force backend makes it poll
-      # for changes by comparing mtimes, which works across Docker volumes.
-      PARCEL_WATCHER_BACKEND: 'brute-force'
+      NODE_ENV: development
 
 volumes:
   postgres_data:
