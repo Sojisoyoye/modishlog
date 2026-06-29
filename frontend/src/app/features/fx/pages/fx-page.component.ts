@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
-import { switchMap, of, forkJoin } from 'rxjs';
+import { switchMap, of, forkJoin, catchError } from 'rxjs';
 
 function fmtChartDate(iso: string): string {
   const d = new Date(iso);
@@ -477,36 +477,39 @@ export class FxPageComponent implements OnInit {
     this.fxService.getLatestEurUsd().subscribe({ next: (r) => this.latestEurUsd.set(r) });
     this.fxService.getAlerts().subscribe({ next: (a) => this.alerts.set(a) });
     forkJoin({
-      usd: this.fxService.getHistory(90, 'USDNGN'),
-      eur: this.fxService.getHistory(90, 'EURNGN'),
+      usd: this.fxService.getHistory(90, 'USDNGN').pipe(catchError(() => of([] as FxRate[]))),
+      eur: this.fxService.getHistory(90, 'EURNGN').pipe(catchError(() => of([] as FxRate[]))),
     }).subscribe({
       next: ({ usd, eur }) => {
         this.historyRates.set(usd);
         if (usd.length > 0) {
+          const datasets: unknown[] = [
+            {
+              label: 'USD/NGN',
+              data: usd.map((r) => r.rate),
+              borderColor: '#1F4E79',
+              backgroundColor: 'rgba(31, 78, 121, 0.05)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 2,
+              pointHoverRadius: 5,
+            },
+          ];
+          if (eur.length > 0) {
+            datasets.push({
+              label: 'EUR/NGN',
+              data: eur.map((r) => r.rate),
+              borderColor: '#C0392B',
+              backgroundColor: 'rgba(192, 57, 43, 0.05)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 2,
+              pointHoverRadius: 5,
+            });
+          }
           this.historyChartData.set({
             labels: usd.map((r) => fmtChartDate(r.rate_date)),
-            datasets: [
-              {
-                label: 'USD/NGN',
-                data: usd.map((r) => r.rate),
-                borderColor: '#1F4E79',
-                backgroundColor: 'rgba(31, 78, 121, 0.05)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: 2,
-                pointHoverRadius: 5,
-              },
-              {
-                label: 'EUR/NGN',
-                data: eur.map((r) => r.rate),
-                borderColor: '#C0392B',
-                backgroundColor: 'rgba(192, 57, 43, 0.05)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: 2,
-                pointHoverRadius: 5,
-              },
-            ],
+            datasets,
           });
         }
       },
@@ -627,36 +630,39 @@ export class FxPageComponent implements OnInit {
             : 'Rate history is already up to date.',
         });
         forkJoin({
-          usdH: this.fxService.getHistory(90, 'USDNGN'),
-          eurH: this.fxService.getHistory(90, 'EURNGN'),
+          usdH: this.fxService.getHistory(90, 'USDNGN').pipe(catchError(() => of([] as FxRate[]))),
+          eurH: this.fxService.getHistory(90, 'EURNGN').pipe(catchError(() => of([] as FxRate[]))),
         }).subscribe({
           next: ({ usdH, eurH }) => {
             this.historyRates.set(usdH);
             if (usdH.length > 0) {
+              const datasets: unknown[] = [
+                {
+                  label: 'USD/NGN',
+                  data: usdH.map((r) => r.rate),
+                  borderColor: '#1F4E79',
+                  backgroundColor: 'rgba(31, 78, 121, 0.05)',
+                  fill: true,
+                  tension: 0.3,
+                  pointRadius: 2,
+                  pointHoverRadius: 5,
+                },
+              ];
+              if (eurH.length > 0) {
+                datasets.push({
+                  label: 'EUR/NGN',
+                  data: eurH.map((r) => r.rate),
+                  borderColor: '#C0392B',
+                  backgroundColor: 'rgba(192, 57, 43, 0.05)',
+                  fill: true,
+                  tension: 0.3,
+                  pointRadius: 2,
+                  pointHoverRadius: 5,
+                });
+              }
               this.historyChartData.set({
                 labels: usdH.map((r) => fmtChartDate(r.rate_date)),
-                datasets: [
-                  {
-                    label: 'USD/NGN',
-                    data: usdH.map((r) => r.rate),
-                    borderColor: '#1F4E79',
-                    backgroundColor: 'rgba(31, 78, 121, 0.05)',
-                    fill: true,
-                    tension: 0.3,
-                    pointRadius: 2,
-                    pointHoverRadius: 5,
-                  },
-                  {
-                    label: 'EUR/NGN',
-                    data: eurH.map((r) => r.rate),
-                    borderColor: '#C0392B',
-                    backgroundColor: 'rgba(192, 57, 43, 0.05)',
-                    fill: true,
-                    tension: 0.3,
-                    pointRadius: 2,
-                    pointHoverRadius: 5,
-                  },
-                ],
+                datasets,
               });
             }
           },
