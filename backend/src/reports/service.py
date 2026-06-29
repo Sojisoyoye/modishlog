@@ -1,7 +1,7 @@
 """Reports domain business logic."""
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import structlog
@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
+from src.settings.service import get_fiscal_year_start
 from src.inventory.models import InventoryBatch, InventoryLevel
 from src.orders.models import PurchaseOrder, PurchaseReturn
 from src.products.models import Product, ProductCategory
@@ -21,6 +22,30 @@ from src.reports.schemas import (
 from src.sales.models import Sale, SaleStatus
 
 logger = structlog.get_logger()
+
+
+async def resolve_default_date_range(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    today: date | None = None,
+) -> tuple[date, date]:
+    """Return (date_from, date_to) for reports when no explicit dates are supplied.
+
+    Uses the configured fiscal year start to compute the most recent FY start ≤ today.
+    Falls back to (today - 365 days, today) when no FY is configured.
+    """
+    effective_today = today if today is not None else date.today()
+    fy = await get_fiscal_year_start(db, user_id)
+
+    if fy.fiscal_year_start_month is None or fy.fiscal_year_start_day is None:
+        return effective_today - timedelta(days=365), effective_today
+
+    month = fy.fiscal_year_start_month
+    day = fy.fiscal_year_start_day
+    fys_this_year = date(effective_today.year, month, day)
+    if fys_this_year <= effective_today:
+        return fys_this_year, effective_today
+    return date(effective_today.year - 1, month, day), effective_today
 
 
 async def get_profit_loss_report(
