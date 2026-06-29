@@ -801,6 +801,7 @@ async def list_transactions(
     page_size: int = 20,
     location_id: uuid.UUID | None = None,
     customer_id: uuid.UUID | None = None,
+    customer_name: str | None = None,
     payment_status: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
@@ -812,6 +813,8 @@ async def list_transactions(
         base_where.append(Sale.location_id == location_id)
     if customer_id is not None:
         base_where.append(Sale.customer_id == customer_id)
+    if customer_name is not None:
+        base_where.append(Sale.customer_name.ilike(f"%{customer_name}%"))
     if payment_status is not None:
         base_where.append(Sale.payment_status == payment_status)
     if date_from is not None:

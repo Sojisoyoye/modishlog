@@ -500,6 +500,18 @@ interface TransactionMeta {
             entries
           </div>
 
+          <!-- Search by customer name -->
+          <div class="relative">
+            <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
+            <input
+              type="text"
+              placeholder="Search customer..."
+              [ngModel]="txnSearch()"
+              (ngModelChange)="onTxnSearch($event)"
+              class="rounded-lg border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:border-primary focus:outline-none w-48"
+            />
+          </div>
+
           <div class="ml-auto flex items-center gap-2">
             <button
               type="button"
@@ -1167,6 +1179,7 @@ export class SalesPageComponent implements OnInit {
   txnTotal = signal(0);
   txnPage = signal(1);
   txnPageSize = signal(25);
+  txnSearch = signal('');
   txnTotalPages = computed(() => Math.max(1, Math.ceil(this.txnTotal() / this.txnPageSize())));
 
   // All Sales filter state
@@ -1316,6 +1329,8 @@ export class SalesPageComponent implements OnInit {
     if (this.filterLocationId) params['location_id'] = this.filterLocationId;
     if (this.filterCustomerId) params['customer_id'] = this.filterCustomerId;
     if (this.filterPaymentStatus) params['payment_status'] = this.filterPaymentStatus;
+    const search = this.txnSearch().trim();
+    if (search) params['customer_name'] = search;
     const range = this.filterDateRange;
     if (range?.[0]) params['date_from'] = this.toLocalDateString(range[0]);
     if (range?.[1]) params['date_to'] = this.toLocalDateString(range[1]);
@@ -1380,6 +1395,12 @@ export class SalesPageComponent implements OnInit {
 
   onTxnPageSizeChange(size: number): void {
     this.txnPageSize.set(size);
+    this.txnPage.set(1);
+    this.loadTransactions();
+  }
+
+  onTxnSearch(value: string): void {
+    this.txnSearch.set(value);
     this.txnPage.set(1);
     this.loadTransactions();
   }

@@ -27,11 +27,21 @@ import { ProductsService } from '../../../core/services/products.service';
 
       <!-- Stock Levels -->
       <div class="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div class="mb-5 flex items-center gap-2">
+        <div class="mb-4 flex items-center gap-3">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
             <i class="pi pi-box text-sm text-secondary"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Current Stock Levels</h3>
+          <div class="relative ml-auto">
+            <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
+            <input
+              type="text"
+              placeholder="Search product..."
+              [ngModel]="invSearch()"
+              (ngModelChange)="onInvSearch($event)"
+              class="rounded-lg border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:border-primary focus:outline-none w-48"
+            />
+          </div>
         </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
@@ -71,7 +81,7 @@ import { ProductsService } from '../../../core/services/products.service';
                   </tr>
                 }
               } @else {
-              @for (item of inventory(); track item.product_id) {
+              @for (item of pagedInventory(); track item.product_id) {
                 <tr [class]="stockRowClass(item)">
                   <td class="px-4 py-3 font-medium text-text">{{ item.product_name }}</td>
                   <td class="px-4 py-3 text-right font-semibold">{{ item.current_stock }}</td>
@@ -141,9 +151,9 @@ import { ProductsService } from '../../../core/services/products.service';
           </table>
         </div>
         <!-- Pagination controls -->
-        @if (invTotal() > 0) {
+        @if (filteredInventory().length > 0) {
           <div class="mt-4 flex items-center justify-between text-sm text-muted">
-            <span>Showing {{ invShowingFrom() }}–{{ invShowingTo() }} of {{ invTotal() }} items</span>
+            <span>Showing {{ invShowingFrom() }}–{{ invShowingTo() }} of {{ filteredInventory().length }} items</span>
             <div class="flex items-center gap-1">
               <button
                 type="button"
@@ -363,12 +373,22 @@ export class InventoryPageComponent implements OnInit {
 
   pageLoading = signal(true);
   inventory = signal<InventoryItem[]>([]);
-  invTotal = signal(0);
+  invSearch = signal('');
   invPage = signal(1);
   invPageSize = signal(20);
-  invTotalPages = computed(() => Math.max(1, Math.ceil(this.invTotal() / this.invPageSize())));
-  invShowingFrom = computed(() => this.invTotal() === 0 ? 0 : (this.invPage() - 1) * this.invPageSize() + 1);
-  invShowingTo = computed(() => Math.min(this.invPage() * this.invPageSize(), this.invTotal()));
+  filteredInventory = computed(() => {
+    const q = this.invSearch().toLowerCase().trim();
+    return q
+      ? this.inventory().filter((i) => (i.product_name ?? '').toLowerCase().includes(q))
+      : this.inventory();
+  });
+  pagedInventory = computed(() => {
+    const start = (this.invPage() - 1) * this.invPageSize();
+    return this.filteredInventory().slice(start, start + this.invPageSize());
+  });
+  invTotalPages = computed(() => Math.max(1, Math.ceil(this.filteredInventory().length / this.invPageSize())));
+  invShowingFrom = computed(() => this.filteredInventory().length === 0 ? 0 : (this.invPage() - 1) * this.invPageSize() + 1);
+  invShowingTo = computed(() => Math.min(this.invPage() * this.invPageSize(), this.filteredInventory().length));
   invPageNumbers = computed(() => {
     const total = this.invTotalPages();
     const current = this.invPage();
@@ -400,7 +420,7 @@ export class InventoryPageComponent implements OnInit {
     this.pageLoading.set(true);
     forkJoin({
       products: this.productsService.getAll(),
-      inventory: this.inventoryService.getCurrent(this.invPage(), this.invPageSize()),
+      inventory: this.inventoryService.getCurrent(1, 10000),
       movements: this.inventoryService.getMovements(),
     }).subscribe({
       next: ({ products, inventory, movements }) => {
@@ -408,7 +428,6 @@ export class InventoryPageComponent implements OnInit {
         inventory.items.forEach((item) => (item.product_name = nameMap.get(item.product_id) ?? 'Unknown'));
         movements.forEach((m) => (m.product_name = nameMap.get(m.product_id) ?? 'Unknown'));
         this.inventory.set(inventory.items);
-        this.invTotal.set(inventory.total);
         this.movements.set(movements);
         this.pageLoading.set(false);
       },
@@ -419,7 +438,11 @@ export class InventoryPageComponent implements OnInit {
   invGoToPage(page: number): void {
     const p = Math.max(1, Math.min(page, this.invTotalPages()));
     this.invPage.set(p);
-    this.loadData();
+  }
+
+  onInvSearch(value: string): void {
+    this.invSearch.set(value);
+    this.invPage.set(1);
   }
 
   stockStatus(item: InventoryItem): 'success' | 'warning' | 'danger' {
