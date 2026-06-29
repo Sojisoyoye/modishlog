@@ -37,11 +37,11 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+        # UniqueConstraint implicitly creates a unique index on user_id in PostgreSQL;
+        # no separate create_index needed.
         sa.UniqueConstraint("user_id", name="uq_user_preferences_user_id"),
     )
-    op.create_index("ix_user_preferences_user_id", "user_preferences", ["user_id"])
 
 
 def downgrade() -> None:
-    op.drop_index("ix_user_preferences_user_id", table_name="user_preferences")
     op.drop_table("user_preferences")

@@ -8,6 +8,7 @@ from typing import Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -101,22 +102,26 @@ async def update_fiscal_year_start(
     month: Optional[int],
     day: Optional[int],
 ) -> FiscalYearRead:
-    result = await db.execute(
-        select(UserPreferences).where(UserPreferences.user_id == user_id)
-    )
-    prefs = result.scalar_one_or_none()
-    if prefs is None:
-        prefs = UserPreferences(
+    # Use INSERT … ON CONFLICT DO UPDATE to avoid a SELECT-then-INSERT race when
+    # two concurrent requests arrive for a user with no existing preferences row.
+    stmt = (
+        pg_insert(UserPreferences)
+        .values(
             user_id=user_id,
             fiscal_year_start_month=month,
             fiscal_year_start_day=day,
         )
-        db.add(prefs)
-    else:
-        prefs.fiscal_year_start_month = month
-        prefs.fiscal_year_start_day = day
+        .on_conflict_do_update(
+            index_elements=["user_id"],
+            set_={
+                "fiscal_year_start_month": month,
+                "fiscal_year_start_day": day,
+            },
+        )
+    )
+    await db.execute(stmt)
     await db.flush()
     return FiscalYearRead(
-        fiscal_year_start_month=prefs.fiscal_year_start_month,
-        fiscal_year_start_day=prefs.fiscal_year_start_day,
+        fiscal_year_start_month=month,
+        fiscal_year_start_day=day,
     )

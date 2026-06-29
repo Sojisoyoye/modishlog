@@ -101,58 +101,48 @@ class TestGetFiscalYearStart:
 
 class TestUpdateFiscalYearStart:
     @pytest.mark.asyncio
-    async def test_creates_prefs_row_when_none_exists(self):
-        """When no prefs row exists, a new UserPreferences row is created."""
+    async def test_upserts_and_returns_values(self):
+        """update_fiscal_year_start executes an upsert and returns the stored values."""
         from src.settings.service import update_fiscal_year_start
 
         user_id = uuid.uuid4()
         db = _mock_db()
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = None
-        db.execute = AsyncMock(return_value=result_mock)
+        db.execute = AsyncMock(return_value=MagicMock())
 
         result = await update_fiscal_year_start(db, user_id, month=4, day=1)
 
-        db.add.assert_called_once()
+        db.execute.assert_called_once()
+        db.flush.assert_called_once()
         assert result.fiscal_year_start_month == 4
         assert result.fiscal_year_start_day == 1
 
     @pytest.mark.asyncio
-    async def test_updates_existing_prefs_row(self):
-        """When a prefs row exists, it is updated in place."""
-        from src.settings.service import update_fiscal_year_start
-
-        user_id = uuid.uuid4()
-        prefs = _make_prefs(user_id=user_id, month=1, day=1)
-
-        db = _mock_db()
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = prefs
-        db.execute = AsyncMock(return_value=result_mock)
-
-        result = await update_fiscal_year_start(db, user_id, month=7, day=15)
-
-        db.add.assert_not_called()
-        assert result.fiscal_year_start_month == 7
-        assert result.fiscal_year_start_day == 15
-
-    @pytest.mark.asyncio
     async def test_clears_fiscal_year_when_none_passed(self):
-        """Passing month=None, day=None clears the fiscal year setting."""
+        """Passing month=None, day=None returns nulls (clears the setting)."""
         from src.settings.service import update_fiscal_year_start
 
         user_id = uuid.uuid4()
-        prefs = _make_prefs(user_id=user_id, month=4, day=1)
-
         db = _mock_db()
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = prefs
-        db.execute = AsyncMock(return_value=result_mock)
+        db.execute = AsyncMock(return_value=MagicMock())
 
         result = await update_fiscal_year_start(db, user_id, month=None, day=None)
 
         assert result.fiscal_year_start_month is None
         assert result.fiscal_year_start_day is None
+
+    @pytest.mark.asyncio
+    async def test_overwrites_existing_values(self):
+        """Calling update twice with different values returns the latest values."""
+        from src.settings.service import update_fiscal_year_start
+
+        user_id = uuid.uuid4()
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=MagicMock())
+
+        result = await update_fiscal_year_start(db, user_id, month=7, day=15)
+
+        assert result.fiscal_year_start_month == 7
+        assert result.fiscal_year_start_day == 15
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +297,49 @@ class TestFiscalYearEndpoints:
             resp = client.put(
                 "/api/v1/settings/fiscal-year",
                 json={"fiscal_year_start_month": None, "fiscal_year_start_day": 1},
+            )
+
+        assert resp.status_code == 422
+
+    def test_put_fiscal_year_impossible_date_returns_422(self):
+        """PUT /settings/fiscal-year with month=2 day=30 returns 422 (Feb has max 29 days)."""
+        db = _mock_db()
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.put(
+                "/api/v1/settings/fiscal-year",
+                json={"fiscal_year_start_month": 2, "fiscal_year_start_day": 30},
+            )
+
+        assert resp.status_code == 422
+
+    def test_put_fiscal_year_feb_28_valid(self):
+        """PUT /settings/fiscal-year with month=2 day=28 returns 200 (always valid)."""
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=MagicMock())
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.put(
+                "/api/v1/settings/fiscal-year",
+                json={"fiscal_year_start_month": 2, "fiscal_year_start_day": 28},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["fiscal_year_start_month"] == 2
+        assert body["fiscal_year_start_day"] == 28
+
+    def test_put_fiscal_year_april_31_returns_422(self):
+        """PUT /settings/fiscal-year with month=4 day=31 returns 422 (April has 30 days)."""
+        db = _mock_db()
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.put(
+                "/api/v1/settings/fiscal-year",
+                json={"fiscal_year_start_month": 4, "fiscal_year_start_day": 31},
             )
 
         assert resp.status_code == 422
