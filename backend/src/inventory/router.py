@@ -16,6 +16,7 @@ from src.inventory.schemas import (
     DepletionForecastRead,
     InventoryBatchRead,
     InventoryLevelRead,
+    InventoryListResponse,
     LiquidationCandidate,
     StockAdjustmentRequest,
     StockMovementRead,
@@ -36,19 +37,25 @@ from src.inventory.service import (
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
-@router.get("", response_model=list[InventoryLevelRead])
+@router.get("", response_model=InventoryListResponse)
 async def list_inventory_endpoint(
     low_stock_only: bool = False,
+    page: int = 1,
+    page_size: int = 200,
     db: AsyncSession = Depends(get_db),
 ):
-    """List all inventory levels."""
-    return await list_inventory_levels(db, low_stock_only=low_stock_only)
+    """List inventory levels with pagination."""
+    items, total = await list_inventory_levels(
+        db, low_stock_only=low_stock_only, page=page, page_size=page_size
+    )
+    return InventoryListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/low-stock", response_model=list[InventoryLevelRead])
 async def low_stock_endpoint(db: AsyncSession = Depends(get_db)):
     """List products at or below their low-stock threshold."""
-    return await list_inventory_levels(db, low_stock_only=True)
+    items, _ = await list_inventory_levels(db, low_stock_only=True)
+    return items
 
 
 @router.get("/batches", response_model=list[InventoryBatchRead])

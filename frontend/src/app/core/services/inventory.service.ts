@@ -2,7 +2,6 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 import { ApiService } from './api.service';
 
-/** Shape returned by the backend GET /inventory endpoint. */
 interface InventoryLevelDTO {
   id: string;
   product_id: string;
@@ -12,6 +11,13 @@ interface InventoryLevelDTO {
   last_replenished_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface InventoryListResponse {
+  items: InventoryLevelDTO[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface InventoryItem {
@@ -45,10 +51,10 @@ export interface StockAdjustment {
 export class InventoryService {
   private readonly api = inject(ApiService);
 
-  getCurrent(): Observable<InventoryItem[]> {
-    return this.api.get<InventoryLevelDTO[]>('/inventory').pipe(
-      map((levels) =>
-        levels.map((l) => ({
+  getCurrent(page = 1, pageSize = 200): Observable<InventoryItem[]> {
+    return this.api.get<InventoryListResponse>('/inventory', { page: String(page), page_size: String(pageSize) }).pipe(
+      map((response) =>
+        response.items.map((l) => ({
           product_id: l.product_id,
           current_stock: l.quantity_on_hand,
           low_stock_threshold: l.low_stock_threshold,

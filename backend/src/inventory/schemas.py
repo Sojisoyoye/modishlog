@@ -99,3 +99,10 @@ class LiquidationCandidate(BaseModel):
     landed_cost_per_unit: Decimal
     total_batch_value: Decimal
     discount_pct_needed: Decimal
+
+
+class InventoryListResponse(BaseModel):
+    items: list[InventoryLevelRead]
+    total: int
+    page: int
+    page_size: int
