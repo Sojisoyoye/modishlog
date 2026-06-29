@@ -5,7 +5,6 @@ import { DatePipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
-import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import {
   InventoryService,
   InventoryItem,
@@ -19,7 +18,7 @@ const MAX_INVENTORY_LOAD = 10_000;
 @Component({
   selector: 'app-inventory-page',
   standalone: true,
-  imports: [FormsModule, DatePipe, Toast, Dialog, StatusBadgeComponent],
+  imports: [FormsModule, DatePipe, Toast, Dialog],
   template: `
     <p-toast />
     <div>
@@ -31,8 +30,8 @@ const MAX_INVENTORY_LOAD = 10_000;
       <!-- Stock Levels -->
       <div class="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-4 flex items-center gap-3">
-          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-            <i class="pi pi-box text-sm text-secondary"></i>
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+            <i class="pi pi-box text-sm text-emerald-700"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Current Stock Levels</h3>
           <div class="relative ml-auto">
@@ -42,7 +41,7 @@ const MAX_INVENTORY_LOAD = 10_000;
               placeholder="Search product..."
               [ngModel]="invSearch()"
               (ngModelChange)="onInvSearch($event)"
-              class="rounded-lg border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:border-primary focus:outline-none w-48"
+              class="min-h-[44px] rounded-lg border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 w-48"
             />
           </div>
         </div>
@@ -50,23 +49,23 @@ const MAX_INVENTORY_LOAD = 10_000;
           <table class="min-w-full divide-y divide-gray-200 text-sm">
             <caption class="sr-only">Current stock levels</caption>
             <thead>
-              <tr class="bg-gray-50/80">
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+              <tr class="bg-gray-50">
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Product
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Stock
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Threshold
                 </th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Status
                 </th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Depletion
                 </th>
-                <th class="px-4 py-3 text-center text-xs font-semibold uppercase text-muted">
+                <th class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Actions
                 </th>
               </tr>
@@ -94,14 +93,14 @@ const MAX_INVENTORY_LOAD = 10_000;
                         type="number"
                         [value]="item.low_stock_threshold"
                         min="0"
-                        class="w-20 rounded border border-primary px-2 py-1 text-right text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                        class="w-20 rounded border border-emerald-500 px-2 py-1 text-right text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
                         (keydown.enter)="saveThreshold(item.product_id, $event)"
                         (blur)="saveThreshold(item.product_id, $event)"
                         #thresholdInput
                       />
                     } @else {
                       <span
-                        class="cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-blue-50 hover:text-secondary"
+                        class="cursor-pointer rounded px-1.5 py-0.5 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
                         (click)="startEditThreshold(item.product_id)"
                         title="Click to edit threshold"
                       >
@@ -111,7 +110,13 @@ const MAX_INVENTORY_LOAD = 10_000;
                     }
                   </td>
                   <td class="px-4 py-3">
-                    <app-status-badge [label]="stockLabel(item)" [status]="stockStatus(item)" />
+                    @if (stockStatus(item) === 'success') {
+                      <span class="text-xs font-semibold text-emerald-700">{{ stockLabel(item) }}</span>
+                    } @else if (stockStatus(item) === 'warning') {
+                      <span class="text-xs font-semibold text-amber-700">{{ stockLabel(item) }}</span>
+                    } @else {
+                      <span class="text-xs font-semibold text-red-600">{{ stockLabel(item) }}</span>
+                    }
                   </td>
                   <td class="px-4 py-3 text-muted">
                     @if (item.depletion_date) {
@@ -128,13 +133,13 @@ const MAX_INVENTORY_LOAD = 10_000;
                     <div class="flex items-center justify-center gap-2">
                       <button
                         (click)="openAdjust(item)"
-                        class="rounded-lg px-3 py-1.5 text-xs font-medium text-secondary transition-colors hover:bg-blue-50"
+                        class="min-h-[44px] rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-emerald-700"
                       >
                         <i class="pi pi-pencil mr-1 text-[10px]"></i> Adjust
                       </button>
                       <button
                         (click)="viewProductHistory(item)"
-                        class="rounded-lg px-3 py-1.5 text-xs font-medium text-text transition-colors hover:bg-gray-100"
+                        class="min-h-[44px] rounded-lg px-3 py-1.5 text-xs font-medium text-text transition-colors hover:bg-gray-100"
                       >
                         <i class="pi pi-history mr-1 text-[10px]"></i> History
                       </button>
@@ -143,9 +148,9 @@ const MAX_INVENTORY_LOAD = 10_000;
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="6" class="px-4 py-10 text-center text-muted">
-                    <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
-                    No inventory data
+                  <td colspan="6" class="px-4 py-16 text-center text-muted">
+                    <i class="pi pi-box mb-3 block text-4xl text-gray-300"></i>
+                    <p class="text-sm font-medium text-gray-400">No inventory items</p>
                   </td>
                 </tr>
               }
@@ -170,7 +175,7 @@ const MAX_INVENTORY_LOAD = 10_000;
                 <button
                   type="button"
                   (click)="invGoToPage(n)"
-                  [class]="n === invPage() ? 'rounded bg-primary px-2.5 py-1 text-xs font-semibold text-white' : 'rounded px-2.5 py-1 text-xs hover:bg-gray-100'"
+                  [class]="n === invPage() ? 'rounded bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white' : 'rounded px-2.5 py-1 text-xs hover:bg-gray-100'"
                 >
                   {{ n }}
                 </button>
@@ -191,8 +196,8 @@ const MAX_INVENTORY_LOAD = 10_000;
       <!-- Stock Movements -->
       <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
-          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
-            <i class="pi pi-arrow-right-arrow-left text-sm text-warning"></i>
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+            <i class="pi pi-arrow-right-arrow-left text-sm text-emerald-700"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Recent Movements</h3>
         </div>
@@ -200,20 +205,20 @@ const MAX_INVENTORY_LOAD = 10_000;
           <table class="min-w-full divide-y divide-gray-200 text-sm">
             <caption class="sr-only">Recent stock movements</caption>
             <thead>
-              <tr class="bg-gray-50/80">
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+              <tr class="bg-gray-50">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Date
                 </th>
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Product
                 </th>
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Type
                 </th>
-                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Qty
                 </th>
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Notes
                 </th>
               </tr>
@@ -224,10 +229,11 @@ const MAX_INVENTORY_LOAD = 10_000;
                   <td class="px-3 py-2.5 text-muted">{{ mov.created_at | date: 'short' }}</td>
                   <td class="px-3 py-2.5 font-medium">{{ mov.product_name }}</td>
                   <td class="px-3 py-2.5">
-                    <app-status-badge
-                      [label]="mov.movement_type"
-                      [status]="movementStatus(mov.movement_type)"
-                    />
+                    @if (mov.quantity_change >= 0) {
+                      <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">{{ movementTypeLabel(mov.movement_type) }}</span>
+                    } @else {
+                      <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-800">{{ movementTypeLabel(mov.movement_type) }}</span>
+                    }
                   </td>
                   <td
                     class="px-3 py-2.5 text-right font-semibold"
@@ -270,7 +276,7 @@ const MAX_INVENTORY_LOAD = 10_000;
             <select
               id="inv-adjust-type"
               [(ngModel)]="adjustType"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="min-h-[44px] w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
             >
               <option value="order_received">Purchase / Restock</option>
               <option value="manual_add">Manual Add</option>
@@ -284,7 +290,7 @@ const MAX_INVENTORY_LOAD = 10_000;
               id="inv-adjust-qty"
               type="number"
               [(ngModel)]="adjustQty"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="min-h-[44px] w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
               min="1"
             />
           </div>
@@ -293,18 +299,27 @@ const MAX_INVENTORY_LOAD = 10_000;
             <textarea
               id="inv-adjust-reason"
               [(ngModel)]="adjustReason"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
               rows="2"
               placeholder="Required reason for adjustment..."
             ></textarea>
           </div>
-          <button
-            (click)="submitAdjust()"
-            [disabled]="!adjustReason.trim() || adjustQty < 1"
-            class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <i class="pi pi-check text-sm"></i> Save Adjustment
-          </button>
+          <div class="flex gap-3 pt-1">
+            <button
+              type="button"
+              (click)="adjustVisible = false"
+              class="min-h-[44px] flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              (click)="submitAdjust()"
+              [disabled]="!adjustReason.trim() || adjustQty < 1"
+              class="min-h-[44px] flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <i class="pi pi-check text-sm"></i> Save Adjustment
+            </button>
+          </div>
         </div>
       }
     </p-dialog>
@@ -326,12 +341,12 @@ const MAX_INVENTORY_LOAD = 10_000;
           <table class="min-w-full divide-y divide-gray-200 text-sm">
             <caption class="sr-only">Stock movement history</caption>
             <thead>
-              <tr class="bg-gray-50/80">
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Type</th>
-                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Qty Change</th>
-                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">After</th>
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Notes</th>
+              <tr class="bg-gray-50">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Date</th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Type</th>
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Qty Change</th>
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">After</th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Notes</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -339,10 +354,11 @@ const MAX_INVENTORY_LOAD = 10_000;
                 <tr class="transition-colors hover:bg-gray-50/50">
                   <td class="px-3 py-2.5 text-muted whitespace-nowrap">{{ mov.created_at | date: 'MMM d, y, h:mm a' }}</td>
                   <td class="px-3 py-2.5">
-                    <app-status-badge
-                      [label]="movementTypeLabel(mov.movement_type)"
-                      [status]="movementStatus(mov.movement_type)"
-                    />
+                    @if (mov.quantity_change >= 0) {
+                      <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">{{ movementTypeLabel(mov.movement_type) }}</span>
+                    } @else {
+                      <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-800">{{ movementTypeLabel(mov.movement_type) }}</span>
+                    }
                   </td>
                   <td
                     class="px-3 py-2.5 text-right font-semibold"
