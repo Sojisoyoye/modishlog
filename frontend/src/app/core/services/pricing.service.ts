@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import { ApiService } from './api.service';
 
 export interface PortfolioMarginData {
@@ -102,12 +103,44 @@ export interface ScenarioRead {
   created_at: string;
 }
 
+export interface SellingPriceSuggestionRequest {
+  product_id?: string;
+  unit_cost_override?: number;
+  currency?: string;
+  fx_rate_override?: number;
+  min_margin_pct?: number;
+}
+
+export interface SellingPriceSuggestionResponse {
+  unit_cost: number;
+  currency: string;
+  fx_rate: number;
+  unit_cost_ngn: number;
+  min_margin_pct: number;
+  min_selling_price: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class PricingService {
   private readonly api = inject(ApiService);
 
   getPortfolioMargin(): Observable<PortfolioMarginData> {
-    return this.api.get<PortfolioMarginData>('/pricing/portfolio-margin');
+    return this.api.get<any>('/pricing/portfolio-margin').pipe(
+      map((r) => ({
+        blended_margin: Number(r.blended_margin),
+        target_margin: Number(r.target_margin),
+        gap: Number(r.margin_gap),
+        products: (r.products ?? []).map((p: any) => ({
+          product_id: p.product_id,
+          product_name: p.product_name,
+          current_margin: Number(p.margin_pct),
+          target_margin: Number(r.target_margin),
+          gap: Number(p.margin_pct) - Number(r.target_margin),
+          cost_price: Number(p.unit_cost),
+          selling_price: Number(p.selling_price),
+        })),
+      })),
+    );
   }
 
   getMixStatus(days: number = 90): Observable<MixStatusResponse> {
@@ -147,6 +180,15 @@ export class PricingService {
   ): Observable<ElasticityRead> {
     return this.api.post<ElasticityRead>(
       `/pricing/configure-elasticity/${productId}`,
+      body,
+    );
+  }
+
+  getSellingPriceSuggestion(
+    body: SellingPriceSuggestionRequest,
+  ): Observable<SellingPriceSuggestionResponse> {
+    return this.api.post<SellingPriceSuggestionResponse>(
+      '/pricing/selling-price-suggestion',
       body,
     );
   }

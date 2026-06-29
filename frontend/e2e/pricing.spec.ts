@@ -102,6 +102,59 @@ test.describe('Pricing & Margins page', () => {
     expect(optionCount).toBeGreaterThan(1);
   });
 
+  test('Price-FX Sensitivity Calculator section is visible and computes a result', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expect(
+      page.getByRole('heading', { name: 'Price-FX Sensitivity Calculator' }),
+    ).toBeVisible();
+
+    await page.locator('#sens-selling-price').fill('5000');
+    await page.locator('#sens-fx-rate').fill('1500');
+    await page.locator('#sens-quantity').fill('10');
+    await page.locator('#sens-unit-cost').fill('2');
+
+    await page.getByRole('button', { name: /calculate/i }).click();
+
+    // Landed cost = $2 * 1500 = ₦3000; margin = (5000-3000)/5000*100 = 40%
+    await expect(page.locator('#sens-selling-price')).toBeVisible();
+    // Results grid should appear — look for "Margin" label
+    const resultsSection = page.locator('text=Landed Cost').first();
+    await expect(resultsSection).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('Selling Price Suggestion section is visible and returns a min price', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expect(page.getByRole('heading', { name: 'Selling Price Suggestion' })).toBeVisible();
+
+    await page.locator('#sugg-cost').fill('10');
+    await page.locator('#sugg-currency').selectOption('USD');
+    await page.locator('#sugg-fx').fill('1500');
+    await page.locator('#sugg-margin').fill('35');
+
+    await page.getByRole('button', { name: /get suggestion/i }).click();
+
+    // Min selling price = (10 * 1500) / (1 - 0.35) = 23077 NGN approx
+    const minPriceSection = page.locator('text=Min Selling Price').first();
+    await expect(minPriceSection).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('Product Mix Status section is present', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expect(page.getByRole('heading', { name: 'Product Mix Status' })).toBeVisible();
+  });
+
   test('elasticity coefficient can be saved and appears in the table', async ({ page }) => {
     await page.goto('/pricing');
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({

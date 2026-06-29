@@ -139,9 +139,9 @@ jobs:
             # Restart backend with new image
             docker-compose up -d --no-deps backend
 
-            # Health-check on port 8000 (backend container host port)
+            # Health-check via Caddy reverse-proxy domain (container is not exposed on localhost)
             for i in $(seq 1 24); do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://api-modishlog.modishstandard.com/health || echo "000")
               if [ "$STATUS" = "200" ]; then
                 echo "✅ Backend healthy"
                 exit 0

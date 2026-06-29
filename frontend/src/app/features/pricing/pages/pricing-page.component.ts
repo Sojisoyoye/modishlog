@@ -10,6 +10,9 @@ import {
   PortfolioMarginData,
   ProductMargin,
   ElasticityRead,
+  SensitivityCalcResponse,
+  MixCategoryStatus,
+  SellingPriceSuggestionResponse,
 } from '../../../core/services/pricing.service';
 import {
   RecommendationsService,
@@ -275,6 +278,287 @@ interface ElasticityEntry {
         }
       </div>
 
+      <!-- Price-FX Sensitivity Calculator -->
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-50">
+            <i class="pi pi-calculator text-sm text-teal-600"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Price-FX Sensitivity Calculator</h3>
+        </div>
+
+        <div class="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label for="sens-selling-price" class="mb-1.5 block text-xs font-medium text-muted"
+              >Selling Price (NGN)</label
+            >
+            <input
+              id="sens-selling-price"
+              type="number"
+              [(ngModel)]="sensSellingPrice"
+              placeholder="e.g. 5000"
+              min="0"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label for="sens-fx-rate" class="mb-1.5 block text-xs font-medium text-muted"
+              >FX Rate (USD→NGN)</label
+            >
+            <input
+              id="sens-fx-rate"
+              type="number"
+              [(ngModel)]="sensFxRate"
+              placeholder="e.g. 1550"
+              min="0"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label for="sens-quantity" class="mb-1.5 block text-xs font-medium text-muted"
+              >Quantity</label
+            >
+            <input
+              id="sens-quantity"
+              type="number"
+              [(ngModel)]="sensQuantity"
+              placeholder="e.g. 100"
+              min="1"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label for="sens-unit-cost" class="mb-1.5 block text-xs font-medium text-muted"
+              >Unit Cost USD <span class="font-normal">(optional)</span></label
+            >
+            <input
+              id="sens-unit-cost"
+              type="number"
+              [(ngModel)]="sensUnitCostUsd"
+              placeholder="Manual cost"
+              min="0"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-3">
+          <button
+            (click)="calculateSensitivity()"
+            [disabled]="!sensSellingPrice || !sensFxRate || !sensQuantity"
+            class="flex items-center gap-1.5 rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <i class="pi pi-play text-sm"></i> Calculate
+          </button>
+          @if (sensResult()) {
+            <button
+              (click)="saveSensScenario()"
+              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+            >
+              <i class="pi pi-save text-sm"></i> Save Scenario
+            </button>
+          }
+        </div>
+
+        @if (sensResult()) {
+          <div class="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div class="rounded-lg bg-gray-50 p-4">
+              <p class="text-xs font-medium text-muted">Landed Cost</p>
+              <p class="mt-1 text-lg font-bold text-text">
+                {{ sensResult()!.landed_cost_ngn | currency: 'NGN' : 'symbol' : '1.0-0' }}
+              </p>
+            </div>
+            <div class="rounded-lg p-4" [class]="sensResult()!.margin_pct >= 35 ? 'bg-green-50' : 'bg-red-50'">
+              <p class="text-xs font-medium text-muted">Margin</p>
+              <p
+                class="mt-1 text-lg font-bold"
+                [class]="sensResult()!.margin_pct >= 35 ? 'text-success' : 'text-danger'"
+              >
+                {{ sensResult()!.margin_pct | number: '1.1-1' }}%
+              </p>
+            </div>
+            <div class="rounded-lg bg-gray-50 p-4">
+              <p class="text-xs font-medium text-muted">Total Revenue</p>
+              <p class="mt-1 text-lg font-bold text-text">
+                {{ sensResult()!.total_revenue | currency: 'NGN' : 'symbol' : '1.0-0' }}
+              </p>
+            </div>
+            <div class="rounded-lg bg-gray-50 p-4">
+              <p class="text-xs font-medium text-muted">Gross Profit</p>
+              <p class="mt-1 text-lg font-bold text-text">
+                {{ sensResult()!.gross_profit | currency: 'NGN' : 'symbol' : '1.0-0' }}
+              </p>
+            </div>
+          </div>
+        }
+      </div>
+
+      <!-- Selling Price Suggestion -->
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50">
+            <i class="pi pi-tag text-sm text-violet-600"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Selling Price Suggestion</h3>
+        </div>
+        <p class="mb-4 text-xs text-muted">
+          Compute the FX-adjusted minimum selling price needed to achieve a target margin.
+        </p>
+
+        <div class="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label for="sugg-cost" class="mb-1.5 block text-xs font-medium text-muted"
+              >Unit Cost</label
+            >
+            <input
+              id="sugg-cost"
+              type="number"
+              [(ngModel)]="suggUnitCost"
+              placeholder="e.g. 10.00"
+              min="0"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label for="sugg-currency" class="mb-1.5 block text-xs font-medium text-muted"
+              >Currency</label
+            >
+            <select
+              id="sugg-currency"
+              [(ngModel)]="suggCurrency"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              <option value="USD">USD</option>
+              <option value="NGN">NGN</option>
+              <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
+            </select>
+          </div>
+          <div>
+            <label for="sugg-fx" class="mb-1.5 block text-xs font-medium text-muted"
+              >FX Rate Override <span class="font-normal">(optional)</span></label
+            >
+            <input
+              id="sugg-fx"
+              type="number"
+              [(ngModel)]="suggFxRate"
+              placeholder="e.g. 1550"
+              min="0"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label for="sugg-margin" class="mb-1.5 block text-xs font-medium text-muted"
+              >Min Margin %</label
+            >
+            <input
+              id="sugg-margin"
+              type="number"
+              [(ngModel)]="suggMinMargin"
+              placeholder="35"
+              min="1"
+              max="99"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+          </div>
+        </div>
+
+        <button
+          (click)="getSellingSuggestion()"
+          [disabled]="!suggUnitCost"
+          class="flex items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <i class="pi pi-lightbulb text-sm"></i> Get Suggestion
+        </button>
+
+        @if (suggResult()) {
+          <div class="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <div class="rounded-lg bg-gray-50 p-4">
+              <p class="text-xs font-medium text-muted">Unit Cost (NGN)</p>
+              <p class="mt-1 text-lg font-bold text-text">
+                {{ suggResult()!.unit_cost_ngn | currency: 'NGN' : 'symbol' : '1.0-0' }}
+              </p>
+              <p class="mt-0.5 text-xs text-muted">
+                FX {{ suggResult()!.fx_rate | number: '1.0-0' }}
+              </p>
+            </div>
+            <div class="rounded-lg bg-violet-50 p-4">
+              <p class="text-xs font-medium text-muted">Min Selling Price</p>
+              <p class="mt-1 text-xl font-bold text-violet-700">
+                {{ suggResult()!.min_selling_price | currency: 'NGN' : 'symbol' : '1.0-0' }}
+              </p>
+            </div>
+            <div class="rounded-lg bg-gray-50 p-4">
+              <p class="text-xs font-medium text-muted">Target Margin</p>
+              <p class="mt-1 text-lg font-bold text-text">
+                {{ suggResult()!.min_margin_pct | number: '1.1-1' }}%
+              </p>
+            </div>
+          </div>
+        }
+      </div>
+
+      <!-- Product Mix Status -->
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50">
+            <i class="pi pi-chart-pie text-sm text-sky-600"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Product Mix Status</h3>
+          <span class="ml-1 text-xs text-muted">(last 90 days vs target)</span>
+        </div>
+        @if (mixStatus().length > 0) {
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <caption class="sr-only">Product mix actual vs target</caption>
+              <thead>
+                <tr class="bg-gray-50/80">
+                  <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                    Category
+                  </th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                    Actual
+                  </th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                    Target
+                  </th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                    Variance
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                @for (cat of mixStatus(); track cat.category_id) {
+                  <tr class="transition-colors hover:bg-gray-50/50">
+                    <td class="px-4 py-3 font-medium text-text">{{ cat.category_name }}</td>
+                    <td class="px-4 py-3 text-right">{{ cat.actual_pct | number: '1.1-1' }}%</td>
+                    <td class="px-4 py-3 text-right text-muted">
+                      {{ cat.target_pct | number: '1.1-1' }}%
+                    </td>
+                    <td
+                      class="px-4 py-3 text-right font-semibold"
+                      [class]="
+                        cat.variance_pct >= -5 && cat.variance_pct <= 5
+                          ? 'text-success'
+                          : 'text-danger'
+                      "
+                    >
+                      {{ cat.variance_pct >= 0 ? '+' : ''
+                      }}{{ cat.variance_pct | number: '1.1-1' }}%
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <p class="py-4 text-center text-sm text-muted">
+            <i class="pi pi-info-circle mr-1"></i> No mix targets configured yet. Set product mix
+            targets to track actual vs target revenue distribution.
+          </p>
+        }
+      </div>
+
       <!-- Demand Elasticity Configuration (Task 31) -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
@@ -393,6 +677,23 @@ export class PricingPageComponent implements OnInit {
   elasticityProductId = '';
   elasticityCoeff = 0;
 
+  // Sensitivity calculator
+  sensSellingPrice = 0;
+  sensFxRate = 0;
+  sensQuantity = 1;
+  sensUnitCostUsd = 0;
+  sensResult = signal<SensitivityCalcResponse | null>(null);
+
+  // Selling price suggestion
+  suggUnitCost = 0;
+  suggCurrency = 'USD';
+  suggFxRate = 0;
+  suggMinMargin = 35;
+  suggResult = signal<SellingPriceSuggestionResponse | null>(null);
+
+  // Product mix status
+  mixStatus = signal<MixCategoryStatus[]>([]);
+
   readonly barOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -416,6 +717,9 @@ export class PricingPageComponent implements OnInit {
     });
     this.productsService.getAll().subscribe({
       next: (p) => this.products.set(p),
+    });
+    this.pricingService.getMixStatus().subscribe({
+      next: (r) => this.mixStatus.set(r.categories),
     });
   }
 
@@ -563,5 +867,63 @@ export class PricingPageComponent implements OnInit {
           });
         },
       });
+  }
+
+  calculateSensitivity(): void {
+    if (!this.sensSellingPrice || !this.sensFxRate || !this.sensQuantity) return;
+    const body: Record<string, unknown> = {
+      selling_price_override: this.sensSellingPrice,
+      fx_rate_override: this.sensFxRate,
+      quantity: this.sensQuantity,
+    };
+    if (this.sensUnitCostUsd) body['unit_cost_usd'] = this.sensUnitCostUsd;
+    this.pricingService.sensitivityCalc(body as any).subscribe({
+      next: (r) => this.sensResult.set(r),
+      error: () =>
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Sensitivity calculation failed. Provide a unit cost or select a product.',
+        }),
+    });
+  }
+
+  saveSensScenario(): void {
+    const r = this.sensResult();
+    if (!r) return;
+    const name = `Scenario ${new Date().toLocaleString()}`;
+    this.pricingService
+      .saveScenario({
+        name,
+        selling_price: this.sensSellingPrice,
+        fx_rate: this.sensFxRate,
+        quantity: this.sensQuantity,
+        results: r as unknown as Record<string, unknown>,
+      })
+      .subscribe({
+        next: () =>
+          this.messageService.add({ severity: 'success', summary: 'Saved', detail: name }),
+        error: () =>
+          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Save failed' }),
+      });
+  }
+
+  getSellingSuggestion(): void {
+    if (!this.suggUnitCost) return;
+    const body: Record<string, unknown> = {
+      unit_cost_override: this.suggUnitCost,
+      currency: this.suggCurrency,
+      min_margin_pct: this.suggMinMargin,
+    };
+    if (this.suggFxRate) body['fx_rate_override'] = this.suggFxRate;
+    this.pricingService.getSellingPriceSuggestion(body as any).subscribe({
+      next: (r) => this.suggResult.set(r),
+      error: () =>
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Could not compute selling price suggestion.',
+        }),
+    });
   }
 }
