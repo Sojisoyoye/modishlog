@@ -1,15 +1,14 @@
-"""FX forecasting engine using Prophet + Monte Carlo simulation."""
+"""FX forecasting engine using Geometric Brownian Motion + Monte Carlo."""
 
 import asyncio
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 import numpy as np
 import pandas as pd
 import structlog
-from prophet import Prophet
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fx.exceptions import FXPairNotFoundError, InsufficientRateDataError
@@ -18,12 +17,13 @@ from src.fx.schemas import ForecastAccuracy
 
 logger = structlog.get_logger()
 
-# Minimum days of history for Prophet training
 MIN_TRAINING_DAYS = 30
-# Forecast staleness threshold (days)
-FORECAST_STALE_DAYS = 7
-# Model version prefix
-MODEL_VERSION = "prophet-v1"
+MODEL_VERSION = "gbm-v1"
+
+# Max annualised drift allowed in either direction (~20% pa).
+# Prevents short-term noise being extrapolated into implausible trends.
+MAX_ANNUAL_DRIFT = 0.20
+MAX_DAILY_DRIFT = np.log(1 + MAX_ANNUAL_DRIFT) / 365
 
 
 # ---------------------------------------------------------------------------
@@ -34,9 +34,9 @@ MODEL_VERSION = "prophet-v1"
 async def _fetch_historical_rates(
     db: AsyncSession,
     pair: str,
-    days: int = 180,
+    days: int = 365,
 ) -> pd.DataFrame:
-    """Fetch historical rates and prepare Prophet-format DataFrame."""
+    """Fetch historical rates and return a deduplicated daily DataFrame."""
     result = await db.execute(
         select(FXRate)
         .where(FXRate.pair == pair)
@@ -51,95 +51,77 @@ async def _fetch_historical_rates(
     df = pd.DataFrame(
         [{"ds": r.timestamp.replace(tzinfo=None), "y": float(r.rate)} for r in rates]
     )
+    # Keep one rate per calendar day (last timestamp wins) to avoid duplicate-date
+    # issues that inflate uncertainty estimates in any model.
+    df["date"] = df["ds"].dt.date
+    df = df.sort_values("ds").drop_duplicates(subset="date", keep="last")
+    df = df.drop(columns="date").reset_index(drop=True)
     return df
 
 
 # ---------------------------------------------------------------------------
-# Prophet model training
+# Geometric Brownian Motion Monte Carlo
 # ---------------------------------------------------------------------------
 
 
-def _train_prophet_model(df: pd.DataFrame) -> Prophet:
-    """Train Prophet model (CPU-intensive, should be run in thread pool)."""
-    model = Prophet(
-        yearly_seasonality=True,
-        weekly_seasonality=False,
-        daily_seasonality=False,
-        seasonality_mode="multiplicative",
-        interval_width=0.95,
-    )
-    model.fit(df)
-    return model
-
-
-def _generate_prophet_forecast(
-    model: Prophet,
+def _gbm_forecast(
+    df: pd.DataFrame,
     horizon_days: int,
-) -> pd.DataFrame:
-    """Generate Prophet forecast (CPU-intensive, should be run in thread pool)."""
-    future = model.make_future_dataframe(periods=horizon_days)
-    forecast = model.predict(future)
-    # Return only future dates
-    last_historical = model.history["ds"].max()
-    return forecast[forecast["ds"] > last_historical][
-        ["ds", "yhat", "yhat_lower", "yhat_upper"]
-    ].reset_index(drop=True)
-
-
-# ---------------------------------------------------------------------------
-# Monte Carlo overlay
-# ---------------------------------------------------------------------------
-
-
-def _monte_carlo_scenarios(
-    prophet_forecast: pd.DataFrame,
-    volatility: float,
-    num_simulations: int = 10000,
+    num_simulations: int = 2000,
 ) -> list[dict]:
-    """Run Monte Carlo simulation for each forecast date using Prophet as mean."""
-    scenarios = []
+    """
+    Geometric Brownian Motion Monte Carlo forecast for FX rates.
+
+    Why GBM instead of Prophet:
+    - Prophet extrapolates trend linearly; with short history that produces
+      implausible values (₦300 or ₦2800 after 6 months).
+    - GBM is the standard finance model for exchange rates.  Each simulated
+      path is a connected random walk, so uncertainty fans out correctly as
+      vol * sqrt(t).  The rate can never go negative.
+    - With ~90 days of history the drift estimate is unreliable, so it is
+      capped at ±20% pa.  The uncertainty band is driven by daily volatility,
+      which is well-estimated even from 30 days of data.
+    """
+    prices = df["y"].values
+    log_returns = np.diff(np.log(prices))
+
+    # Estimate parameters from the most recent 60 days; older data may reflect
+    # different macro conditions.
+    recent = log_returns[-60:] if len(log_returns) > 60 else log_returns
+    raw_drift = float(np.mean(recent))
+    daily_drift = float(np.clip(raw_drift, -MAX_DAILY_DRIFT, MAX_DAILY_DRIFT))
+    daily_vol = float(np.std(recent))
+
+    # Safety floor on volatility (at least 0.1 % per day)
+    daily_vol = max(daily_vol, 0.001)
+
+    S0 = float(prices[-1])
+    last_date = df["ds"].iloc[-1]
     rng = np.random.default_rng()
 
-    for _, row in prophet_forecast.iterrows():
-        base = row["yhat"]
-        if base <= 0:
-            base = 0.01
+    # Simulate all paths in one vectorised operation.
+    # Shape: (num_simulations, horizon_days)
+    Z = rng.standard_normal((num_simulations, horizon_days))
+    log_increments = (daily_drift - 0.5 * daily_vol**2) + daily_vol * Z
+    # cumsum gives log-path, exp gives price path
+    paths = S0 * np.exp(np.cumsum(log_increments, axis=1))
 
-        simulated = rng.normal(
-            loc=base,
-            scale=volatility * base,
-            size=num_simulations,
-        )
-        # Ensure positive rates
-        simulated = simulated[simulated > 0]
-        if len(simulated) < 100:
-            simulated = np.array([base])
-
+    scenarios: list[dict] = []
+    for t in range(horizon_days):
+        day_prices = paths[:, t]
+        target_date = last_date + pd.Timedelta(days=t + 1)
         scenarios.append(
             {
-                "date": row["ds"],
-                "base_rate": round(float(np.percentile(simulated, 50)), 6),
-                "best_case_rate": round(float(np.percentile(simulated, 5)), 6),
-                "worst_case_rate": round(float(np.percentile(simulated, 95)), 6),
-                "prophet_lower": round(float(row["yhat_lower"]), 6),
-                "prophet_upper": round(float(row["yhat_upper"]), 6),
+                "date": target_date,
+                "base_rate": round(float(np.percentile(day_prices, 50)), 6),
+                "best_case_rate": round(float(np.percentile(day_prices, 10)), 6),
+                "worst_case_rate": round(float(np.percentile(day_prices, 90)), 6),
+                "prophet_lower": round(float(np.percentile(day_prices, 10)), 6),
+                "prophet_upper": round(float(np.percentile(day_prices, 90)), 6),
             }
         )
 
     return scenarios
-
-
-# ---------------------------------------------------------------------------
-# Volatility from historical data
-# ---------------------------------------------------------------------------
-
-
-def _compute_volatility(df: pd.DataFrame) -> float:
-    """Compute 30-day rolling volatility from historical data."""
-    returns = np.diff(np.log(df["y"].values))
-    if len(returns) < 2:
-        return 0.01  # default low volatility
-    return float(np.std(returns))
 
 
 # ---------------------------------------------------------------------------
@@ -152,53 +134,23 @@ async def train_and_forecast(
     pair: str,
     user_id: uuid.UUID,
     horizon_days: int = 180,
-    num_simulations: int = 10000,
+    num_simulations: int = 2000,
 ) -> list[FXForecast]:
-    """Train Prophet model, generate forecasts with Monte Carlo scenarios, and store results."""
-    # Fetch and prepare data
+    """Generate GBM Monte Carlo forecasts and store results."""
     df = await _fetch_historical_rates(db, pair, days=365)
-    volatility = _compute_volatility(df)
 
-    await logger.ainfo(
-        "fx_forecast_training_started",
-        pair=pair,
-        data_points=len(df),
-        volatility=round(volatility, 6),
-    )
+    await logger.ainfo("fx_forecast_training_started", pair=pair, data_points=len(df))
 
-    # Train model and generate forecast (CPU-intensive, run in thread pool)
-    model = await asyncio.to_thread(_train_prophet_model, df)
-    prophet_forecast = await asyncio.to_thread(
-        _generate_prophet_forecast, model, horizon_days
-    )
-
-    # Monte Carlo overlay
+    # Compute first; only delete stale rows after a successful run so a GBM
+    # failure never leaves the pair with zero forecasts.
     scenarios = await asyncio.to_thread(
-        _monte_carlo_scenarios, prophet_forecast, volatility, num_simulations
+        _gbm_forecast, df, horizon_days, num_simulations
     )
 
-    # Calculate training MAE on last 20% of data
-    split_idx = int(len(df) * 0.8)
-    validation = df.iloc[split_idx:]
-    future_val = model.make_future_dataframe(periods=0)
-    pred_val = model.predict(future_val)
-    # Merge for validation dates
-    pred_dates = set(pred_val["ds"].dt.date)
-    val_dates = set(validation["ds"].dt.date)
-    common_dates = pred_dates & val_dates
-    if common_dates:
-        val_df = validation[validation["ds"].dt.date.isin(common_dates)]
-        pred_df = pred_val[pred_val["ds"].dt.date.isin(common_dates)]
-        mae_val = float(
-            np.mean(np.abs(val_df["y"].values - pred_df["yhat"].values[: len(val_df)]))
-        )
-    else:
-        mae_val = None
+    await db.execute(delete(FXForecast).where(FXForecast.pair == pair))
 
-    # Store forecasts
     now = datetime.now(timezone.utc)
     forecasts: list[FXForecast] = []
-
     for scenario in scenarios:
         forecast = FXForecast(
             pair=pair,
@@ -209,7 +161,7 @@ async def train_and_forecast(
             prophet_lower=Decimal(str(scenario["prophet_lower"])),
             prophet_upper=Decimal(str(scenario["prophet_upper"])),
             model_version=MODEL_VERSION,
-            mae=Decimal(str(round(mae_val, 6))) if mae_val is not None else None,
+            mae=None,
             mape=None,
             generated_at=now,
             generated_by=user_id,
@@ -218,13 +170,11 @@ async def train_and_forecast(
         forecasts.append(forecast)
 
     await db.flush()
-
     await logger.ainfo(
         "fx_forecast_complete",
         pair=pair,
         horizon_days=horizon_days,
         scenarios_generated=len(forecasts),
-        training_mae=round(mae_val, 4) if mae_val else None,
     )
     return forecasts
 
@@ -235,7 +185,7 @@ async def get_forecast_for_date(
     target_date: date,
     user_id: uuid.UUID | None = None,
 ) -> FXForecast:
-    """Get forecast for a specific date. Raises FXPairNotFoundError if no forecast exists."""
+    """Get forecast for a specific date."""
     result = await db.execute(
         select(FXForecast)
         .where(
@@ -246,21 +196,8 @@ async def get_forecast_for_date(
         .limit(1)
     )
     forecast = result.scalar_one_or_none()
-
     if forecast is None:
         raise FXPairNotFoundError(pair)
-
-    # Check staleness
-    age = datetime.now(timezone.utc) - forecast.generated_at
-    if age > timedelta(days=FORECAST_STALE_DAYS) and user_id:
-        await logger.ainfo(
-            "fx_forecast_stale",
-            pair=pair,
-            age_days=age.days,
-        )
-        # Regenerate in the background; for now return stale data
-        # (actual regeneration would require separate background task)
-
     return forecast
 
 
@@ -288,7 +225,6 @@ async def update_forecast_accuracy(
     pair: str,
 ) -> ForecastAccuracy:
     """Compare past forecasts to actual rates and compute MAE/MAPE."""
-    # Get all forecasts that have a corresponding actual rate
     forecasts_result = await db.execute(
         select(FXForecast)
         .where(
@@ -300,67 +236,35 @@ async def update_forecast_accuracy(
     forecasts = list(forecasts_result.scalars().all())
 
     if not forecasts:
-        return ForecastAccuracy(
-            pair=pair,
-            total_evaluated=0,
-            mean_mae=Decimal("0"),
-            mean_mape=Decimal("0"),
-        )
+        return ForecastAccuracy(pair=pair, total_evaluated=0, mean_mae=Decimal("0"), mean_mape=Decimal("0"))
 
     errors: list[float] = []
     pct_errors: list[float] = []
 
     for fc in forecasts:
-        fc_date = (
-            fc.forecast_date.date()
-            if isinstance(fc.forecast_date, datetime)
-            else fc.forecast_date
-        )
-        # Find actual rate for this date
+        fc_date = fc.forecast_date.date() if isinstance(fc.forecast_date, datetime) else fc.forecast_date
         actual_result = await db.execute(
             select(FXRate)
-            .where(
-                FXRate.pair == pair,
-                func.date(FXRate.timestamp) == fc_date,
-            )
+            .where(FXRate.pair == pair, func.date(FXRate.timestamp) == fc_date)
             .order_by(FXRate.timestamp.desc())
             .limit(1)
         )
         actual = actual_result.scalar_one_or_none()
         if actual is None:
             continue
-
         forecast_val = float(fc.base_rate)
         actual_val = float(actual.rate)
-        mae = abs(forecast_val - actual_val)
-        mape = abs(forecast_val - actual_val) / actual_val * 100 if actual_val else 0
-
-        errors.append(mae)
-        pct_errors.append(mape)
-
-        # Update individual forecast record
-        fc.mae = Decimal(str(round(mae, 6)))
-        fc.mape = Decimal(str(round(mape, 6)))
+        errors.append(abs(forecast_val - actual_val))
+        pct_errors.append(abs(forecast_val - actual_val) / actual_val * 100 if actual_val else 0)
+        fc.mae = Decimal(str(round(errors[-1], 6)))
+        fc.mape = Decimal(str(round(pct_errors[-1], 6)))
 
     if errors:
         await db.flush()
 
-    mean_mae = Decimal(str(round(np.mean(errors), 6))) if errors else Decimal("0")
-    mean_mape = (
-        Decimal(str(round(np.mean(pct_errors), 6))) if pct_errors else Decimal("0")
-    )
-
-    await logger.ainfo(
-        "fx_forecast_accuracy_updated",
-        pair=pair,
-        evaluated=len(errors),
-        mean_mae=str(mean_mae),
-        mean_mape=str(mean_mape),
-    )
-
     return ForecastAccuracy(
         pair=pair,
         total_evaluated=len(errors),
-        mean_mae=mean_mae,
-        mean_mape=mean_mape,
+        mean_mae=Decimal(str(round(float(np.mean(errors)), 6))) if errors else Decimal("0"),
+        mean_mape=Decimal(str(round(float(np.mean(pct_errors)), 6))) if pct_errors else Decimal("0"),
     )

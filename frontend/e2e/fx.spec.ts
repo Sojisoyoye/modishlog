@@ -165,3 +165,22 @@ test.describe('Add Rate submission', () => {
     await expect(page.locator('canvas').nth(1)).toBeVisible();
   });
 });
+
+test.describe('Forecast table pagination', () => {
+  test('rows-per-page selector shows 10, 25, 50 options', async ({ page }) => {
+    await expect(page.getByRole('button', { name: '10' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('button', { name: '25' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '50' })).toBeVisible();
+  });
+
+  test('clicking 25 rows/page keeps the forecast table visible', async ({ page }) => {
+    await page.getByRole('button', { name: '25' }).click();
+    // Table must still be present after switching page size
+    await expect(page.locator('table').first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('clicking 50 rows/page keeps the forecast table visible', async ({ page }) => {
+    await page.getByRole('button', { name: '50' }).click();
+    await expect(page.locator('table').first()).toBeVisible({ timeout: 10_000 });
+  });
+});

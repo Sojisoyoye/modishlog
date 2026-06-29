@@ -1,10 +1,11 @@
 """FX domain business logic."""
 
+import asyncio
 import math
 import random
 import statistics
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import httpx
@@ -373,6 +374,68 @@ async def backfill_historical_data(
         pair=pair,
         records_inserted=count,
     )
+    return count
+
+
+async def backfill_from_exchange_api(
+    db: AsyncSession,
+    pair: str = "USDNGN",
+    days: int = 90,
+) -> int:
+    """Backfill historical rates from exchange-api.pages.dev (free, no API key needed).
+
+    Fetches up to `days` days of daily NGN/USD data, skipping dates already in DB.
+    Uses a concurrency limit of 5 to avoid hammering the CDN.
+    """
+    if pair not in ("USDNGN", "EURNGN"):
+        raise ValueError(f"Only USDNGN or EURNGN supported for free backfill, got {pair}")
+
+    base_currency = "usd" if pair == "USDNGN" else "eur"
+
+    today = date.today()
+    dates_to_fetch = [today - timedelta(days=i) for i in range(days, 0, -1)]
+
+    existing = await db.execute(
+        select(func.date(FXRate.timestamp)).where(FXRate.pair == pair)
+    )
+    existing_dates = {row[0] for row in existing.all()}
+    needed = [d for d in dates_to_fetch if d not in existing_dates]
+
+    if not needed:
+        return 0
+
+    sem = asyncio.Semaphore(5)
+
+    async def _fetch(target_date: date) -> FXRate | None:
+        url = f"https://{target_date.isoformat()}.currency-api.pages.dev/v1/currencies/{base_currency}.json"
+        try:
+            async with sem:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(url)
+                    resp.raise_for_status()
+                    data = resp.json()
+            ngn_rate = Decimal(str(data[base_currency]["ngn"]))
+            ts = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
+            return FXRate(
+                pair=pair,
+                rate=ngn_rate,
+                source=RateSource.API_PROVIDER,
+                timestamp=ts,
+                created_at=datetime.now(timezone.utc),
+            )
+        except Exception:
+            return None
+
+    results = await asyncio.gather(*[_fetch(d) for d in needed])
+    count = sum(1 for r in results if r is not None)
+    for r in results:
+        if r is not None:
+            db.add(r)
+
+    if count:
+        await db.flush()
+        await logger.ainfo("fx_free_backfill_complete", pair=pair, records_inserted=count)
+
     return count
 
 

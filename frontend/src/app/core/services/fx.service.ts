@@ -163,11 +163,11 @@ export class FxService {
     );
   }
 
-  getHistory(days = 90): Observable<FxRate[]> {
+  getHistory(days = 90, pair = 'USDNGN'): Observable<FxRate[]> {
     const dateTo = new Date();
     const dateFrom = new Date(dateTo.getTime() - days * 24 * 60 * 60 * 1000);
     return this.api
-      .get<FXRateHistory>('/fx/rates/USDNGN/history', {
+      .get<FXRateHistory>(`/fx/rates/${pair}/history`, {
         date_from: dateFrom.toISOString().split('T')[0],
         date_to: dateTo.toISOString().split('T')[0],
       })
@@ -185,11 +185,24 @@ export class FxService {
       );
   }
 
-  getForecast(days = 30): Observable<FxForecast[]> {
+  backfillFreeRates(pair = 'USDNGN', days = 90): Observable<{ pair: string; records_inserted: number }> {
+    return this.api.post<{ pair: string; records_inserted: number }>(
+      `/fx/rates/backfill-free?pair=${pair}&days=${days}`,
+      {},
+    );
+  }
+
+  generateForecast(pair = 'USDNGN', horizonDays = 180): Observable<void> {
+    return this.api
+      .post<unknown>('/fx/forecast/generate', { pair, horizon_days: horizonDays, num_simulations: 10000 })
+      .pipe(map(() => void 0));
+  }
+
+  getForecast(days = 30, pair = 'USDNGN'): Observable<FxForecast[]> {
     const dateFrom = new Date();
     const dateTo = new Date(dateFrom.getTime() + days * 24 * 60 * 60 * 1000);
     return this.api
-      .get<ForecastRangeResponse>('/fx/forecast/USDNGN', {
+      .get<ForecastRangeResponse>(`/fx/forecast/${pair}`, {
         date_from: dateFrom.toISOString().split('T')[0],
         date_to: dateTo.toISOString().split('T')[0],
       })
@@ -203,6 +216,24 @@ export class FxService {
           }))
         )
       );
+  }
+
+  getLatestEurNgn(): Observable<FxRate | null> {
+    return this.api.get<FXRateRead[]>('/fx/rates/current').pipe(
+      map((rates) => {
+        const rate = rates.find((r) => r.pair === 'EURNGN');
+        return rate
+          ? {
+              id: rate.id,
+              rate: Number(rate.rate),
+              rate_date: rate.timestamp,
+              rate_type: rate.pair,
+              source: rate.source,
+              created_at: rate.created_at,
+            }
+          : null;
+      })
+    );
   }
 
   addManualRate(data: ManualRateEntry): Observable<FxRate> {

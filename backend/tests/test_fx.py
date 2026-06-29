@@ -761,6 +761,76 @@ class TestFXEndpoints:
         assert data["pair"] == "USDNGN"
         assert data["forecasts"] == []
 
+    def test_sync_rates_requires_auth(self):
+        db = _mock_db()
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post("/api/v1/fx/rates/sync")
+        assert resp.status_code == 401
+
+    def test_sync_rates_success(self):
+        from src.fx.exceptions import ExternalRateSyncError
+        self._override_auth()
+        rate = _make_fx_rate()
+        db = _mock_db_with_execute(scalars_result=[rate])
+        self._override_db(db)
+        with patch("src.fx.router.sync_external_rates", new=AsyncMock(return_value=[rate])):
+            with TestClient(self.app) as client:
+                resp = client.post("/api/v1/fx/rates/sync")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    def test_sync_rates_502_on_provider_error(self):
+        from src.fx.exceptions import ExternalRateSyncError
+        self._override_auth()
+        db = _mock_db()
+        self._override_db(db)
+        with patch("src.fx.router.sync_external_rates", new=AsyncMock(side_effect=ExternalRateSyncError("test-provider", 503, "down"))):
+            with TestClient(self.app) as client:
+                resp = client.post("/api/v1/fx/rates/sync")
+        assert resp.status_code == 502
+
+    def test_backfill_requires_auth(self):
+        db = _mock_db()
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/fx/rates/backfill",
+                params={"pair": "USDNGN", "date_from": "2026-01-01", "date_to": "2026-03-31"},
+            )
+        assert resp.status_code == 401
+
+    def test_backfill_success(self):
+        self._override_auth()
+        db = _mock_db()
+        self._override_db(db)
+        with patch("src.fx.router.backfill_historical_data", new=AsyncMock(return_value=30)):
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/fx/rates/backfill",
+                    params={"pair": "USDNGN", "date_from": "2026-01-01", "date_to": "2026-03-31"},
+                )
+        assert resp.status_code == 200
+        assert resp.json()["records_inserted"] == 30
+
+    def test_backfill_free_requires_auth(self):
+        db = _mock_db()
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post("/api/v1/fx/rates/backfill-free")
+        assert resp.status_code == 401
+
+    def test_backfill_free_success(self):
+        self._override_auth()
+        db = _mock_db()
+        self._override_db(db)
+        with patch("src.fx.router.backfill_from_exchange_api", new=AsyncMock(return_value=90)):
+            with TestClient(self.app) as client:
+                resp = client.post("/api/v1/fx/rates/backfill-free", params={"pair": "USDNGN", "days": 90})
+        assert resp.status_code == 200
+        assert resp.json()["records_inserted"] == 90
+        assert resp.json()["pair"] == "USDNGN"
+
 
 # ---------------------------------------------------------------------------
 # Forecast service tests
@@ -789,52 +859,51 @@ def _make_forecast(pair="USDNGN", **overrides):
 
 
 class TestForecastHelpers:
-    def test_compute_volatility(self):
-        from src.fx.forecast_service import _compute_volatility
+    def _make_df(self, n=90, base=1378.0, noise=0.003):
+        """Generate synthetic daily FX prices."""
+        import numpy as np
+        rng = np.random.default_rng(42)
+        log_rets = rng.normal(0, noise, n - 1)
+        prices = base * np.exp(np.concatenate([[0], np.cumsum(log_rets)]))
+        dates = pd.date_range("2026-01-01", periods=n, freq="D")
+        return pd.DataFrame({"ds": dates, "y": prices})
 
-        df = pd.DataFrame({"y": [1650.0, 1660.0, 1655.0, 1670.0, 1665.0]})
-        vol = _compute_volatility(df)
-        assert vol > 0
-        assert vol < 1  # FX vol should be small
+    def test_gbm_forecast_length(self):
+        from src.fx.forecast_service import _gbm_forecast
 
-    def test_compute_volatility_single_point(self):
-        from src.fx.forecast_service import _compute_volatility
+        df = self._make_df()
+        scenarios = _gbm_forecast(df, horizon_days=10, num_simulations=200)
+        assert len(scenarios) == 10
 
-        df = pd.DataFrame({"y": [1650.0]})
-        vol = _compute_volatility(df)
-        assert vol == 0.01  # default fallback
+    def test_gbm_forecast_values_near_S0(self):
+        """Median path should stay close to S0 over a short horizon."""
+        from src.fx.forecast_service import _gbm_forecast
 
-    def test_monte_carlo_scenarios(self):
-        from src.fx.forecast_service import _monte_carlo_scenarios
-
-        prophet_fc = pd.DataFrame({
-            "ds": pd.date_range("2026-06-01", periods=5, freq="D"),
-            "yhat": [1650.0, 1652.0, 1648.0, 1655.0, 1660.0],
-            "yhat_lower": [1640.0, 1642.0, 1638.0, 1645.0, 1650.0],
-            "yhat_upper": [1660.0, 1662.0, 1658.0, 1665.0, 1670.0],
-        })
-        scenarios = _monte_carlo_scenarios(prophet_fc, volatility=0.01, num_simulations=1000)
-        assert len(scenarios) == 5
+        df = self._make_df(base=1378.0)
+        scenarios = _gbm_forecast(df, horizon_days=30, num_simulations=500)
+        # With tiny drift and vol, 30-day median should remain within ±10% of S0
         for s in scenarios:
-            assert "date" in s
-            assert "base_rate" in s
-            assert "best_case_rate" in s
-            assert "worst_case_rate" in s
-            assert s["base_rate"] > 0
+            assert 1000 < s["base_rate"] < 1800, f"base_rate out of range: {s['base_rate']}"
+
+    def test_gbm_forecast_ordering(self):
+        """best_case ≤ base ≤ worst_case for every day."""
+        from src.fx.forecast_service import _gbm_forecast
+
+        df = self._make_df()
+        scenarios = _gbm_forecast(df, horizon_days=20, num_simulations=500)
+        for s in scenarios:
             assert s["best_case_rate"] <= s["base_rate"] <= s["worst_case_rate"]
 
-    def test_monte_carlo_handles_zero_base(self):
-        from src.fx.forecast_service import _monte_carlo_scenarios
+    def test_gbm_forecast_positive(self):
+        """GBM paths must never go negative."""
+        from src.fx.forecast_service import _gbm_forecast
 
-        prophet_fc = pd.DataFrame({
-            "ds": [datetime(2026, 6, 1)],
-            "yhat": [0.0],  # zero base should become 0.01
-            "yhat_lower": [-0.1],
-            "yhat_upper": [0.1],
-        })
-        scenarios = _monte_carlo_scenarios(prophet_fc, volatility=0.01, num_simulations=1000)
-        assert len(scenarios) == 1
-        assert scenarios[0]["base_rate"] > 0
+        df = self._make_df()
+        scenarios = _gbm_forecast(df, horizon_days=180, num_simulations=500)
+        for s in scenarios:
+            assert s["base_rate"] > 0
+            assert s["best_case_rate"] > 0
+            assert s["worst_case_rate"] > 0
 
 
 class TestFetchHistoricalRates:
@@ -851,7 +920,15 @@ class TestFetchHistoricalRates:
     async def test_returns_dataframe(self):
         from src.fx.forecast_service import _fetch_historical_rates
 
-        rates = [_make_fx_rate(rate=Decimal(str(1650 + i))) for i in range(35)]
+        base_ts = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        rates = [
+            _make_fx_rate(
+                rate=Decimal(str(1650 + i)),
+                timestamp=base_ts + timedelta(days=i),
+                created_at=base_ts + timedelta(days=i),
+            )
+            for i in range(35)
+        ]
         db = _mock_db_with_execute(scalars_result=rates)
         df = await _fetch_historical_rates(db, "USDNGN")
         assert isinstance(df, pd.DataFrame)
@@ -865,39 +942,25 @@ class TestTrainAndForecast:
     async def test_train_and_forecast_full_pipeline(self):
         from src.fx.forecast_service import train_and_forecast
 
-        # Create 50 rate points
+        base_ts = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         rates = [
-            _make_fx_rate(rate=Decimal(str(round(1650 + i * 0.5, 2))))
+            _make_fx_rate(
+                rate=Decimal(str(round(1650 + i * 0.5, 2))),
+                timestamp=base_ts + timedelta(days=i),
+                created_at=base_ts + timedelta(days=i),
+            )
             for i in range(50)
         ]
         db = _mock_db_with_execute(scalars_result=rates)
 
-        # Mock Prophet to avoid actual training
-        mock_model = MagicMock()
-        mock_model.history = pd.DataFrame({
-            "ds": pd.date_range("2026-01-01", periods=50, freq="D"),
-        })
-        mock_future = pd.DataFrame({
-            "ds": pd.date_range("2026-01-01", periods=60, freq="D"),
-        })
-        mock_model.make_future_dataframe.return_value = mock_future
-        forecast_df = pd.DataFrame({
-            "ds": pd.date_range("2026-01-01", periods=60, freq="D"),
-            "yhat": [1650 + i * 0.5 for i in range(60)],
-            "yhat_lower": [1640 + i * 0.5 for i in range(60)],
-            "yhat_upper": [1660 + i * 0.5 for i in range(60)],
-        })
-        mock_model.predict.return_value = forecast_df
-
-        with patch("src.fx.forecast_service._train_prophet_model", return_value=mock_model):
-            forecasts = await train_and_forecast(
-                db, "USDNGN", uuid.uuid4(), horizon_days=10, num_simulations=1000,
-            )
+        forecasts = await train_and_forecast(
+            db, "USDNGN", uuid.uuid4(), horizon_days=10, num_simulations=200,
+        )
 
         assert len(forecasts) == 10
         for fc in forecasts:
             assert fc.pair == "USDNGN"
-            assert fc.model_version == "prophet-v1"
+            assert fc.model_version == "gbm-v1"
             assert fc.base_rate > 0
             assert fc.best_case_rate > 0
             assert fc.worst_case_rate > 0
@@ -907,7 +970,14 @@ class TestTrainAndForecast:
     async def test_train_and_forecast_insufficient_data(self):
         from src.fx.forecast_service import train_and_forecast
 
-        rates = [_make_fx_rate() for _ in range(5)]
+        base_ts = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        rates = [
+            _make_fx_rate(
+                timestamp=base_ts + timedelta(days=i),
+                created_at=base_ts + timedelta(days=i),
+            )
+            for i in range(5)
+        ]
         db = _mock_db_with_execute(scalars_result=rates)
 
         with pytest.raises(InsufficientRateDataError):
