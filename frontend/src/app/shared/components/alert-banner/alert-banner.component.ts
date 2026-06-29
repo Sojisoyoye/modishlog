@@ -50,7 +50,7 @@ export class AlertBannerComponent {
   bannerClass = computed(() => {
     const classes: Record<string, string> = {
       info: 'border-l-info bg-blue-50',
-      success: 'border-l-success bg-green-50',
+      success: 'border-l-success bg-emerald-50',
       warning: 'border-l-warning bg-amber-50',
       danger: 'border-l-danger bg-red-50',
     };
