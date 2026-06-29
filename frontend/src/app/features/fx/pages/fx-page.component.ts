@@ -723,42 +723,45 @@ export class FxPageComponent implements OnInit {
   }
 
   private buildForecastDatasets(fc: FxForecast[], pair: ForecastPair) {
-    const baseColor = pair === 'USDNGN' ? '#1F4E79' : '#C0392B';
-    const bandColor = pair === 'USDNGN' ? 'rgba(100, 160, 130, 0.1)' : 'rgba(220, 150, 140, 0.1)';
-    const worstColor = pair === 'USDNGN' ? 'rgba(192, 57, 43, 0.5)' : 'rgba(150, 50, 50, 0.5)';
-    const bestColor = pair === 'USDNGN' ? 'rgba(26, 122, 74, 0.5)' : 'rgba(26, 100, 180, 0.5)';
+    const isUSD = pair === 'USDNGN';
+    const baseColor    = isUSD ? '#1F4E79' : '#C0392B';
+    const worstColor   = isUSD ? 'rgba(192, 57, 43, 0.8)'  : 'rgba(150, 50, 50, 0.8)';
+    const bestColor    = isUSD ? 'rgba(26, 122, 74, 0.8)'  : 'rgba(26, 100, 180, 0.8)';
+    const bandFill     = isUSD ? 'rgba(31, 78, 121, 0.12)' : 'rgba(192, 57, 43, 0.12)';
     return {
       labels: fc.map((f) => fmtChartDate(f.date)),
       datasets: [
         {
-          label: 'Worst Case',
+          label: 'Worst Case (90th pct)',
           data: fc.map((f) => f.worst_case),
           borderColor: worstColor,
+          borderDash: [4, 3],
           fill: false,
           borderWidth: 1.5,
-          tension: 0.4,
+          tension: 0.3,
           pointRadius: 0,
         },
         {
-          label: 'Best Case',
+          label: 'Best Case (10th pct)',
           data: fc.map((f) => f.best_case),
           borderColor: bestColor,
-          backgroundColor: bandColor,
-          fill: '-1',
+          borderDash: [4, 3],
+          backgroundColor: bandFill,
+          fill: '-1',  // fills the band between Worst and Best
           borderWidth: 1.5,
-          tension: 0.4,
+          tension: 0.3,
           pointRadius: 0,
         },
         {
-          label: 'Base',
+          label: 'Base (median)',
           data: fc.map((f) => f.base),
           borderColor: baseColor,
-          backgroundColor: 'rgba(0,0,0,0)',
+          backgroundColor: 'transparent',
           fill: false,
-          borderWidth: 2.5,
-          tension: 0.4,
-          pointRadius: 3,
-          pointHoverRadius: 6,
+          borderWidth: 3,
+          tension: 0.3,
+          pointRadius: 0,
+          pointHoverRadius: 5,
         },
       ],
     };
