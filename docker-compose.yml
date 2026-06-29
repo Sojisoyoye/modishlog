@@ -28,6 +28,9 @@ services:
       CORS_ORIGINS: '["http://localhost:4200","http://localhost","https://modishlog-staging.vercel.app"]'
       ENVIRONMENT: development
       TZ: UTC
+      # Force watchfiles (uvicorn --reload engine) to use mtime polling instead
+      # of inotify, which doesn't propagate from macOS host into Docker volumes.
+      WATCHFILES_FORCE_POLLING: 'true'
     ports: ['8000:8000']
     depends_on: { db: { condition: service_healthy } }
     volumes:

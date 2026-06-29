@@ -1220,3 +1220,4 @@ async def get_suggestion_history(
         .limit(limit)
     )
     return list(result.scalars().all())
+
