@@ -38,14 +38,14 @@ import { AuthService } from '../../../core/services/auth.service';
       <!-- ============================================================
            Welcome Banner + Filters
            ============================================================ -->
-      <div class="rounded-2xl bg-gradient-to-br from-slate-800 via-slate-700 to-blue-700 p-5 text-white shadow-lg sm:p-6">
+      <div class="rounded-2xl bg-gradient-to-br from-gray-900 via-emerald-950 to-gray-900 p-5 text-white shadow-lg sm:p-6">
         <div class="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div>
             <p class="text-sm font-medium text-blue-200">Good day,</p>
             <h1 class="text-2xl font-bold tracking-tight">{{ userName() }}</h1>
           </div>
           @if (liveRate() !== null) {
-            <div class="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-sm backdrop-blur-sm">
+            <div class="flex items-center gap-1.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 px-3 py-1.5 text-sm text-emerald-300 backdrop-blur-sm">
               <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400"></span>
               <span class="font-semibold">$1 = ₦{{ liveRate()! | number: '1.0-0' }}</span>
             </div>
@@ -85,21 +85,21 @@ import { AuthService } from '../../../core/services/auth.service';
            KPI Cards — 8 business metrics
            ============================================================ -->
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <app-kpi-card label="Total Sales"        iconClass="pi pi-chart-bar"    iconBgColor="#0EA5E9" [value]="kpi()?.total_sales          ?? '0.00'" [loading]="kpiLoading()" tooltipText="All completed sales in the selected period" />
-        <app-kpi-card label="Net Profit"         iconClass="pi pi-trending-up"  iconBgColor="#22C55E" [value]="kpi()?.net                  ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales Revenue − Cost of Goods Sold − Expenses" />
+        <app-kpi-card label="Total Sales"        iconClass="pi pi-chart-bar"    iconBgColor="#10B981" [value]="kpi()?.total_sales          ?? '0.00'" [loading]="kpiLoading()" tooltipText="All completed sales in the selected period" />
+        <app-kpi-card label="Net Profit"         iconClass="pi pi-trending-up"  iconBgColor="#059669" [value]="kpi()?.net                  ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales Revenue − Cost of Goods Sold − Expenses" />
         <app-kpi-card label="Unpaid Sales"       iconClass="pi pi-clock"        iconBgColor="#F59E0B" [value]="kpi()?.invoice_due           ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales where payment hasn't been received yet" />
-        <app-kpi-card label="Total Purchased"    iconClass="pi pi-shopping-bag" iconBgColor="#0EA5E9" [value]="kpi()?.total_purchase        ?? '0.00'" [loading]="kpiLoading()" tooltipText="Total value of all purchase orders placed" />
-        <app-kpi-card label="Amount Owed"        iconClass="pi pi-credit-card"  iconBgColor="#F59E0B" [value]="kpi()?.purchase_due          ?? '0.00'" [loading]="kpiLoading()" tooltipText="Outstanding balance you owe to suppliers" />
-        <app-kpi-card label="Monthly Expenses"   iconClass="pi pi-minus-circle" iconBgColor="#8B5CF6" [value]="kpi()?.expense               ?? '0.00'" [loading]="kpiLoading()" tooltipText="Operating costs (rent, salaries, utilities, etc.)" />
-        <app-kpi-card label="Customer Returns"   iconClass="pi pi-undo"         iconBgColor="#EF4444" [value]="kpi()?.total_sell_return     ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned by customers"             [subLines]="sellReturnSubLines()" />
-        <app-kpi-card label="Supplier Refunds"   iconClass="pi pi-replay"       iconBgColor="#EF4444" [value]="kpi()?.total_purchase_return ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned to suppliers"             [subLines]="purchaseReturnSubLines()" />
+        <app-kpi-card label="Total Purchased"    iconClass="pi pi-shopping-bag" iconBgColor="#3B82F6" [value]="kpi()?.total_purchase        ?? '0.00'" [loading]="kpiLoading()" tooltipText="Total value of all purchase orders placed" />
+        <app-kpi-card label="Amount Owed"        iconClass="pi pi-credit-card"  iconBgColor="#3B82F6" [value]="kpi()?.purchase_due          ?? '0.00'" [loading]="kpiLoading()" tooltipText="Outstanding balance you owe to suppliers" />
+        <app-kpi-card label="Monthly Expenses"   iconClass="pi pi-minus-circle" iconBgColor="#EF4444" [value]="kpi()?.expense               ?? '0.00'" [loading]="kpiLoading()" tooltipText="Operating costs (rent, salaries, utilities, etc.)" />
+        <app-kpi-card label="Customer Returns"   iconClass="pi pi-undo"         iconBgColor="#8B5CF6" [value]="kpi()?.total_sell_return     ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned by customers"             [subLines]="sellReturnSubLines()" />
+        <app-kpi-card label="Supplier Refunds"   iconClass="pi pi-replay"       iconBgColor="#8B5CF6" [value]="kpi()?.total_purchase_return ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned to suppliers"             [subLines]="purchaseReturnSubLines()" />
       </div>
 
       @if (kpiError()) {
         <div class="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
           <i class="pi pi-exclamation-triangle text-red-500"></i>
           <p class="text-sm text-red-600">Could not load your business figures.</p>
-          <button class="ml-auto text-xs font-semibold text-red-600 underline" (click)="loadKpi()">Retry</button>
+          <button class="ml-auto min-h-[44px] text-xs font-semibold text-red-600 underline" (click)="loadKpi()">Retry</button>
         </div>
       }
 
@@ -121,27 +121,27 @@ import { AuthService } from '../../../core/services/auth.service';
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
 
           <!-- Cash Health -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <div class="mb-4 flex items-center gap-3">
-              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-blue-50">
-                <i class="pi pi-wallet text-lg text-blue-600"></i>
+              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+                <i class="pi pi-wallet text-lg text-emerald-700"></i>
               </div>
               <div>
-                <p class="font-semibold text-slate-800">Cash Health</p>
-                <p class="text-xs text-slate-400">How long your money lasts</p>
+                <p class="font-semibold text-gray-900">Cash Health</p>
+                <p class="text-xs text-gray-400">How long your money lasts</p>
               </div>
             </div>
             <div class="space-y-3">
               <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">Cash Runway</span>
-                <span class="text-sm font-bold text-slate-800">
+                <span class="text-sm text-gray-500">Cash Runway</span>
+                <span class="text-sm font-bold text-gray-900">
                   @if (data().liquidity.runway_months > 0) {
                     {{ data().liquidity.runway_months | number: '1.1-1' }} mo
                   } @else { Profitable ✓ }
                 </span>
               </div>
               <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">Profit Score (DSCR)</span>
+                <span class="text-sm text-gray-500">Profit Score (DSCR)</span>
                 <span class="text-sm font-bold" [class]="dscrColor()">
                   @if (data().liquidity.dscr >= 99) { Excellent }
                   @else if (data().liquidity.dscr > 0) { {{ data().liquidity.dscr | number: '1.1-1' }} }
@@ -149,7 +149,7 @@ import { AuthService } from '../../../core/services/auth.service';
                 </span>
               </div>
               <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">Status</span>
+                <span class="text-sm text-gray-500">Status</span>
                 <span class="rounded-full px-3 py-1 text-xs font-semibold" [class]="riskBadgeClass()">
                   {{ riskLabel() }}
                 </span>
@@ -158,44 +158,44 @@ import { AuthService } from '../../../core/services/auth.service';
           </div>
 
           <!-- Order Activity -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <div class="mb-4 flex items-center gap-3">
               <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-50">
                 <i class="pi pi-box text-lg text-amber-600"></i>
               </div>
               <div>
-                <p class="font-semibold text-slate-800">Order Activity</p>
-                <p class="text-xs text-slate-400">Purchases &amp; shipments</p>
+                <p class="font-semibold text-gray-900">Order Activity</p>
+                <p class="text-xs text-gray-400">Purchases &amp; shipments</p>
               </div>
             </div>
             <div class="space-y-3">
               <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">In Progress</span>
-                <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.active_orders }}</span>
+                <span class="text-sm text-gray-500">In Progress</span>
+                <span class="text-sm font-bold text-gray-900">{{ data().ordersSummary.active_orders }}</span>
               </div>
               <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">All Time</span>
-                <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.total_orders }}</span>
+                <span class="text-sm text-gray-500">All Time</span>
+                <span class="text-sm font-bold text-gray-900">{{ data().ordersSummary.total_orders }}</span>
               </div>
               <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">Delivered</span>
-                <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.by_status['DELIVERED'] || 0 }}</span>
+                <span class="text-sm text-gray-500">Delivered</span>
+                <span class="text-sm font-bold text-gray-900">{{ data().ordersSummary.by_status['DELIVERED'] || 0 }}</span>
               </div>
             </div>
-            <a routerLink="/orders" class="mt-4 flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
+            <a routerLink="/orders" class="mt-4 flex items-center gap-1 min-h-[44px] text-xs font-semibold text-emerald-700 hover:text-emerald-800">
               View orders <i class="pi pi-arrow-right text-[10px]"></i>
             </a>
           </div>
 
           <!-- Profit Margin -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <div class="mb-4 flex items-center gap-3">
-              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-purple-50">
-                <i class="pi pi-percentage text-lg text-purple-600"></i>
+              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+                <i class="pi pi-percentage text-lg text-emerald-700"></i>
               </div>
               <div>
-                <p class="font-semibold text-slate-800">Profit Margin</p>
-                <p class="text-xs text-slate-400">Average across all products</p>
+                <p class="font-semibold text-gray-900">Profit Margin</p>
+                <p class="text-xs text-gray-400">Average across all products</p>
               </div>
             </div>
             <div class="flex items-baseline gap-2">
@@ -211,9 +211,9 @@ import { AuthService } from '../../../core/services/auth.service';
               </span>
             </div>
             <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100">
-              <div class="h-2 rounded-full transition-all" [class]="marginColor() === 'text-green-600' ? 'bg-green-500' : 'bg-amber-500'" [style.width.%]="marginBarWidth()"></div>
+              <div class="h-2 rounded-full transition-all" [class]="marginColor() === 'text-green-600' ? 'bg-emerald-500' : 'bg-amber-500'" [style.width.%]="marginBarWidth()"></div>
             </div>
-            <p class="mt-1.5 text-xs text-slate-400">Target: {{ data().profitMargin.target_margin }}%</p>
+            <p class="mt-1.5 text-xs text-gray-400">Target: {{ data().profitMargin.target_margin }}%</p>
           </div>
         </div>
 
@@ -223,31 +223,31 @@ import { AuthService } from '../../../core/services/auth.service';
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
 
           <!-- FX Exposure Widget -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <div class="mb-4 flex items-center justify-between">
               <div class="flex items-center gap-3">
-                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-sky-50">
-                  <i class="pi pi-arrow-right-arrow-left text-lg text-sky-600"></i>
+                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+                  <i class="pi pi-arrow-right-arrow-left text-lg text-emerald-700"></i>
                 </div>
                 <div>
-                  <p class="font-semibold text-slate-800">FX Exposure</p>
-                  <p class="text-xs text-slate-400">Locked vs floating currency risk on open orders</p>
+                  <p class="font-semibold text-gray-900">FX Exposure</p>
+                  <p class="text-xs text-gray-400">Locked vs floating currency risk on open orders</p>
                 </div>
               </div>
-              <a routerLink="/fx" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                Manage <i class="pi pi-arrow-right text-[10px]"></i>
+              <a routerLink="/fx" class="min-h-[44px] flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800">
+                Manage <i class="pi pi-arrow-right text-[10px] ml-1"></i>
               </a>
             </div>
 
             @if (fxExposure().length === 0) {
-              <div class="rounded-xl bg-slate-50 p-5 text-center">
-                <i class="pi pi-info-circle mb-2 text-2xl text-slate-400"></i>
-                <p class="font-medium text-slate-600">No FX exposure tracked yet</p>
-                <p class="mt-1 text-xs text-slate-400">
+              <div class="rounded-xl bg-gray-50 p-5 text-center">
+                <i class="pi pi-info-circle mb-2 text-2xl text-gray-400"></i>
+                <p class="font-medium text-gray-600">No FX exposure tracked yet</p>
+                <p class="mt-1 text-xs text-gray-400">
                   FX exposure is recorded when purchase orders are created with a USD/EUR component.<br>
                   30% is locked at deposit rate; 70% floats until delivery.
                 </p>
-                <a routerLink="/orders" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline">
+                <a routerLink="/orders" class="mt-3 inline-flex min-h-[44px] items-center gap-1 text-xs font-semibold text-emerald-700 hover:underline">
                   Create a purchase order <i class="pi pi-arrow-right text-[10px]"></i>
                 </a>
               </div>
@@ -256,30 +256,30 @@ import { AuthService } from '../../../core/services/auth.service';
                 @for (entry of fxExposure(); track entry.pair) {
                   <div class="rounded-xl border border-gray-100 p-4">
                     <div class="mb-3 flex items-center justify-between">
-                      <span class="rounded-full bg-sky-100 px-3 py-0.5 text-xs font-bold text-sky-700">{{ entry.pair }}</span>
-                      <span class="text-xs" [class]="entry.unrealized_pnl >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'">
+                      <span class="rounded-full bg-emerald-50 px-3 py-0.5 text-xs font-bold text-emerald-700">{{ entry.pair }}</span>
+                      <span class="text-xs" [class]="entry.unrealized_pnl >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-600 font-semibold'">
                         {{ entry.unrealized_pnl >= 0 ? '+' : '' }}{{ entry.unrealized_pnl | number: '1.0-0' }} P&amp;L
                       </span>
                     </div>
                     <div class="grid grid-cols-2 gap-3">
                       <div>
-                        <p class="text-xs text-slate-400">Locked ({{ (entry.locked_pct * 100) | number: '1.0-0' }}%)</p>
-                        <p class="font-bold text-slate-800">{{ entry.locked_amount | number: '1.0-0' }}</p>
-                        <p class="text-[10px] text-slate-400">at {{ entry.weighted_locked_rate | number: '1.2-2' }}</p>
+                        <p class="text-xs text-gray-400">Locked ({{ (entry.locked_pct * 100) | number: '1.0-0' }}%)</p>
+                        <p class="font-bold text-gray-900">{{ entry.locked_amount | number: '1.0-0' }}</p>
+                        <p class="text-[10px] text-gray-400">at {{ entry.weighted_locked_rate | number: '1.2-2' }}</p>
                       </div>
                       <div>
-                        <p class="text-xs text-slate-400">Floating ({{ (entry.floating_pct * 100) | number: '1.0-0' }}%)</p>
-                        <p class="font-bold text-slate-800">{{ entry.floating_amount | number: '1.0-0' }}</p>
-                        <p class="text-[10px] text-slate-400">market {{ entry.current_market_rate | number: '1.2-2' }}</p>
+                        <p class="text-xs text-gray-400">Floating ({{ (entry.floating_pct * 100) | number: '1.0-0' }}%)</p>
+                        <p class="font-bold text-gray-900">{{ entry.floating_amount | number: '1.0-0' }}</p>
+                        <p class="text-[10px] text-gray-400">market {{ entry.current_market_rate | number: '1.2-2' }}</p>
                       </div>
                     </div>
                     <!-- Locked vs floating bar -->
                     <div class="mt-3 flex h-2 w-full overflow-hidden rounded-full">
-                      <div class="bg-blue-500" [style.width.%]="entry.locked_pct * 100"></div>
+                      <div class="bg-emerald-500" [style.width.%]="entry.locked_pct * 100"></div>
                       <div class="bg-amber-400" [style.width.%]="entry.floating_pct * 100"></div>
                     </div>
-                    <div class="mt-1 flex justify-between text-[10px] text-slate-400">
-                      <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500"></span> Locked</span>
+                    <div class="mt-1 flex justify-between text-[10px] text-gray-400">
+                      <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Locked</span>
                       <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"></span> Floating</span>
                     </div>
                   </div>
@@ -289,26 +289,26 @@ import { AuthService } from '../../../core/services/auth.service';
           </div>
 
           <!-- Global Exposure Widget -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <div class="mb-4 flex items-center gap-3">
-              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50">
-                <i class="pi pi-globe text-lg text-indigo-600"></i>
+              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+                <i class="pi pi-globe text-lg text-emerald-700"></i>
               </div>
               <div>
-                <p class="font-semibold text-slate-800">Global Exposure</p>
-                <p class="text-xs text-slate-400">Total financial obligations across all currencies</p>
+                <p class="font-semibold text-gray-900">Global Exposure</p>
+                <p class="text-xs text-gray-400">Total financial obligations across all currencies</p>
               </div>
             </div>
 
             @let ge = globalExposure();
             @if (ge) {
               <!-- Total headline -->
-              <div class="mb-4 rounded-xl bg-indigo-50 p-4">
-                <p class="text-xs font-semibold uppercase tracking-wider text-indigo-400">Total Exposure (NGN)</p>
-                <p class="mt-1 text-2xl font-bold text-indigo-700">₦{{ ge.total_global_exposure_ngn | number: '1.0-0' }}</p>
+              <div class="mb-4 rounded-xl bg-emerald-50 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wider text-emerald-600">Total Exposure (NGN)</p>
+                <p class="mt-1 text-2xl font-bold text-emerald-700">₦{{ ge.total_global_exposure_ngn | number: '1.0-0' }}</p>
                 <div class="mt-2 flex items-center gap-2">
-                  <span class="text-xs text-indigo-500">Debt/Trade Ratio:</span>
-                  <span class="text-xs font-bold" [class]="ge.debt_to_trade_ratio > 1.5 ? 'text-red-600' : ge.debt_to_trade_ratio > 0.8 ? 'text-amber-600' : 'text-green-600'">
+                  <span class="text-xs text-emerald-600">Debt/Trade Ratio:</span>
+                  <span class="text-xs font-bold" [class]="ge.debt_to_trade_ratio > 1.5 ? 'text-red-600' : ge.debt_to_trade_ratio > 0.8 ? 'text-amber-600' : 'text-emerald-600'">
                     {{ ge.debt_to_trade_ratio | number: '1.2-2' }}
                     @if (ge.debt_to_trade_ratio <= 0.8) { (Healthy) }
                     @else if (ge.debt_to_trade_ratio <= 1.5) { (Moderate) }
@@ -321,33 +321,33 @@ import { AuthService } from '../../../core/services/auth.service';
               <div class="space-y-3">
                 <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
                   <div class="flex items-center gap-2">
-                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-green-50 text-xs font-bold text-green-700">$</span>
+                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-xs font-bold text-emerald-700">$</span>
                     <div>
-                      <p class="text-sm font-medium text-slate-700">USD Order Obligations</p>
-                      <p class="text-xs text-slate-400">Balance owed on open purchase orders</p>
+                      <p class="text-sm font-medium text-gray-700">USD Order Obligations</p>
+                      <p class="text-xs text-gray-400">Balance owed on open purchase orders</p>
                     </div>
                   </div>
-                  <span class="text-sm font-bold text-slate-800">\${{ ge.open_order_usd_obligations | number: '1.0-0' }}</span>
+                  <span class="text-sm font-bold text-gray-900">\${{ ge.open_order_usd_obligations | number: '1.0-0' }}</span>
                 </div>
 
                 <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
                   <div class="flex items-center gap-2">
                     <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-xs font-bold text-blue-700">€</span>
                     <div>
-                      <p class="text-sm font-medium text-slate-700">EUR Loan Balance</p>
-                      <p class="text-xs text-slate-400">Outstanding loan obligations in EUR</p>
+                      <p class="text-sm font-medium text-gray-700">EUR Loan Balance</p>
+                      <p class="text-xs text-gray-400">Outstanding loan obligations in EUR</p>
                     </div>
                   </div>
-                  <span class="text-sm font-bold text-slate-800">€{{ ge.eur_loan_balance_eur | number: '1.0-0' }}</span>
+                  <span class="text-sm font-bold text-gray-900">€{{ ge.eur_loan_balance_eur | number: '1.0-0' }}</span>
                 </div>
               </div>
 
               <!-- FX Rates used -->
               <div class="mt-4 flex flex-wrap gap-3 border-t border-gray-100 pt-3">
-                <span class="text-xs text-slate-400">$1 = ₦{{ ge.ngn_usd_rate | number: '1.0-0' }}</span>
+                <span class="text-xs text-gray-400">$1 = ₦{{ ge.ngn_usd_rate | number: '1.0-0' }}</span>
                 @if (ge.eur_usd_rate_available) {
-                  <span class="text-xs text-slate-400">€1 = \${{ ge.eur_usd_rate | number: '1.3-3' }}</span>
-                  <span class="text-xs text-slate-400">€1 = ₦{{ ge.eur_ngn_derived_rate | number: '1.0-0' }}</span>
+                  <span class="text-xs text-gray-400">€1 = \${{ ge.eur_usd_rate | number: '1.3-3' }}</span>
+                  <span class="text-xs text-gray-400">€1 = ₦{{ ge.eur_ngn_derived_rate | number: '1.0-0' }}</span>
                 } @else {
                   <span class="text-xs text-amber-500">EUR/USD rate unavailable</span>
                 }
@@ -364,19 +364,19 @@ import { AuthService } from '../../../core/services/auth.service';
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
 
           <!-- Logistics Efficiency -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <div class="mb-4 flex items-center justify-between">
               <div class="flex items-center gap-3">
                 <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" [class]="logisticsIconBg()">
                   <i class="pi pi-truck text-lg" [class]="logisticsIconColor()"></i>
                 </div>
                 <div>
-                  <p class="font-semibold text-slate-800">Shipping Costs</p>
-                  <p class="text-xs text-slate-400">Logistics as % of order value</p>
+                  <p class="font-semibold text-gray-900">Shipping Costs</p>
+                  <p class="text-xs text-gray-400">Logistics as % of order value</p>
                 </div>
               </div>
-              <a routerLink="/orders" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                Orders <i class="pi pi-arrow-right text-[10px]"></i>
+              <a routerLink="/orders" class="min-h-[44px] flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800">
+                Orders <i class="pi pi-arrow-right text-[10px] ml-1"></i>
               </a>
             </div>
 
@@ -385,7 +385,7 @@ import { AuthService } from '../../../core/services/auth.service';
               <p class="text-4xl font-bold" [class]="logisticsValueColor()">
                 {{ lg.rolling_90d_avg_pct | number: '1.1-1' }}%
               </p>
-              <p class="mt-1 text-xs text-slate-400">90-day rolling average</p>
+              <p class="mt-1 text-xs text-gray-400">90-day rolling average</p>
 
               <!-- Status badge -->
               <div class="mt-3 flex items-center gap-2">
@@ -398,16 +398,16 @@ import { AuthService } from '../../../core/services/auth.service';
               <!-- Threshold guide -->
               <div class="mt-4 space-y-1.5">
                 <div class="flex items-center justify-between text-xs">
-                  <span class="flex items-center gap-1 text-green-600"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span> Target</span>
-                  <span class="font-medium text-slate-600">&lt; {{ lg.amber_threshold_pct }}%</span>
+                  <span class="flex items-center gap-1 text-emerald-600"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Target</span>
+                  <span class="font-medium text-gray-600">&lt; {{ lg.amber_threshold_pct }}%</span>
                 </div>
                 <div class="flex items-center justify-between text-xs">
                   <span class="flex items-center gap-1 text-amber-600"><span class="h-1.5 w-1.5 rounded-full bg-amber-400"></span> Caution</span>
-                  <span class="font-medium text-slate-600">{{ lg.amber_threshold_pct }}–{{ lg.red_threshold_pct }}%</span>
+                  <span class="font-medium text-gray-600">{{ lg.amber_threshold_pct }}–{{ lg.red_threshold_pct }}%</span>
                 </div>
                 <div class="flex items-center justify-between text-xs">
                   <span class="flex items-center gap-1 text-red-600"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> High</span>
-                  <span class="font-medium text-slate-600">&gt; {{ lg.red_threshold_pct }}%</span>
+                  <span class="font-medium text-gray-600">&gt; {{ lg.red_threshold_pct }}%</span>
                 </div>
               </div>
             } @else {
@@ -419,28 +419,28 @@ import { AuthService } from '../../../core/services/auth.service';
           </div>
 
           <!-- Low Stock Alerts -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <div class="mb-4 flex items-center justify-between">
               <div class="flex items-center gap-3">
                 <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-red-50">
                   <i class="pi pi-exclamation-triangle text-lg text-red-500"></i>
                 </div>
                 <div>
-                  <p class="font-semibold text-slate-800">Stock Levels</p>
-                  <p class="text-xs text-slate-400">Products running low</p>
+                  <p class="font-semibold text-gray-900">Stock Levels</p>
+                  <p class="text-xs text-gray-400">Products running low</p>
                 </div>
               </div>
-              <a routerLink="/inventory" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                Inventory <i class="pi pi-arrow-right text-[10px]"></i>
+              <a routerLink="/inventory" class="min-h-[44px] flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800">
+                Inventory <i class="pi pi-arrow-right text-[10px] ml-1"></i>
               </a>
             </div>
             @let lsc = data().lowStockCount;
             @if (lsc === 0) {
-              <div class="flex items-center gap-3 rounded-xl bg-green-50 p-4">
-                <i class="pi pi-check-circle text-xl text-green-600"></i>
+              <div class="flex items-center gap-3 rounded-xl bg-emerald-50 p-4">
+                <i class="pi pi-check-circle text-xl text-emerald-600"></i>
                 <div>
-                  <p class="font-medium text-green-700">All stock levels healthy</p>
-                  <p class="text-xs text-green-600">No products need restocking</p>
+                  <p class="font-medium text-emerald-700">All stock levels healthy</p>
+                  <p class="text-xs text-emerald-600">No products need restocking</p>
                 </div>
               </div>
             } @else {
@@ -457,36 +457,36 @@ import { AuthService } from '../../../core/services/auth.service';
           </div>
 
           <!-- AI Smart Suggestions -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <div class="mb-4 flex items-center justify-between">
               <div class="flex items-center gap-3">
-                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50">
-                  <i class="pi pi-sparkles text-lg text-indigo-600"></i>
+                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-purple-50">
+                  <i class="pi pi-sparkles text-lg text-purple-600"></i>
                 </div>
                 <div>
-                  <p class="font-semibold text-slate-800">Smart Suggestions</p>
-                  <p class="text-xs text-slate-400">AI-powered business tips</p>
+                  <p class="font-semibold text-gray-900">Smart Suggestions</p>
+                  <p class="text-xs text-gray-400">AI-powered business tips</p>
                 </div>
               </div>
-              <a routerLink="/recommendations" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                View all <i class="pi pi-arrow-right text-[10px]"></i>
+              <a routerLink="/recommendations" class="min-h-[44px] flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800">
+                View all <i class="pi pi-arrow-right text-[10px] ml-1"></i>
               </a>
             </div>
             @if (data().recommendations.length === 0) {
-              <div class="flex items-center gap-3 rounded-xl bg-slate-50 p-4">
-                <i class="pi pi-check-circle text-xl text-slate-400"></i>
-                <p class="text-sm text-slate-500">No new suggestions right now.</p>
+              <div class="flex items-center gap-3 rounded-xl bg-gray-50 p-4">
+                <i class="pi pi-check-circle text-xl text-gray-400"></i>
+                <p class="text-sm text-gray-500">No new suggestions right now.</p>
               </div>
             } @else {
               <div class="space-y-2">
                 @for (rec of data().recommendations; track rec.id) {
-                  <div class="flex items-start gap-3 rounded-xl border border-gray-100 p-3 transition-colors hover:bg-slate-50">
+                  <div class="flex items-start gap-3 rounded-xl border border-gray-100 p-3 transition-colors hover:bg-gray-50">
                     <span class="mt-0.5 flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" [class]="priorityClass(rec.priority)">
                       {{ rec.priority }}
                     </span>
                     <div class="min-w-0">
-                      <p class="truncate text-sm font-medium text-slate-800">{{ rec.title }}</p>
-                      <p class="truncate text-xs text-slate-400">{{ rec.category }}</p>
+                      <p class="truncate text-sm font-medium text-gray-900">{{ rec.title }}</p>
+                      <p class="truncate text-xs text-gray-400">{{ rec.category }}</p>
                     </div>
                   </div>
                 }
