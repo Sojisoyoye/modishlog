@@ -534,44 +534,6 @@ interface ElasticityEntry {
             </div>
           }
 
-          <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <h4 class="mb-2 text-xs font-semibold uppercase text-muted">
-                Above Target ({{ marginData().target_margin }}%)
-              </h4>
-              @for (item of subsidyFilteredAbove(); track item.product_name) {
-                <div class="flex items-center justify-between py-1.5">
-                  <span class="text-sm text-text">{{ item.product_name }}</span>
-                  <span class="text-sm font-semibold text-success">
-                    {{ item.margin_pct | number: '1.1-1' }}%
-                  </span>
-                </div>
-              } @empty {
-                <p class="text-sm text-muted">None</p>
-              }
-              @if (subsidyAboveMoreCount() > 0) {
-                <p class="mt-1 text-xs text-muted">and {{ subsidyAboveMoreCount() }} more</p>
-              }
-            </div>
-            <div>
-              <h4 class="mb-2 text-xs font-semibold uppercase text-muted">
-                Below Target ({{ marginData().target_margin }}%)
-              </h4>
-              @for (item of subsidyFilteredBelow(); track item.product_name) {
-                <div class="flex items-center justify-between py-1.5">
-                  <span class="text-sm text-text">{{ item.product_name }}</span>
-                  <span class="text-sm font-semibold text-danger">
-                    {{ item.margin_pct | number: '1.1-1' }}%
-                  </span>
-                </div>
-              } @empty {
-                <p class="text-sm text-muted">None</p>
-              }
-              @if (subsidyBelowMoreCount() > 0) {
-                <p class="mt-1 text-xs text-muted">and {{ subsidyBelowMoreCount() }} more</p>
-              }
-            </div>
-          </div>
         } @else {
           <p class="py-4 text-center text-sm text-muted">
             <i class="pi pi-info-circle mr-1"></i> Not enough product data to show
@@ -590,20 +552,20 @@ interface ElasticityEntry {
           <span class="ml-1 text-xs text-muted">(top 10 each side)</span>
         </div>
         <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-gray-200 text-sm">
+          <table class="w-full table-fixed divide-y divide-gray-200 text-sm">
             <caption class="sr-only">Above and below target margin breakdown</caption>
             <thead>
               <tr class="bg-gray-50/80">
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                <th class="w-2/5 px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
                   Above Target ({{ marginData().target_margin }}%)
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-success w-20">
+                <th class="w-1/10 px-4 py-3 text-right text-xs font-semibold uppercase text-success">
                   Margin
                 </th>
-                <th class="border-l border-gray-200 px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                <th class="w-2/5 border-l border-gray-200 px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
                   Below Target ({{ marginData().target_margin }}%)
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-danger w-20">
+                <th class="w-1/10 px-4 py-3 text-right text-xs font-semibold uppercase text-danger">
                   Margin
                 </th>
               </tr>
@@ -611,11 +573,11 @@ interface ElasticityEntry {
             <tbody class="divide-y divide-gray-100">
               @for (row of subsidyTableRows(); track row.idx) {
                 <tr class="transition-colors hover:bg-gray-50/50">
-                  <td class="px-4 py-2.5 text-text">{{ row.above?.product_name ?? '' }}</td>
+                  <td class="truncate px-4 py-2.5 text-text">{{ row.above?.product_name ?? '' }}</td>
                   <td class="px-4 py-2.5 text-right font-semibold text-success">
                     {{ row.above ? (row.above.margin_pct | number: '1.1-1') + '%' : '' }}
                   </td>
-                  <td class="border-l border-gray-200 px-4 py-2.5 text-text">
+                  <td class="truncate border-l border-gray-200 px-4 py-2.5 text-text">
                     {{ row.below?.product_name ?? '' }}
                   </td>
                   <td class="px-4 py-2.5 text-right font-semibold text-danger">
