@@ -179,10 +179,11 @@ test('typing in search filters inventory rows', async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 test('pagination controls are visible when inventory has items', async ({ page }) => {
-  // The showing text is only rendered when filteredInventory.length > 0
-  const rows = page.getByRole('row').filter({ hasText: /\w/ });
-  const rowCount = await rows.count();
-  if (rowCount > 0) {
-    await expect(page.getByText(/Showing \d+/)).toBeVisible();
-  }
+  const product = await ensureProduct(`E2E Pag ${Date.now()}`);
+  await addStock(product.id, 5);
+
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible();
+
+  await expect(page.getByText(/Showing \d+/)).toBeVisible({ timeout: 10_000 });
 });

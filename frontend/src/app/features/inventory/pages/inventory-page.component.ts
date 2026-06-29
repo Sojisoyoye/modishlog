@@ -13,6 +13,7 @@ import {
 } from '../../../core/services/inventory.service';
 import { ProductsService } from '../../../core/services/products.service';
 
+// TODO: migrate to server-side search+pagination when inventory grows beyond this cap
 const MAX_INVENTORY_LOAD = 10_000;
 
 @Component({

@@ -1270,7 +1270,7 @@ export class SalesPageComponent implements OnInit {
   }
 
   private loadInventory(): void {
-    this.inventoryService.getCurrent(1, 1000).subscribe({
+    this.inventoryService.getCurrent(1, 10_000).subscribe({
       next: ({ items }) => {
         const map = new Map<string, number>();
         items.forEach((item) => map.set(item.product_id, item.current_stock));

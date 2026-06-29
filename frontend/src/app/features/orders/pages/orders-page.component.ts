@@ -810,7 +810,7 @@ export class OrdersPageComponent implements OnInit {
   products = signal<Product[]>([]);
   selectedOrder = signal<Order | null>(null);
   pipelineFilter = signal<string | null>(null);
-  displayedOrders = computed(() => this.orders());
+  readonly displayedOrders = this.orders;
   detailVisible = false;
   showCreate = false;
   creating = signal(false);
@@ -912,6 +912,7 @@ export class OrdersPageComponent implements OnInit {
   private loadStatusCounts(): void {
     this.ordersService.getStatusCounts().subscribe({
       next: (counts) => this.statusCounts.set(counts),
+      error: () => {},
     });
   }
 
@@ -937,10 +938,6 @@ export class OrdersPageComponent implements OnInit {
     const p = Math.max(1, Math.min(page, this.ordersTotalPages()));
     this.ordersPage.set(p);
     this.loadOrders();
-  }
-
-  ordersByStatus(status: string): Order[] {
-    return this.orders().filter((o) => o.status === status);
   }
 
   togglePipelineFilter(status: string | null): void {
@@ -982,6 +979,7 @@ export class OrdersPageComponent implements OnInit {
           detail: `Order moved to ${this.statusLabel[newStatus] ?? newStatus}`,
         });
         this.loadOrders();
+        this.loadStatusCounts();
       },
       error: () => {
         this.messageService.add({
@@ -1080,6 +1078,7 @@ export class OrdersPageComponent implements OnInit {
           detail: 'Order created successfully',
         });
         this.loadOrders();
+        this.loadStatusCounts();
       },
       error: () => {
         this.creating.set(false);
@@ -1191,6 +1190,7 @@ export class OrdersPageComponent implements OnInit {
             detail: `${result.created} order(s) created successfully`,
           });
           this.loadOrders();
+          this.loadStatusCounts();
         }
       },
       error: (err) => {

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureTestUser, loginViaUI } from './helpers/auth';
-import { ensureProduct } from './helpers/data';
+import { ensureProduct, createOrder } from './helpers/data';
 
 // ---------------------------------------------------------------------------
 // Orders Page E2E Tests
@@ -198,21 +198,17 @@ test.describe('Create Order flow', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('Orders pagination', () => {
+  test.beforeAll(async () => {
+    const product = await ensureProduct('E2E Pagination Product');
+    await createOrder(product.id);
+  });
+
   test('shows pagination controls when orders exist', async ({ page }) => {
-    const rows = page.getByRole('row').filter({ hasText: /\w/ });
-    const rowCount = await rows.count();
-    if (rowCount > 0) {
-      await expect(page.getByText(/Showing \d+/)).toBeVisible();
-      await expect(page.getByRole('button', { name: /chevron/ }).first()).toBeVisible();
-    }
+    await expect(page.getByText(/Showing \d+/)).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('button:has(.pi-chevron-left)').first()).toBeVisible();
   });
 
   test('previous page button is disabled on page 1', async ({ page }) => {
-    const rows = page.getByRole('row').filter({ hasText: /\w/ });
-    const rowCount = await rows.count();
-    if (rowCount > 0) {
-      const prevButton = page.locator('button:has(.pi-chevron-left)').first();
-      await expect(prevButton).toBeDisabled();
-    }
+    await expect(page.locator('button:has(.pi-chevron-left)').first()).toBeDisabled({ timeout: 10_000 });
   });
 });
