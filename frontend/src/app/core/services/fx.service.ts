@@ -198,11 +198,11 @@ export class FxService {
       .pipe(map(() => void 0));
   }
 
-  getForecast(days = 30): Observable<FxForecast[]> {
+  getForecast(days = 30, pair = 'USDNGN'): Observable<FxForecast[]> {
     const dateFrom = new Date();
     const dateTo = new Date(dateFrom.getTime() + days * 24 * 60 * 60 * 1000);
     return this.api
-      .get<ForecastRangeResponse>('/fx/forecast/USDNGN', {
+      .get<ForecastRangeResponse>(`/fx/forecast/${pair}`, {
         date_from: dateFrom.toISOString().split('T')[0],
         date_to: dateTo.toISOString().split('T')[0],
       })
@@ -216,6 +216,24 @@ export class FxService {
           }))
         )
       );
+  }
+
+  getLatestEurNgn(): Observable<FxRate | null> {
+    return this.api.get<FXRateRead[]>('/fx/rates/current').pipe(
+      map((rates) => {
+        const rate = rates.find((r) => r.pair === 'EURNGN');
+        return rate
+          ? {
+              id: rate.id,
+              rate: Number(rate.rate),
+              rate_date: rate.timestamp,
+              rate_type: rate.pair,
+              source: rate.source,
+              created_at: rate.created_at,
+            }
+          : null;
+      })
+    );
   }
 
   addManualRate(data: ManualRateEntry): Observable<FxRate> {
