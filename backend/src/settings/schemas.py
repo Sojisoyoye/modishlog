@@ -35,7 +35,9 @@ class FiscalYearUpdate(BaseModel):
                 "fiscal_year_start_month and fiscal_year_start_day must both be set or both be null"
             )
         if month is not None and day is not None:
-            max_day = calendar.monthrange(2000, month)[1]
+            # Use a non-leap year so Feb is capped at 28, preventing Feb 29 from
+            # being stored (date(non_leap_year, 2, 29) raises ValueError at runtime).
+            max_day = calendar.monthrange(2001, month)[1]
             if day > max_day:
                 raise ValueError(
                     f"fiscal_year_start_day {day} is invalid for month {month} "

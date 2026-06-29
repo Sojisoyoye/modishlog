@@ -7,7 +7,7 @@ from functools import lru_cache
 from typing import Optional
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,6 +116,8 @@ async def update_fiscal_year_start(
             set_={
                 "fiscal_year_start_month": month,
                 "fiscal_year_start_day": day,
+                # ORM onupdate hooks are bypassed by Core statements — bump explicitly.
+                "updated_at": func.now(),
             },
         )
     )

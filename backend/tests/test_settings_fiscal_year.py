@@ -343,3 +343,17 @@ class TestFiscalYearEndpoints:
             )
 
         assert resp.status_code == 422
+
+    def test_put_fiscal_year_feb_29_returns_422(self):
+        """PUT /settings/fiscal-year with month=2 day=29 returns 422 — Feb 29 only exists
+        in leap years, so storing it would crash date() in non-leap years."""
+        db = _mock_db()
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.put(
+                "/api/v1/settings/fiscal-year",
+                json={"fiscal_year_start_month": 2, "fiscal_year_start_day": 29},
+            )
+
+        assert resp.status_code == 422
