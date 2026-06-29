@@ -18,6 +18,7 @@ from src.reports.service import (
     get_profit_loss_report,
     get_purchase_sale_report,
     get_stock_report,
+    resolve_default_date_range,
 )
 
 router = APIRouter()
@@ -28,9 +29,11 @@ async def profit_loss_endpoint(
     start_date: date | None = None,
     end_date: date | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> ProfitLossReport:
     """Return profit and loss report for an optional date range."""
+    if start_date is None and end_date is None:
+        start_date, end_date = await resolve_default_date_range(db, current_user.id)
     return await get_profit_loss_report(db, start_date=start_date, end_date=end_date)
 
 
@@ -102,7 +105,9 @@ async def purchase_sale_endpoint(
     start_date: date | None = None,
     end_date: date | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> PurchaseSaleReport:
     """Return purchase and sale summary for an optional date range."""
+    if start_date is None and end_date is None:
+        start_date, end_date = await resolve_default_date_range(db, current_user.id)
     return await get_purchase_sale_report(db, start_date=start_date, end_date=end_date)

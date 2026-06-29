@@ -1,7 +1,7 @@
 """Tests for reports domain: profit/loss, stock report, purchase & sale."""
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -538,6 +538,7 @@ class TestReportsEndpoints:
         _mock_execute_sequence(
             db,
             [
+                None,  # UserPreferences lookup (no FY configured)
                 Decimal("200000.000000"),  # total_purchase
                 Decimal("350000.000000"),  # total_sales
                 opex,  # operating_costs
@@ -611,6 +612,7 @@ class TestReportsEndpoints:
         _mock_execute_sequence(
             db,
             [
+                None,  # UserPreferences lookup (no FY configured)
                 Decimal("500000.000000"),  # total_purchase
                 Decimal("0"),  # purchase_returns
                 Decimal("750000.000000"),  # total_sales
@@ -655,3 +657,152 @@ class TestReportsEndpoints:
             resp = client.get("/api/v1/reports/stock/export-csv")
         # Should be 200 (CSV endpoint), not 422 (treated as UUID path param)
         assert resp.status_code == 200
+
+    def test_profit_loss_no_params_with_fy_configured(self):
+        """GET /reports/profit-loss with no params uses FY start as date_from."""
+        from src.settings.models import UserPreferences as UserPrefsModel
+
+        db = _mock_db()
+        prefs = MagicMock(spec=UserPrefsModel)
+        prefs.fiscal_year_start_month = 4
+        prefs.fiscal_year_start_day = 1
+        opex = [_make_operating_cost(monthly_equivalent=Decimal("50000.00"))]
+        _mock_execute_sequence(
+            db,
+            [
+                prefs,  # FY lookup: April 1
+                Decimal("100000.000000"),
+                Decimal("200000.000000"),
+                opex,
+                Decimal("300000.000000"),
+                Decimal("0"),
+            ],
+        )
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/reports/profit-loss")
+        assert resp.status_code == 200
+
+    def test_purchase_sale_no_params_with_fy_configured(self):
+        """GET /reports/purchase-sale with no params uses FY start as date_from."""
+        from src.settings.models import UserPreferences as UserPrefsModel
+
+        db = _mock_db()
+        prefs = MagicMock(spec=UserPrefsModel)
+        prefs.fiscal_year_start_month = 4
+        prefs.fiscal_year_start_day = 1
+        _mock_execute_sequence(
+            db,
+            [
+                prefs,  # FY lookup: April 1
+                Decimal("500000.000000"),
+                Decimal("0"),
+                Decimal("750000.000000"),
+            ],
+        )
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/reports/purchase-sale")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "net_position" in body
+
+
+# ---------------------------------------------------------------------------
+# resolve_default_date_range unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolveDefaultDateRange:
+    @pytest.mark.asyncio
+    async def test_no_fy_returns_365_day_range(self):
+        """No fiscal year configured → date_from = today-365, date_to = today."""
+        from unittest.mock import patch
+
+        from src.reports.service import resolve_default_date_range
+        from src.settings.schemas import FiscalYearRead
+
+        db = _mock_db()
+        user_id = uuid.uuid4()
+        fy = FiscalYearRead(fiscal_year_start_month=None, fiscal_year_start_day=None)
+        fixed_today = date(2026, 6, 29)
+
+        with patch(
+            "src.reports.service.get_fiscal_year_start",
+            new=AsyncMock(return_value=fy),
+        ):
+            date_from, date_to = await resolve_default_date_range(
+                db, user_id, today=fixed_today
+            )
+
+        assert date_to == fixed_today
+        assert date_from == fixed_today - timedelta(days=365)
+
+    @pytest.mark.asyncio
+    async def test_fy_after_fys_returns_current_year_date(self):
+        """FY April 1, today June 29 2026 (after Apr 1) → date_from = 2026-04-01."""
+        from unittest.mock import patch
+
+        from src.reports.service import resolve_default_date_range
+        from src.settings.schemas import FiscalYearRead
+
+        db = _mock_db()
+        user_id = uuid.uuid4()
+        fy = FiscalYearRead(fiscal_year_start_month=4, fiscal_year_start_day=1)
+
+        with patch(
+            "src.reports.service.get_fiscal_year_start",
+            new=AsyncMock(return_value=fy),
+        ):
+            date_from, date_to = await resolve_default_date_range(
+                db, user_id, today=date(2026, 6, 29)
+            )
+
+        assert date_from == date(2026, 4, 1)
+        assert date_to == date(2026, 6, 29)
+
+    @pytest.mark.asyncio
+    async def test_fy_before_fys_rolls_over_to_prior_year(self):
+        """FY April 1, today Feb 15 2026 (before Apr 1) → date_from = 2025-04-01."""
+        from unittest.mock import patch
+
+        from src.reports.service import resolve_default_date_range
+        from src.settings.schemas import FiscalYearRead
+
+        db = _mock_db()
+        user_id = uuid.uuid4()
+        fy = FiscalYearRead(fiscal_year_start_month=4, fiscal_year_start_day=1)
+
+        with patch(
+            "src.reports.service.get_fiscal_year_start",
+            new=AsyncMock(return_value=fy),
+        ):
+            date_from, date_to = await resolve_default_date_range(
+                db, user_id, today=date(2026, 2, 15)
+            )
+
+        assert date_from == date(2025, 4, 1)
+        assert date_to == date(2026, 2, 15)
+
+    @pytest.mark.asyncio
+    async def test_fy_same_day_as_today_includes_today(self):
+        """FY = today's date → date_from = today (FY just started today)."""
+        from unittest.mock import patch
+
+        from src.reports.service import resolve_default_date_range
+        from src.settings.schemas import FiscalYearRead
+
+        db = _mock_db()
+        user_id = uuid.uuid4()
+        fy = FiscalYearRead(fiscal_year_start_month=6, fiscal_year_start_day=29)
+
+        with patch(
+            "src.reports.service.get_fiscal_year_start",
+            new=AsyncMock(return_value=fy),
+        ):
+            date_from, date_to = await resolve_default_date_range(
+                db, user_id, today=date(2026, 6, 29)
+            )
+
+        assert date_from == date(2026, 6, 29)
+        assert date_to == date(2026, 6, 29)
