@@ -6,6 +6,7 @@ import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
 import { DatePicker } from 'primeng/datepicker';
+import { forkJoin } from 'rxjs';
 import {
   SalesService,
   SaleRecord,
@@ -1232,6 +1233,7 @@ export class SalesPageComponent implements OnInit {
   voidingSale = this.voidingSaleRecord;
 
   ngOnInit(): void {
+    // Fire all independent calls in parallel — each resolves independently
     this.productsService.getAll().subscribe({
       next: (p) => {
         this.products.set(p);
