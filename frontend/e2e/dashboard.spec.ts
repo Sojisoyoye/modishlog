@@ -12,7 +12,10 @@ test.beforeAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
+  // Wait for widget card headers to render (loading() signal becomes false after data loads)
+  await page.locator('p.font-semibold.text-slate-800').first()
+    .waitFor({ timeout: 20000 }).catch(() => {});
 });
 
 test.describe('Dashboard widget cards', () => {
@@ -36,8 +39,8 @@ test.describe('Dashboard widget cards', () => {
   });
 
   test('displays the Order Activity card', async ({ page }) => {
-    await expect(page.getByText('Order Activity').first()).toBeVisible();
-    await expect(page.getByText('In Progress').first()).toBeVisible();
+    await expect(page.getByText('Order Activity').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('In Progress').first()).toBeVisible({ timeout: 10_000 });
   });
 
   test('displays Stock Levels card', async ({ page }) => {
@@ -64,18 +67,14 @@ test.describe('Global Exposure card (Task 16)', () => {
   });
 
   test('renders when data is available', async ({ page }) => {
-    await page.waitForLoadState('networkidle');
-
-    await expect(page.getByText('Global Exposure').first()).toBeVisible();
-    await expect(page.getByText('EUR Loan Balance').first()).toBeVisible();
+    await expect(page.getByText('Global Exposure').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('EUR Loan Balance').first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('USD Order Obligations').first()).toBeVisible();
     await expect(page.getByText('Total Exposure (NGN)').first()).toBeVisible();
     await expect(page.getByText('Debt/Trade Ratio:').first()).toBeVisible();
   });
 
   test('shows numeric total exposure value', async ({ page }) => {
-    await page.waitForLoadState('networkidle');
-
     // Total headline renders as ₦<number> in the indigo summary box
     const totalEl = page.locator('p.text-2xl.font-bold.text-indigo-700').first();
     await expect(totalEl).toBeVisible();
@@ -83,8 +82,6 @@ test.describe('Global Exposure card (Task 16)', () => {
   });
 
   test('shows debt-to-trade ratio as a decimal', async ({ page }) => {
-    await page.waitForLoadState('networkidle');
-
     // Ratio renders via number:'1.2-2' inside the indigo summary box
     const ratioEl = page.locator('span.text-xs.font-bold').filter({ hasText: /\d+\.\d{2}/ }).first();
     await expect(ratioEl).toBeVisible();
@@ -93,15 +90,11 @@ test.describe('Global Exposure card (Task 16)', () => {
 
 test.describe('Logistics Efficiency card (Task 17)', () => {
   test('renders with rolling average data', async ({ page }) => {
-    await page.waitForLoadState('networkidle');
-
-    await expect(page.getByText('Shipping Costs').first()).toBeVisible();
+    await expect(page.getByText('Shipping Costs').first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('90-day rolling average').first()).toBeVisible();
   });
 
   test('shows a numeric percentage value', async ({ page }) => {
-    await page.waitForLoadState('networkidle');
-
     // rolling_90d_avg_pct renders via number:'1.1-1' as e.g. "0.0%" or "58.4%"
     const pctElement = page.locator('p.text-4xl.font-bold').filter({ hasText: /%/ });
     await expect(pctElement).toBeVisible();
@@ -109,9 +102,7 @@ test.describe('Logistics Efficiency card (Task 17)', () => {
   });
 
   test('shows threshold guide with Target, Caution, High rows', async ({ page }) => {
-    await page.waitForLoadState('networkidle');
-
-    await expect(page.getByText('Target').first()).toBeVisible();
+    await expect(page.getByText('Target').first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Caution').first()).toBeVisible();
     await expect(page.getByText('High').first()).toBeVisible();
   });

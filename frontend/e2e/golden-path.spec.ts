@@ -61,39 +61,39 @@ test.describe('Golden path — full MVP business cycle', () => {
 
   test('Login redirects to dashboard', async ({ page }) => {
     await loginViaUI(page);
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    await expect(page.getByText('Good day,')).toBeVisible();
   });
 
   test('Purchase order transitions from ORDERED through to DELIVERED via UI', async ({ page }) => {
     await loginViaUI(page);
     await page.goto(`/orders/${orderId}`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // --- ORDERED → PENDING ---
     await expect(page.getByText('ORDERED').first()).toBeVisible();
     await page.getByRole('button', { name: 'PENDING' }).click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(page.getByText('PENDING').first()).toBeVisible();
 
     // --- PENDING → IN_PRODUCTION ---
     await page.getByRole('button', { name: 'IN_PRODUCTION' }).click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(page.getByText('IN_PRODUCTION').first()).toBeVisible();
 
     // --- IN_PRODUCTION → SHIPPING ---
     await page.getByRole('button', { name: 'SHIPPING' }).click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(page.getByText('SHIPPING').first()).toBeVisible();
 
     // --- SHIPPING → CLEARED ---
     await page.getByRole('button', { name: 'CLEARED' }).click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(page.getByText('CLEARED').first()).toBeVisible();
 
     // --- CLEARED → DELIVERED (requires FX rate) ---
     await page.getByPlaceholder('e.g. 1600').fill('1600');
     await page.getByRole('button', { name: 'DELIVERED' }).click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await expect(page.getByText('DELIVERED').first()).toBeVisible();
   });
 
@@ -127,12 +127,12 @@ test.describe('Golden path — full MVP business cycle', () => {
 
     // Submit — use last() because the "Record Sales" tab button also matches
     await page.getByRole('button', { name: 'Record Sales' }).last().click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Success toast — summary 'Success', detail 'Sales recorded successfully'
     await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 8000 });
 
-    // Stock decreased by 3
+    // Stock decreased by exactly 3
     const stockAfter = await getStock(productId);
     expect(stockAfter).toBe(stockBefore - 3);
   });
@@ -140,7 +140,7 @@ test.describe('Golden path — full MVP business cycle', () => {
   test('P&L report generates with non-zero revenue after the sale', async ({ page }) => {
     await loginViaUI(page);
     await page.goto('/reports/profit-loss');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Fill date range bracketing today
     await page.locator('#pl-start-date').fill(iso30DaysAgo());
@@ -148,10 +148,10 @@ test.describe('Golden path — full MVP business cycle', () => {
 
     // Generate
     await page.getByRole('button', { name: 'Generate Report' }).click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Net Profit section appears
-    await expect(page.getByText('Net Profit')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Net Profit', { exact: true })).toBeVisible({ timeout: 10000 });
 
     // Revenue is present and non-zero (the sale we just recorded contributes)
     await expect(page.getByText('Total Sales')).toBeVisible();

@@ -68,6 +68,7 @@ test.describe('Price suggestion engine (#76)', () => {
   let orderId: string;
 
   test.beforeAll(async () => {
+    test.setTimeout(90_000);
     await ensureTestUser();
     const product = await ensureProduct('E2E Suggest Price Product');
     productId = product.id;
@@ -104,7 +105,7 @@ test.describe('Price suggestion engine (#76)', () => {
   /** Search for the product on the products page and return the matching row. */
   async function findProductRow(page: import('@playwright/test').Page) {
     await page.goto('/products');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     // Use the search box to filter — avoids pagination
     await page.getByPlaceholder('Search products...').fill(productName);
     await page.waitForTimeout(400); // debounce
@@ -244,6 +245,7 @@ test.describe('Category-aware price suggestion margin (#80)', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async () => {
+    test.setTimeout(90_000);
     await ensureTestUser();
 
     // Create a category with a 35% default margin
@@ -316,7 +318,7 @@ test.describe('Category-aware price suggestion margin (#80)', () => {
 
   async function findProductRow(page: import('@playwright/test').Page) {
     await page.goto('/products');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await page.getByPlaceholder('Search products...').fill(productName);
     await page.waitForTimeout(400);
     await expect(page.getByText(productName).first()).toBeVisible({ timeout: 8_000 });

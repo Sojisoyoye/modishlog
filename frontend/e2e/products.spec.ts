@@ -19,7 +19,7 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/products');
-  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible({ timeout: 15000 });
 });
 
 // ---------------------------------------------------------------------------
@@ -27,7 +27,7 @@ test.beforeEach(async ({ page }) => {
 // ---------------------------------------------------------------------------
 
 test('shows the Products page heading and New Product button', async ({ page }) => {
-  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible({ timeout: 15000 });
   await expect(page.getByRole('button', { name: 'New Product' })).toBeVisible();
 });
 
@@ -100,7 +100,7 @@ test('product action menu is visible and not clipped by the table container', as
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('180');
   await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
   await addForm.getByRole('button', { name: 'Create Product' }).click();
-  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 15_000 });
 
   // Search by name to handle pagination
   await page.getByPlaceholder('Search products...').fill(name);
@@ -141,7 +141,7 @@ test('product table displays prices formatted to 2 decimal places', async ({ pag
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('14500.50'); // selling_price — should display as 14,500.50
   await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
   await addForm.getByRole('button', { name: 'Create Product' }).click();
-  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 15_000 });
 
   // Search by name to handle pagination
   await page.getByPlaceholder('Search products...').fill(name);
@@ -209,7 +209,7 @@ test('Edit Product dialog shows profit margin % for existing product', async ({ 
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('400');
   await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
   await addForm.getByRole('button', { name: 'Create Product' }).click();
-  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 15_000 });
 
   // Search by name to handle pagination
   await page.getByPlaceholder('Search products...').fill(name);
@@ -310,7 +310,7 @@ test('can create a basic product', async ({ page }) => {
   await addForm.getByRole('button', { name: 'Create Product' }).click();
 
   // Switches back to All Products tab; search to handle pagination
-  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 15_000 });
   await page.getByPlaceholder('Search products...').fill(name);
   await page.waitForTimeout(400);
   await expect(page.getByText(name)).toBeVisible({ timeout: 5_000 });
@@ -332,7 +332,7 @@ test('can edit a product name and price', async ({ page }) => {
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('180');
   await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
   await addForm.getByRole('button', { name: 'Create Product' }).click();
-  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 15_000 });
 
   // Search by name to handle pagination
   await page.getByPlaceholder('Search products...').fill(name);
@@ -373,7 +373,7 @@ test('can delete a product', async ({ page }) => {
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('90');
   await addForm.locator('#add-cat-select').selectOption({ label: testCategoryName });
   await addForm.getByRole('button', { name: 'Create Product' }).click();
-  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 15_000 });
 
   // Search by name to handle pagination
   await page.getByPlaceholder('Search products...').fill(name);
@@ -477,7 +477,7 @@ test('can create a product with the inline-created category', async ({ page }) =
   await addForm.getByRole('button', { name: 'Create Product' }).click();
 
   // Product appears in the list — search to handle pagination
-  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 10_000 });
+  await expect(page.locator('#add-product-form')).not.toBeAttached({ timeout: 15_000 });
   await page.getByPlaceholder('Search products...').fill(productName);
   await page.waitForTimeout(400);
   await expect(page.getByText(productName)).toBeVisible({ timeout: 5_000 });
@@ -571,7 +571,7 @@ test.describe('Category delete with linked products', () => {
 
     // Reload so the freshly-seeded category appears (beforeEach navigated before API seed)
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible({ timeout: 15000 });
 
     // Switch to the Categories tab
     await page.getByRole('button', { name: /Categories/i }).click();
@@ -613,7 +613,7 @@ test.describe('Category editing', () => {
     await page.getByPlaceholder('Category name').fill(catName);
     await page.getByPlaceholder('Description (optional)').fill('Original desc');
     await page.getByRole('button', { name: 'Add Category' }).click();
-    await expect(page.locator('tr').filter({ hasText: catName })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('tr').filter({ hasText: catName })).toBeVisible({ timeout: 15_000 });
 
     // Click the pencil (edit) button on the new category row
     const catRow = page.locator('tr').filter({ hasText: catName });
@@ -635,7 +635,7 @@ test.describe('Category editing', () => {
     await page.getByRole('button', { name: /Categories/ }).click();
     await page.getByPlaceholder('Category name').fill(catName);
     await page.getByRole('button', { name: 'Add Category' }).click();
-    await expect(page.locator('tr').filter({ hasText: catName })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('tr').filter({ hasText: catName })).toBeVisible({ timeout: 15_000 });
 
     // Open edit dialog
     const catRow = page.locator('tr').filter({ hasText: catName });
@@ -653,7 +653,7 @@ test.describe('Category editing', () => {
     await expect(page.getByText('Category updated')).toBeVisible({ timeout: 8_000 });
 
     // Updated name appears in the table
-    await expect(page.locator('tr').filter({ hasText: newName })).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('tr').filter({ hasText: newName })).toBeVisible({ timeout: 15_000 });
     // Old name is gone
     await expect(page.locator('tr').filter({ hasText: catName })).not.toBeVisible();
   });

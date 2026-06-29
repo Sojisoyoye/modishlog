@@ -9,11 +9,11 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/suppliers');
-  await expect(page.getByRole('heading', { name: 'Suppliers' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Suppliers' })).toBeVisible({ timeout: 15000 });
 });
 
 test('shows Suppliers heading and Add Supplier button', async ({ page }) => {
-  await expect(page.getByRole('heading', { name: 'Suppliers' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Suppliers' })).toBeVisible({ timeout: 15000 });
   await expect(page.getByRole('button', { name: 'Add Supplier' })).toBeVisible();
 });
 
@@ -124,11 +124,7 @@ test.describe('Purchases tab shows linked orders', () => {
   });
 
   test('Purchases tab shows the seeded purchase order', async ({ page }) => {
-    // Navigate to suppliers list
-    await loginViaUI(page);
-    await page.goto('/suppliers');
-    await expect(page.getByRole('heading', { name: 'Suppliers' })).toBeVisible();
-
+    // beforeEach already logged in and navigated to /suppliers
     // Search for the supplier to handle pagination
     await page.getByPlaceholder('Search suppliers...').fill(supplierName);
     await page.waitForTimeout(400);

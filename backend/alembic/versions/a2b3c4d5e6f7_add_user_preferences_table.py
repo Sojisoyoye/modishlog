@@ -1,6 +1,6 @@
 """add_user_preferences_table
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: a2b3c4d5e6f7
 Revises: f9a0b1c2d3e4
 Create Date: 2026-06-29 00:00:00.000000
 
@@ -10,7 +10,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a1b2c3d4e5f6"
+revision: str = "a2b3c4d5e6f7"
 down_revision: Union[str, None] = "f9a0b1c2d3e4"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

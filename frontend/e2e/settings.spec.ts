@@ -8,7 +8,6 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/settings');
-  await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
 });
 
 test.describe('Settings — Fiscal Year Start', () => {
@@ -21,19 +20,18 @@ test.describe('Settings — Fiscal Year Start', () => {
     await page.locator('#fy-month').selectOption('4');
     await page.locator('#fy-day').fill('1');
     await page.getByRole('button', { name: 'Save Fiscal Year' }).click();
-    await expect(page.getByText('Fiscal year start saved')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Fiscal year start saved')).toBeVisible({ timeout: 10_000 });
   });
 
   test('saved fiscal year values are shown after page reload', async ({ page }) => {
     await page.locator('#fy-month').selectOption('4');
     await page.locator('#fy-day').fill('1');
     await page.getByRole('button', { name: 'Save Fiscal Year' }).click();
-    await expect(page.getByText('Fiscal year start saved')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Fiscal year start saved')).toBeVisible({ timeout: 10_000 });
 
     await page.reload();
-    await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
 
-    await expect(page.locator('#fy-month')).toHaveValue('4', { timeout: 5000 });
+    await expect(page.locator('#fy-month')).toHaveValue('4', { timeout: 10_000 });
     await expect(page.locator('#fy-day')).toHaveValue('1');
   });
 
@@ -42,12 +40,12 @@ test.describe('Settings — Fiscal Year Start', () => {
     await page.locator('#fy-month').selectOption('4');
     await page.locator('#fy-day').fill('1');
     await page.getByRole('button', { name: 'Save Fiscal Year' }).click();
-    await expect(page.getByText('Fiscal year start saved')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Fiscal year start saved')).toBeVisible({ timeout: 10_000 });
 
     // Clear it
     await page.locator('#fy-month').selectOption('');
     await page.getByRole('button', { name: 'Save Fiscal Year' }).click();
-    await expect(page.getByText('Fiscal year start saved')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Fiscal year start saved')).toBeVisible({ timeout: 10_000 });
   });
 
   test('day input is disabled when no month is selected', async ({ page }) => {

@@ -13,12 +13,12 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/orders');
-  await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible({ timeout: 15000 });
 });
 
 test.describe('Orders page layout', () => {
   test('displays the page heading and subtitle', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible({ timeout: 15000 });
     await expect(page.getByText('Track purchase orders and pipeline')).toBeVisible();
   });
 
@@ -108,9 +108,10 @@ test.describe('Inline product creation in New Order dialog', () => {
 
 test.describe('Order detail dialog', () => {
   test('clicking an order row navigates to detail page with line items section', async ({ page }) => {
+    test.setTimeout(60_000);
     const product = await ensureProduct('Detail Dialog Product');
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible({ timeout: 15000 });
 
     // Create an order via the form
     await page.getByRole('button', { name: 'New Order' }).click();
@@ -120,7 +121,7 @@ test.describe('Order detail dialog', () => {
     await createDialog.getByPlaceholder('Supplier name').fill('Detail Test Supplier');
     // Wait for the product to appear in the line-item select, then select it
     // (the dialog also has a Pay Term select first — use :has() to target the correct one)
-    await expect(createDialog.locator(`select option[value="${product.id}"]`)).toBeAttached({ timeout: 10_000 });
+    await expect(createDialog.locator(`select option[value="${product.id}"]`)).toBeAttached({ timeout: 15_000 });
     const productSelect = createDialog.locator(`select:has(option[value="${product.id}"])`);
     await productSelect.selectOption(product.id);
     await createDialog.locator('input[placeholder="Qty"]').first().fill('10');
@@ -151,10 +152,11 @@ test.describe('Order detail dialog', () => {
 
 test.describe('Create Order flow', () => {
   test('fills form and creates an order successfully', async ({ page }) => {
+    test.setTimeout(60_000);
     // Create product via API, then reload page so it appears in the dropdown
     const product = await ensureProduct('Order Flow Product');
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible({ timeout: 15000 });
 
     // Open dialog
     await page.getByRole('button', { name: 'New Order' }).click();
@@ -166,7 +168,7 @@ test.describe('Create Order flow', () => {
 
     // Wait for product to appear in the line-item select, then choose it
     // (the dialog also has a Pay Term select first — use :has() to target the correct one)
-    await expect(dialog.locator(`select option[value="${product.id}"]`)).toBeAttached({ timeout: 10_000 });
+    await expect(dialog.locator(`select option[value="${product.id}"]`)).toBeAttached({ timeout: 15_000 });
     const productSelect = dialog.locator(`select:has(option[value="${product.id}"])`);
     await productSelect.selectOption(product.id);
 

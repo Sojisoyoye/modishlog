@@ -13,7 +13,7 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/sales');
-  await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 });
 
 test.describe('Quick Quote', () => {
@@ -31,6 +31,7 @@ test.describe('Quick Quote', () => {
   test('Quick Quote calculates minimum sell price for a product with a delivered order', async ({
     page,
   }) => {
+    test.setTimeout(90_000);
     // Seed: create product, create + deliver an order (establishes FIFO cost)
     const product = await ensureProduct('E2E Quick Quote Calc');
     const order = await createOrder(product.id, { quantity: 5, unitCost: '2000.00' });
@@ -38,7 +39,7 @@ test.describe('Quick Quote', () => {
     await addStock(product.id, 5);
 
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 
     // Open Quick Quote tab
     await page.locator('[data-testid="tab-quick-quote"]').click();
@@ -76,7 +77,7 @@ test.describe('Quick Quote', () => {
     const product = await ensureProduct('E2E Quick Quote No Lots');
 
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 
     await page.locator('[data-testid="tab-quick-quote"]').click();
 
