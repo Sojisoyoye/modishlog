@@ -296,6 +296,48 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
           </div>
         }
 
+        <!-- Forecast Insight Panel -->
+        @if (forecastInsight(); as insight) {
+          <div class="mt-5 rounded-xl border border-gray-200 bg-gray-50 p-5">
+            <div class="flex items-start gap-3">
+              <div class="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white shadow-sm">
+                <i class="pi text-base" [class]="insight.trendIcon + ' ' + insight.trendColor"></i>
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-semibold text-text">{{ insight.headline }}</p>
+                <p class="mt-1 text-xs leading-relaxed text-muted">{{ insight.summary }}</p>
+
+                <!-- Milestone row -->
+                <div class="mt-3 grid grid-cols-3 gap-3">
+                  <div class="rounded-lg bg-white px-3 py-2 text-center shadow-sm">
+                    <p class="text-[10px] font-medium uppercase text-muted">Today (base)</p>
+                    <p class="mt-0.5 text-sm font-bold text-text">₦{{ insight.first.base | number:'1.2-2' }}</p>
+                  </div>
+                  <div class="rounded-lg bg-white px-3 py-2 text-center shadow-sm">
+                    <p class="text-[10px] font-medium uppercase text-muted">30-day base</p>
+                    <p class="mt-0.5 text-sm font-bold text-text">₦{{ insight.mid.base | number:'1.2-2' }}</p>
+                  </div>
+                  <div class="rounded-lg bg-white px-3 py-2 text-center shadow-sm">
+                    <p class="text-[10px] font-medium uppercase text-muted">{{ insight.days }}-day base</p>
+                    <p class="mt-0.5 text-sm font-bold text-text">₦{{ insight.last.base | number:'1.2-2' }}</p>
+                  </div>
+                </div>
+
+                <!-- Action recommendation -->
+                <div class="mt-3 rounded-lg border px-4 py-3" [class]="insight.actionColor">
+                  <p class="text-[11px] font-semibold uppercase tracking-wide opacity-70">Importer guidance</p>
+                  <p class="mt-1 text-xs leading-relaxed">{{ insight.action }}</p>
+                </div>
+
+                <p class="mt-2 text-[10px] text-muted">
+                  <i class="pi pi-info-circle mr-1"></i>
+                  Forecast uses Prophet + Monte Carlo simulation trained on {{ insight.days }} days of history. Not financial advice — ranges reflect 80% confidence interval.
+                </p>
+              </div>
+            </div>
+          </div>
+        }
+
         <!-- Forecast Table -->
         @if (forecasts().length > 0) {
           <div class="mt-5">
@@ -528,6 +570,62 @@ export class FxPageComponent implements OnInit {
   forecastPageEnd = computed(() =>
     Math.min(this.forecasts().length, (this.forecastPage() + 1) * this.forecastPageSize()),
   );
+
+  forecastInsight = computed(() => {
+    const fc = this.forecasts();
+    if (fc.length < 2) return null;
+    const pair = this.forecastPair();
+    const currencyLabel = pair === 'USDNGN' ? 'USD' : 'EUR';
+    const first = fc[0];
+    const mid = fc[Math.min(29, Math.floor(fc.length / 2))]; // ~30-day milestone
+    const last = fc[fc.length - 1];
+
+    const trendPct = ((last.base - first.base) / first.base) * 100;
+    const worstCasePct = ((last.worst_case - first.base) / first.base) * 100;
+    const bestCasePct = ((last.best_case - first.base) / first.base) * 100;
+
+    // NGN weakening = rate going UP (more NGN per foreign currency)
+    const weakening = trendPct > 1.5;
+    const strengthening = trendPct < -1.5;
+    const stable = !weakening && !strengthening;
+
+    let trend: 'weaken' | 'strengthen' | 'stable';
+    let trendIcon: string;
+    let trendColor: string;
+    let headline: string;
+    let summary: string;
+    let action: string;
+    let actionColor: string;
+
+    if (weakening) {
+      trend = 'weaken';
+      trendIcon = 'pi-arrow-trend-up';
+      trendColor = 'text-danger';
+      headline = `NGN expected to weaken ${Math.abs(trendPct).toFixed(1)}% against ${currencyLabel}`;
+      summary = `The model forecasts the rate rising from ₦${first.base.toFixed(2)} to ₦${last.base.toFixed(2)} over ${fc.length} days. In a worst-case scenario it could reach ₦${last.worst_case.toFixed(2)} (+${worstCasePct.toFixed(1)}%).`;
+      action = `Consider buying ${currencyLabel} sooner rather than later. Every week you delay, the same payment could cost more NGN. If you have confirmed supplier invoices due in the next ${fc.length} days, locking in your FX now protects your margin.`;
+      actionColor = 'bg-red-50 border-red-200 text-red-800';
+    } else if (strengthening) {
+      trend = 'strengthen';
+      trendIcon = 'pi-arrow-trend-down';
+      trendColor = 'text-success';
+      headline = `NGN expected to strengthen ${Math.abs(trendPct).toFixed(1)}% against ${currencyLabel}`;
+      summary = `The model forecasts the rate falling from ₦${first.base.toFixed(2)} to ₦${last.base.toFixed(2)} over ${fc.length} days. In the best case it could reach ₦${last.best_case.toFixed(2)} (${bestCasePct.toFixed(1)}%).`;
+      action = `You may benefit from waiting before converting to ${currencyLabel}. However, do not delay beyond confirmed payment deadlines — use the 30-day milestone of ₦${mid.base.toFixed(2)} as an early checkpoint to reassess.`;
+      actionColor = 'bg-green-50 border-green-200 text-green-800';
+    } else {
+      trend = 'stable';
+      trendIcon = 'pi-minus';
+      trendColor = 'text-muted';
+      headline = `NGN / ${currencyLabel} rate expected to remain broadly stable`;
+      summary = `The model sees limited directional movement over the next ${fc.length} days (base: ₦${first.base.toFixed(2)} → ₦${last.base.toFixed(2)}, ${trendPct >= 0 ? '+' : ''}${trendPct.toFixed(1)}%). The range runs from ₦${last.best_case.toFixed(2)} (best) to ₦${last.worst_case.toFixed(2)} (worst).`;
+      action = `No urgent action required on timing alone. Focus on operational needs — buy ${currencyLabel} when you have confirmed invoices rather than speculating on the direction.`;
+      actionColor = 'bg-blue-50 border-blue-200 text-blue-800';
+    }
+
+    return { trend, trendIcon, trendColor, headline, summary, action, actionColor,
+      first, mid, last, trendPct, currencyLabel, days: fc.length };
+  });
 
   pageRange = computed(() => {
     const total = this.forecastTotalPages();
