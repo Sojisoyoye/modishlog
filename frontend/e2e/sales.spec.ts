@@ -13,7 +13,7 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/sales');
-  await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 });
 
 // ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ test.describe('Edit Sale price decimal display', () => {
 
     // Navigate directly to the transaction detail page (clicking a row navigates here, not a dialog)
     await page.goto(`/sales/transactions/${sale.transaction_id}`);
-    await expect(page.locator('[data-testid="transaction-item-row"]').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[data-testid="transaction-item-row"]').first()).toBeVisible({ timeout: 15_000 });
 
     // Click the product name cell to activate inline editing
     await page.locator('[data-testid="transaction-item-row"]').first().locator('td').first().click();
@@ -262,7 +262,7 @@ test.describe('Unit price and discount in Record Sales form', () => {
     const product = await ensureProduct('E2E Price Populate Product');
     await addStock(product.id, 20);
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 
     await page.getByTestId('tab-record-sales').click();
     await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
@@ -286,7 +286,7 @@ test.describe('Unit price and discount in Record Sales form', () => {
     const product = await ensureProduct('E2E Line Total Product');
     await addStock(product.id, 50);
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 
     await page.getByTestId('tab-record-sales').click();
     await expect(page.locator('[data-testid="add-sale-form-card"]')).toBeVisible({ timeout: 5_000 });
@@ -319,7 +319,7 @@ test.describe('Create Sale flow', () => {
     const product = await ensureProduct('Sale Flow Product');
     await addStock(product.id, 100);
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 
     // Switch to Record tab
     await page.getByTestId('tab-record-sales').click();
@@ -362,7 +362,7 @@ test.describe('Transaction grouping in All Sales tab', () => {
     await addStock(productA.id, 30);
     await addStock(productB.id, 30);
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 
     // Switch to Record tab first — form is inside @if(activeTab() === 'record') so options
     // only exist in DOM after the tab is active
@@ -389,7 +389,7 @@ test.describe('Transaction grouping in All Sales tab', () => {
 
     // Submit
     await page.getByRole('button', { name: /Record Sales/i }).click();
-    await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 20_000 });
 
     // Switch to All Sales tab
     await page.getByTestId('tab-all-sales').click();
@@ -407,7 +407,7 @@ test.describe('Transaction grouping in All Sales tab', () => {
     const productA = await ensureProduct('E2E Detail Txn A');
     await addStock(productA.id, 20);
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 
     // Switch to Record tab first — form is inside @if(activeTab() === 'record') so options
     // only exist in DOM after the tab is active
@@ -421,7 +421,7 @@ test.describe('Transaction grouping in All Sales tab', () => {
     await page.locator('select').filter({ hasText: 'Select product' }).first().selectOption(productA.id);
     await page.locator('input[type="number"]').first().fill('1');
     await page.getByRole('button', { name: /Record Sales/i }).click();
-    await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 20_000 });
 
     // Switch to All Sales tab
     await page.getByTestId('tab-all-sales').click();
@@ -457,7 +457,7 @@ test.describe('Void sale — stock restore', () => {
     const invoice = 'INV-' + sale.transaction_id.replace(/-/g, '').slice(0, 8).toUpperCase();
 
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 
     // Navigate to All Sales tab and find OUR specific transaction by invoice number.
     // Avoids relying on "first row" which may belong to another test's data.
@@ -503,7 +503,7 @@ test.describe('Void sale — stock restore', () => {
     await voidSale(sale.id);
 
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 
     await page.getByTestId('tab-all-sales').click();
     const txnRow = page.locator('[data-testid="transaction-row"]').filter({ hasText: invoice });

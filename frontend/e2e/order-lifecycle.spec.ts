@@ -36,8 +36,8 @@ function statusText(page: import('@playwright/test').Page, status: string) {
 test('ORDERED → PENDING: advance status and assert badge updates', async ({ page }) => {
   await loginViaUI(page);
   await page.goto(`/orders/${orderId}`);
-  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
+  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 
   await expect(statusText(page, 'ORDERED')).toBeVisible({ timeout: 10_000 });
 
@@ -50,8 +50,8 @@ test('ORDERED → PENDING: advance status and assert badge updates', async ({ pa
 test('PENDING → IN_PRODUCTION: advance status and assert badge updates', async ({ page }) => {
   await loginViaUI(page);
   await page.goto(`/orders/${orderId}`);
-  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
+  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 
   await expect(statusText(page, 'PENDING')).toBeVisible();
 
@@ -64,8 +64,8 @@ test('PENDING → IN_PRODUCTION: advance status and assert badge updates', async
 test('IN_PRODUCTION → SHIPPING: advance status and assert badge updates', async ({ page }) => {
   await loginViaUI(page);
   await page.goto(`/orders/${orderId}`);
-  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
+  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 
   await expect(statusText(page, 'IN_PRODUCTION')).toBeVisible();
 
@@ -78,8 +78,8 @@ test('IN_PRODUCTION → SHIPPING: advance status and assert badge updates', asyn
 test('SHIPPING → CLEARED: advance status and assert badge updates', async ({ page }) => {
   await loginViaUI(page);
   await page.goto(`/orders/${orderId}`);
-  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
+  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 
   await expect(statusText(page, 'SHIPPING')).toBeVisible();
 
@@ -92,8 +92,8 @@ test('SHIPPING → CLEARED: advance status and assert badge updates', async ({ p
 test('CLEARED → DELIVERED: fill FX rate, advance status, assert badge and In Stock column', async ({ page }) => {
   await loginViaUI(page);
   await page.goto(`/orders/${orderId}`);
-  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
+  await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 
   await expect(statusText(page, 'CLEARED')).toBeVisible();
 

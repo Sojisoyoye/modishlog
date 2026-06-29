@@ -115,7 +115,7 @@ test.describe('Stock count feature', () => {
     const confirmDialog = page.getByRole('dialog').filter({ hasText: /Finalise/ });
     await confirmDialog.getByRole('button', { name: /Confirm/i }).click();
 
-    await expect(page.getByText('FINALIZED')).toBeVisible();
+    await expect(page.getByText('FINALIZED')).toBeVisible({ timeout: 10000 });
     // Counted qty inputs should be gone (read-only after finalization)
     await expect(page.getByRole('spinbutton')).toHaveCount(0);
   });
@@ -125,7 +125,7 @@ test.describe('Stock count feature', () => {
     await finalizeStockCount(sc.id);
 
     await page.goto('/stock-counts');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     await expect(page.locator('table tbody tr').filter({ hasText: 'FINALIZED' }).first()).toBeVisible();
   });

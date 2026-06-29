@@ -42,6 +42,7 @@ async function getPendingRecs(): Promise<{ id: string; title: string }[]> {
 
 test.describe('AI Recommendations page', () => {
   test.beforeAll(async () => {
+    test.setTimeout(90_000);
     await ensureTestUser();
     // Seed recommendations so apply/dismiss tests have cards to interact with
     await seedRecommendations();
@@ -50,11 +51,11 @@ test.describe('AI Recommendations page', () => {
   test.beforeEach(async ({ page }) => {
     await loginViaUI(page);
     await page.goto('/recommendations');
-    await expect(page.getByRole('heading', { name: 'AI Recommendations' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'AI Recommendations' })).toBeVisible({ timeout: 15_000 });
   });
 
   test('page loads with heading, subtitle and action buttons', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: 'AI Recommendations' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'AI Recommendations' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('AI-powered insights to optimize your business')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Generate New' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Show History' })).toBeVisible();
@@ -72,13 +73,10 @@ test.describe('AI Recommendations page', () => {
     // Spinner shows while generating
     await expect(page.getByText('Generating...')).toBeVisible();
 
-    // Wait for API call to complete
-    await page.waitForLoadState('networkidle');
-
-    // Button returns to normal — no crash
-    await expect(page.getByRole('button', { name: 'Generate New' })).toBeVisible();
+    // Button returns to normal when generation completes — wait up to 45s for AI API
+    await expect(page.getByRole('button', { name: 'Generate New' })).toBeVisible({ timeout: 45_000 });
     // Page heading still visible — no navigation error
-    await expect(page.getByRole('heading', { name: 'AI Recommendations' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'AI Recommendations' })).toBeVisible({ timeout: 15_000 });
   });
 
   test('Show History / Show Active toggle switches view', async ({ page }) => {
@@ -87,8 +85,7 @@ test.describe('AI Recommendations page', () => {
 
     // Toggle to history
     await page.getByRole('button', { name: 'Show History' }).click();
-    await page.waitForLoadState('networkidle');
-    await expect(page.getByRole('button', { name: 'Show Active' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Show Active' })).toBeVisible({ timeout: 10_000 });
 
     // Toggle back to active
     await page.getByRole('button', { name: 'Show Active' }).click();
@@ -105,7 +102,8 @@ test.describe('AI Recommendations page', () => {
         return;
       }
 
-      await page.waitForLoadState('networkidle');
+      // Wait for cards to render
+      await expect(page.locator('[data-testid="rec-card"]').first()).toBeVisible({ timeout: 10_000 });
 
       // Count initial cards
       const initialCount = await page.locator('[data-testid="rec-card"]').count();
@@ -135,7 +133,8 @@ test.describe('AI Recommendations page', () => {
         return;
       }
 
-      await page.waitForLoadState('networkidle');
+      // Wait for cards to render
+      await expect(page.locator('[data-testid="rec-card"]').first()).toBeVisible({ timeout: 10_000 });
 
       const initialCount = await page.locator('[data-testid="rec-card"]').count();
       expect(initialCount).toBeGreaterThan(0);

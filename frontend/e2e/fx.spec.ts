@@ -12,12 +12,12 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/fx');
-  await expect(page.getByRole('heading', { name: 'FX Rates' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'FX Rates' })).toBeVisible({ timeout: 15000 });
 });
 
 test.describe('FX page layout', () => {
   test('displays the page heading and subtitle', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: 'FX Rates' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'FX Rates' })).toBeVisible({ timeout: 15000 });
     await expect(page.getByText('Track and forecast NGN/USD exchange rates')).toBeVisible();
   });
 

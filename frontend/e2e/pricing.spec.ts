@@ -11,6 +11,7 @@ let saleId: string;
 let orderId: string;
 
 test.beforeAll(async () => {
+  test.setTimeout(90_000);
   await ensureTestUser();
 
   // Seed: product → delivered order (sets stock + FIFO cost) → sale (drives portfolio margin)
@@ -48,7 +49,6 @@ test.describe('Pricing & Margins page', () => {
 
   test('Blended Portfolio Margin card shows a numeric % value', async ({ page }) => {
     await page.goto('/pricing');
-    await page.waitForLoadState('networkidle');
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });

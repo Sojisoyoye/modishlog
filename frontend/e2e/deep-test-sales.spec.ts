@@ -30,7 +30,7 @@ async function shot(page: Page, name: string) {
 // -- 1. Sales page loads ------------------------------------------------------
 test('sales - page loads with heading and Record Sale button', async ({ page }) => {
   await page.goto('/sales');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   await shot(page, '01-loaded');
   await expect(page.getByRole('heading', { name: /sales/i }).first()).toBeVisible();
   // There should be a button/tab to record a sale
@@ -45,7 +45,7 @@ test('sales - page loads with heading and Record Sale button', async ({ page }) 
 // -- 2. All Sales tab loads list ----------------------------------------------
 test('sales - All Sales tab shows a list or empty state', async ({ page }) => {
   await page.goto('/sales');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
 
   // Click "All Sales" tab if it exists
   const allSalesTab = page.getByRole('tab', { name: /all sales/i });
@@ -64,7 +64,7 @@ test('sales - All Sales tab shows a list or empty state', async ({ page }) => {
 // -- 3. Open record-sale form/modal -------------------------------------------
 test('sales - record-sale form opens with required fields', async ({ page }) => {
   await page.goto('/sales');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
 
   // Try button first, then tab
   const recordBtn = page.getByRole('button', { name: /record sale|new sale|add sale/i }).first();
@@ -95,7 +95,7 @@ test('sales - record-sale form opens with required fields', async ({ page }) => 
 // -- 4. Record a single sale --------------------------------------------------
 test('sales - record single-product sale shows success', async ({ page }) => {
   await page.goto('/sales');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
 
   // Navigate to the record sale UI
   const recordBtn = page.getByRole('button', { name: /record sale|new sale|add sale/i }).first();
@@ -149,7 +149,7 @@ test('sales - record single-product sale shows success', async ({ page }) => {
 // -- 5. Search/filter in All Sales --------------------------------------------
 test('sales - All Sales tab has a transaction row after seeded sale', async ({ page }) => {
   await page.goto('/sales');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
 
   const allSalesTab = page.getByTestId('tab-all-sales');
   if (await allSalesTab.isVisible({ timeout: 3_000 }).catch(() => false)) {
@@ -165,7 +165,7 @@ test('sales - All Sales tab has a transaction row after seeded sale', async ({ p
 // -- 6. CSV export ------------------------------------------------------------
 test('sales - CSV export button exists and is clickable', async ({ page }) => {
   await page.goto('/sales');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
 
   const allSalesTab = page.getByRole('tab', { name: /all sales/i });
   if (await allSalesTab.isVisible({ timeout: 3_000 }).catch(() => false)) {
@@ -199,7 +199,7 @@ test('sales - CSV export button exists and is clickable', async ({ page }) => {
 // -- 7. Sale detail / click into a sale row -----------------------------------
 test('sales - clicking a sale row opens detail view', async ({ page }) => {
   await page.goto('/sales');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
 
   const allSalesTab = page.getByRole('tab', { name: /all sales/i });
   if (await allSalesTab.isVisible({ timeout: 3_000 }).catch(() => false)) {
@@ -217,6 +217,8 @@ test('sales - clicking a sale row opens detail view', async ({ page }) => {
   await page.waitForTimeout(800);
   await shot(page, '07-sale-detail');
 
-  // A dialog must open (Transaction Detail or similar)
-  await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 5_000 });
+  // Clicking a sale row either opens a detail dialog OR navigates to a transaction detail page
+  const dialogVisible = await page.locator('[role="dialog"]').isVisible({ timeout: 3_000 }).catch(() => false);
+  const onDetailPage = page.url().includes('/transaction') || page.url().includes('/sales/');
+  expect(dialogVisible || onDetailPage).toBe(true);
 });

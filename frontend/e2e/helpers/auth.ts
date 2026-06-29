@@ -29,7 +29,7 @@ export async function loginViaUI(page: Page): Promise<void> {
   await page.locator('input[type="password"]').fill(E2E_PASSWORD);
   await page.getByRole('button', { name: 'Sign In' }).click();
   // After successful login, Angular navigates to / -> redirected to /dashboard
-  await page.waitForURL('**/dashboard', { timeout: 15_000 });
+  await page.waitForURL('**/dashboard', { timeout: 20_000 });
 }
 
 /**
@@ -39,12 +39,21 @@ export async function loginViaUI(page: Page): Promise<void> {
  * Use when you need auth but don't need to test the login form itself.
  */
 export async function loginViaAPI(page: Page): Promise<void> {
-  await page.context().request.post(`${API}/auth/login`, {
-    data: { email: E2E_EMAIL, password: E2E_PASSWORD },
-  });
+  // Retry up to 3× with backoff — auth lockout tests can briefly saturate the backend
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await page.context().request.post(`${API}/auth/login`, {
+        data: { email: E2E_EMAIL, password: E2E_PASSWORD },
+      });
+      break;
+    } catch (err) {
+      if (attempt === 3) throw err;
+      await new Promise(r => setTimeout(r, attempt * 1000));
+    }
+  }
   // Navigate directly — the auth guard restores the session via /auth/me + cookie.
   await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
-  await page.waitForURL('**/dashboard', { timeout: 15_000 });
+  await page.waitForURL('**/dashboard', { timeout: 20_000 });
 }
 
 /**

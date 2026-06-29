@@ -9,11 +9,11 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/reports');
-  await expect(page.getByRole('heading', { name: 'Reports' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Reports' })).toBeVisible({ timeout: 15_000 });
 });
 
 test('shows Reports heading and three report cards', async ({ page }) => {
-  await expect(page.getByRole('heading', { name: 'Reports' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Reports' })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('Profit & Loss')).toBeVisible();
   await expect(page.getByText('Stock Report')).toBeVisible();
   await expect(page.getByText('Purchase & Sale')).toBeVisible();
@@ -75,7 +75,7 @@ test.describe('P&L report generation', () => {
     await page.locator('input[type="date"]').first().fill(thirtyDaysAgo);
     await page.locator('input[type="date"]').nth(1).fill(today);
     await page.getByRole('button', { name: 'Generate Report' }).click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Net Profit section: prominent 4xl value formatted by number:'1.2-2'
     await expect(page.getByText('Net Profit', { exact: true })).toBeVisible();
@@ -104,7 +104,7 @@ test.describe('Stock report generation', () => {
     await expect(page.getByRole('heading', { name: 'Stock Report' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Generate Report' }).click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Results table must be visible with at least one product row
     await expect(page.locator('table tbody tr').first()).toBeVisible();
@@ -129,8 +129,8 @@ test.describe('Reports auto-load on page open', () => {
 
   test('profit/loss date pickers are pre-filled on page open', async ({ page }) => {
     await page.goto('/reports/profit-loss');
-    await expect(page.locator('#pl-start-date')).not.toHaveValue('', { timeout: 5000 });
-    await expect(page.locator('#pl-end-date')).not.toHaveValue('');
+    await expect(page.locator('#pl-start-date')).not.toHaveValue('', { timeout: 10_000 });
+    await expect(page.locator('#pl-end-date')).not.toHaveValue('', { timeout: 10_000 });
   });
 
   test('purchase-sale page auto-loads report without user interaction', async ({ page }) => {

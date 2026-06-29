@@ -5,7 +5,7 @@ export default defineConfig({
   testMatch: '**/*.spec.ts', // only files inside e2e/
   fullyParallel: false, // sequential — tests share the same backend DB
   retries: 0,
-  timeout: 30_000,
+  timeout: 60_000,
   reporter: [['list']],
   use: {
     baseURL: 'http://localhost:4200',

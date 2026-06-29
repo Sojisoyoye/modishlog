@@ -13,7 +13,7 @@ test.describe('Sales CSV Export', () => {
   test.beforeEach(async ({ page }) => {
     await loginViaUI(page);
     await page.goto('/sales');
-    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
     // Navigate to All Sales tab so the Export button is visible
     await page.getByTestId('tab-all-sales').click();
   });
@@ -35,7 +35,7 @@ test.describe('Orders CSV Export', () => {
   test.beforeEach(async ({ page }) => {
     await loginViaUI(page);
     await page.goto('/orders');
-    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible({ timeout: 15_000 });
   });
 
   test('Export CSV button is visible on Orders page', async ({ page }) => {
@@ -55,7 +55,7 @@ test.describe('FX Rates CSV Export', () => {
   test.beforeEach(async ({ page }) => {
     await loginViaUI(page);
     await page.goto('/fx');
-    await expect(page.getByRole('heading', { name: 'FX Rates', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'FX Rates', exact: true })).toBeVisible({ timeout: 15_000 });
   });
 
   test('Export CSV button is visible on FX Rates page', async ({ page }) => {

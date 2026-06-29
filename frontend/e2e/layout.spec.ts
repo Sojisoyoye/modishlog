@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
 test('sidebar background fills full viewport height on short-content pages', async ({ page }) => {
   await page.goto('/dashboard');
   // Wait for the page to fully render before measuring layout geometry
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expect(page.getByText('Good day,')).toBeVisible();
 
   const viewportHeight = page.viewportSize()!.height;
   // Scoped to app-sidebar to stay resilient if other <aside> elements are added

@@ -49,7 +49,7 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/products');
-  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible({ timeout: 15_000 });
 });
 
 // ---------------------------------------------------------------------------

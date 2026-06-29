@@ -93,7 +93,9 @@ async def authenticate_user(
         if user.failed_login_attempts >= LOCKOUT_THRESHOLD:
             user.locked_until = now + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
             await logger.awarn("account_locked", email=email)
-        await db.flush()
+        # commit here so the counter persists even though get_db will see an
+        # exception (HTTPException) and call rollback() on the now-empty txn
+        await db.commit()
         raise InvalidCredentialsError()
 
     # Successful login — reset counters

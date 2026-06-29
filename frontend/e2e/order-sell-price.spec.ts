@@ -29,20 +29,23 @@ test.describe('Order line item sell price (sell_price_ngn)', () => {
 
   test('sell column shows (catalog) label when sell_price_ngn is null', async ({ page }) => {
     await page.goto(`/orders/${orderId}`);
-    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('(catalog)').first()).toBeVisible();
   });
 
   test('edit mode shows sell price input per line item', async ({ page }) => {
     await page.goto(`/orders/${orderId}`);
-    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: /edit/i }).click();
     await expect(page.getByTestId('sell-price-input').first()).toBeVisible();
   });
 
   test('entering a sell price saves and displays locked value', async ({ page }) => {
     await page.goto(`/orders/${orderId}`);
-    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 15_000 });
 
     await page.getByRole('button', { name: /edit/i }).first().click();
     const sellInput = page.getByTestId('sell-price-input').first();

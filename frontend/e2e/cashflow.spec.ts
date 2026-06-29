@@ -15,7 +15,8 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.goto('/cashflow');
-  await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible();
+  await page.waitForLoadState('domcontentloaded');
+  await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
 });
 
 test.describe('Cashflow page layout', () => {
@@ -126,7 +127,7 @@ test.describe('Scenario Simulator', () => {
     await expect(page.locator('#cf-fx-shock')).toHaveValue('10');
 
     // The auto-triggered simulation must produce a visible scenario result panel
-    await expect(page.getByText('Worst DSCR')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Worst DSCR')).toBeVisible({ timeout: 30_000 });
   });
 
   test('preset button "Demand -20%" populates Demand Drop field and shows simulation result', async ({

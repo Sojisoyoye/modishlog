@@ -37,13 +37,15 @@ test.describe('Order lot inventory tracking', () => {
 
   test('In Stock column is visible on DELIVERED orders', async ({ page }) => {
     await page.goto(`/orders/${deliveredOrderId}`);
-    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/in stock/i).first()).toBeVisible();
   });
 
   test('In Stock column shows a value (number or dash) for delivered line items', async ({ page }) => {
     await page.goto(`/orders/${deliveredOrderId}`);
-    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/in stock/i).first()).toBeVisible();
     // At least one In Stock cell must exist — value is a formatted integer or — for null lots
     const stockCells = page.locator('table td').filter({ hasText: /\d|—/ });
@@ -52,7 +54,8 @@ test.describe('Order lot inventory tracking', () => {
 
   test('In Stock column is NOT visible on non-delivered orders', async ({ page }) => {
     await page.goto(`/orders/${orderedOrderId}`);
-    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/in stock/i)).not.toBeVisible();
   });
 });

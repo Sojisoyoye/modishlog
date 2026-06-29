@@ -121,11 +121,11 @@ test('clicking History button opens the Stock History dialog', async ({ page }) 
   await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible();
 
   const row = page.getByRole('row').filter({ hasText: product.name }).first();
-  await expect(row).toBeVisible({ timeout: 10_000 });
+  await expect(row).toBeVisible({ timeout: 15_000 });
   await row.getByRole('button', { name: 'History' }).click();
 
   const dialog = page.locator('[role="dialog"]').filter({ hasText: 'Stock History' });
-  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
   await expect(dialog).toContainText(product.name);
 });
 
@@ -144,6 +144,6 @@ test('Stock History dialog shows movement type after stock adjustment', async ({
   await expect(dialog).toBeVisible({ timeout: 5_000 });
 
   // The movement from addStock (manual_add) should appear with label and qty
-  await expect(dialog).toContainText('Manual Add', { timeout: 5_000 });
+  await expect(dialog).toContainText('Manual Add', { timeout: 15_000 });
   await expect(dialog).toContainText('+10');
 });

@@ -40,9 +40,9 @@ test.describe('Order detail page', () => {
 
   test('clicking an order row navigates to /orders/:id', async ({ page }) => {
     await page.goto('/orders');
-    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible({ timeout: 10_000 });
     // Wait for orders to load, then find the seeded order row
-    await page.waitForLoadState('networkidle');
     const orderRow = page.locator('table tbody tr').filter({ hasText: orderNumber });
     await expect(orderRow).toBeVisible({ timeout: 10_000 });
     await orderRow.click();

@@ -15,9 +15,9 @@ async function shot(page: Page, name: string) {
 // -- 1. Products page loads ---------------------------------------------------
 test('products - page loads with tabs', async ({ page }) => {
   await page.goto('/products');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   await shot(page, '01-loaded');
-  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible({ timeout: 15000 });
   // Tabs present
   await expect(page.getByText('All Products')).toBeVisible();
   await expect(page.getByText('Add Product')).toBeVisible();
@@ -28,7 +28,7 @@ test('products - page loads with tabs', async ({ page }) => {
 // -- 2. All Products tab ------------------------------------------------------
 test('products - All Products tab shows list or empty state', async ({ page }) => {
   await page.goto('/products');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   await shot(page, '02-all-products');
   // List, table, cards, or empty state
   const hasTable = await page.locator('table, [class*="table"], [class*="product-row"]').first().isVisible({ timeout: 3_000 }).catch(() => false);
@@ -39,19 +39,19 @@ test('products - All Products tab shows list or empty state', async ({ page }) =
 // -- 3. Products list - search field ------------------------------------------
 test('products - search field filters list', async ({ page }) => {
   await page.goto('/products');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   // The products page has placeholder="Search products..." — assert it exists
   const searchInput = page.locator('input[placeholder*="Search"]').first();
   await expect(searchInput).toBeVisible({ timeout: 5_000 });
   await searchInput.fill('Test');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   await shot(page, '03-search-results');
 });
 
 // -- 4. Stock Report tab loads ------------------------------------------------
 test('products - Stock Report tab loads content', async ({ page }) => {
   await page.goto('/products');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   const stockTab = page.getByText('Stock Report');
   await stockTab.click();
   await page.waitForTimeout(600);
@@ -64,7 +64,7 @@ test('products - Stock Report tab loads content', async ({ page }) => {
 // -- 5. Add Product tab - form present with submit button ---------------------
 test('products - Add Product tab shows full form with submit button', async ({ page }) => {
   await page.goto('/products');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
 
   // Click "New Product" button or "Add Product" tab
   const newBtn = page.getByRole('button', { name: /new product/i });
@@ -93,7 +93,7 @@ test('products - Add Product tab shows full form with submit button', async ({ p
 // -- 6. Add Product - validation on empty submit ------------------------------
 test('products - Add Product validation: empty name shows error not crash', async ({ page }) => {
   await page.goto('/products');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   const newBtn = page.getByRole('button', { name: /new product/i });
   if (await newBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
     await newBtn.click();
@@ -119,7 +119,7 @@ test('products - Add Product validation: empty name shows error not crash', asyn
 // -- 7. Add Product - create a real product and verify it appears -------------
 test('products - create product end-to-end', async ({ page }) => {
   await page.goto('/products');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   const newBtn = page.getByRole('button', { name: /new product/i });
   if (await newBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
     await newBtn.click();
@@ -182,10 +182,10 @@ test('products - create product end-to-end', async ({ page }) => {
     const searchBox = page.locator('input[placeholder*="Search"]').first();
     if (await searchBox.isVisible({ timeout: 3_000 }).catch(() => false)) {
       await searchBox.fill(uniqueName);
-      await page.waitForTimeout(700);
+      await page.waitForTimeout(1500);
     }
     await shot(page, '07-search-for-product');
-    const productInList = await page.getByText(uniqueName).isVisible({ timeout: 5_000 }).catch(() => false);
+    const productInList = await page.getByText(uniqueName).isVisible({ timeout: 10_000 }).catch(() => false);
     expect(productInList).toBe(true);
   } else {
     expect(toastVisible).toBe(true);
@@ -195,7 +195,7 @@ test('products - create product end-to-end', async ({ page }) => {
 // -- 8. Bulk Upload tab - file input and template download -------------------
 test('products - Bulk Upload tab shows file input and template download', async ({ page }) => {
   await page.goto('/products');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   await page.getByText('Bulk Upload').click();
   await page.waitForTimeout(500);
   await shot(page, '08-bulk-upload');
@@ -216,7 +216,7 @@ test('products - Bulk Upload tab shows file input and template download', async 
 // -- 9. Categories tab - list, add category ----------------------------------
 test('products - Categories tab loads and shows Add Category option', async ({ page }) => {
   await page.goto('/products');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   await page.getByRole('button', { name: /categories/i }).click();
   await page.waitForTimeout(600);
   await shot(page, '09-categories-tab');
@@ -236,7 +236,7 @@ test('products - Categories tab loads and shows Add Category option', async ({ p
 // -- 10. Add Category - inline form has fields and submit button -------------
 test('products - Add Category inline form has fields and submit button', async ({ page }) => {
   await page.goto('/products');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   await page.getByRole('button', { name: /categories/i }).click();
   await page.waitForTimeout(600);
   await shot(page, '10-categories-tab');
@@ -257,7 +257,7 @@ test('products - Add Category inline form has fields and submit button', async (
 // -- 11. Add Category - create one end-to-end --------------------------------
 test('products - create category end-to-end', async ({ page }) => {
   await page.goto('/products');
-  await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: /categories/i }).click();
   await page.waitForTimeout(600);
 

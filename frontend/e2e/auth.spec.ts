@@ -113,7 +113,7 @@ test.describe('Login functionality', () => {
   test('logs in successfully and redirects to dashboard', async ({ page }) => {
     await loginViaUI(page);
     await expect(page).toHaveURL(/\/dashboard/);
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    await expect(page.getByText('Good day,')).toBeVisible();
   });
 
   test('unauthenticated access redirects to login', async ({ page }) => {

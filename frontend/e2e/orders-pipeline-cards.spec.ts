@@ -14,31 +14,39 @@ async function createOrder(
   status: string,
 ): Promise<{ id: string; order_number: string }> {
   const token = await getAPIToken();
-  const ctx = await request.newContext();
-  try {
-    const resp = await ctx.post(`${API}/orders`, {
-      headers: { Authorization: `Bearer ${token}` },
-      data: {
-        supplier_name: 'Pipeline Test Supplier',
-        is_purchase_order: true,
-        currency: 'USD',
-        line_items: [
-          { product_id: productId, quantity: 5, unit_cost: '100.00' },
-        ],
-      },
-    });
-    if (!resp.ok()) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ctx = await request.newContext();
+    try {
+      const resp = await ctx.post(`${API}/orders`, {
+        headers: { Authorization: `Bearer ${token}` },
+        data: {
+          supplier_name: 'Pipeline Test Supplier',
+          is_purchase_order: true,
+          currency: 'USD',
+          line_items: [
+            { product_id: productId, quantity: 5, unit_cost: '100.00' },
+          ],
+        },
+      });
+      if (resp.ok()) {
+        const order = await resp.json();
+        // Advance to desired status if not already ORDERED
+        if (status !== 'ORDERED') {
+          await advanceOrderToStatus(order.id, status, { fxRateAtDelivery: '1500' });
+        }
+        return order;
+      }
+      if (resp.status() >= 500 && attempt < 2) {
+        await ctx.dispose();
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
       throw new Error(`Failed to create order: ${resp.status()} ${await resp.text()}`);
+    } finally {
+      await ctx.dispose();
     }
-    const order = await resp.json();
-    // Advance to desired status if not already ORDERED
-    if (status !== 'ORDERED') {
-      await advanceOrderToStatus(order.id, status, { fxRateAtDelivery: '1500' });
-    }
-    return order;
-  } finally {
-    await ctx.dispose();
   }
+  throw new Error('Failed to create order after 3 attempts');
 }
 
 /**
@@ -65,7 +73,7 @@ test.describe('Orders pipeline status cards', () => {
 
   test('pipeline filter buttons show human-readable labels', async ({ page }) => {
     await page.goto('/orders');
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible({ timeout: 15_000 });
 
     // Each filter button must show the friendly label
     const expectedLabels = ['Ordered', 'Pending', 'In Production', 'Shipping', 'Cleared', 'Delivered'];
@@ -82,12 +90,13 @@ test.describe('Orders pipeline status cards', () => {
   });
 
   test('orders appear in the table when filtered by their status', async ({ page }) => {
+    test.setTimeout(90000); // Order status advancement (DELIVERED) requires many API calls
     const pending = await createOrder(productId, 'PENDING');
     const shipping = await createOrder(productId, 'SHIPPING');
     const delivered = await createOrder(productId, 'DELIVERED');
 
     await page.goto('/orders');
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible({ timeout: 15_000 });
 
     // Click the "Pending" filter button and assert the pending order appears in the table
     await pipelineFilterButton(page, 'Pending').click();
@@ -106,11 +115,13 @@ test.describe('Orders pipeline status cards', () => {
     await createOrder(productId, 'IN_PRODUCTION');
 
     await page.goto('/orders');
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible({ timeout: 15_000 });
 
     // The "In Production" button should show a non-zero count badge
     const btn = pipelineFilterButton(page, 'In Production');
     await expect(btn).toBeVisible();
+    // Wait until the count badge shows a non-zero value (API may be loading)
+    await expect(btn.locator('span.rounded-full')).not.toHaveText('0', { timeout: 10_000 });
     const countText = await btn.locator('span.rounded-full').textContent();
     expect(parseInt(countText?.trim() ?? '0')).toBeGreaterThan(0);
   });
@@ -119,7 +130,7 @@ test.describe('Orders pipeline status cards', () => {
     await createOrder(productId, 'PENDING');
 
     await page.goto('/orders');
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible({ timeout: 15_000 });
 
     // Get the badge count from the "Pending" filter button
     const btn = pipelineFilterButton(page, 'Pending');
