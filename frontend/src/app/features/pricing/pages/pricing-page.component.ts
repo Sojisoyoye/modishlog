@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DecimalPipe, CurrencyPipe, DatePipe } from '@angular/common';
+import { DecimalPipe, CurrencyPipe, DatePipe, UpperCasePipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { UIChart } from 'primeng/chart';
@@ -43,15 +43,38 @@ interface ElasticityEntry {
 @Component({
   selector: 'app-pricing-page',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, CurrencyPipe, DatePipe, Toast, UIChart, StatusBadgeComponent],
+  imports: [FormsModule, DecimalPipe, CurrencyPipe, DatePipe, UpperCasePipe, Toast, UIChart, StatusBadgeComponent],
   template: `
     <p-toast />
     <div>
-      <div class="mb-6">
+      <div class="mb-4">
         <h2 class="text-2xl font-bold text-text">Pricing & Margins</h2>
         <p class="mt-1 text-sm text-muted">Analyze margins and optimize pricing</p>
       </div>
 
+      <!-- Tab bar -->
+      <div class="flex gap-1 overflow-x-auto border-b border-gray-200">
+        @for (tab of [
+          {key: 'overview',         label: 'Overview',            icon: 'pi-home'},
+          {key: 'margins',          label: 'Product Margins',     icon: 'pi-list'},
+          {key: 'recommendations',  label: 'Recommendations',     icon: 'pi-sparkles'},
+          {key: 'analysis',         label: 'Cross-Subsidisation', icon: 'pi-arrows-h'},
+          {key: 'tools',            label: 'Tools',               icon: 'pi-calculator'},
+          {key: 'demand',           label: 'Demand & Mix',        icon: 'pi-chart-line'}
+        ]; track tab.key) {
+          <button
+            type="button"
+            (click)="activeTab.set($any(tab.key))"
+            [class]="activeTab() === tab.key
+              ? 'whitespace-nowrap border-b-2 border-primary px-4 py-2.5 text-sm font-semibold text-primary'
+              : 'whitespace-nowrap border-b-2 border-transparent px-4 py-2.5 text-sm text-muted hover:text-text'"
+          >
+            <i class="pi mr-1.5 text-xs" [class]="tab.icon"></i>{{ tab.label }}
+          </button>
+        }
+      </div>
+
+      @if (activeTab() === 'overview') {
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <!-- Blended Margin Card -->
         <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -99,6 +122,9 @@ interface ElasticityEntry {
         </div>
       </div>
 
+      } <!-- /overview -->
+
+      @if (activeTab() === 'margins') {
       <!-- Per-Product Margins -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-4 flex items-center gap-2">
@@ -246,6 +272,9 @@ interface ElasticityEntry {
         }
       </div>
 
+      } <!-- /margins -->
+
+      @if (activeTab() === 'recommendations') {
       <!-- Pricing Recommendations -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
@@ -272,26 +301,26 @@ interface ElasticityEntry {
                   [label]="rec.priority | uppercase"
                   [status]="rec.priority === 'high' ? 'danger' : rec.priority === 'medium' ? 'warning' : 'info'"
                 />
-                @if (rec.action_payload?.['count']) {
+                @if ($any(rec.action_payload)?.['count']) {
                   <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-muted">
-                    {{ rec.action_payload['count'] }} product{{ rec.action_payload['count'] !== 1 ? 's' : '' }}
+                    {{ $any(rec.action_payload)['count'] }} product{{ $any(rec.action_payload)['count'] !== 1 ? 's' : '' }}
                   </span>
                 }
               </div>
 
               <!-- Category title + avg gap -->
               <h4 class="text-sm font-semibold text-text">
-                {{ rec.action_payload?.['category_name'] ?? rec.title }}
+                {{ $any(rec.action_payload)?.['category_name'] ?? rec.title }}
               </h4>
               <p class="mt-0.5 text-xs text-muted">
                 Avg margin gap:
-                <span class="font-semibold text-danger">{{ rec.action_payload?.['avg_gap'] }}%</span>
+                <span class="font-semibold text-danger">{{ $any(rec.action_payload)?.['avg_gap'] }}%</span>
               </p>
 
               <!-- Top 3 products preview -->
-              @if (rec.action_payload?.['products']?.length) {
+              @if ($any(rec.action_payload)?.['products']?.length) {
                 <div class="mt-2 space-y-1 border-t border-gray-100 pt-2">
-                  @for (p of rec.action_payload['products'].slice(0, 3); track p.product_id) {
+                  @for (p of $any(rec.action_payload)['products'].slice(0, 3); track p.product_id) {
                     <div class="flex items-center justify-between text-xs">
                       <span class="truncate text-text" style="max-width:55%">{{ p.product_name }}</span>
                       <span class="text-muted">
@@ -301,9 +330,9 @@ interface ElasticityEntry {
                       </span>
                     </div>
                   }
-                  @if (rec.action_payload['products'].length > 3) {
+                  @if ($any(rec.action_payload)['products'].length > 3) {
                     <p class="text-xs text-muted">
-                      and {{ rec.action_payload['products'].length - 3 }} more…
+                      and {{ $any(rec.action_payload)['products'].length - 3 }} more…
                     </p>
                   }
                 </div>
@@ -337,6 +366,9 @@ interface ElasticityEntry {
         </div>
       </div>
 
+      } <!-- /recommendations part 1 -->
+
+      @if (activeTab() === 'analysis') {
       <!-- Cross-Subsidisation Display (Task 32) -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-4 flex items-center gap-2">
@@ -548,6 +580,9 @@ interface ElasticityEntry {
         }
       </div>
 
+      } <!-- /analysis part 1 -->
+
+      @if (activeTab() === 'tools') {
       <!-- Price-FX Sensitivity Calculator -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
@@ -768,6 +803,9 @@ interface ElasticityEntry {
         }
       </div>
 
+      } <!-- /tools part 1 -->
+
+      @if (activeTab() === 'demand') {
       <!-- Product Mix Status -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
@@ -829,6 +867,9 @@ interface ElasticityEntry {
         }
       </div>
 
+      } <!-- /demand part 1 -->
+
+      @if (activeTab() === 'recommendations') {
       <!-- Optimizer Pricing Recommendations -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center justify-between">
@@ -909,6 +950,9 @@ interface ElasticityEntry {
         }
       </div>
 
+      } <!-- /recommendations part 2 -->
+
+      @if (activeTab() === 'demand') {
       <!-- Demand Forecast -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
@@ -984,6 +1028,9 @@ interface ElasticityEntry {
         }
       </div>
 
+      } <!-- /demand part 2 -->
+
+      @if (activeTab() === 'tools') {
       <!-- Saved Scenarios -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center justify-between">
@@ -1061,6 +1108,9 @@ interface ElasticityEntry {
         }
       </div>
 
+      } <!-- /tools part 2 -->
+
+      @if (activeTab() === 'demand') {
       <!-- Demand Elasticity Configuration (Task 31) -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
@@ -1149,6 +1199,8 @@ interface ElasticityEntry {
           </p>
         }
       </div>
+      } <!-- /demand part 3 -->
+
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1158,6 +1210,8 @@ export class PricingPageComponent implements OnInit {
   private readonly recsService = inject(RecommendationsService);
   private readonly productsService = inject(ProductsService);
   private readonly messageService = inject(MessageService);
+
+  activeTab = signal<'overview' | 'margins' | 'recommendations' | 'analysis' | 'tools' | 'demand'>('overview');
 
   marginData = signal<PortfolioMarginData>({
     blended_margin: 0,
