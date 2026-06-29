@@ -2,6 +2,7 @@ import { Component, ChangeDetectionStrategy, inject, signal, OnInit, DestroyRef 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { catchError, of } from 'rxjs';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
@@ -19,11 +20,18 @@ interface SummaryCard {
 @Component({
   selector: 'app-profit-loss-page',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, Toast],
+  imports: [FormsModule, DecimalPipe, Toast, RouterLink],
   providers: [MessageService],
   template: `
     <p-toast />
     <div>
+      <div class="mb-4 flex items-center gap-2 text-sm">
+        <a routerLink="/reports" class="flex items-center gap-1.5 font-medium text-muted transition-colors hover:text-text">
+          <i class="pi pi-arrow-left text-xs"></i> Reports
+        </a>
+        <span class="text-muted">/</span>
+        <span class="font-semibold text-text">Profit & Loss</span>
+      </div>
       <div class="mb-6 flex items-center justify-between">
         <div>
           <h2 class="text-2xl font-bold text-text">Profit & Loss Report</h2>

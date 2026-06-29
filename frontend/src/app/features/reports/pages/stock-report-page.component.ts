@@ -1,5 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { ReportsService, StockReport } from '../../../core/services/reports.service';
@@ -7,11 +8,18 @@ import { ReportsService, StockReport } from '../../../core/services/reports.serv
 @Component({
   selector: 'app-stock-report-page',
   standalone: true,
-  imports: [DecimalPipe, Toast],
+  imports: [DecimalPipe, Toast, RouterLink],
   providers: [MessageService],
   template: `
     <p-toast />
     <div>
+      <div class="mb-4 flex items-center gap-2 text-sm">
+        <a routerLink="/reports" class="flex items-center gap-1.5 font-medium text-muted transition-colors hover:text-text">
+          <i class="pi pi-arrow-left text-xs"></i> Reports
+        </a>
+        <span class="text-muted">/</span>
+        <span class="font-semibold text-text">Stock Report</span>
+      </div>
       <div class="mb-6 flex items-center justify-between">
         <div>
           <h2 class="text-2xl font-bold text-text">Stock Report</h2>

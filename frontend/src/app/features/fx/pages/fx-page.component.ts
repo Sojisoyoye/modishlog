@@ -1,4 +1,9 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+
+function fmtChartDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe, DatePipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -411,7 +416,10 @@ export class FxPageComponent implements OnInit {
     responsive: true,
     maintainAspectRatio: false,
     plugins: { legend: { position: 'top' as const } },
-    scales: { y: { beginAtZero: false } },
+    scales: {
+      x: { ticks: { maxTicksLimit: 12, maxRotation: 0 } },
+      y: { beginAtZero: false },
+    },
   };
 
   ngOnInit(): void {
@@ -422,7 +430,7 @@ export class FxPageComponent implements OnInit {
       next: (rates) => {
         this.historyRates.set(rates);
         this.historyChartData.set({
-          labels: rates.map((r) => r.rate_date),
+          labels: rates.map((r) => fmtChartDate(r.rate_date)),
           datasets: [
             {
               label: 'NGN/USD',
@@ -442,7 +450,7 @@ export class FxPageComponent implements OnInit {
       next: (fc) => {
         this.forecasts.set(fc);
         this.forecastChartData.set({
-          labels: fc.map((f) => f.date),
+          labels: fc.map((f) => fmtChartDate(f.date)),
           datasets: [
             {
               label: 'Base',
@@ -485,7 +493,7 @@ export class FxPageComponent implements OnInit {
       next: (fc) => {
         this.forecasts.set(fc);
         this.forecastChartData.set({
-          labels: fc.map((f) => f.date),
+          labels: fc.map((f) => fmtChartDate(f.date)),
           datasets: [
             {
               label: 'Base',
