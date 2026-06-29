@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from src.auth.service import build_token
 from src.core.security import get_password_hash
 
 VALID_PASSWORD = "Str0ng!Pass#99"

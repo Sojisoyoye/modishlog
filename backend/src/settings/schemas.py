@@ -1,7 +1,6 @@
 """Settings Pydantic schemas."""
 
 import calendar
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -23,8 +22,8 @@ class ApiKeyStatus(BaseModel):
 class FiscalYearUpdate(BaseModel):
     """Request body for setting fiscal year start."""
 
-    fiscal_year_start_month: Optional[int] = Field(None, ge=1, le=12)
-    fiscal_year_start_day: Optional[int] = Field(None, ge=1, le=31)
+    fiscal_year_start_month: int | None = Field(None, ge=1, le=12)
+    fiscal_year_start_day: int | None = Field(None, ge=1, le=31)
 
     @model_validator(mode="after")
     def both_or_neither_and_valid_date(self) -> "FiscalYearUpdate":
@@ -51,5 +50,5 @@ class FiscalYearRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    fiscal_year_start_month: Optional[int]
-    fiscal_year_start_day: Optional[int]
+    fiscal_year_start_month: int | None
+    fiscal_year_start_day: int | None

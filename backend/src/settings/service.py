@@ -4,7 +4,6 @@ import base64
 import hashlib
 import uuid
 from functools import lru_cache
-from typing import Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import func, select
@@ -99,14 +98,15 @@ async def get_fiscal_year_start(
 async def update_fiscal_year_start(
     db: AsyncSession,
     user_id: uuid.UUID,
-    month: Optional[int],
-    day: Optional[int],
+    month: int | None,
+    day: int | None,
 ) -> FiscalYearRead:
     # Use INSERT … ON CONFLICT DO UPDATE to avoid a SELECT-then-INSERT race when
     # two concurrent requests arrive for a user with no existing preferences row.
     stmt = (
         pg_insert(UserPreferences)
         .values(
+            id=uuid.uuid4(),
             user_id=user_id,
             fiscal_year_start_month=month,
             fiscal_year_start_day=day,
