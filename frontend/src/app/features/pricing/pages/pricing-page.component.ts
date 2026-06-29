@@ -296,6 +296,63 @@ interface ElasticityEntry {
           <h3 class="text-base font-semibold text-text">Cross-Subsidisation</h3>
         </div>
 
+        <!-- Insight block -->
+        @if (subsidyInsight(); as insight) {
+          <div
+            class="mb-4 rounded-lg border px-4 py-3"
+            [class]="
+              insight.level === 'high'
+                ? 'border-red-200 bg-red-50'
+                : insight.level === 'medium'
+                  ? 'border-amber-200 bg-amber-50'
+                  : 'border-green-200 bg-green-50'
+            "
+          >
+            <div class="mb-2 flex items-center gap-2">
+              <i
+                class="pi text-sm"
+                [class]="
+                  insight.level === 'high'
+                    ? 'pi-exclamation-triangle text-red-600'
+                    : insight.level === 'medium'
+                      ? 'pi-exclamation-circle text-amber-600'
+                      : 'pi-check-circle text-green-600'
+                "
+              ></i>
+              <span
+                class="text-xs font-semibold uppercase"
+                [class]="
+                  insight.level === 'high'
+                    ? 'text-red-700'
+                    : insight.level === 'medium'
+                      ? 'text-amber-700'
+                      : 'text-green-700'
+                "
+              >
+                {{
+                  insight.level === 'high'
+                    ? 'High Concentration Risk'
+                    : insight.level === 'medium'
+                      ? 'Moderate Risk — Action Recommended'
+                      : 'Portfolio Well-Balanced'
+                }}
+              </span>
+              <div class="ml-auto flex items-center gap-2">
+                <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700"
+                  >{{ insight.aboveCount }} above target</span
+                >
+                <span class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700"
+                  >{{ insight.belowCount }} below target</span
+                >
+              </div>
+            </div>
+            <p class="mb-1 text-xs text-gray-700">{{ insight.impact }}</p>
+            <p class="text-xs font-medium text-gray-800">
+              <i class="pi pi-arrow-right mr-1 text-xs"></i>{{ insight.action }}
+            </p>
+          </div>
+        }
+
         <!-- Toolbar: page-size + search -->
         <div class="mb-3 flex flex-wrap items-center gap-3">
           <div class="flex items-center gap-2 text-sm text-muted">
@@ -1153,6 +1210,40 @@ export class PricingPageComponent implements OnInit {
 
   subsidyFilteredBelow = computed(() => this.subsidyAllBelow().slice(0, 10));
   subsidyBelowMoreCount = computed(() => Math.max(0, this.subsidyAllBelow().length - 10));
+
+  subsidyInsight = computed(() => {
+    const above = this.aboveTarget();
+    const below = this.belowTarget();
+    const total = above.length + below.length;
+    if (total === 0) return null;
+    const ratio = above.length / total;
+    const topProduct = above[0]?.product_name ?? '';
+    const worstProduct = below[0]?.product_name ?? '';
+    const target = this.marginData().target_margin;
+    let level: 'high' | 'medium' | 'low';
+    let impact: string;
+    let action: string;
+    if (ratio < 0.2) {
+      level = 'high';
+      impact = `Only ${above.length} of your ${total} products are above the ${target}% target — a small drop in sales for these could push your overall margin negative.`;
+      action = worstProduct
+        ? `Urgently review pricing for your ${below.length} below-target products. Start with "${worstProduct}" — it is your biggest drag on portfolio margin.`
+        : `Urgently review pricing for your ${below.length} below-target products.`;
+    } else if (ratio < 0.5) {
+      level = 'medium';
+      impact = `${above.length} products are subsidising ${below.length} others. Your portfolio is profitable overall but dependent on a minority of products.`;
+      action = worstProduct
+        ? `Raise selling prices on below-target products, beginning with "${worstProduct}". Even a 5–10% price increase can meaningfully improve your blended margin.`
+        : `Raise selling prices on your ${below.length} below-target products to reduce dependency on top performers.`;
+    } else {
+      level = 'low';
+      impact = `${above.length} of your ${total} products are above the ${target}% target — your portfolio margin is well-distributed.`;
+      action = below.length > 0
+        ? `Monitor the ${below.length} below-target products periodically. Consider small price adjustments before they become a bigger drag.`
+        : `All active products are meeting your margin target. Keep an eye on cost price changes that could shift this.`;
+    }
+    return { level, impact, action, aboveCount: above.length, belowCount: below.length, topProduct, worstProduct };
+  });
 
   // Task 31: Demand elasticity
   products = signal<Product[]>([]);
