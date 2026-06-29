@@ -14,17 +14,9 @@ import { errorInterceptor } from './core/interceptors/error.interceptor';
 const ModishPreset = definePreset(Aura, {
   semantic: {
     primary: {
-      50: '#EBF2F8',
-      100: '#C4D9EA',
-      200: '#9DC0DC',
-      300: '#5F99C6',
-      400: '#2E75B6',
-      500: '#1F4E79',
-      600: '#1A4267',
-      700: '#153656',
-      800: '#102A44',
-      900: '#0B1E33',
-      950: '#071322',
+      50: '#ECFDF5', 100: '#D1FAE5', 200: '#A7F3D0', 300: '#6EE7B7',
+      400: '#34D399', 500: '#10B981', 600: '#059669', 700: '#047857',
+      800: '#065F46', 900: '#064E3B', 950: '#022C22',
     },
   },
 });
