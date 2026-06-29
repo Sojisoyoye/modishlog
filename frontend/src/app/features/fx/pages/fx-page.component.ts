@@ -38,14 +38,14 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
     <div>
       <div class="mb-6 flex items-center justify-between">
         <div>
-          <h2 class="text-2xl font-bold text-text">FX Rates</h2>
-          <p class="mt-1 text-sm text-muted">Track and forecast NGN exchange rates</p>
+          <h2 class="text-2xl font-bold text-gray-900">FX Rates</h2>
+          <p class="mt-1 text-sm text-gray-500">Track and forecast NGN exchange rates</p>
         </div>
         <button
           type="button"
           data-testid="export-fx-csv"
           (click)="exportFxCsv()"
-          class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+          class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
         >
           <i class="pi pi-download text-xs"></i>
           Export CSV
@@ -54,18 +54,18 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-4">
         <!-- USD/NGN Rate Card -->
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <div class="mb-3 flex items-center gap-2">
-            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-              <i class="pi pi-dollar text-base text-primary"></i>
+            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50">
+              <i class="pi pi-dollar text-base text-emerald-700"></i>
             </div>
-            <p class="text-sm font-semibold text-muted">USD / NGN</p>
+            <p class="text-sm font-semibold text-gray-500">USD / NGN</p>
           </div>
           @if (latestRate()) {
-            <p class="text-3xl font-bold text-text">
+            <p class="text-3xl font-bold text-gray-900">
               &#8358;{{ latestRate()!.rate | number: '1.2-2' }}
             </p>
-            <p class="mt-1.5 text-xs text-muted">
+            <p class="mt-1.5 text-xs text-gray-500">
               <i class="pi pi-calendar mr-1 text-[10px]"></i>
               {{ latestRate()!.rate_date | date: 'mediumDate' }}
               <span class="mx-1">&middot;</span>{{ fmtSource(latestRate()!.source) }}
@@ -76,48 +76,48 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
         </div>
 
         <!-- EUR/NGN Rate Card -->
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <div class="mb-3 flex items-center gap-2">
-            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-secondary/10">
-              <i class="pi pi-euro text-base text-secondary"></i>
+            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50">
+              <i class="pi pi-euro text-base text-emerald-700"></i>
             </div>
-            <p class="text-sm font-semibold text-muted">EUR / NGN</p>
+            <p class="text-sm font-semibold text-gray-500">EUR / NGN</p>
           </div>
           @if (latestEurNgn()) {
-            <p class="text-3xl font-bold text-text">
+            <p class="text-3xl font-bold text-gray-900">
               &#8358;{{ latestEurNgn()!.rate | number: '1.2-2' }}
             </p>
-            <p class="mt-1.5 text-xs text-muted">
+            <p class="mt-1.5 text-xs text-gray-500">
               <i class="pi pi-calendar mr-1 text-[10px]"></i>
               {{ latestEurNgn()!.rate_date | date: 'mediumDate' }}
               <span class="mx-1">&middot;</span>{{ fmtSource(latestEurNgn()!.source) }}
             </p>
           } @else if (latestRate() && latestEurUsd()) {
-            <p class="text-3xl font-bold text-text">
+            <p class="text-3xl font-bold text-gray-900">
               &#8358;{{ latestRate()!.rate * latestEurUsd()!.rate | number: '1.2-2' }}
             </p>
-            <p class="mt-1.5 text-xs text-muted">Derived from USD/NGN × EUR/USD</p>
+            <p class="mt-1.5 text-xs text-gray-500">Derived from USD/NGN × EUR/USD</p>
           } @else {
             <div class="mt-2 h-9 w-28 skeleton rounded"></div>
-            <p class="mt-1.5 text-xs text-muted">Load history to populate</p>
+            <p class="mt-1.5 text-xs text-gray-500">Load history to populate</p>
           }
         </div>
 
         <!-- Manual Entry -->
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm lg:col-span-2">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm lg:col-span-2">
           <div class="mb-4 flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
-              <i class="pi pi-plus text-sm text-success"></i>
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+              <i class="pi pi-plus text-sm text-emerald-700"></i>
             </div>
-            <h3 class="text-base font-semibold text-text">Add Rate</h3>
+            <h3 class="text-base font-semibold text-gray-900">Add Rate</h3>
           </div>
           <div class="flex flex-wrap items-end gap-3">
             <div>
-              <label for="fx-manual-pair" class="mb-1.5 block text-xs font-medium text-muted">Pair</label>
+              <label for="fx-manual-pair" class="mb-1.5 block text-xs font-medium text-gray-500">Pair</label>
               <select
                 id="fx-manual-pair"
                 [(ngModel)]="manualPair"
-                class="rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                class="min-h-[44px] rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
               >
                 <option value="USDNGN">USD/NGN</option>
                 <option value="EURNGN">EUR/NGN</option>
@@ -125,31 +125,31 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
               </select>
             </div>
             <div>
-              <label for="fx-manual-rate" class="mb-1.5 block text-xs font-medium text-muted">Rate</label>
+              <label for="fx-manual-rate" class="mb-1.5 block text-xs font-medium text-gray-500">Rate</label>
               <input
                 id="fx-manual-rate"
                 type="number"
                 [(ngModel)]="manualRate"
                 [placeholder]="manualPair === 'EURUSD' ? 'e.g. 1.08' : 'e.g. 1500'"
                 step="0.01"
-                class="w-36 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                class="w-36 min-h-[44px] rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
               />
             </div>
             <div>
-              <label for="fx-manual-date" class="mb-1.5 block text-xs font-medium text-muted">Date</label>
+              <label for="fx-manual-date" class="mb-1.5 block text-xs font-medium text-gray-500">Date</label>
               <input
                 id="fx-manual-date"
                 type="date"
                 [(ngModel)]="manualDate"
-                class="w-40 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                class="w-40 min-h-[44px] rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
               />
             </div>
             <div>
-              <label for="fx-manual-source" class="mb-1.5 block text-xs font-medium text-muted">Source</label>
+              <label for="fx-manual-source" class="mb-1.5 block text-xs font-medium text-gray-500">Source</label>
               <select
                 id="fx-manual-source"
                 [(ngModel)]="manualSource"
-                class="rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                class="min-h-[44px] rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
               >
                 <option value="MANUAL">Manual</option>
                 <option value="PARALLEL_MARKET">Parallel Market</option>
@@ -158,7 +158,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
             </div>
             <button
               (click)="addRate()"
-              class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+              class="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md"
             >
               <i class="pi pi-check text-sm"></i> Add
             </button>
@@ -167,20 +167,20 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
       </div>
 
       <!-- Historical Chart -->
-      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-              <i class="pi pi-chart-line text-sm text-secondary"></i>
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+              <i class="pi pi-chart-line text-sm text-emerald-700"></i>
             </div>
-            <h3 class="text-base font-semibold text-text">Historical Rates (90 days)</h3>
+            <h3 class="text-base font-semibold text-gray-900">Historical Rates (90 days)</h3>
           </div>
           <div class="flex items-center gap-2">
             <button
               (click)="loadHistoricalRates()"
               [disabled]="backfilling()"
               title="Pull 90 days of rates from exchange-api.pages.dev (free)"
-              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text disabled:opacity-50"
+              class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900 disabled:opacity-50"
             >
               <i class="pi text-xs" [class]="backfilling() ? 'pi-spinner pi-spin' : 'pi-cloud-download'"></i>
               {{ backfilling() ? 'Fetching…' : 'Load History' }}
@@ -188,7 +188,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
             @if (historyRates().length > 0) {
               <button
                 (click)="exportHistoryCsv()"
-                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+                class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
               >
                 <i class="pi pi-download text-xs"></i> Export CSV
               </button>
@@ -197,8 +197,8 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
         </div>
         @if (backfilling()) {
           <div class="flex h-[300px] flex-col items-center justify-center gap-3">
-            <i class="pi pi-spinner pi-spin text-2xl text-primary"></i>
-            <p class="text-sm text-muted">Fetching 90 days of NGN rates…</p>
+            <i class="pi pi-spinner pi-spin text-2xl text-emerald-600"></i>
+            <p class="text-sm text-gray-500">Fetching 90 days of NGN rates…</p>
           </div>
         } @else if (historyChartData()) {
           <p-chart
@@ -209,11 +209,11 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
           />
         } @else {
           <div class="flex h-[300px] flex-col items-center justify-center gap-3">
-            <i class="pi pi-chart-line text-2xl text-muted"></i>
-            <p class="text-sm text-muted">No rate history yet.</p>
+            <i class="pi pi-chart-line text-2xl text-gray-400"></i>
+            <p class="text-sm text-gray-500">No rate history yet.</p>
             <button
               (click)="loadHistoricalRates()"
-              class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary/90"
+              class="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
             >
               <i class="pi pi-cloud-download text-xs"></i> Load 90-Day History
             </button>
@@ -222,15 +222,15 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
       </div>
 
       <!-- Forecast -->
-      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
-              <i class="pi pi-sparkles text-sm text-warning"></i>
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
+              <i class="pi pi-sparkles text-sm text-purple-700"></i>
             </div>
-            <h3 class="text-base font-semibold text-text">
+            <h3 class="text-base font-semibold text-gray-900">
               {{ forecastDays() }}-Day Forecast
-              <span class="ml-1.5 text-xs font-normal text-muted">({{ forecastPair() === 'USDNGN' ? 'USD/NGN' : 'EUR/NGN' }})</span>
+              <span class="ml-1.5 text-xs font-normal text-gray-500">({{ forecastPair() === 'USDNGN' ? 'USD/NGN' : 'EUR/NGN' }})</span>
             </h3>
           </div>
           <div class="flex items-center gap-2">
@@ -240,19 +240,19 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
                 (click)="switchForecastPair('USDNGN')"
                 [disabled]="forecastGenerating()"
                 class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40"
-                [class]="forecastPair() === 'USDNGN' ? 'bg-white text-primary shadow-sm' : 'text-muted hover:text-text'"
+                [class]="forecastPair() === 'USDNGN' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
               >USD/NGN</button>
               <button
                 (click)="switchForecastPair('EURNGN')"
                 [disabled]="forecastGenerating()"
                 class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40"
-                [class]="forecastPair() === 'EURNGN' ? 'bg-white text-secondary shadow-sm' : 'text-muted hover:text-text'"
+                [class]="forecastPair() === 'EURNGN' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
               >EUR/NGN</button>
             </div>
             <button
               (click)="refreshForecast()"
               [disabled]="forecastGenerating()"
-              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text disabled:opacity-50"
+              class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900 disabled:opacity-50"
               title="Regenerate forecast using latest rate data"
             >
               <i class="pi text-xs" [class]="forecastGenerating() ? 'pi-spinner pi-spin' : 'pi-refresh'"></i>
@@ -265,7 +265,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
                   (click)="setForecastRange(range)"
                   [disabled]="forecastGenerating()"
                   class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40"
-                  [class]="forecastDays() === range ? 'bg-white text-primary shadow-sm' : 'text-muted hover:text-text'"
+                  [class]="forecastDays() === range ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
                 >{{ range }}d</button>
               }
             </div>
@@ -273,8 +273,8 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
         </div>
         @if (forecastGenerating()) {
           <div class="flex h-[300px] flex-col items-center justify-center gap-3">
-            <i class="pi pi-spinner pi-spin text-2xl text-primary"></i>
-            <p class="text-sm text-muted">Training forecast model — this takes about 30 seconds…</p>
+            <i class="pi pi-spinner pi-spin text-2xl text-emerald-600"></i>
+            <p class="text-sm text-gray-500">Training forecast model — this takes about 30 seconds…</p>
           </div>
         } @else if (forecastChartData()) {
           <p-chart
@@ -285,11 +285,11 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
           />
         } @else {
           <div class="flex h-[300px] flex-col items-center justify-center gap-3">
-            <i class="pi pi-chart-line text-2xl text-muted"></i>
-            <p class="text-sm text-muted">No forecast data yet.</p>
+            <i class="pi pi-chart-line text-2xl text-gray-400"></i>
+            <p class="text-sm text-gray-500">No forecast data yet.</p>
             <button
               (click)="refreshForecast()"
-              class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary/90"
+              class="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
             >
               <i class="pi pi-sparkles text-xs"></i> Generate Forecast
             </button>
@@ -304,22 +304,22 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
                 <i class="pi text-base" [class]="insight.trendIcon + ' ' + insight.trendColor"></i>
               </div>
               <div class="flex-1 min-w-0">
-                <p class="text-sm font-semibold text-text">{{ insight.headline }}</p>
-                <p class="mt-1 text-xs leading-relaxed text-muted">{{ insight.summary }}</p>
+                <p class="text-sm font-semibold text-gray-900">{{ insight.headline }}</p>
+                <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ insight.summary }}</p>
 
                 <!-- Milestone row -->
                 <div class="mt-3 grid grid-cols-3 gap-3">
                   <div class="rounded-lg bg-white px-3 py-2 text-center shadow-sm">
-                    <p class="text-[10px] font-medium uppercase text-muted">Today (actual)</p>
-                    <p class="mt-0.5 text-sm font-bold text-text">₦{{ insight.currentRate | number:'1.2-2' }}</p>
+                    <p class="text-[10px] font-medium uppercase text-gray-500">Today (actual)</p>
+                    <p class="mt-0.5 text-sm font-bold text-gray-900">₦{{ insight.currentRate | number:'1.2-2' }}</p>
                   </div>
                   <div class="rounded-lg bg-white px-3 py-2 text-center shadow-sm">
-                    <p class="text-[10px] font-medium uppercase text-muted">30-day forecast</p>
-                    <p class="mt-0.5 text-sm font-bold text-text">₦{{ insight.day30.base | number:'1.2-2' }}</p>
+                    <p class="text-[10px] font-medium uppercase text-gray-500">30-day forecast</p>
+                    <p class="mt-0.5 text-sm font-bold text-gray-900">₦{{ insight.day30.base | number:'1.2-2' }}</p>
                   </div>
                   <div class="rounded-lg bg-white px-3 py-2 text-center shadow-sm">
-                    <p class="text-[10px] font-medium uppercase text-muted">{{ insight.days }}-day forecast</p>
-                    <p class="mt-0.5 text-sm font-bold text-text">₦{{ insight.last.base | number:'1.2-2' }}</p>
+                    <p class="text-[10px] font-medium uppercase text-gray-500">{{ insight.days }}-day forecast</p>
+                    <p class="mt-0.5 text-sm font-bold text-gray-900">₦{{ insight.last.base | number:'1.2-2' }}</p>
                   </div>
                 </div>
 
@@ -329,7 +329,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
                   <p class="mt-1 text-xs leading-relaxed">{{ insight.action }}</p>
                 </div>
 
-                <p class="mt-2 text-[10px] text-muted">
+                <p class="mt-2 text-[10px] text-gray-400">
                   <i class="pi pi-info-circle mr-1"></i>
                   Forecast uses Prophet + Monte Carlo simulation trained on {{ insight.days }} days of history. Not financial advice — ranges reflect 80% confidence interval.
                 </p>
@@ -343,18 +343,18 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
           <div class="mt-5">
             <!-- Page size selector -->
             <div class="mb-3 flex items-center justify-between">
-              <p class="text-xs text-muted">
+              <p class="text-xs text-gray-500">
                 Showing {{ forecastPage() * forecastPageSize() + 1 }}–{{ forecastPageEnd() }}
                 of {{ forecasts().length }} days
               </p>
               <div class="flex items-center gap-2">
-                <span class="text-xs text-muted">Rows per page:</span>
+                <span class="text-xs text-gray-500">Rows per page:</span>
                 <div class="flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-0.5">
                   @for (size of forecastPageSizeOptions; track size) {
                     <button
                       (click)="setForecastPageSize(size)"
                       class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
-                      [class]="forecastPageSize() === size ? 'bg-white text-primary shadow-sm' : 'text-muted hover:text-text'"
+                      [class]="forecastPageSize() === size ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-900'"
                     >{{ size }}</button>
                   }
                 </div>
@@ -365,20 +365,20 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
               <table class="min-w-full divide-y divide-gray-200 text-sm">
                 <caption class="sr-only">FX rate forecast data</caption>
                 <thead>
-                  <tr class="bg-gray-50/80">
-                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
-                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Base</th>
-                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Best</th>
-                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Worst</th>
+                  <tr class="bg-gray-50">
+                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-gray-500">Date</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-gray-500">Base</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-gray-500">Best</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-gray-500">Worst</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                   @for (f of pagedForecasts(); track f.date) {
-                    <tr class="transition-colors hover:bg-gray-50/50">
-                      <td class="px-3 py-2.5 text-muted">{{ f.date | date: 'mediumDate' }}</td>
+                    <tr class="transition-colors hover:bg-gray-50">
+                      <td class="px-3 py-2.5 text-gray-500">{{ f.date | date: 'mediumDate' }}</td>
                       <td class="px-3 py-2.5 text-right font-semibold">{{ f.base | number: '1.2-2' }}</td>
-                      <td class="px-3 py-2.5 text-right font-medium text-success">{{ f.best_case | number: '1.2-2' }}</td>
-                      <td class="px-3 py-2.5 text-right font-medium text-danger">{{ f.worst_case | number: '1.2-2' }}</td>
+                      <td class="px-3 py-2.5 text-right font-medium text-emerald-600">{{ f.best_case | number: '1.2-2' }}</td>
+                      <td class="px-3 py-2.5 text-right font-medium text-red-600">{{ f.worst_case | number: '1.2-2' }}</td>
                     </tr>
                   }
                 </tbody>
@@ -391,19 +391,19 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
                 <button
                   (click)="forecastPage.set(forecastPage() - 1)"
                   [disabled]="forecastPage() === 0"
-                  class="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+                  class="flex min-h-[44px] items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <i class="pi pi-chevron-left text-[10px]"></i> Previous
                 </button>
                 <div class="flex items-center gap-1">
                   @for (p of pageRange(); track p) {
                     @if (p === -1) {
-                      <span class="px-1 text-xs text-muted">…</span>
+                      <span class="px-1 text-xs text-gray-500">…</span>
                     } @else {
                       <button
                         (click)="forecastPage.set(p)"
                         class="min-w-[28px] rounded-md px-2 py-1 text-xs font-medium transition-colors"
-                        [class]="forecastPage() === p ? 'bg-primary text-white' : 'text-muted hover:bg-gray-100 hover:text-text'"
+                        [class]="forecastPage() === p ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'"
                       >{{ p + 1 }}</button>
                     }
                   }
@@ -411,7 +411,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
                 <button
                   (click)="forecastPage.set(forecastPage() + 1)"
                   [disabled]="forecastPage() >= forecastTotalPages() - 1"
-                  class="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+                  class="flex min-h-[44px] items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Next <i class="pi pi-chevron-right text-[10px]"></i>
                 </button>
@@ -422,22 +422,22 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
       </div>
 
       <!-- Rate Alerts -->
-      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
-          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50">
-            <i class="pi pi-bell text-sm text-danger"></i>
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+            <i class="pi pi-bell text-sm text-amber-700"></i>
           </div>
-          <h3 class="text-base font-semibold text-text">Rate Alerts</h3>
+          <h3 class="text-base font-semibold text-gray-900">Rate Alerts</h3>
         </div>
 
         <!-- Create Alert Form -->
         <div class="mb-5 flex flex-wrap items-end gap-3">
           <div>
-            <label for="fx-alert-pair" class="mb-1.5 block text-xs font-medium text-muted">Pair</label>
+            <label for="fx-alert-pair" class="mb-1.5 block text-xs font-medium text-gray-500">Pair</label>
             <select
               id="fx-alert-pair"
               [(ngModel)]="alertPair"
-              class="rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="min-h-[44px] rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
             >
               <option value="USDNGN">USD/NGN</option>
               <option value="EURNGN">EUR/NGN</option>
@@ -445,89 +445,76 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
             </select>
           </div>
           <div>
-            <label for="fx-alert-direction" class="mb-1.5 block text-xs font-medium text-muted">Direction</label>
+            <label for="fx-alert-direction" class="mb-1.5 block text-xs font-medium text-gray-500">Direction</label>
             <select
               id="fx-alert-direction"
               [(ngModel)]="alertDirection"
-              class="rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="min-h-[44px] rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
             >
               <option value="above">Above</option>
               <option value="below">Below</option>
             </select>
           </div>
           <div>
-            <label for="fx-alert-threshold" class="mb-1.5 block text-xs font-medium text-muted">Threshold Rate</label>
+            <label for="fx-alert-threshold" class="mb-1.5 block text-xs font-medium text-gray-500">Threshold Rate</label>
             <input
               id="fx-alert-threshold"
               type="number"
               [(ngModel)]="alertThreshold"
               placeholder="e.g. 1600"
               step="0.01"
-              class="w-40 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-40 min-h-[44px] rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
             />
           </div>
           <button
             (click)="createAlert()"
-            class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+            class="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md"
           >
-            <i class="pi pi-plus text-sm"></i> Create Alert
+            <i class="pi pi-plus text-sm"></i> Add Alert
           </button>
         </div>
 
         <!-- Alerts List -->
         @if (alerts().length > 0) {
-          <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200 text-sm">
-              <caption class="sr-only">FX rate alerts</caption>
-              <thead>
-                <tr class="bg-gray-50/80">
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Pair</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Direction</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Threshold</th>
-                  <th class="px-3 py-2.5 text-center text-xs font-semibold uppercase text-muted">Status</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Actions</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-100">
-                @for (alert of alerts(); track alert.id) {
-                  <tr class="transition-colors hover:bg-gray-50/50">
-                    <td class="px-3 py-2.5 font-medium text-text">{{ alert.pair }}</td>
-                    <td class="px-3 py-2.5">
-                      <span
-                        class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                        [class]="alert.direction === 'above' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
-                      >
-                        <i class="pi mr-1 text-[10px]" [class]="alert.direction === 'above' ? 'pi-arrow-up' : 'pi-arrow-down'"></i>
-                        {{ alert.direction }}
-                      </span>
-                    </td>
-                    <td class="px-3 py-2.5 text-right font-semibold">{{ alert.threshold_rate | number: '1.2-2' }}</td>
-                    <td class="px-3 py-2.5 text-center">
-                      <button
-                        (click)="toggleAlert(alert)"
-                        class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors"
-                        [class]="alert.is_enabled ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
-                      >
-                        <i class="pi text-[10px]" [class]="alert.is_enabled ? 'pi-check-circle' : 'pi-times-circle'"></i>
-                        {{ alert.is_enabled ? 'Enabled' : 'Disabled' }}
-                      </button>
-                    </td>
-                    <td class="px-3 py-2.5 text-right">
-                      <button
-                        (click)="deleteAlert(alert.id)"
-                        class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-danger"
-                        title="Delete alert"
-                      >
-                        <i class="pi pi-trash text-sm"></i>
-                      </button>
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
+          <div>
+            @for (alert of alerts(); track alert.id) {
+              <div
+                class="mb-2 flex items-center justify-between rounded-lg border-l-4 p-3"
+                [class]="alert.is_enabled ? 'border-l-amber-500 bg-amber-50' : 'border-l-transparent bg-gray-50'"
+              >
+                <div class="flex items-center gap-3">
+                  <span class="text-sm font-semibold text-gray-900">{{ alert.pair }}</span>
+                  <span
+                    class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                    [class]="alert.direction === 'above' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'"
+                  >
+                    <i class="pi mr-1 text-[10px]" [class]="alert.direction === 'above' ? 'pi-arrow-up' : 'pi-arrow-down'"></i>
+                    {{ alert.direction }}
+                  </span>
+                  <span class="text-sm font-semibold text-gray-700">{{ alert.threshold_rate | number: '1.2-2' }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    (click)="toggleAlert(alert)"
+                    class="inline-flex min-h-[44px] items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors"
+                    [class]="alert.is_enabled ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
+                  >
+                    <i class="pi text-[10px]" [class]="alert.is_enabled ? 'pi-check-circle' : 'pi-times-circle'"></i>
+                    {{ alert.is_enabled ? 'Enabled' : 'Disabled' }}
+                  </button>
+                  <button
+                    (click)="deleteAlert(alert.id)"
+                    class="min-h-[44px] rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                    title="Delete alert"
+                  >
+                    <i class="pi pi-trash text-sm"></i>
+                  </button>
+                </div>
+              </div>
+            }
           </div>
         } @else {
-          <p class="py-4 text-center text-sm text-muted">
+          <p class="py-4 text-center text-sm text-gray-500">
             <i class="pi pi-bell-slash mr-1"></i> No alerts configured
           </p>
         }
