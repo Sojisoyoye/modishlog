@@ -146,16 +146,32 @@ import {
             </div>
             <h3 class="text-base font-semibold text-text">Historical Rates (90 days)</h3>
           </div>
-          @if (historyRates().length > 0) {
+          <div class="flex items-center gap-2">
             <button
-              (click)="exportHistoryCsv()"
-              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              (click)="loadHistoricalRates()"
+              [disabled]="backfilling()"
+              title="Pull 90 days of NGN/USD from exchange-api.pages.dev (free)"
+              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text disabled:opacity-50"
             >
-              <i class="pi pi-download text-xs"></i> Export CSV
+              <i class="pi text-xs" [class]="backfilling() ? 'pi-spinner pi-spin' : 'pi-cloud-download'"></i>
+              {{ backfilling() ? 'Fetching…' : 'Load History' }}
             </button>
-          }
+            @if (historyRates().length > 0) {
+              <button
+                (click)="exportHistoryCsv()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              >
+                <i class="pi pi-download text-xs"></i> Export CSV
+              </button>
+            }
+          </div>
         </div>
-        @if (historyChartData()) {
+        @if (backfilling()) {
+          <div class="flex h-[300px] flex-col items-center justify-center gap-3">
+            <i class="pi pi-spinner pi-spin text-2xl text-primary"></i>
+            <p class="text-sm text-muted">Fetching 90 days of NGN/USD rates from exchange-api.pages.dev…</p>
+          </div>
+        } @else if (historyChartData()) {
           <p-chart
             type="line"
             [data]="historyChartData()!"
@@ -163,8 +179,15 @@ import {
             height="300px"
           />
         } @else {
-          <div class="flex h-[300px] items-center justify-center">
-            <p class="text-muted"><i class="pi pi-spinner pi-spin mr-2"></i>Loading chart...</p>
+          <div class="flex h-[300px] flex-col items-center justify-center gap-3">
+            <i class="pi pi-chart-line text-2xl text-muted"></i>
+            <p class="text-sm text-muted">No rate history yet.</p>
+            <button
+              (click)="loadHistoricalRates()"
+              class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary/90"
+            >
+              <i class="pi pi-cloud-download text-xs"></i> Load 90-Day History
+            </button>
           </div>
         }
       </div>
@@ -427,6 +450,7 @@ export class FxPageComponent implements OnInit {
   alerts = signal<FXAlertRead[]>([]);
   forecastDays = signal(180);
   forecastGenerating = signal(false);
+  backfilling = signal(false);
   readonly forecastRangeOptions = [30, 90, 180];
 
   manualRate = 0;
@@ -571,6 +595,52 @@ export class FxPageComponent implements OnInit {
     });
   }
 
+  loadHistoricalRates(): void {
+    this.backfilling.set(true);
+    this.fxService.backfillFreeRates('USDNGN', 90).subscribe({
+      next: ({ records_inserted }) => {
+        this.backfilling.set(false);
+        this.messageService.add({
+          severity: 'success',
+          summary: 'History loaded',
+          detail: records_inserted > 0
+            ? `${records_inserted} days of NGN/USD rates added. Generating forecast…`
+            : 'Rate history is already up to date.',
+        });
+        // Reload the chart and auto-generate forecast with fresh data
+        this.fxService.getHistory(90).subscribe({
+          next: (rates) => {
+            this.historyRates.set(rates);
+            this.historyChartData.set({
+              labels: rates.map((r) => fmtChartDate(r.rate_date)),
+              datasets: [{
+                label: 'NGN/USD',
+                data: rates.map((r) => r.rate),
+                borderColor: '#1F4E79',
+                backgroundColor: 'rgba(31, 78, 121, 0.05)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+              }],
+            });
+          },
+        });
+        if (records_inserted > 0) {
+          this.refreshForecast();
+        }
+      },
+      error: () => {
+        this.backfilling.set(false);
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Failed',
+          detail: 'Could not fetch historical rates. Check your connection and try again.',
+        });
+      },
+    });
+  }
+
   addRate(): void {
     if (!this.manualRate || this.manualRate <= 0) return;
     this.fxService
@@ -592,6 +662,10 @@ export class FxPageComponent implements OnInit {
             summary: 'Added',
             detail: `${this.manualPair} rate recorded`,
           });
+          // If no forecast exists yet, try generating one now that we have fresh data
+          if (this.forecasts().length === 0 && this.manualPair === 'USDNGN') {
+            this.loadForecast(this.forecastDays());
+          }
         },
         error: () => {
           this.messageService.add({

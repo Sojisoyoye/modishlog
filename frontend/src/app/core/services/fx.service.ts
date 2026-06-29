@@ -185,6 +185,13 @@ export class FxService {
       );
   }
 
+  backfillFreeRates(pair = 'USDNGN', days = 90): Observable<{ pair: string; records_inserted: number }> {
+    return this.api.post<{ pair: string; records_inserted: number }>(
+      `/fx/rates/backfill-free?pair=${pair}&days=${days}`,
+      {},
+    );
+  }
+
   generateForecast(pair = 'USDNGN', horizonDays = 180): Observable<void> {
     return this.api
       .post<unknown>('/fx/forecast/generate', { pair, horizon_days: horizonDays, num_simulations: 10000 })

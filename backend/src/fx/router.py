@@ -50,6 +50,7 @@ from src.fx.schemas import (
 from src.fx.service import (
     get_live_usdngn_rate,
     backfill_historical_data,
+    backfill_from_exchange_api,
     calculate_volatility,
     create_alert,
     delete_alert,
@@ -231,6 +232,18 @@ async def backfill_endpoint(
         return {"pair": pair, "records_inserted": count}
     except ExternalRateSyncError as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+
+
+@router.post("/rates/backfill-free")
+async def backfill_free_endpoint(
+    pair: str = "USDNGN",
+    days: int = 90,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Backfill historical NGN/USD rates from exchange-api.pages.dev (free, no key needed)."""
+    count = await backfill_from_exchange_api(db, pair, days)
+    return {"pair": pair, "records_inserted": count}
 
 
 @router.get("/volatility/{pair}", response_model=VolatilityRead)
