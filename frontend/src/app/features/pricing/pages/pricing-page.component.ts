@@ -614,6 +614,22 @@ interface ElasticityEntry {
           <h3 class="text-base font-semibold text-text">Price-FX Sensitivity Calculator</h3>
         </div>
 
+        <div class="mb-3">
+          <label for="sens-product" class="mb-1.5 block text-xs font-medium text-muted">
+            Product <span class="font-normal">(optional — auto-fills FIFO cost)</span>
+          </label>
+          <select
+            id="sens-product"
+            [(ngModel)]="sensProductId"
+            class="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+          >
+            <option value="">None — enter cost manually</option>
+            @for (p of products(); track p.id) {
+              <option [value]="p.id">{{ p.name }}</option>
+            }
+          </select>
+        </div>
+
         <div class="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <label for="sens-selling-price" class="mb-1.5 block text-xs font-medium text-muted"
@@ -677,14 +693,6 @@ interface ElasticityEntry {
           >
             <i class="pi pi-play text-sm"></i> Calculate
           </button>
-          @if (sensResult()) {
-            <button
-              (click)="saveSensScenario()"
-              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
-            >
-              <i class="pi pi-save text-sm"></i> Save Scenario
-            </button>
-          }
         </div>
 
         @if (sensResult()) {
@@ -717,6 +725,23 @@ interface ElasticityEntry {
               </p>
             </div>
           </div>
+          <div class="mt-4 flex flex-wrap items-end gap-3">
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Scenario name</label>
+              <input
+                type="text"
+                [(ngModel)]="sensScenarioName"
+                placeholder="e.g. Q3 high-FX scenario"
+                class="w-52 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+              />
+            </div>
+            <button
+              (click)="saveSensScenario()"
+              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+            >
+              <i class="pi pi-save text-sm"></i> Save Scenario
+            </button>
+          </div>
         }
       </div>
 
@@ -732,10 +757,26 @@ interface ElasticityEntry {
           Compute the FX-adjusted minimum selling price needed to achieve a target margin.
         </p>
 
+        <div class="mb-3">
+          <label for="sugg-product" class="mb-1.5 block text-xs font-medium text-muted">
+            Product <span class="font-normal">(optional — auto-fills FIFO cost)</span>
+          </label>
+          <select
+            id="sugg-product"
+            [(ngModel)]="suggProductId"
+            class="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+          >
+            <option value="">None — enter cost manually</option>
+            @for (p of products(); track p.id) {
+              <option [value]="p.id">{{ p.name }}</option>
+            }
+          </select>
+        </div>
+
         <div class="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <label for="sugg-cost" class="mb-1.5 block text-xs font-medium text-muted"
-              >Unit Cost</label
+              >Unit Cost <span class="font-normal">(if no product)</span></label
             >
             <input
               id="sugg-cost"
@@ -792,7 +833,7 @@ interface ElasticityEntry {
 
         <button
           (click)="getSellingSuggestion()"
-          [disabled]="!suggUnitCost"
+          [disabled]="!suggUnitCost && !suggProductId"
           class="flex items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <i class="pi pi-lightbulb text-sm"></i> Get Suggestion
@@ -821,6 +862,14 @@ interface ElasticityEntry {
                 {{ suggResult()!.min_margin_pct | number: '1.1-1' }}%
               </p>
             </div>
+          </div>
+          <div class="mt-3">
+            <button
+              (click)="useSuggestionInCalc()"
+              class="flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+            >
+              <i class="pi pi-arrow-up text-xs"></i> Use this price in the Sensitivity Calculator above
+            </button>
           </div>
         }
       </div>
@@ -1391,13 +1440,16 @@ export class PricingPageComponent implements OnInit {
   elasticityCoeff = 0;
 
   // Sensitivity calculator
+  sensProductId = '';
   sensSellingPrice = 0;
   sensFxRate = 0;
   sensQuantity = 1;
   sensUnitCostUsd = 0;
+  sensScenarioName = '';
   sensResult = signal<SensitivityCalcResponse | null>(null);
 
   // Selling price suggestion
+  suggProductId = '';
   suggUnitCost = 0;
   suggCurrency = 'USD';
   suggFxRate = 0;
@@ -1651,6 +1703,7 @@ export class PricingPageComponent implements OnInit {
       fx_rate_override: this.sensFxRate,
       quantity: this.sensQuantity,
     };
+    if (this.sensProductId) body['product_id'] = this.sensProductId;
     if (this.sensUnitCostUsd) body['unit_cost_usd'] = this.sensUnitCostUsd;
     this.pricingService.sensitivityCalc(body as any).subscribe({
       next: (r) => this.sensResult.set(r),
@@ -1666,32 +1719,34 @@ export class PricingPageComponent implements OnInit {
   saveSensScenario(): void {
     const r = this.sensResult();
     if (!r) return;
-    const name = `Scenario ${new Date().toLocaleString()}`;
-    this.pricingService
-      .saveScenario({
-        name,
-        selling_price: this.sensSellingPrice,
-        fx_rate: this.sensFxRate,
-        quantity: this.sensQuantity,
-        results: r as unknown as Record<string, unknown>,
-      })
-      .subscribe({
-        next: () => {
-          this.messageService.add({ severity: 'success', summary: 'Saved', detail: name });
-          this.loadScenarios();
-        },
-        error: () =>
-          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Save failed' }),
-      });
+    const name = this.sensScenarioName.trim() || `Scenario ${new Date().toLocaleString()}`;
+    const payload: Record<string, unknown> = {
+      name,
+      selling_price: this.sensSellingPrice,
+      fx_rate: this.sensFxRate,
+      quantity: this.sensQuantity,
+      results: r as unknown as Record<string, unknown>,
+    };
+    if (this.sensProductId) payload['product_id'] = this.sensProductId;
+    this.pricingService.saveScenario(payload as any).subscribe({
+      next: () => {
+        this.sensScenarioName = '';
+        this.messageService.add({ severity: 'success', summary: 'Saved', detail: name });
+        this.loadScenarios();
+      },
+      error: () =>
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Save failed' }),
+    });
   }
 
   getSellingSuggestion(): void {
-    if (!this.suggUnitCost) return;
+    if (!this.suggUnitCost && !this.suggProductId) return;
     const body: Record<string, unknown> = {
-      unit_cost_override: this.suggUnitCost,
       currency: this.suggCurrency,
       min_margin_pct: this.suggMinMargin,
     };
+    if (this.suggProductId) body['product_id'] = this.suggProductId;
+    if (this.suggUnitCost) body['unit_cost_override'] = this.suggUnitCost;
     if (this.suggFxRate) body['fx_rate_override'] = this.suggFxRate;
     this.pricingService.getSellingPriceSuggestion(body as any).subscribe({
       next: (r) => this.suggResult.set(r),
@@ -1701,6 +1756,18 @@ export class PricingPageComponent implements OnInit {
           summary: 'Error',
           detail: 'Could not compute selling price suggestion.',
         }),
+    });
+  }
+
+  useSuggestionInCalc(): void {
+    const r = this.suggResult();
+    if (!r) return;
+    this.sensSellingPrice = r.min_selling_price;
+    if (r.fx_rate) this.sensFxRate = r.fx_rate;
+    this.messageService.add({
+      severity: 'info',
+      summary: 'Pre-filled',
+      detail: `₦${r.min_selling_price.toFixed(0)} copied to the Sensitivity Calculator above.`,
     });
   }
 
