@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe, CurrencyPipe, DatePipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -101,12 +101,41 @@ interface ElasticityEntry {
 
       <!-- Per-Product Margins -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div class="mb-5 flex items-center gap-2">
+        <div class="mb-4 flex items-center gap-2">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
             <i class="pi pi-list text-sm text-secondary"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Per-Product Margins</h3>
         </div>
+
+        <!-- Toolbar: page-size + search -->
+        <div class="mb-3 flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-2 text-sm text-muted">
+            Show
+            <select
+              [ngModel]="marginPageSize()"
+              (ngModelChange)="onMarginPageSizeChange(+$event)"
+              class="rounded-lg border border-gray-300 py-1 pl-3 pr-7 text-sm focus:border-primary focus:outline-none"
+            >
+              <option [value]="10">10</option>
+              <option [value]="20">20</option>
+              <option [value]="50">50</option>
+            </select>
+            entries
+          </div>
+
+          <div class="relative ml-auto">
+            <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
+            <input
+              type="text"
+              placeholder="Search product..."
+              [ngModel]="marginSearch()"
+              (ngModelChange)="onMarginSearch($event)"
+              class="w-48 rounded-lg border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:border-primary focus:outline-none"
+            />
+          </div>
+        </div>
+
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
             <caption class="sr-only">Per-product margin analysis</caption>
@@ -131,7 +160,7 @@ interface ElasticityEntry {
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-              @for (p of marginData().products; track p.product_id) {
+              @for (p of marginPagedProducts(); track p.product_id) {
                 <tr
                   [class]="
                     p.gap >= 0
@@ -163,13 +192,58 @@ interface ElasticityEntry {
                 <tr>
                   <td colspan="6" class="px-4 py-10 text-center text-muted">
                     <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
-                    No pricing data available
+                    @if (marginSearch()) {
+                      No products match "{{ marginSearch() }}"
+                    } @else {
+                      No pricing data available
+                    }
                   </td>
                 </tr>
               }
             </tbody>
           </table>
         </div>
+
+        <!-- Pagination bar -->
+        @if (marginTotal() > 0) {
+          <div class="mt-4 flex items-center justify-between text-sm text-muted">
+            <span
+              >Showing {{ marginShowingFrom() }}–{{ marginShowingTo() }} of {{ marginTotal() }}
+              products</span
+            >
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                (click)="marginGoToPage(marginPage() - 1)"
+                [disabled]="marginPage() === 1"
+                class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+              >
+                <i class="pi pi-chevron-left text-xs"></i>
+              </button>
+              @for (n of marginPageNumbers(); track n) {
+                <button
+                  type="button"
+                  (click)="marginGoToPage(n)"
+                  [class]="
+                    n === marginPage()
+                      ? 'rounded bg-primary px-2.5 py-1 text-xs font-semibold text-white'
+                      : 'rounded px-2.5 py-1 text-xs hover:bg-gray-100'
+                  "
+                >
+                  {{ n }}
+                </button>
+              }
+              <button
+                type="button"
+                (click)="marginGoToPage(marginPage() + 1)"
+                [disabled]="marginPage() === marginTotalPages()"
+                class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+              >
+                <i class="pi pi-chevron-right text-xs"></i>
+              </button>
+            </div>
+          </div>
+        }
       </div>
 
       <!-- Pricing Recommendations -->
@@ -898,6 +972,36 @@ export class PricingPageComponent implements OnInit {
     gap: -35,
     products: [],
   });
+
+  // Per-product margins: search + pagination (client-side)
+  marginSearch = signal('');
+  marginPage = signal(1);
+  marginPageSize = signal(20);
+
+  private marginFilteredProducts = computed(() => {
+    const q = this.marginSearch().toLowerCase().trim();
+    const all = this.marginData().products;
+    return q ? all.filter((p) => p.product_name.toLowerCase().includes(q)) : all;
+  });
+
+  marginTotal = computed(() => this.marginFilteredProducts().length);
+  marginTotalPages = computed(() => Math.max(1, Math.ceil(this.marginTotal() / this.marginPageSize())));
+  marginShowingFrom = computed(() => this.marginTotal() === 0 ? 0 : (this.marginPage() - 1) * this.marginPageSize() + 1);
+  marginShowingTo = computed(() => Math.min(this.marginPage() * this.marginPageSize(), this.marginTotal()));
+  marginPagedProducts = computed(() => {
+    const start = (this.marginPage() - 1) * this.marginPageSize();
+    return this.marginFilteredProducts().slice(start, start + this.marginPageSize());
+  });
+  marginPageNumbers = computed(() => {
+    const total = this.marginTotalPages();
+    const current = this.marginPage();
+    const start = Math.max(1, current - 2);
+    const end = Math.min(total, start + 4);
+    const pages: number[] = [];
+    for (let i = start; i <= end; i++) pages.push(i);
+    return pages;
+  });
+
   pricingRecs = signal<Recommendation[]>([]);
   distributionChart = signal<unknown>(null);
 
@@ -1296,5 +1400,20 @@ export class PricingPageComponent implements OnInit {
     this.pricingService.getScenarios().subscribe({
       next: (s) => this.scenarios.set(s),
     });
+  }
+
+  onMarginSearch(value: string): void {
+    this.marginSearch.set(value);
+    this.marginPage.set(1);
+  }
+
+  onMarginPageSizeChange(size: number): void {
+    this.marginPageSize.set(size);
+    this.marginPage.set(1);
+  }
+
+  marginGoToPage(page: number): void {
+    const p = Math.max(1, Math.min(page, this.marginTotalPages()));
+    this.marginPage.set(p);
   }
 }
