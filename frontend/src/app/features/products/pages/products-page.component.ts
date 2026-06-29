@@ -66,7 +66,7 @@ interface ColEntry {
           (click)="openEditFromMenu()"
           class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-gray-50"
         >
-          <i class="pi pi-pencil text-xs text-secondary"></i> Edit
+          <i class="pi pi-pencil text-xs text-emerald-700"></i> Edit
         </button>
         <button
           role="menuitem"
@@ -112,7 +112,7 @@ interface ColEntry {
             <label class="mb-1 block text-xs font-medium text-muted">Target Margin: {{ (suggestionMargin() * 100 | number: '1.0-0') }}%</label>
             <input type="range" [(ngModel)]="suggestionMarginPct" min="20" max="70" step="1"
               (ngModelChange)="suggestionMargin.set($event / 100)"
-              class="w-full accent-primary" />
+              class="w-full accent-emerald-600" />
             <div class="mt-1 flex justify-between text-xs text-muted"><span>20%</span><span>70%</span></div>
           </div>
           <button
@@ -156,7 +156,7 @@ interface ColEntry {
         </div>
         <button
           (click)="activeTab.set('add')"
-          class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+          class="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
         >
           <i class="pi pi-plus text-sm"></i> New Product
         </button>
@@ -222,7 +222,7 @@ interface ColEntry {
 
       <!-- Filter panel -->
       @if (showFilters()) {
-        <div class="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div class="mb-4 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
           <div class="flex flex-wrap gap-4">
             <div class="min-w-[160px] flex-1">
               <label for="products-filter-category" class="mb-1 block text-xs font-medium text-muted">Category</label>
@@ -348,7 +348,7 @@ interface ColEntry {
 
       <!-- LIST VIEW -->
       @if (viewMode() === 'list') {
-        <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div class="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
           <table class="min-w-full text-sm">
             <caption class="sr-only">Product catalog</caption>
             <thead>
@@ -449,7 +449,7 @@ interface ColEntry {
                     <td class="px-4 py-3 text-right text-text">{{ product.unit_cost | number: '1.2-2' }}</td>
                   }
                   @if (visibleCols().selling_price) {
-                    <td class="px-4 py-3 text-right font-semibold text-secondary">{{ product.selling_price | number: '1.2-2' }}</td>
+                    <td class="px-4 py-3 text-right font-semibold text-emerald-700">{{ product.selling_price | number: '1.2-2' }}</td>
                   }
                   @if (visibleCols().stock) {
                     <td class="px-4 py-3 text-right">
@@ -533,7 +533,7 @@ interface ColEntry {
       @if (viewMode() === 'grid') {
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           @for (product of pagedProducts(); track product.id) {
-            <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:shadow-md">
+            <div class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-all hover:shadow-md">
               <div class="mb-3 flex h-32 items-center justify-center overflow-hidden rounded-lg bg-gray-100">
                 @if (product.image_url) {
                   <img [src]="'http://localhost:8000' + product.image_url" [alt]="product.name" class="h-full w-full object-cover" />
@@ -544,7 +544,7 @@ interface ColEntry {
               <div class="space-y-1">
                 <div class="flex items-start justify-between gap-2">
                   <p class="font-semibold text-text">{{ product.name }}</p>
-                  <span [class]="product.is_active ? 'rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700' : 'rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500'">
+                  <span [class]="product.is_active ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700' : 'rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500'">
                     {{ product.is_active ? 'Active' : 'Inactive' }}
                   </span>
                 </div>
@@ -559,13 +559,13 @@ interface ColEntry {
                   </div>
                   <div>
                     <p class="text-muted">Price</p>
-                    <p class="font-semibold text-secondary">{{ product.selling_price | number: '1.2-2' }}</p>
+                    <p class="font-semibold text-emerald-700">{{ product.selling_price | number: '1.2-2' }}</p>
                   </div>
                 </div>
                 <p class="text-xs text-muted">Stock: <span [class]="stockStatus(product.id) === 'out' ? 'font-semibold text-red-600' : stockStatus(product.id) === 'low' ? 'font-semibold text-amber-600' : 'font-semibold text-text'">{{ stockMap().get(product.id) ?? 0 }}</span></p>
               </div>
               <div class="mt-3 flex gap-2 border-t border-gray-100 pt-3">
-                <button (click)="openEdit(product)" class="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-secondary transition-colors hover:bg-blue-50">
+                <button (click)="openEdit(product)" class="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-blue-50">
                   <i class="pi pi-pencil mr-1 text-[10px]"></i> Edit
                 </button>
                 <button (click)="confirmDelete(product)" class="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-50">
@@ -597,7 +597,7 @@ interface ColEntry {
 
     <!-- ── STOCK REPORT TAB ────────────────────────────────────────────────── -->
     @if (activeTab() === 'stock-report') {
-      <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div class="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
         <table class="min-w-full text-sm">
           <caption class="sr-only">Stock report</caption>
           <thead>
@@ -617,10 +617,10 @@ interface ColEntry {
                 <td class="px-4 py-3 font-medium text-text">{{ product.name }}</td>
                 <td class="px-4 py-3 font-mono text-xs text-muted">{{ product.sku }}</td>
                 <td class="px-4 py-3 text-right text-text">{{ product.unit_cost | number: '1.2-2' }}</td>
-                <td class="px-4 py-3 text-right font-semibold text-secondary">{{ product.selling_price | number: '1.2-2' }}</td>
+                <td class="px-4 py-3 text-right font-semibold text-emerald-700">{{ product.selling_price | number: '1.2-2' }}</td>
                 <td class="px-4 py-3 text-right text-text">{{ stockMap().get(product.id) ?? 0 }}</td>
                 <td class="px-4 py-3 text-right">
-                  <span [class]="margin(product) >= 30 ? 'font-semibold text-green-600' : margin(product) >= 15 ? 'font-semibold text-amber-600' : 'font-semibold text-red-500'">
+                  <span [class]="margin(product) >= 30 ? 'font-semibold text-emerald-700' : margin(product) >= 15 ? 'font-semibold text-amber-600' : 'font-semibold text-red-500'">
                     {{ margin(product) | number: '1.0-1' }}%
                   </span>
                 </td>
@@ -630,7 +630,7 @@ interface ColEntry {
                   } @else if (stockStatus(product.id) === 'low') {
                     <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">Low Stock</span>
                   } @else {
-                    <span class="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">In Stock</span>
+                    <span class="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">In Stock</span>
                   }
                 </td>
               </tr>
@@ -646,10 +646,10 @@ interface ColEntry {
 
     <!-- ── ADD PRODUCT TAB ────────────────────────────────────────────────── -->
     @if (activeTab() === 'add') {
-      <div id="add-product-form" class="mx-auto max-w-lg rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div id="add-product-form" class="mx-auto max-w-lg rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-            <i class="pi pi-plus text-sm text-secondary"></i>
+            <i class="pi pi-plus text-sm text-emerald-700"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Add New Product</h3>
         </div>
@@ -792,7 +792,7 @@ interface ColEntry {
           @if (addMinSellingPrice !== null) {
             <p
               data-testid="add-min-price-hint"
-              class="text-xs font-medium text-blue-600"
+              class="text-xs font-medium text-emerald-600"
             >
               Min. suggested price ({{ addMinMarginPct() }}% margin): {{ addMinSellingPrice | number: '1.0-2' }} NGN
             </p>
@@ -801,7 +801,7 @@ interface ColEntry {
             <p
               data-testid="add-margin"
               class="text-xs font-medium"
-              [class.text-green-600]="addFormMargin >= 0"
+              [class.text-emerald-700]="addFormMargin >= 0"
               [class.text-red-500]="addFormMargin < 0"
             >
               Margin: {{ addFormMargin | number: '1.1-1' }}%
@@ -833,7 +833,7 @@ interface ColEntry {
               type="file"
               accept="image/*"
               (change)="onAddFileChange($event)"
-              class="w-full text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary"
+              class="w-full text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary"
             />
           </div>
 
@@ -848,7 +848,7 @@ interface ColEntry {
             <button
               (click)="submitAdd()"
               [disabled]="savingAdd()"
-              class="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+              class="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
             >
               @if (savingAdd()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
@@ -864,10 +864,10 @@ interface ColEntry {
     <!-- ── BULK UPLOAD TAB ────────────────────────────────────────────────── -->
     @if (activeTab() === 'upload') {
       <div class="mx-auto max-w-2xl">
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
           <div class="mb-5 flex items-center gap-2">
             <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-              <i class="pi pi-upload text-sm text-secondary"></i>
+              <i class="pi pi-upload text-sm text-emerald-700"></i>
             </div>
             <h3 class="text-base font-semibold text-text">Bulk Upload Products</h3>
           </div>
@@ -875,9 +875,9 @@ interface ColEntry {
           <div class="mb-6 rounded-lg border border-blue-100 bg-blue-50/50 p-4">
             <p class="mb-2 text-sm font-medium text-text">Required columns</p>
             <div class="flex flex-wrap gap-2">
-              <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">name</span>
-              <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">unit_cost</span>
-              <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">selling_price</span>
+              <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">name</span>
+              <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">unit_cost</span>
+              <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">selling_price</span>
             </div>
             <p class="mt-2 text-sm font-medium text-text">Optional columns</p>
             <div class="flex flex-wrap gap-2">
@@ -890,7 +890,7 @@ interface ColEntry {
 
           <button
             (click)="downloadBulkTemplate()"
-            class="mb-5 flex items-center gap-2 text-sm font-medium text-secondary transition-colors hover:text-primary hover:underline"
+            class="mb-5 flex items-center gap-2 text-sm font-medium text-emerald-700 transition-colors hover:text-primary hover:underline"
           >
             <i class="pi pi-download text-xs"></i> Download CSV template
           </button>
@@ -913,14 +913,14 @@ interface ColEntry {
               type="file"
               accept=".csv,.xlsx,.xls"
               (change)="onBulkFileChange($event)"
-              class="mt-3 text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary"
+              class="mt-3 text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary"
             />
           </div>
 
           <button
             (click)="submitBulkUpload()"
             [disabled]="!bulkFile || uploadingBulk()"
-            class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+            class="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
           >
             @if (uploadingBulk()) {
               <i class="pi pi-spinner pi-spin text-sm"></i> Uploading...
@@ -931,7 +931,7 @@ interface ColEntry {
 
           @if (bulkResult()) {
             <div class="mt-5 rounded-lg border p-4" [class]="bulkResult()!.failed ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'">
-              <p class="text-sm font-semibold" [class]="bulkResult()!.failed ? 'text-amber-700' : 'text-green-700'">
+              <p class="text-sm font-semibold" [class]="bulkResult()!.failed ? 'text-amber-700' : 'text-emerald-700'">
                 {{ bulkResult()!.successful }} of {{ bulkResult()!.total_rows }} products created
                 @if (bulkResult()!.failed) {
                   &mdash; {{ bulkResult()!.failed }} failed
@@ -953,7 +953,7 @@ interface ColEntry {
     <!-- ── CATEGORIES TAB ──────────────────────────────────────────────────── -->
     @if (activeTab() === 'categories') {
       <div class="space-y-6">
-        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <h3 class="mb-4 text-sm font-semibold text-text">Add New Category</h3>
           <div class="flex flex-wrap gap-3">
             <input
@@ -995,7 +995,7 @@ interface ColEntry {
             <button
               (click)="submitCreateCategory()"
               [disabled]="savingCategory() || !newCategoryName.trim()"
-              class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+              class="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
             >
               @if (savingCategory()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i>
@@ -1008,7 +1008,7 @@ interface ColEntry {
         </div>
 
 
-        <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div class="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
           <table class="min-w-full text-sm">
             <thead>
               <tr class="border-b border-gray-200 bg-gray-50">
@@ -1126,7 +1126,7 @@ interface ColEntry {
           <button
             (click)="saveEditCategory()"
             [disabled]="!categoryEditForm.name.trim()"
-            class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            class="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <i class="pi pi-check text-sm"></i> Save
           </button>
@@ -1234,7 +1234,7 @@ interface ColEntry {
         @if (editMinSellingPrice !== null) {
           <p
             data-testid="edit-min-price-hint"
-            class="text-xs font-medium text-blue-600"
+            class="text-xs font-medium text-emerald-600"
           >
             Min. suggested price ({{ editMinMarginPct() }}% margin): {{ editMinSellingPrice | number: '1.0-2' }} NGN
           </p>
@@ -1243,7 +1243,7 @@ interface ColEntry {
           <p
             data-testid="edit-margin"
             class="text-xs font-medium"
-            [class.text-green-600]="editFormMargin >= 0"
+            [class.text-emerald-700]="editFormMargin >= 0"
             [class.text-red-500]="editFormMargin < 0"
           >
             Margin: {{ editFormMargin | number: '1.1-1' }}%
@@ -1281,13 +1281,13 @@ interface ColEntry {
             type="file"
             accept="image/*"
             (change)="onEditFileChange($event)"
-            class="w-full text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary"
+            class="w-full text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary"
           />
         </div>
         <button
           (click)="submitEdit()"
           [disabled]="saving()"
-          class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+          class="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
         >
           @if (saving()) {
             <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
