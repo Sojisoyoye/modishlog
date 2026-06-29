@@ -61,12 +61,15 @@ async def _fetch_historical_rates(
 
 def _train_prophet_model(df: pd.DataFrame) -> Prophet:
     """Train Prophet model (CPU-intensive, should be run in thread pool)."""
+    # Only fit yearly seasonality if we have at least one full year of data;
+    # fitting it on <365 days causes wild extrapolation.
+    has_full_year = len(df) >= 365
     model = Prophet(
-        yearly_seasonality=True,
+        yearly_seasonality=has_full_year,
         weekly_seasonality=False,
         daily_seasonality=False,
-        seasonality_mode="multiplicative",
-        interval_width=0.95,
+        seasonality_mode="additive",  # additive is more stable than multiplicative with short history
+        interval_width=0.80,  # 80% interval is more meaningful than 95% for planning
     )
     model.fit(df)
     return model
@@ -119,8 +122,8 @@ def _monte_carlo_scenarios(
             {
                 "date": row["ds"],
                 "base_rate": round(float(np.percentile(simulated, 50)), 6),
-                "best_case_rate": round(float(np.percentile(simulated, 5)), 6),
-                "worst_case_rate": round(float(np.percentile(simulated, 95)), 6),
+                "best_case_rate": round(float(np.percentile(simulated, 10)), 6),
+                "worst_case_rate": round(float(np.percentile(simulated, 90)), 6),
                 "prophet_lower": round(float(row["yhat_lower"]), 6),
                 "prophet_upper": round(float(row["yhat_upper"]), 6),
             }
