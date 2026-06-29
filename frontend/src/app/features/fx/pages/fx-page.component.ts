@@ -825,6 +825,7 @@ export class FxPageComponent implements OnInit {
       next: (fc) => {
         this.forecastGenerating.set(false);
         this.forecasts.set(fc);
+        this.forecastPage.set(0);
         this.forecastChartData.set(this.buildForecastDatasets(fc, pair));
         this.messageService.add({ severity: 'success', summary: 'Forecast updated', detail: 'New forecast generated.' });
       },

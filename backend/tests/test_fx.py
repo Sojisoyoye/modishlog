@@ -761,6 +761,76 @@ class TestFXEndpoints:
         assert data["pair"] == "USDNGN"
         assert data["forecasts"] == []
 
+    def test_sync_rates_requires_auth(self):
+        db = _mock_db()
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post("/api/v1/fx/rates/sync")
+        assert resp.status_code == 401
+
+    def test_sync_rates_success(self):
+        from src.fx.exceptions import ExternalRateSyncError
+        self._override_auth()
+        rate = _make_fx_rate()
+        db = _mock_db_with_execute(scalars_result=[rate])
+        self._override_db(db)
+        with patch("src.fx.router.sync_external_rates", new=AsyncMock(return_value=[rate])):
+            with TestClient(self.app) as client:
+                resp = client.post("/api/v1/fx/rates/sync")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    def test_sync_rates_502_on_provider_error(self):
+        from src.fx.exceptions import ExternalRateSyncError
+        self._override_auth()
+        db = _mock_db()
+        self._override_db(db)
+        with patch("src.fx.router.sync_external_rates", new=AsyncMock(side_effect=ExternalRateSyncError("test-provider", 503, "down"))):
+            with TestClient(self.app) as client:
+                resp = client.post("/api/v1/fx/rates/sync")
+        assert resp.status_code == 502
+
+    def test_backfill_requires_auth(self):
+        db = _mock_db()
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/fx/rates/backfill",
+                params={"pair": "USDNGN", "date_from": "2026-01-01", "date_to": "2026-03-31"},
+            )
+        assert resp.status_code == 401
+
+    def test_backfill_success(self):
+        self._override_auth()
+        db = _mock_db()
+        self._override_db(db)
+        with patch("src.fx.router.backfill_historical_data", new=AsyncMock(return_value=30)):
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/fx/rates/backfill",
+                    params={"pair": "USDNGN", "date_from": "2026-01-01", "date_to": "2026-03-31"},
+                )
+        assert resp.status_code == 200
+        assert resp.json()["records_inserted"] == 30
+
+    def test_backfill_free_requires_auth(self):
+        db = _mock_db()
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post("/api/v1/fx/rates/backfill-free")
+        assert resp.status_code == 401
+
+    def test_backfill_free_success(self):
+        self._override_auth()
+        db = _mock_db()
+        self._override_db(db)
+        with patch("src.fx.router.backfill_from_exchange_api", new=AsyncMock(return_value=90)):
+            with TestClient(self.app) as client:
+                resp = client.post("/api/v1/fx/rates/backfill-free", params={"pair": "USDNGN", "days": 90})
+        assert resp.status_code == 200
+        assert resp.json()["records_inserted"] == 90
+        assert resp.json()["pair"] == "USDNGN"
+
 
 # ---------------------------------------------------------------------------
 # Forecast service tests

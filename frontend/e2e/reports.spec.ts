@@ -37,6 +37,28 @@ test('navigates to purchase & sale report page', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Purchase & Sale Report' })).toBeVisible();
 });
 
+test.describe('Report breadcrumbs', () => {
+  test('profit/loss page shows breadcrumb and clicking it returns to /reports', async ({ page }) => {
+    await page.goto('/reports/profit-loss');
+    const crumb = page.getByRole('link', { name: /Reports/ });
+    await expect(crumb).toBeVisible();
+    await crumb.click();
+    await expect(page).toHaveURL('/reports');
+  });
+
+  test('stock report page shows breadcrumb', async ({ page }) => {
+    await page.goto('/reports/stock');
+    await expect(page.getByRole('link', { name: /Reports/ })).toBeVisible();
+    await expect(page.getByText('Stock Report').nth(1)).toBeVisible();
+  });
+
+  test('purchase & sale page shows breadcrumb', async ({ page }) => {
+    await page.goto('/reports/purchase-sale');
+    await expect(page.getByRole('link', { name: /Reports/ })).toBeVisible();
+    await expect(page.getByText('Purchase & Sale').nth(1)).toBeVisible();
+  });
+});
+
 test('profit/loss page has date filters and generate button', async ({ page }) => {
   await page.goto('/reports/profit-loss');
   await expect(page.locator('input[type="date"]').first()).toBeVisible();

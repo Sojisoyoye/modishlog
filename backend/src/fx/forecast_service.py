@@ -18,7 +18,6 @@ from src.fx.schemas import ForecastAccuracy
 logger = structlog.get_logger()
 
 MIN_TRAINING_DAYS = 30
-FORECAST_STALE_DAYS = 7
 MODEL_VERSION = "gbm-v1"
 
 # Max annualised drift allowed in either direction (~20% pa).
@@ -139,33 +138,23 @@ async def train_and_forecast(
 ) -> list[FXForecast]:
     """Generate GBM Monte Carlo forecasts and store results."""
     df = await _fetch_historical_rates(db, pair, days=365)
-    log_returns = np.diff(np.log(df["y"].values))
-    recent = log_returns[-60:] if len(log_returns) > 60 else log_returns
-    daily_drift = float(np.clip(np.mean(recent), -MAX_DAILY_DRIFT, MAX_DAILY_DRIFT))
-    daily_vol = float(np.std(recent))
 
-    await logger.ainfo(
-        "fx_forecast_training_started",
-        pair=pair,
-        data_points=len(df),
-        daily_drift_pct=round(daily_drift * 100, 4),
-        daily_vol_pct=round(daily_vol * 100, 4),
-    )
+    await logger.ainfo("fx_forecast_training_started", pair=pair, data_points=len(df))
 
-    await db.execute(delete(FXForecast).where(FXForecast.pair == pair))
-
+    # Compute first; only delete stale rows after a successful run so a GBM
+    # failure never leaves the pair with zero forecasts.
     scenarios = await asyncio.to_thread(
         _gbm_forecast, df, horizon_days, num_simulations
     )
+
+    await db.execute(delete(FXForecast).where(FXForecast.pair == pair))
 
     now = datetime.now(timezone.utc)
     forecasts: list[FXForecast] = []
     for scenario in scenarios:
         forecast = FXForecast(
             pair=pair,
-            forecast_date=scenario["date"].replace(tzinfo=timezone.utc)
-            if hasattr(scenario["date"], "replace")
-            else datetime.combine(scenario["date"], datetime.min.time(), tzinfo=timezone.utc),
+            forecast_date=scenario["date"].replace(tzinfo=timezone.utc),
             base_rate=Decimal(str(scenario["base_rate"])),
             best_case_rate=Decimal(str(scenario["best_case_rate"])),
             worst_case_rate=Decimal(str(scenario["worst_case_rate"])),
