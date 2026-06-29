@@ -6,11 +6,13 @@ import uuid
 from functools import lru_cache
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
-from src.settings.models import UserApiKey
+from src.settings.models import UserApiKey, UserPreferences
+from src.settings.schemas import FiscalYearRead
 
 
 @lru_cache(maxsize=1)
@@ -75,3 +77,53 @@ async def get_api_key_status(
         )
     )
     return result.scalar_one_or_none() is not None
+
+
+async def get_fiscal_year_start(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+) -> FiscalYearRead:
+    result = await db.execute(
+        select(UserPreferences).where(UserPreferences.user_id == user_id)
+    )
+    prefs = result.scalar_one_or_none()
+    if prefs is None:
+        return FiscalYearRead(fiscal_year_start_month=None, fiscal_year_start_day=None)
+    return FiscalYearRead(
+        fiscal_year_start_month=prefs.fiscal_year_start_month,
+        fiscal_year_start_day=prefs.fiscal_year_start_day,
+    )
+
+
+async def update_fiscal_year_start(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    month: int | None,
+    day: int | None,
+) -> FiscalYearRead:
+    # Use INSERT … ON CONFLICT DO UPDATE to avoid a SELECT-then-INSERT race when
+    # two concurrent requests arrive for a user with no existing preferences row.
+    stmt = (
+        pg_insert(UserPreferences)
+        .values(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            fiscal_year_start_month=month,
+            fiscal_year_start_day=day,
+        )
+        .on_conflict_do_update(
+            index_elements=["user_id"],
+            set_={
+                "fiscal_year_start_month": month,
+                "fiscal_year_start_day": day,
+                # ORM onupdate hooks are bypassed by Core statements — bump explicitly.
+                "updated_at": func.now(),
+            },
+        )
+    )
+    await db.execute(stmt)
+    await db.flush()
+    return FiscalYearRead(
+        fiscal_year_start_month=month,
+        fiscal_year_start_day=day,
+    )
