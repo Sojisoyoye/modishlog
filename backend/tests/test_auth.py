@@ -423,11 +423,13 @@ class TestAuthEndpoints:
         user = _make_user()
         db = _mock_db(user=user)
         self._override_db(db)
-        with TestClient(self.app) as client:
-            resp = client.post(
-                "/api/v1/auth/login",
-                json={"email": user.email, "password": "WrongPassword!1"},
-            )
+        factory_mock, _ = _mock_lockout_factory()
+        with patch("src.auth.service.async_session_factory", factory_mock):
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/auth/login",
+                    json={"email": user.email, "password": "WrongPassword!1"},
+                )
         assert resp.status_code == 401
 
     def test_login_unknown_user_401(self):
