@@ -410,6 +410,9 @@ interface ElasticityEntry {
               } @empty {
                 <p class="text-sm text-muted">None</p>
               }
+              @if (subsidyAboveMoreCount() > 0) {
+                <p class="mt-1 text-xs text-muted">and {{ subsidyAboveMoreCount() }} more</p>
+              }
             </div>
             <div>
               <h4 class="mb-2 text-xs font-semibold uppercase text-muted">
@@ -424,6 +427,9 @@ interface ElasticityEntry {
                 </div>
               } @empty {
                 <p class="text-sm text-muted">None</p>
+              }
+              @if (subsidyBelowMoreCount() > 0) {
+                <p class="mt-1 text-xs text-muted">and {{ subsidyBelowMoreCount() }} more</p>
               }
             </div>
           </div>
@@ -1128,19 +1134,25 @@ export class PricingPageComponent implements OnInit {
     return pages;
   });
 
-  subsidyFilteredAbove = computed(() => {
+  private subsidyAllAbove = computed(() => {
     const q = this.subsidySearch().toLowerCase().trim();
     return q
       ? this.aboveTarget().filter((i) => i.product_name.toLowerCase().includes(q))
       : this.aboveTarget();
   });
 
-  subsidyFilteredBelow = computed(() => {
+  private subsidyAllBelow = computed(() => {
     const q = this.subsidySearch().toLowerCase().trim();
     return q
       ? this.belowTarget().filter((i) => i.product_name.toLowerCase().includes(q))
       : this.belowTarget();
   });
+
+  subsidyFilteredAbove = computed(() => this.subsidyAllAbove().slice(0, 10));
+  subsidyAboveMoreCount = computed(() => Math.max(0, this.subsidyAllAbove().length - 10));
+
+  subsidyFilteredBelow = computed(() => this.subsidyAllBelow().slice(0, 10));
+  subsidyBelowMoreCount = computed(() => Math.max(0, this.subsidyAllBelow().length - 10));
 
   // Task 31: Demand elasticity
   products = signal<Product[]>([]);
