@@ -1329,8 +1329,17 @@ export class PricingPageComponent implements OnInit {
         this.buildCrossSubsidy(d);
       },
     });
-    this.recsService.getAll({ category: 'PRICING' }).subscribe({
-      next: (r) => this.pricingRecs.set(r.items.filter((i) => i.status === 'PENDING')),
+    this.recsGenerating.set(true);
+    this.recsService.generate().subscribe({
+      next: () => {
+        this.recsService.getAll({ category: 'PRICING' }).subscribe({
+          next: (r) => {
+            this.pricingRecs.set(r.items.filter((i) => i.status === 'pending'));
+            this.recsGenerating.set(false);
+          },
+        });
+      },
+      error: () => this.recsGenerating.set(false),
     });
     this.productsService.getAll().subscribe({
       next: (p) => this.products.set(p),
@@ -1374,7 +1383,7 @@ export class PricingPageComponent implements OnInit {
       next: () => {
         this.recsService.getAll({ category: 'PRICING' }).subscribe({
           next: (r) => {
-            this.pricingRecs.set(r.items.filter((i) => i.status === 'PENDING'));
+            this.pricingRecs.set(r.items.filter((i) => i.status === 'pending'));
             this.recsGenerating.set(false);
             this.messageService.add({
               severity: 'success',
