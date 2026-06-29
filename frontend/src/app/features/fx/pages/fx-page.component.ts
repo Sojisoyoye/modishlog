@@ -5,6 +5,16 @@ function fmtChartDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
+
+const SOURCE_LABELS: Record<string, string> = {
+  api_provider: 'Exchange API',
+  manual: 'Manual',
+  parallel_market: 'Parallel Market',
+  cbn_official: 'CBN Official',
+};
+function fmtSource(s: string): string {
+  return SOURCE_LABELS[s?.toLowerCase()] ?? s;
+}
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe, DatePipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -43,13 +53,13 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
       </div>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-4">
-        <!-- NGN/USD Rate Card -->
+        <!-- USD/NGN Rate Card -->
         <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
           <div class="mb-3 flex items-center gap-2">
             <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
               <i class="pi pi-dollar text-base text-primary"></i>
             </div>
-            <p class="text-sm font-semibold text-muted">NGN / USD</p>
+            <p class="text-sm font-semibold text-muted">USD / NGN</p>
           </div>
           @if (latestRate()) {
             <p class="text-3xl font-bold text-text">
@@ -58,20 +68,20 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
             <p class="mt-1.5 text-xs text-muted">
               <i class="pi pi-calendar mr-1 text-[10px]"></i>
               {{ latestRate()!.rate_date | date: 'mediumDate' }}
-              <span class="mx-1">&middot;</span>{{ latestRate()!.source }}
+              <span class="mx-1">&middot;</span>{{ fmtSource(latestRate()!.source) }}
             </p>
           } @else {
             <div class="mt-2 h-9 w-28 skeleton rounded"></div>
           }
         </div>
 
-        <!-- NGN/EUR Rate Card -->
+        <!-- EUR/NGN Rate Card -->
         <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
           <div class="mb-3 flex items-center gap-2">
             <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-secondary/10">
               <i class="pi pi-euro text-base text-secondary"></i>
             </div>
-            <p class="text-sm font-semibold text-muted">NGN / EUR</p>
+            <p class="text-sm font-semibold text-muted">EUR / NGN</p>
           </div>
           @if (latestEurNgn()) {
             <p class="text-3xl font-bold text-text">
@@ -80,7 +90,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
             <p class="mt-1.5 text-xs text-muted">
               <i class="pi pi-calendar mr-1 text-[10px]"></i>
               {{ latestEurNgn()!.rate_date | date: 'mediumDate' }}
-              <span class="mx-1">&middot;</span>{{ latestEurNgn()!.source }}
+              <span class="mx-1">&middot;</span>{{ fmtSource(latestEurNgn()!.source) }}
             </p>
           } @else if (latestRate() && latestEurUsd()) {
             <p class="text-3xl font-bold text-text">
@@ -457,13 +467,28 @@ export class FxPageComponent implements OnInit {
   alertDirection: 'above' | 'below' = 'above';
   alertThreshold = 0;
 
+  readonly fmtSource = fmtSource;
+
   readonly chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    plugins: { legend: { position: 'top' as const } },
+    plugins: {
+      legend: { position: 'top' as const },
+      tooltip: {
+        callbacks: {
+          label: (ctx: { dataset: { label: string }; parsed: { y: number } }) =>
+            `${ctx.dataset.label}: ₦${ctx.parsed.y.toFixed(2)}`,
+        },
+      },
+    },
     scales: {
       x: { ticks: { maxTicksLimit: 12, maxRotation: 0 } },
-      y: { beginAtZero: false },
+      y: {
+        beginAtZero: false,
+        ticks: {
+          callback: (v: number) => `₦${v.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        },
+      },
     },
   };
 
