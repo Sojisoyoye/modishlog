@@ -126,9 +126,12 @@ async def _generate_price_recommendations(
         margin_gap = target_margin - margin_pct
         revenue_30d = p.get("revenue_30d", Decimal("0"))
 
-        target_price = (
-            unit_cost / (Decimal("1") - Decimal(str(target_margin)) / Decimal("100"))
-        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        denominator = Decimal("1") - Decimal(str(target_margin)) / Decimal("100")
+        if denominator <= 0:
+            continue
+        target_price = (unit_cost / denominator).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
 
         cat_name = category_by_product.get(product_id, "Uncategorised")
         buckets.setdefault(cat_name, []).append(
@@ -642,17 +645,19 @@ async def apply_recommendation(
 
     # Route based on action type
     if rec.action_type == ActionType.PRICE_CHANGE and rec.action_payload:
-        # For price changes, update the product price
         payload = rec.action_payload
-        product_id = uuid.UUID(payload["product_id"])
-        new_price = Decimal(payload["suggested_price"])
-
-        product_result = await db.execute(
-            select(Product).where(Product.id == product_id)
-        )
-        product = product_result.scalar_one_or_none()
-        if product:
-            product.selling_price = new_price
+        if "product_id" in payload and "suggested_price" in payload:
+            # Legacy single-product payload: apply the suggested price directly.
+            product_id = uuid.UUID(payload["product_id"])
+            new_price = Decimal(payload["suggested_price"])
+            product_result = await db.execute(
+                select(Product).where(Product.id == product_id)
+            )
+            product = product_result.scalar_one_or_none()
+            if product:
+                product.selling_price = new_price
+        # Grouped category payload ({category_name, products:[...]}):
+        # status update below marks it reviewed; user applies via the optimizer.
 
     # For other types (REORDER, USD_PURCHASE, COST_CUT), flag for manual action
     # The status update itself marks it as actioned

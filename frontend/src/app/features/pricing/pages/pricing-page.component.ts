@@ -1417,7 +1417,7 @@ export class PricingPageComponent implements OnInit {
       action = topProduct
         ? `Protect "${topProduct}" and your other top performers — do not discount them. Use the Pricing Recommendations above to close the gap on below-target products${worstProduct ? `, starting with "${worstProduct}" (${worstMargin}% margin)` : ''}.`
         : `Do not discount your top-margin products. Address below-target pricing urgently using the Pricing Recommendations above.`;
-    } else if (ratio < 0.5) {
+    } else if (ratio <= 0.5) {
       level = 'medium';
       impact = `${above.length} products are subsidising ${below.length} others. Your margin is healthy overall, but you are depending on a minority of products to carry the portfolio.`;
       action = worstProduct
@@ -1511,6 +1511,7 @@ export class PricingPageComponent implements OnInit {
             this.pricingRecs.set(r.items.filter((i) => i.status === 'pending'));
             this.recsGenerating.set(false);
           },
+          error: () => this.recsGenerating.set(false),
         });
       },
       error: () => this.recsGenerating.set(false),
@@ -1625,11 +1626,14 @@ export class PricingPageComponent implements OnInit {
     this.aboveTarget.set(above);
     this.belowTarget.set(below);
 
-    // Build pairs: each high-margin product "subsidises" each low-margin product
+    // Build pairs: each high-margin product "subsidises" each low-margin product.
+    // Cap at 500 to avoid O(N²) filter cost on large catalogues.
+    const MAX_PAIRS = 500;
     const pairs: SubsidyPair[] = [];
-    for (const high of above) {
+    outer: for (const high of above) {
       for (const low of below) {
         pairs.push({ high, low });
+        if (pairs.length >= MAX_PAIRS) break outer;
       }
     }
     this.subsidyPairs.set(pairs);
@@ -1704,7 +1708,7 @@ export class PricingPageComponent implements OnInit {
       quantity: this.sensQuantity,
     };
     if (this.sensProductId) body['product_id'] = this.sensProductId;
-    if (this.sensUnitCostUsd) body['unit_cost_usd'] = this.sensUnitCostUsd;
+    if (this.sensUnitCostUsd > 0) body['unit_cost_usd'] = this.sensUnitCostUsd;
     this.pricingService.sensitivityCalc(body as any).subscribe({
       next: (r) => this.sensResult.set(r),
       error: () =>
