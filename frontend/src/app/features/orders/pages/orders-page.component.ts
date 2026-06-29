@@ -216,6 +216,39 @@ import { FxService } from '../../../core/services/fx.service';
             </tbody>
           </table>
         </div>
+        <!-- Pagination controls -->
+        @if (ordersTotal() > 0) {
+          <div class="mt-4 flex items-center justify-between text-sm text-muted">
+            <span>Showing {{ ordersShowingFrom() }}–{{ ordersShowingTo() }} of {{ ordersTotal() }} orders</span>
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                (click)="ordersGoToPage(ordersPage() - 1)"
+                [disabled]="ordersPage() === 1"
+                class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+              >
+                <i class="pi pi-chevron-left text-xs"></i>
+              </button>
+              @for (n of ordersPageNumbers(); track n) {
+                <button
+                  type="button"
+                  (click)="ordersGoToPage(n)"
+                  [class]="n === ordersPage() ? 'rounded bg-primary px-2.5 py-1 text-xs font-semibold text-white' : 'rounded px-2.5 py-1 text-xs hover:bg-gray-100'"
+                >
+                  {{ n }}
+                </button>
+              }
+              <button
+                type="button"
+                (click)="ordersGoToPage(ordersPage() + 1)"
+                [disabled]="ordersPage() === ordersTotalPages()"
+                class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+              >
+                <i class="pi pi-chevron-right text-xs"></i>
+              </button>
+            </div>
+          </div>
+        }
       </div>
     </div>
 
@@ -758,13 +791,25 @@ export class OrdersPageComponent implements OnInit {
 
   pageLoading = signal(true);
   orders = signal<Order[]>([]);
+  ordersTotal = signal(0);
+  ordersPage = signal(1);
+  ordersPageSize = signal(20);
+  ordersTotalPages = computed(() => Math.max(1, Math.ceil(this.ordersTotal() / this.ordersPageSize())));
+  ordersShowingFrom = computed(() => this.ordersTotal() === 0 ? 0 : (this.ordersPage() - 1) * this.ordersPageSize() + 1);
+  ordersShowingTo = computed(() => Math.min(this.ordersPage() * this.ordersPageSize(), this.ordersTotal()));
+  ordersPageNumbers = computed(() => {
+    const total = this.ordersTotalPages();
+    const current = this.ordersPage();
+    const start = Math.max(1, Math.min(current - 2, total - 4));
+    const end = Math.min(total, start + 4);
+    const pages: number[] = [];
+    for (let i = start; i <= end; i++) pages.push(i);
+    return pages;
+  });
   products = signal<Product[]>([]);
   selectedOrder = signal<Order | null>(null);
   pipelineFilter = signal<string | null>(null);
-  displayedOrders = computed(() => {
-    const filter = this.pipelineFilter();
-    return filter ? this.orders().filter((o) => o.status === filter) : this.orders();
-  });
+  displayedOrders = computed(() => this.orders());
   detailVisible = false;
   showCreate = false;
   creating = signal(false);
@@ -864,10 +909,26 @@ export class OrdersPageComponent implements OnInit {
 
   private loadOrders(): void {
     this.pageLoading.set(true);
-    this.ordersService.getAll().subscribe({
-      next: (o) => { this.orders.set(o); this.pageLoading.set(false); },
+    const params: Record<string, string> = {
+      page: String(this.ordersPage()),
+      page_size: String(this.ordersPageSize()),
+    };
+    const filter = this.pipelineFilter();
+    if (filter) params['order_status'] = filter;
+    this.ordersService.getAll(params).subscribe({
+      next: ({ items, total }) => {
+        this.orders.set(items);
+        this.ordersTotal.set(total);
+        this.pageLoading.set(false);
+      },
       error: () => { this.pageLoading.set(false); },
     });
+  }
+
+  ordersGoToPage(page: number): void {
+    const p = Math.max(1, Math.min(page, this.ordersTotalPages()));
+    this.ordersPage.set(p);
+    this.loadOrders();
   }
 
   ordersByStatus(status: string): Order[] {
@@ -876,6 +937,8 @@ export class OrdersPageComponent implements OnInit {
 
   togglePipelineFilter(status: string | null): void {
     this.pipelineFilter.set(this.pipelineFilter() === status ? null : status);
+    this.ordersPage.set(1);
+    this.loadOrders();
   }
 
   orderStatus(status: string): 'info' | 'warning' | 'success' | 'neutral' {

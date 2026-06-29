@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, inject, signal, OnInit } from '@angular/core';
 import { forkJoin } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
@@ -140,6 +140,39 @@ import { ProductsService } from '../../../core/services/products.service';
             </tbody>
           </table>
         </div>
+        <!-- Pagination controls -->
+        @if (invTotal() > 0) {
+          <div class="mt-4 flex items-center justify-between text-sm text-muted">
+            <span>Showing {{ invShowingFrom() }}–{{ invShowingTo() }} of {{ invTotal() }} items</span>
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                (click)="invGoToPage(invPage() - 1)"
+                [disabled]="invPage() === 1"
+                class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+              >
+                <i class="pi pi-chevron-left text-xs"></i>
+              </button>
+              @for (n of invPageNumbers(); track n) {
+                <button
+                  type="button"
+                  (click)="invGoToPage(n)"
+                  [class]="n === invPage() ? 'rounded bg-primary px-2.5 py-1 text-xs font-semibold text-white' : 'rounded px-2.5 py-1 text-xs hover:bg-gray-100'"
+                >
+                  {{ n }}
+                </button>
+              }
+              <button
+                type="button"
+                (click)="invGoToPage(invPage() + 1)"
+                [disabled]="invPage() === invTotalPages()"
+                class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+              >
+                <i class="pi pi-chevron-right text-xs"></i>
+              </button>
+            </div>
+          </div>
+        }
       </div>
 
       <!-- Stock Movements -->
@@ -330,6 +363,21 @@ export class InventoryPageComponent implements OnInit {
 
   pageLoading = signal(true);
   inventory = signal<InventoryItem[]>([]);
+  invTotal = signal(0);
+  invPage = signal(1);
+  invPageSize = signal(20);
+  invTotalPages = computed(() => Math.max(1, Math.ceil(this.invTotal() / this.invPageSize())));
+  invShowingFrom = computed(() => this.invTotal() === 0 ? 0 : (this.invPage() - 1) * this.invPageSize() + 1);
+  invShowingTo = computed(() => Math.min(this.invPage() * this.invPageSize(), this.invTotal()));
+  invPageNumbers = computed(() => {
+    const total = this.invTotalPages();
+    const current = this.invPage();
+    const start = Math.max(1, Math.min(current - 2, total - 4));
+    const end = Math.min(total, start + 4);
+    const pages: number[] = [];
+    for (let i = start; i <= end; i++) pages.push(i);
+    return pages;
+  });
   movements = signal<StockMovement[]>([]);
   editingThresholdId = signal<string | null>(null);
   adjustVisible = false;
@@ -352,19 +400,26 @@ export class InventoryPageComponent implements OnInit {
     this.pageLoading.set(true);
     forkJoin({
       products: this.productsService.getAll(),
-      inventory: this.inventoryService.getCurrent(),
+      inventory: this.inventoryService.getCurrent(this.invPage(), this.invPageSize()),
       movements: this.inventoryService.getMovements(),
     }).subscribe({
       next: ({ products, inventory, movements }) => {
         const nameMap = new Map(products.map((p) => [p.id, p.name]));
-        inventory.forEach((item) => (item.product_name = nameMap.get(item.product_id) ?? 'Unknown'));
+        inventory.items.forEach((item) => (item.product_name = nameMap.get(item.product_id) ?? 'Unknown'));
         movements.forEach((m) => (m.product_name = nameMap.get(m.product_id) ?? 'Unknown'));
-        this.inventory.set(inventory);
+        this.inventory.set(inventory.items);
+        this.invTotal.set(inventory.total);
         this.movements.set(movements);
         this.pageLoading.set(false);
       },
       error: () => { this.pageLoading.set(false); },
     });
+  }
+
+  invGoToPage(page: number): void {
+    const p = Math.max(1, Math.min(page, this.invTotalPages()));
+    this.invPage.set(p);
+    this.loadData();
   }
 
   stockStatus(item: InventoryItem): 'success' | 'warning' | 'danger' {

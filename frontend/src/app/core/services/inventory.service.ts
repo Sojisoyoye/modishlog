@@ -51,16 +51,17 @@ export interface StockAdjustment {
 export class InventoryService {
   private readonly api = inject(ApiService);
 
-  getCurrent(page = 1, pageSize = 200): Observable<InventoryItem[]> {
+  getCurrent(page = 1, pageSize = 20): Observable<{ items: InventoryItem[]; total: number }> {
     return this.api.get<InventoryListResponse>('/inventory', { page: String(page), page_size: String(pageSize) }).pipe(
-      map((response) =>
-        response.items.map((l) => ({
+      map((response) => ({
+        items: response.items.map((l) => ({
           product_id: l.product_id,
           current_stock: l.quantity_on_hand,
           low_stock_threshold: l.low_stock_threshold,
           last_updated: l.updated_at,
         })),
-      ),
+        total: response.total,
+      })),
     );
   }
 
