@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy, OnInit, inject, signal, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, OnInit, inject, signal, computed, DestroyRef } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { SettingsService } from '../../../core/services/settings.service';
@@ -151,7 +152,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                 >
                   <option value="">Not configured</option>
                   @for (name of monthNames; track $index) {
-                    <option [value]="$index + 1">{{ name }}</option>
+                    <option [value]="'' + ($index + 1)">{{ name }}</option>
                   }
                 </select>
               </div>
@@ -234,6 +235,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 })
 export class SettingsPageComponent implements OnInit {
   private readonly settingsService = inject(SettingsService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly monthNames = MONTH_NAMES;
 
@@ -264,13 +266,16 @@ export class SettingsPageComponent implements OnInit {
       next: (status) => this.apiKeyConfigured.set(status.is_configured),
       error: () => {},
     });
-    this.settingsService.getFiscalYearStart().subscribe({
-      next: (fy) => {
-        this.fyMonth.set(fy.fiscal_year_start_month ? String(fy.fiscal_year_start_month) : '');
-        this.fyDay.set(fy.fiscal_year_start_day ?? null);
-      },
-      error: () => {},
-    });
+    this.settingsService
+      .getFiscalYearStart()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (fy) => {
+          this.fyMonth.set(fy.fiscal_year_start_month ? String(fy.fiscal_year_start_month) : '');
+          this.fyDay.set(fy.fiscal_year_start_day ?? null);
+        },
+        error: () => {},
+      });
   }
 
   saveApiKey(): void {
@@ -292,6 +297,10 @@ export class SettingsPageComponent implements OnInit {
   saveFiscalYear(): void {
     const month = this.fyMonth() ? parseInt(this.fyMonth(), 10) : null;
     const day = this.fyMonth() ? this.fyDay() : null;
+    if (month !== null && day === null) {
+      this.fyStatus.set('error');
+      return;
+    }
     this.fysSaving.set(true);
     this.fyStatus.set(null);
     this.settingsService.updateFiscalYearStart(month, day).subscribe({
