@@ -48,19 +48,19 @@ interface ElasticityEntry {
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <!-- Blended Margin Card -->
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
           <div class="mb-4 flex items-center gap-2">
-            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <i class="pi pi-percentage text-lg text-primary"></i>
+            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
+              <i class="pi pi-percentage text-lg text-emerald-700"></i>
             </div>
           </div>
           <p class="text-sm font-medium text-muted">Blended Portfolio Margin</p>
-          <p class="mt-2 text-4xl font-bold text-text">
+          <p class="mt-2 text-4xl font-bold text-gray-900">
             {{ marginData().blended_margin | number: '1.1-1' }}%
           </p>
           <p
             class="mt-2 text-sm font-medium"
-            [class]="marginData().gap >= 0 ? 'text-success' : 'text-danger'"
+            [class]="marginData().gap >= 0 ? 'text-emerald-600' : 'text-red-600'"
           >
             @if (marginData().gap >= 0) {
               <i class="pi pi-arrow-up text-xs"></i>
@@ -75,10 +75,10 @@ interface ElasticityEntry {
         </div>
 
         <!-- Margin Distribution Chart -->
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm lg:col-span-2">
+        <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm lg:col-span-2">
           <div class="mb-5 flex items-center gap-2">
             <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
-              <i class="pi pi-chart-bar text-sm text-purple-600"></i>
+              <i class="pi pi-chart-bar text-sm text-purple-700"></i>
             </div>
             <h3 class="text-base font-semibold text-text">Margin Distribution</h3>
           </div>
@@ -94,10 +94,10 @@ interface ElasticityEntry {
       </div>
 
       <!-- Per-Product Margins -->
-      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-            <i class="pi pi-list text-sm text-secondary"></i>
+            <i class="pi pi-list text-sm text-blue-700"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Per-Product Margins</h3>
         </div>
@@ -147,8 +147,8 @@ interface ElasticityEntry {
                     {{ p.target_margin | number: '1.1-1' }}%
                   </td>
                   <td
-                    class="px-4 py-3 text-right font-bold"
-                    [class]="p.gap >= 0 ? 'text-success' : 'text-danger'"
+                    class="px-4 py-3 text-right"
+                    [class]="p.gap >= 0 ? 'text-emerald-600 font-semibold' : 'text-red-600 font-semibold'"
                   >
                     {{ p.gap >= 0 ? '+' : '' }}{{ p.gap | number: '1.1-1' }}%
                   </td>
@@ -167,10 +167,10 @@ interface ElasticityEntry {
       </div>
 
       <!-- Pricing Recommendations -->
-      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
-            <i class="pi pi-sparkles text-sm text-warning"></i>
+            <i class="pi pi-sparkles text-sm text-amber-700"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Pricing Recommendations</h3>
         </div>
@@ -189,13 +189,13 @@ interface ElasticityEntry {
               <div class="mt-3 flex gap-2">
                 <button
                   (click)="applyRec(rec.id)"
-                  class="flex items-center gap-1 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-success/90"
+                  class="flex min-h-[44px] items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-emerald-700"
                 >
-                  <i class="pi pi-check text-[10px]"></i> Apply
+                  <i class="pi pi-check text-[10px]"></i> Mark Reviewed
                 </button>
                 <button
                   (click)="dismissRec(rec.id)"
-                  class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+                  class="min-h-[44px] rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-100 hover:text-text"
                 >
                   Dismiss
                 </button>
@@ -208,10 +208,10 @@ interface ElasticityEntry {
       </div>
 
       <!-- Cross-Subsidisation Display (Task 32) -->
-      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-50">
-            <i class="pi pi-arrows-h text-sm text-orange-600"></i>
+            <i class="pi pi-arrows-h text-sm text-orange-700"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Cross-Subsidisation</h3>
         </div>
@@ -222,13 +222,13 @@ interface ElasticityEntry {
                 class="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50/50 px-4 py-3"
               >
                 <span
-                  class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700"
+                  class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800"
                 >
                   {{ pair.high.product_name }} ({{ pair.high.margin_pct | number: '1.0-0' }}%)
                 </span>
                 <span class="text-xs font-medium text-muted">subsidises</span>
                 <span
-                  class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700"
+                  class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-800"
                 >
                   {{ pair.low.product_name }} ({{ pair.low.margin_pct | number: '1.0-0' }}%)
                 </span>
@@ -243,7 +243,7 @@ interface ElasticityEntry {
               @for (item of aboveTarget(); track item.product_name) {
                 <div class="flex items-center justify-between py-1.5">
                   <span class="text-sm text-text">{{ item.product_name }}</span>
-                  <span class="text-sm font-semibold text-success">
+                  <span class="text-sm font-semibold text-emerald-600">
                     {{ item.margin_pct | number: '1.1-1' }}%
                   </span>
                 </div>
@@ -258,7 +258,7 @@ interface ElasticityEntry {
               @for (item of belowTarget(); track item.product_name) {
                 <div class="flex items-center justify-between py-1.5">
                   <span class="text-sm text-text">{{ item.product_name }}</span>
-                  <span class="text-sm font-semibold text-danger">
+                  <span class="text-sm font-semibold text-red-600">
                     {{ item.margin_pct | number: '1.1-1' }}%
                   </span>
                 </div>
@@ -276,10 +276,10 @@ interface ElasticityEntry {
       </div>
 
       <!-- Demand Elasticity Configuration (Task 31) -->
-      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
-          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50">
-            <i class="pi pi-sliders-h text-sm text-indigo-600"></i>
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50">
+            <i class="pi pi-sliders-h text-sm text-sky-600"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Demand Elasticity</h3>
         </div>
@@ -291,7 +291,7 @@ interface ElasticityEntry {
             <select
               id="pricing-elasticity-product"
               [(ngModel)]="elasticityProductId"
-              class="w-52 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-52 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
             >
               <option value="">Select product...</option>
               @for (p of products(); track p.id) {
@@ -310,20 +310,20 @@ interface ElasticityEntry {
               placeholder="e.g. -1.5"
               step="0.1"
               max="0"
-              class="w-40 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-40 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
             />
           </div>
           <button
             (click)="updateElasticity()"
             [disabled]="!elasticityProductId || !elasticityCoeff"
-            class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+            class="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
           >
             <i class="pi pi-save text-sm"></i> Save
           </button>
           <button
             (click)="loadElasticity()"
             [disabled]="!elasticityProductId"
-            class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+            class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-gray-100 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
           >
             <i class="pi pi-refresh text-sm"></i> Load
           </button>
