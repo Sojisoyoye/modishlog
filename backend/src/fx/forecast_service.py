@@ -8,7 +8,7 @@ from decimal import Decimal
 import numpy as np
 import pandas as pd
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fx.exceptions import FXPairNotFoundError, InsufficientRateDataError
@@ -151,6 +151,8 @@ async def train_and_forecast(
         daily_drift_pct=round(daily_drift * 100, 4),
         daily_vol_pct=round(daily_vol * 100, 4),
     )
+
+    await db.execute(delete(FXForecast).where(FXForecast.pair == pair))
 
     scenarios = await asyncio.to_thread(
         _gbm_forecast, df, horizon_days, num_simulations
