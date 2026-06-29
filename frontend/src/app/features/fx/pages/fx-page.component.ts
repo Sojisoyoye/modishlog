@@ -85,14 +85,17 @@ import {
           <div class="flex flex-wrap items-end gap-3">
             <div>
               <label for="fx-manual-pair" class="mb-1.5 block text-xs font-medium text-muted">Pair</label>
-              <select
-                id="fx-manual-pair"
-                [(ngModel)]="manualPair"
-                class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-              >
-                <option value="USDNGN">USD/NGN</option>
-                <option value="EURUSD">EUR/USD</option>
-              </select>
+              <div class="relative">
+                <select
+                  id="fx-manual-pair"
+                  [(ngModel)]="manualPair"
+                  class="appearance-none rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                >
+                  <option value="USDNGN">USD/NGN</option>
+                  <option value="EURUSD">EUR/USD</option>
+                </select>
+                <i class="pi pi-chevron-down pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
+              </div>
             </div>
             <div>
               <label for="fx-manual-rate" class="mb-1.5 block text-xs font-medium text-muted">Rate</label>
@@ -116,15 +119,18 @@ import {
             </div>
             <div>
               <label for="fx-manual-source" class="mb-1.5 block text-xs font-medium text-muted">Source</label>
-              <select
-                id="fx-manual-source"
-                [(ngModel)]="manualSource"
-                class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-              >
-                <option value="MANUAL">Manual</option>
-                <option value="PARALLEL_MARKET">Parallel Market</option>
-                <option value="CBN_OFFICIAL">CBN Official</option>
-              </select>
+              <div class="relative">
+                <select
+                  id="fx-manual-source"
+                  [(ngModel)]="manualSource"
+                  class="appearance-none rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                >
+                  <option value="MANUAL">Manual</option>
+                  <option value="PARALLEL_MARKET">Parallel Market</option>
+                  <option value="CBN_OFFICIAL">CBN Official</option>
+                </select>
+                <i class="pi pi-chevron-down pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
+              </div>
             </div>
             <button
               (click)="addRate()"
@@ -259,25 +265,31 @@ import {
         <div class="mb-5 flex flex-wrap items-end gap-3">
           <div>
             <label for="fx-alert-pair" class="mb-1.5 block text-xs font-medium text-muted">Pair</label>
-            <select
-              id="fx-alert-pair"
-              [(ngModel)]="alertPair"
-              class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            >
-              <option value="USDNGN">USD/NGN</option>
-              <option value="EURUSD">EUR/USD</option>
-            </select>
+            <div class="relative">
+              <select
+                id="fx-alert-pair"
+                [(ngModel)]="alertPair"
+                class="appearance-none rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="USDNGN">USD/NGN</option>
+                <option value="EURUSD">EUR/USD</option>
+              </select>
+              <i class="pi pi-chevron-down pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
+            </div>
           </div>
           <div>
             <label for="fx-alert-direction" class="mb-1.5 block text-xs font-medium text-muted">Direction</label>
-            <select
-              id="fx-alert-direction"
-              [(ngModel)]="alertDirection"
-              class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-            >
-              <option value="above">Above</option>
-              <option value="below">Below</option>
-            </select>
+            <div class="relative">
+              <select
+                id="fx-alert-direction"
+                [(ngModel)]="alertDirection"
+                class="appearance-none rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="above">Above</option>
+                <option value="below">Below</option>
+              </select>
+              <i class="pi pi-chevron-down pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
+            </div>
           </div>
           <div>
             <label for="fx-alert-threshold" class="mb-1.5 block text-xs font-medium text-muted">Threshold Rate</label>
@@ -453,31 +465,34 @@ export class FxPageComponent implements OnInit {
           labels: fc.map((f) => fmtChartDate(f.date)),
           datasets: [
             {
-              label: 'Base',
-              data: fc.map((f) => f.base),
-              borderColor: '#1F4E79',
-              backgroundColor: 'rgba(31, 78, 121, 0.05)',
-              fill: true,
-              tension: 0.3,
-              pointRadius: 2,
+              label: 'Worst Case',
+              data: fc.map((f) => f.worst_case),
+              borderColor: 'rgba(192, 57, 43, 0.5)',
+              fill: false,
+              borderWidth: 1.5,
+              tension: 0.4,
+              pointRadius: 0,
             },
             {
               label: 'Best Case',
               data: fc.map((f) => f.best_case),
-              borderColor: '#1A7A4A',
-              fill: false,
-              borderDash: [5, 5],
-              tension: 0.3,
+              borderColor: 'rgba(26, 122, 74, 0.5)',
+              backgroundColor: 'rgba(100, 160, 130, 0.1)',
+              fill: '-1',
+              borderWidth: 1.5,
+              tension: 0.4,
               pointRadius: 0,
             },
             {
-              label: 'Worst Case',
-              data: fc.map((f) => f.worst_case),
-              borderColor: '#C0392B',
+              label: 'Base',
+              data: fc.map((f) => f.base),
+              borderColor: '#1F4E79',
+              backgroundColor: 'rgba(31, 78, 121, 0)',
               fill: false,
-              borderDash: [5, 5],
-              tension: 0.3,
-              pointRadius: 0,
+              borderWidth: 2.5,
+              tension: 0.4,
+              pointRadius: 3,
+              pointHoverRadius: 6,
             },
           ],
         });
@@ -496,31 +511,34 @@ export class FxPageComponent implements OnInit {
           labels: fc.map((f) => fmtChartDate(f.date)),
           datasets: [
             {
-              label: 'Base',
-              data: fc.map((f) => f.base),
-              borderColor: '#1F4E79',
-              backgroundColor: 'rgba(31, 78, 121, 0.05)',
-              fill: true,
-              tension: 0.3,
-              pointRadius: 2,
+              label: 'Worst Case',
+              data: fc.map((f) => f.worst_case),
+              borderColor: 'rgba(192, 57, 43, 0.5)',
+              fill: false,
+              borderWidth: 1.5,
+              tension: 0.4,
+              pointRadius: 0,
             },
             {
               label: 'Best Case',
               data: fc.map((f) => f.best_case),
-              borderColor: '#1A7A4A',
-              fill: false,
-              borderDash: [5, 5],
-              tension: 0.3,
+              borderColor: 'rgba(26, 122, 74, 0.5)',
+              backgroundColor: 'rgba(100, 160, 130, 0.1)',
+              fill: '-1',
+              borderWidth: 1.5,
+              tension: 0.4,
               pointRadius: 0,
             },
             {
-              label: 'Worst Case',
-              data: fc.map((f) => f.worst_case),
-              borderColor: '#C0392B',
+              label: 'Base',
+              data: fc.map((f) => f.base),
+              borderColor: '#1F4E79',
+              backgroundColor: 'rgba(31, 78, 121, 0)',
               fill: false,
-              borderDash: [5, 5],
-              tension: 0.3,
-              pointRadius: 0,
+              borderWidth: 2.5,
+              tension: 0.4,
+              pointRadius: 3,
+              pointHoverRadius: 6,
             },
           ],
         });
