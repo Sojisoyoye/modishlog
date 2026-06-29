@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DecimalPipe, CurrencyPipe } from '@angular/common';
+import { DecimalPipe, CurrencyPipe, DatePipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { UIChart } from 'primeng/chart';
@@ -13,6 +13,9 @@ import {
   SensitivityCalcResponse,
   MixCategoryStatus,
   SellingPriceSuggestionResponse,
+  ScenarioRead,
+  DemandForecastDay,
+  PricingOptimizerRec,
 } from '../../../core/services/pricing.service';
 import {
   RecommendationsService,
@@ -40,7 +43,7 @@ interface ElasticityEntry {
 @Component({
   selector: 'app-pricing-page',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, CurrencyPipe, Toast, UIChart, StatusBadgeComponent],
+  imports: [FormsModule, DecimalPipe, CurrencyPipe, DatePipe, Toast, UIChart, StatusBadgeComponent],
   template: `
     <p-toast />
     <div>
@@ -559,6 +562,238 @@ interface ElasticityEntry {
         }
       </div>
 
+      <!-- Optimizer Pricing Recommendations -->
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50">
+              <i class="pi pi-bolt text-sm text-rose-600"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Optimizer Recommendations</h3>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
+              <label for="opt-target-margin" class="text-xs font-medium text-muted"
+                >Target %</label
+              >
+              <input
+                id="opt-target-margin"
+                type="number"
+                [(ngModel)]="optimizerTargetMargin"
+                min="1"
+                max="99"
+                class="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <button
+              (click)="generateOptimizerRecs()"
+              [disabled]="optimizerLoading()"
+              class="flex items-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white transition-all hover:bg-rose-700 disabled:opacity-50"
+            >
+              <i class="pi pi-sync text-xs" [class.pi-spin]="optimizerLoading()"></i>
+              {{ optimizerLoading() ? 'Generating…' : 'Generate' }}
+            </button>
+          </div>
+        </div>
+
+        @if (optimizerRecs().length > 0) {
+          <div class="space-y-3">
+            @for (rec of optimizerRecs(); track rec.id) {
+              <div class="rounded-lg border border-gray-100 bg-gray-50/50 p-4">
+                <div class="flex items-start justify-between gap-4">
+                  <div class="min-w-0 flex-1">
+                    <p class="text-xs font-medium text-muted">Product ID: {{ rec.product_id }}</p>
+                    <p class="mt-1 text-sm text-text">
+                      <span class="font-semibold">₦{{ rec.current_price | number: '1.0-0' }}</span>
+                      <i class="pi pi-arrow-right mx-2 text-xs text-muted"></i>
+                      <span class="font-bold text-primary"
+                        >₦{{ rec.recommended_price | number: '1.0-0' }}</span
+                      >
+                      <span class="ml-2 text-xs text-muted"
+                        >({{ rec.expected_margin_change_pct >= 0 ? '+' : ''
+                        }}{{ rec.expected_margin_change_pct | number: '1.1-1' }}% margin)</span
+                      >
+                    </p>
+                    <p class="mt-1 text-xs text-muted leading-relaxed">{{ rec.reasoning }}</p>
+                  </div>
+                  <div class="flex shrink-0 gap-2">
+                    <button
+                      (click)="applyOptimizerRec(rec.id)"
+                      class="rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-white hover:bg-success/90"
+                    >
+                      Apply
+                    </button>
+                    <button
+                      (click)="dismissOptimizerRec(rec.id)"
+                      class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted hover:bg-gray-50"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="py-4 text-center text-sm text-muted">
+            <i class="pi pi-info-circle mr-1"></i> No pending optimizer recommendations. Click
+            Generate to run the margin optimizer.
+          </p>
+        }
+      </div>
+
+      <!-- Demand Forecast -->
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+            <i class="pi pi-chart-line text-sm text-emerald-600"></i>
+          </div>
+          <h3 class="text-base font-semibold text-text">Demand Forecast</h3>
+        </div>
+
+        <div class="mb-5 flex flex-wrap items-end gap-3">
+          <div>
+            <label for="forecast-product" class="mb-1.5 block text-xs font-medium text-muted"
+              >Product</label
+            >
+            <select
+              id="forecast-product"
+              [(ngModel)]="forecastProductId"
+              class="w-56 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              <option value="">Select product…</option>
+              @for (p of products(); track p.id) {
+                <option [value]="p.id">{{ p.name }}</option>
+              }
+            </select>
+          </div>
+          <div>
+            <label for="forecast-horizon" class="mb-1.5 block text-xs font-medium text-muted"
+              >Horizon (days)</label
+            >
+            <select
+              id="forecast-horizon"
+              [(ngModel)]="forecastHorizon"
+              class="w-28 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              <option [value]="30">30 days</option>
+              <option [value]="60">60 days</option>
+              <option [value]="90">90 days</option>
+            </select>
+          </div>
+          <button
+            (click)="runDemandForecast()"
+            [disabled]="!forecastProductId || forecastLoading()"
+            class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <i
+              class="pi text-sm"
+              [class]="forecastLoading() ? 'pi-spin pi-spinner' : 'pi-play'"
+            ></i>
+            {{ forecastLoading() ? 'Forecasting…' : 'Run Forecast' }}
+          </button>
+        </div>
+
+        @if (forecastData()) {
+          <div class="mb-4 rounded-lg bg-emerald-50 p-4">
+            <p class="text-xs font-medium text-muted">Total Projected Demand ({{ forecastHorizon }} days)</p>
+            <p class="mt-1 text-2xl font-bold text-emerald-700">
+              {{ forecastTotalDemand() | number: '1.0-0' }} units
+            </p>
+          </div>
+          @if (forecastChartData()) {
+            <p-chart
+              type="line"
+              [data]="forecastChartData()!"
+              [options]="forecastChartOptions"
+              height="220px"
+            />
+          }
+        } @else if (!forecastLoading()) {
+          <p class="py-4 text-center text-sm text-muted">
+            <i class="pi pi-info-circle mr-1"></i> Select a product and click Run Forecast.
+            Requires at least 10 days of sales history over the past 180 days.
+          </p>
+        }
+      </div>
+
+      <!-- Saved Scenarios -->
+      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+              <i class="pi pi-bookmark text-sm text-amber-600"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Saved Scenarios</h3>
+          </div>
+          <button
+            (click)="loadScenarios()"
+            class="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+          >
+            <i class="pi pi-refresh text-xs"></i> Refresh
+          </button>
+        </div>
+
+        @if (scenarios().length > 0) {
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <caption class="sr-only">Saved pricing scenarios</caption>
+              <thead>
+                <tr class="bg-gray-50/80">
+                  <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                    Name
+                  </th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                    Selling Price
+                  </th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                    FX Rate
+                  </th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                    Qty
+                  </th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                    Margin
+                  </th>
+                  <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                    Saved
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                @for (s of scenarios(); track s.id) {
+                  <tr class="transition-colors hover:bg-gray-50/50">
+                    <td class="px-4 py-3 font-medium text-text">{{ s.name }}</td>
+                    <td class="px-4 py-3 text-right">
+                      {{ s.selling_price | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                    </td>
+                    <td class="px-4 py-3 text-right text-muted">
+                      {{ s.fx_rate | number: '1.0-0' }}
+                    </td>
+                    <td class="px-4 py-3 text-right text-muted">{{ s.quantity }}</td>
+                    <td class="px-4 py-3 text-right font-semibold">
+                      @if (s.results && s.results['margin_pct']) {
+                        {{ $any(s.results['margin_pct']) | number: '1.1-1' }}%
+                      } @else {
+                        —
+                      }
+                    </td>
+                    <td class="px-4 py-3 text-xs text-muted">
+                      {{ s.created_at | date: 'dd MMM yyyy HH:mm' }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <p class="py-4 text-center text-sm text-muted">
+            <i class="pi pi-inbox mr-1 text-gray-300"></i> No saved scenarios yet. Use the
+            Sensitivity Calculator above and click Save Scenario.
+          </p>
+        }
+      </div>
+
       <!-- Demand Elasticity Configuration (Task 31) -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
@@ -694,6 +929,32 @@ export class PricingPageComponent implements OnInit {
   // Product mix status
   mixStatus = signal<MixCategoryStatus[]>([]);
 
+  // Optimizer recommendations
+  optimizerRecs = signal<PricingOptimizerRec[]>([]);
+  optimizerTargetMargin = 35;
+  optimizerLoading = signal(false);
+
+  // Demand forecast
+  forecastProductId = '';
+  forecastHorizon = 90;
+  forecastData = signal<DemandForecastDay[] | null>(null);
+  forecastTotalDemand = signal(0);
+  forecastChartData = signal<unknown>(null);
+  forecastLoading = signal(false);
+
+  readonly forecastChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { maxTicksLimit: 8 } },
+      y: { beginAtZero: true, title: { display: true, text: 'Units' } },
+    },
+  };
+
+  // Saved scenarios
+  scenarios = signal<ScenarioRead[]>([]);
+
   readonly barOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -721,6 +982,10 @@ export class PricingPageComponent implements OnInit {
     this.pricingService.getMixStatus().subscribe({
       next: (r) => this.mixStatus.set(r.categories),
     });
+    this.pricingService.getOptimizerRecs().subscribe({
+      next: (r) => this.optimizerRecs.set(r),
+    });
+    this.loadScenarios();
   }
 
   private buildDistribution(products: ProductMargin[]): void {
@@ -901,8 +1166,10 @@ export class PricingPageComponent implements OnInit {
         results: r as unknown as Record<string, unknown>,
       })
       .subscribe({
-        next: () =>
-          this.messageService.add({ severity: 'success', summary: 'Saved', detail: name }),
+        next: () => {
+          this.messageService.add({ severity: 'success', summary: 'Saved', detail: name });
+          this.loadScenarios();
+        },
         error: () =>
           this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Save failed' }),
       });
@@ -924,6 +1191,110 @@ export class PricingPageComponent implements OnInit {
           summary: 'Error',
           detail: 'Could not compute selling price suggestion.',
         }),
+    });
+  }
+
+  generateOptimizerRecs(): void {
+    this.optimizerLoading.set(true);
+    this.pricingService.generateOptimizerRecs(this.optimizerTargetMargin).subscribe({
+      next: (recs) => {
+        this.optimizerRecs.set(recs);
+        this.optimizerLoading.set(false);
+        this.messageService.add({
+          severity: recs.length ? 'success' : 'info',
+          summary: recs.length ? `${recs.length} recommendation(s) generated` : 'No gaps found',
+          detail: recs.length
+            ? 'Review and apply to update product prices.'
+            : 'All products are at or above the target margin.',
+        });
+      },
+      error: () => {
+        this.optimizerLoading.set(false);
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Optimizer failed — ensure products have sufficient sales data.',
+        });
+      },
+    });
+  }
+
+  applyOptimizerRec(id: string): void {
+    this.pricingService.applyOptimizerRec(id).subscribe({
+      next: () => {
+        this.optimizerRecs.update((r) => r.filter((x) => x.id !== id));
+        this.messageService.add({ severity: 'success', summary: 'Applied', detail: 'Price updated.' });
+        this.pricingService.getPortfolioMargin().subscribe({ next: (d) => { this.marginData.set(d); this.buildDistribution(d.products); this.buildCrossSubsidy(d); } });
+      },
+      error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to apply recommendation.' }),
+    });
+  }
+
+  dismissOptimizerRec(id: string): void {
+    this.pricingService.dismissOptimizerRec(id).subscribe({
+      next: () => {
+        this.optimizerRecs.update((r) => r.filter((x) => x.id !== id));
+        this.messageService.add({ severity: 'info', summary: 'Dismissed', detail: 'Recommendation removed.' });
+      },
+      error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to dismiss.' }),
+    });
+  }
+
+  runDemandForecast(): void {
+    if (!this.forecastProductId) return;
+    this.forecastLoading.set(true);
+    this.forecastData.set(null);
+    this.forecastChartData.set(null);
+    this.pricingService.getDemandForecast(this.forecastProductId, this.forecastHorizon).subscribe({
+      next: (r) => {
+        this.forecastData.set(r.forecasts);
+        this.forecastTotalDemand.set(r.total_projected_demand);
+        this.forecastLoading.set(false);
+        // Build chart — sample every ~7th point to avoid crowding
+        const step = Math.max(1, Math.floor(r.forecasts.length / 30));
+        const sampled = r.forecasts.filter((_, i) => i % step === 0);
+        this.forecastChartData.set({
+          labels: sampled.map((d) => d.date),
+          datasets: [
+            {
+              label: 'Demand',
+              data: sampled.map((d) => d.demand),
+              borderColor: '#059669',
+              backgroundColor: 'rgba(5,150,105,0.08)',
+              fill: true,
+              tension: 0.3,
+              pointRadius: 2,
+            },
+            {
+              label: 'Lower',
+              data: sampled.map((d) => d.demand_lower),
+              borderColor: 'rgba(5,150,105,0.3)',
+              borderDash: [4, 4],
+              fill: false,
+              pointRadius: 0,
+            },
+            {
+              label: 'Upper',
+              data: sampled.map((d) => d.demand_upper),
+              borderColor: 'rgba(5,150,105,0.3)',
+              borderDash: [4, 4],
+              fill: false,
+              pointRadius: 0,
+            },
+          ],
+        });
+      },
+      error: (err) => {
+        this.forecastLoading.set(false);
+        const detail = err?.error?.detail ?? 'Not enough sales history (need ≥10 days in last 180 days).';
+        this.messageService.add({ severity: 'warn', summary: 'Forecast unavailable', detail });
+      },
+    });
+  }
+
+  loadScenarios(): void {
+    this.pricingService.getScenarios().subscribe({
+      next: (s) => this.scenarios.set(s),
     });
   }
 }

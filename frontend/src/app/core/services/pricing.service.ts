@@ -103,6 +103,34 @@ export interface ScenarioRead {
   created_at: string;
 }
 
+export interface DemandForecastDay {
+  date: string;
+  demand: number;
+  demand_lower: number;
+  demand_upper: number;
+}
+
+export interface DemandForecastResponse {
+  product_id: string;
+  horizon_days: number;
+  forecasts: DemandForecastDay[];
+  total_projected_demand: number;
+}
+
+export interface PricingOptimizerRec {
+  id: string;
+  product_id: string;
+  current_price: number;
+  recommended_price: number;
+  expected_demand_change_pct: number;
+  expected_revenue_change_pct: number;
+  expected_margin_change_pct: number;
+  confidence: number;
+  reasoning: string;
+  status: string;
+  created_at: string;
+}
+
 export interface SellingPriceSuggestionRequest {
   product_id?: string;
   unit_cost_override?: number;
@@ -191,5 +219,32 @@ export class PricingService {
       '/pricing/selling-price-suggestion',
       body,
     );
+  }
+
+  getDemandForecast(
+    productId: string,
+    horizonDays: number = 90,
+  ): Observable<DemandForecastResponse> {
+    return this.api.get<DemandForecastResponse>(`/pricing/demand-forecast/${productId}`, {
+      horizon_days: horizonDays.toString(),
+    });
+  }
+
+  getOptimizerRecs(): Observable<PricingOptimizerRec[]> {
+    return this.api.get<PricingOptimizerRec[]>('/pricing/recommendations');
+  }
+
+  generateOptimizerRecs(targetMargin: number): Observable<PricingOptimizerRec[]> {
+    return this.api.post<PricingOptimizerRec[]>('/pricing/recommendations/generate', {
+      target_margin: targetMargin,
+    });
+  }
+
+  applyOptimizerRec(recId: string): Observable<PricingOptimizerRec> {
+    return this.api.post<PricingOptimizerRec>(`/pricing/recommendations/${recId}/apply`, {});
+  }
+
+  dismissOptimizerRec(recId: string): Observable<PricingOptimizerRec> {
+    return this.api.post<PricingOptimizerRec>(`/pricing/recommendations/${recId}/dismiss`, {});
   }
 }
