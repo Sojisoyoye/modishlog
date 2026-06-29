@@ -28,274 +28,325 @@ import { ProductsService } from '../../../core/services/products.service';
         <i class="pi pi-spinner pi-spin text-2xl text-primary"></i>
       </div>
     } @else if (!transaction()) {
-      <div class="flex h-64 flex-col items-center justify-center gap-3 text-muted">
-        <i class="pi pi-exclamation-circle text-3xl text-gray-300"></i>
-        <p class="text-sm">Transaction not found.</p>
-        <a routerLink="/sales" class="text-sm font-medium text-primary hover:underline">← Back to Sales</a>
+      <!-- Empty / not found state -->
+      <div class="flex h-64 flex-col items-center justify-center gap-4 text-center">
+        <div class="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
+          <i class="pi pi-inbox text-3xl text-gray-400"></i>
+        </div>
+        <div>
+          <p class="text-sm font-medium text-gray-700">Transaction not found</p>
+          <p class="mt-1 text-xs text-gray-500">This transaction may have been removed or the link is invalid.</p>
+        </div>
+        <a routerLink="/sales" class="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">
+          <i class="pi pi-arrow-left text-xs"></i> Back to Sales
+        </a>
       </div>
     } @else {
       <div class="space-y-6">
 
-        <!-- Breadcrumb -->
-        <div class="flex items-center gap-3">
-          <a routerLink="/sales" class="flex items-center gap-1.5 text-sm font-medium text-muted transition-colors hover:text-text">
+        <!-- Page header with back button -->
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 class="text-2xl font-bold text-gray-900">{{ invoiceNo(transaction()!.transaction_id) }}</h1>
+            <p class="mt-0.5 text-sm text-gray-500">
+              <i class="pi pi-calendar mr-1 text-xs"></i>{{ transaction()!.sale_date | date: 'mediumDate' }}
+              @if (transaction()!.customer_name) {
+                <span class="mx-1.5 text-gray-300">·</span>
+                <i class="pi pi-user mr-1 text-xs"></i>{{ transaction()!.customer_name }}
+              }
+              @if (transaction()!.contact_number) {
+                <span class="mx-1.5 text-gray-300">·</span>
+                <i class="pi pi-phone mr-1 text-xs"></i>{{ transaction()!.contact_number }}
+              }
+            </p>
+          </div>
+          <a
+            routerLink="/sales"
+            class="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
             <i class="pi pi-arrow-left text-xs"></i> Back to Sales
           </a>
-          <span class="text-muted">/</span>
-          <span class="text-sm font-semibold text-text">{{ invoiceNo(transaction()!.transaction_id) }}</span>
         </div>
 
-        <!-- Header card -->
-        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <!-- Transaction details card -->
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+          <!-- Section header -->
+          <div class="mb-4 flex items-center gap-3">
+            <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+              <i class="pi pi-receipt text-sm"></i>
+            </span>
+            <h2 class="text-sm font-semibold text-gray-900">Transaction Details</h2>
+          </div>
+
           <div class="flex flex-wrap items-start justify-between gap-4">
-            <div class="space-y-1">
-              <h1 class="text-lg font-bold text-text">{{ invoiceNo(transaction()!.transaction_id) }}</h1>
-              <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
-                @if (transaction()!.customer_name) {
-                  <span><i class="pi pi-user mr-1 text-xs"></i>{{ transaction()!.customer_name }}</span>
-                }
-                @if (transaction()!.contact_number) {
-                  <span><i class="pi pi-phone mr-1 text-xs"></i>{{ transaction()!.contact_number }}</span>
-                }
-                <span><i class="pi pi-calendar mr-1 text-xs"></i>{{ transaction()!.sale_date | date: 'mediumDate' }}</span>
-              </div>
-            </div>
+            <!-- Status badge -->
             <div class="flex items-center gap-2">
               <span
                 class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
                 [class.bg-red-100]="transaction()!.status === 'voided'"
                 [class.text-red-700]="transaction()!.status === 'voided'"
-                [class.bg-green-100]="transaction()!.status !== 'voided'"
-                [class.text-green-700]="transaction()!.status !== 'voided'"
+                [class.bg-emerald-100]="transaction()!.status !== 'voided'"
+                [class.text-emerald-700]="transaction()!.status !== 'voided'"
               >
+                <i
+                  class="pi mr-1 text-[10px]"
+                  [class]="transaction()!.status === 'voided' ? 'pi-times-circle' : 'pi-check-circle'"
+                ></i>
                 {{ transaction()!.status === 'voided' ? 'Voided' : 'Active' }}
               </span>
+            </div>
+
+            <!-- Grand total -->
+            <div class="text-right">
+              <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Grand Total</p>
+              <p class="text-2xl font-bold text-gray-900">
+                {{ transaction()!.total_amount | currency: (transaction()!.currency || 'NGN') : 'symbol' : '1.2-2' }}
+              </p>
             </div>
           </div>
 
           <!-- Payment / notes summary -->
-          <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-gray-100 pt-4 text-sm">
+          <div class="mt-4 flex flex-wrap gap-x-6 gap-y-3 border-t border-gray-100 pt-4 text-sm">
             <div>
-              <span class="font-medium text-muted">Payment method: </span>
-              <span class="text-text">{{ formatPaymentMethod(transaction()!.payment_method) }}</span>
+              <span class="text-xs font-medium uppercase tracking-wide text-gray-500">Payment method</span>
+              <p class="mt-0.5 font-medium text-gray-900">{{ formatPaymentMethod(transaction()!.payment_method) }}</p>
             </div>
             <div>
-              <span class="font-medium text-muted">Payment status: </span>
-              <span
-                class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
-                [class.bg-green-100]="(transaction()!.payment_status || 'paid') === 'paid'"
-                [class.text-green-700]="(transaction()!.payment_status || 'paid') === 'paid'"
-                [class.bg-yellow-100]="(transaction()!.payment_status || 'paid') === 'partial'"
-                [class.text-yellow-700]="(transaction()!.payment_status || 'paid') === 'partial'"
-                [class.bg-orange-100]="(transaction()!.payment_status || 'paid') === 'credit'"
-                [class.text-orange-700]="(transaction()!.payment_status || 'paid') === 'credit'"
-              >
-                {{ transaction()!.payment_status || 'paid' }}
-              </span>
+              <span class="text-xs font-medium uppercase tracking-wide text-gray-500">Payment status</span>
+              <p class="mt-0.5">
+                <span
+                  class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+                  [class.bg-emerald-100]="(transaction()!.payment_status || 'paid') === 'paid'"
+                  [class.text-emerald-700]="(transaction()!.payment_status || 'paid') === 'paid'"
+                  [class.bg-amber-100]="(transaction()!.payment_status || 'paid') === 'partial'"
+                  [class.text-amber-700]="(transaction()!.payment_status || 'paid') === 'partial'"
+                  [class.bg-red-100]="(transaction()!.payment_status || 'paid') === 'credit'"
+                  [class.text-red-700]="(transaction()!.payment_status || 'paid') === 'credit'"
+                >
+                  {{ transaction()!.payment_status || 'paid' }}
+                </span>
+              </p>
             </div>
             @if (transaction()!.payment_amount != null) {
               <div>
-                <span class="font-medium text-muted">Amount paid: </span>
-                <span class="font-semibold text-text">
+                <span class="text-xs font-medium uppercase tracking-wide text-gray-500">Amount paid</span>
+                <p class="mt-0.5 font-semibold text-gray-900">
                   {{ transaction()!.payment_amount | currency: (transaction()!.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                </span>
+                </p>
                 @if ((transaction()!.total_amount - (transaction()!.payment_amount ?? 0)) > 0) {
-                  <span class="ml-2 text-xs text-orange-600">
-                    ({{ (transaction()!.total_amount - (transaction()!.payment_amount ?? 0)) | currency: (transaction()!.currency || 'NGN') : 'symbol' : '1.0-0' }} outstanding)
-                  </span>
+                  <p class="text-xs text-red-600">
+                    {{ (transaction()!.total_amount - (transaction()!.payment_amount ?? 0)) | currency: (transaction()!.currency || 'NGN') : 'symbol' : '1.0-0' }} outstanding
+                  </p>
                 }
               </div>
             }
             @if (transaction()!.notes) {
-              <div class="w-full">
-                <span class="font-medium text-muted">Note: </span>
-                <span class="text-text">{{ transaction()!.notes }}</span>
+              <div class="w-full border-t border-gray-100 pt-3">
+                <span class="text-xs font-medium uppercase tracking-wide text-gray-500">Note</span>
+                <p class="mt-0.5 text-gray-700">{{ transaction()!.notes }}</p>
               </div>
             }
           </div>
         </div>
 
-        <!-- Items table -->
-        <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
-          <div class="border-b border-gray-100 px-5 py-3">
-            <h2 class="text-sm font-semibold text-text">Line Items</h2>
+        <!-- Line items card -->
+        <div class="rounded-xl border border-gray-100 bg-white shadow-sm">
+          <!-- Section header -->
+          <div class="flex items-center gap-3 border-b border-gray-100 px-5 py-4">
+            <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+              <i class="pi pi-list text-sm"></i>
+            </span>
+            <h2 class="text-sm font-semibold text-gray-900">Line Items</h2>
           </div>
-          <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-100 text-sm">
-              <caption class="sr-only">Transaction items</caption>
-              <thead>
-                <tr class="bg-gray-50/80">
-                  <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">Product</th>
-                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Qty</th>
-                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Unit Price</th>
-                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Discount</th>
-                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Line Total</th>
-                  <th class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-muted">Actions</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-50">
-                @for (item of transaction()!.items; track item.id) {
-                  <tr
-                    data-testid="transaction-item-row"
-                    class="transition-colors"
-                    [class.opacity-50]="item.status === 'voided'"
-                    [class.bg-blue-50]="editingRowId() === item.id"
-                    [class.hover:bg-gray-50]="editingRowId() !== item.id && item.status !== 'voided'"
-                  >
-                    <!-- Product name — click to activate inline edit -->
-                    <td
-                      class="px-4 py-3 font-medium text-text"
-                      [class.cursor-pointer]="item.status !== 'voided' && editingRowId() !== item.id"
-                      (click)="item.status !== 'voided' && editingRowId() !== item.id && openInlineEdit(item)"
+
+          @if (!transaction()!.items.length) {
+            <!-- Empty state -->
+            <div class="flex flex-col items-center justify-center gap-3 py-12 text-center">
+              <div class="flex h-14 w-14 items-center justify-center rounded-full bg-gray-100">
+                <i class="pi pi-inbox text-2xl text-gray-400"></i>
+              </div>
+              <p class="text-sm font-medium text-gray-600">No items in this transaction</p>
+            </div>
+          } @else {
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-100 text-sm">
+                <caption class="sr-only">Transaction items</caption>
+                <thead>
+                  <tr class="bg-gray-50">
+                    <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Product</th>
+                    <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">Qty</th>
+                    <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">Unit Price</th>
+                    <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">Discount</th>
+                    <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500">Line Total</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">Actions</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  @for (item of transaction()!.items; track item.id) {
+                    <tr
+                      data-testid="transaction-item-row"
+                      class="transition-colors"
+                      [class.opacity-50]="item.status === 'voided'"
+                      [class.bg-blue-50]="editingRowId() === item.id"
+                      [class.hover:bg-gray-50]="editingRowId() !== item.id && item.status !== 'voided'"
                     >
-                      {{ getProductName(item.product_id) }}
-                      @if (item.status === 'voided') {
-                        <span class="ml-2 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">voided</span>
-                      }
-                      @if (item.status !== 'voided' && editingRowId() !== item.id) {
-                        <i class="pi pi-pencil ml-2 text-[10px] text-muted/50"></i>
-                      }
-                    </td>
+                      <!-- Product name — click to activate inline edit -->
+                      <td
+                        class="px-4 py-3 font-medium text-gray-900"
+                        [class.cursor-pointer]="item.status !== 'voided' && editingRowId() !== item.id"
+                        (click)="item.status !== 'voided' && editingRowId() !== item.id && openInlineEdit(item)"
+                      >
+                        {{ getProductName(item.product_id) }}
+                        @if (item.status === 'voided') {
+                          <span class="ml-2 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">voided</span>
+                        }
+                        @if (item.status !== 'voided' && editingRowId() !== item.id) {
+                          <i class="pi pi-pencil ml-2 text-[10px] text-gray-400"></i>
+                        }
+                      </td>
 
-                    <!-- Qty -->
-                    <td class="px-4 py-2 text-right text-muted">
-                      @if (editingRowId() === item.id) {
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          [(ngModel)]="rowDraft().quantity"
-                          (ngModelChange)="patchDraft({ quantity: $event })"
-                          data-testid="inline-qty-input"
-                          class="w-20 rounded border border-primary px-2 py-1 text-right text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary"
-                        />
-                      } @else {
-                        {{ item.quantity }}
-                      }
-                    </td>
-
-                    <!-- Unit Price -->
-                    <td class="px-4 py-2 text-right text-muted">
-                      @if (editingRowId() === item.id) {
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          [(ngModel)]="rowDraft().unit_price"
-                          (ngModelChange)="patchDraft({ unit_price: $event })"
-                          data-testid="inline-price-input"
-                          class="w-28 rounded border border-primary px-2 py-1 text-right text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary"
-                        />
-                      } @else {
-                        {{ item.unit_price | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                      }
-                    </td>
-
-                    <!-- Discount -->
-                    <td class="px-4 py-2 text-right text-muted">
-                      @if (editingRowId() === item.id) {
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          [ngModel]="rowDraft().discount_amount ?? ''"
-                          (ngModelChange)="patchDraft({ discount_amount: $event === '' || $event === null ? null : +$event })"
-                          data-testid="inline-discount-input"
-                          placeholder="0.00"
-                          class="w-24 rounded border border-primary px-2 py-1 text-right text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary"
-                        />
-                      } @else if (item.discount_amount) {
-                        {{ item.discount_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                      } @else {
-                        —
-                      }
-                    </td>
-
-                    <!-- Line Total -->
-                    <td class="px-4 py-2 text-right font-semibold text-text">
-                      @if (editingRowId() === item.id) {
-                        <span class="text-primary">
-                          {{ inlineLineTotal() | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                        </span>
-                      } @else {
-                        {{ item.total_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                      }
-                    </td>
-
-                    <!-- Actions -->
-                    <td class="px-4 py-2 text-center">
-                      <div class="flex items-center justify-center gap-1">
+                      <!-- Qty -->
+                      <td class="px-4 py-2 text-right text-gray-600">
                         @if (editingRowId() === item.id) {
-                          <!-- Save -->
-                          <button
-                            data-testid="inline-save-btn"
-                            (click)="submitInlineEdit()"
-                            [disabled]="saving()"
-                            class="rounded p-1.5 text-green-600 transition-colors hover:bg-green-50 disabled:opacity-50"
-                            title="Save"
-                            type="button"
-                          >
-                            @if (saving()) {
-                              <i class="pi pi-spinner pi-spin text-xs"></i>
-                            } @else {
-                              <i class="pi pi-check text-xs"></i>
-                            }
-                          </button>
-                          <!-- Cancel -->
-                          <button
-                            data-testid="inline-cancel-btn"
-                            (click)="cancelInlineEdit()"
-                            class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100"
-                            title="Cancel"
-                            type="button"
-                          >
-                            <i class="pi pi-times text-xs"></i>
-                          </button>
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            [(ngModel)]="rowDraft().quantity"
+                            (ngModelChange)="patchDraft({ quantity: $event })"
+                            data-testid="inline-qty-input"
+                            class="w-20 rounded border border-primary px-2 py-1 text-right text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
                         } @else {
-                          @if (item.status !== 'voided') {
+                          {{ item.quantity }}
+                        }
+                      </td>
+
+                      <!-- Unit Price -->
+                      <td class="px-4 py-2 text-right text-gray-600">
+                        @if (editingRowId() === item.id) {
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            [(ngModel)]="rowDraft().unit_price"
+                            (ngModelChange)="patchDraft({ unit_price: $event })"
+                            data-testid="inline-price-input"
+                            class="w-28 rounded border border-primary px-2 py-1 text-right text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                        } @else {
+                          {{ item.unit_price | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                        }
+                      </td>
+
+                      <!-- Discount -->
+                      <td class="px-4 py-2 text-right text-gray-600">
+                        @if (editingRowId() === item.id) {
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            [ngModel]="rowDraft().discount_amount ?? ''"
+                            (ngModelChange)="patchDraft({ discount_amount: $event === '' || $event === null ? null : +$event })"
+                            data-testid="inline-discount-input"
+                            placeholder="0.00"
+                            class="w-24 rounded border border-primary px-2 py-1 text-right text-sm text-text focus:outline-none focus:ring-1 focus:ring-primary"
+                          />
+                        } @else if (item.discount_amount) {
+                          {{ item.discount_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                        } @else {
+                          —
+                        }
+                      </td>
+
+                      <!-- Line Total -->
+                      <td class="px-4 py-2 text-right font-semibold text-gray-900">
+                        @if (editingRowId() === item.id) {
+                          <span class="text-primary">
+                            {{ inlineLineTotal() | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                          </span>
+                        } @else {
+                          {{ item.total_amount | currency: (item.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                        }
+                      </td>
+
+                      <!-- Actions -->
+                      <td class="px-4 py-2 text-center">
+                        <div class="flex items-center justify-center gap-1">
+                          @if (editingRowId() === item.id) {
+                            <!-- Save -->
                             <button
-                              data-testid="txn-item-void-btn"
-                              (click)="openVoidDialog(item)"
-                              class="rounded p-1.5 text-muted transition-colors hover:bg-red-50 hover:text-danger"
-                              title="Void sale"
+                              data-testid="inline-save-btn"
+                              (click)="submitInlineEdit()"
+                              [disabled]="saving()"
+                              class="rounded p-1.5 text-emerald-600 transition-colors hover:bg-emerald-50 disabled:opacity-50"
+                              title="Save"
                               type="button"
                             >
-                              <i class="pi pi-trash text-xs"></i>
+                              @if (saving()) {
+                                <i class="pi pi-spinner pi-spin text-xs"></i>
+                              } @else {
+                                <i class="pi pi-check text-xs"></i>
+                              }
+                            </button>
+                            <!-- Cancel -->
+                            <button
+                              data-testid="inline-cancel-btn"
+                              (click)="cancelInlineEdit()"
+                              class="rounded p-1.5 text-gray-500 transition-colors hover:bg-gray-100"
+                              title="Cancel"
+                              type="button"
+                            >
+                              <i class="pi pi-times text-xs"></i>
+                            </button>
+                          } @else {
+                            @if (item.status !== 'voided') {
+                              <button
+                                data-testid="txn-item-void-btn"
+                                (click)="openVoidDialog(item)"
+                                class="rounded p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                                title="Void sale"
+                                type="button"
+                              >
+                                <i class="pi pi-trash text-xs"></i>
+                              </button>
+                            }
+                            <button
+                              data-testid="txn-item-audit-btn"
+                              (click)="openAuditDialog(item.id)"
+                              class="rounded p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                              title="View audit trail"
+                              type="button"
+                            >
+                              <i class="pi pi-clock text-xs"></i>
                             </button>
                           }
-                          <button
-                            data-testid="txn-item-audit-btn"
-                            (click)="openAuditDialog(item.id)"
-                            class="rounded p-1.5 text-muted transition-colors hover:bg-gray-100 hover:text-text"
-                            title="View audit trail"
-                            type="button"
-                          >
-                            <i class="pi pi-clock text-xs"></i>
-                          </button>
-                        }
-                      </div>
+                        </div>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+                <tfoot>
+                  <tr class="border-t-2 border-gray-200 bg-gray-50">
+                    <td colspan="4" class="px-4 py-3 text-right text-sm font-semibold text-gray-700">Grand Total</td>
+                    <td class="px-4 py-3 text-right">
+                      <span class="text-2xl font-bold text-gray-900">
+                        {{ transaction()!.total_amount | currency: (transaction()!.currency || 'NGN') : 'symbol' : '1.2-2' }}
+                      </span>
                     </td>
+                    <td></td>
                   </tr>
-                }
-              </tbody>
-              <tfoot>
-                <tr class="border-t-2 border-gray-200 bg-gray-50/80">
-                  <td colspan="4" class="px-4 py-3 text-right text-sm font-semibold text-text">Grand Total</td>
-                  <td class="px-4 py-3 text-right text-base font-bold text-primary">
-                    {{ transaction()!.total_amount | currency: (transaction()!.currency || 'NGN') : 'symbol' : '1.2-2' }}
-                  </td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+                </tfoot>
+              </table>
+            </div>
+          }
 
           @if (transaction()!.status !== 'voided') {
             <div class="border-t border-gray-100 px-5 py-4">
               <button
                 data-testid="edit-transaction-btn"
                 (click)="openEditTransactionDialog()"
-                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+                class="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
                 type="button"
               >
                 <i class="pi pi-pencil text-xs"></i> Edit Payment & Notes
