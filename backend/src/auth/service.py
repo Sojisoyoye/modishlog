@@ -6,7 +6,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.exceptions import (
@@ -20,6 +20,7 @@ from src.auth.exceptions import (
 )
 from src.auth.models import PasswordResetToken, RefreshToken, User, UserRole
 from src.core.config import settings
+from src.core.database import async_session_factory
 from src.core.security import create_access_token, get_password_hash, verify_password
 
 logger = structlog.get_logger()
@@ -89,13 +90,23 @@ async def authenticate_user(
         raise AccountLockedError(user.locked_until)
 
     if not verify_password(password, user.hashed_password):
-        user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
-        if user.failed_login_attempts >= LOCKOUT_THRESHOLD:
-            user.locked_until = now + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
+        new_attempts = (user.failed_login_attempts or 0) + 1
+        locked_until = (
+            now + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
+            if new_attempts >= LOCKOUT_THRESHOLD
+            else user.locked_until
+        )
+        if new_attempts >= LOCKOUT_THRESHOLD:
             await logger.awarn("account_locked", email=email)
-        # commit here so the counter persists even though get_db will see an
-        # exception (HTTPException) and call rollback() on the now-empty txn
-        await db.commit()
+        # Use a separate session so this write is committed independently of the
+        # request session — get_db rolls back the request session on any exception.
+        async with async_session_factory() as lockout_db:
+            await lockout_db.execute(
+                update(User)
+                .where(User.id == user.id)
+                .values(failed_login_attempts=new_attempts, locked_until=locked_until)
+            )
+            await lockout_db.commit()
         raise InvalidCredentialsError()
 
     # Successful login — reset counters

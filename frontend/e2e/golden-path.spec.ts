@@ -132,11 +132,9 @@ test.describe('Golden path — full MVP business cycle', () => {
     // Success toast — summary 'Success', detail 'Sales recorded successfully'
     await expect(page.getByText('Sales recorded successfully')).toBeVisible({ timeout: 8000 });
 
-    // Stock should have decreased by 3
+    // Stock decreased by exactly 3
     const stockAfter = await getStock(productId);
-    // Allow ±10 tolerance for accumulated state from parallel tests or background deliveries
-    expect(stockAfter).toBeGreaterThanOrEqual(stockBefore - 13);
-    expect(stockAfter).toBeLessThan(stockBefore);
+    expect(stockAfter).toBe(stockBefore - 3);
   });
 
   test('P&L report generates with non-zero revenue after the sale', async ({ page }) => {

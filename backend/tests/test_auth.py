@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -77,6 +77,20 @@ def _mock_db(user: User | None = None) -> AsyncMock:
     db.flush = AsyncMock()
     db.add = MagicMock()
     return db
+
+
+def _mock_lockout_factory():
+    """Return (factory_mock, lockout_db_mock) for patching async_session_factory.
+
+    The factory is used as an async context manager in the lockout write path.
+    """
+    lockout_db = AsyncMock()
+    lockout_db.execute = AsyncMock()
+    lockout_db.commit = AsyncMock()
+    factory_mock = MagicMock()
+    factory_mock.return_value.__aenter__ = AsyncMock(return_value=lockout_db)
+    factory_mock.return_value.__aexit__ = AsyncMock(return_value=False)
+    return factory_mock, lockout_db
 
 
 # ---------------------------------------------------------------------------
@@ -215,17 +229,25 @@ class TestAuthenticateUser:
     async def test_wrong_password_increments_attempts(self):
         user = _make_user(failed_login_attempts=0)
         db = _mock_db(user=user)
-        with pytest.raises(InvalidCredentialsError):
-            await authenticate_user(db, user.email, "WrongPassword!1")
-        assert user.failed_login_attempts == 1
+        factory_mock, lockout_db = _mock_lockout_factory()
+        with patch("src.auth.service.async_session_factory", factory_mock):
+            with pytest.raises(InvalidCredentialsError):
+                await authenticate_user(db, user.email, "WrongPassword!1")
+        # Verify the counter was written via the independent session (not mutated in-place)
+        lockout_db.execute.assert_called_once()
+        lockout_db.commit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_lockout_after_threshold(self):
         user = _make_user(failed_login_attempts=LOCKOUT_THRESHOLD - 1)
         db = _mock_db(user=user)
-        with pytest.raises(InvalidCredentialsError):
-            await authenticate_user(db, user.email, "WrongPassword!1")
-        assert user.locked_until is not None
+        factory_mock, lockout_db = _mock_lockout_factory()
+        with patch("src.auth.service.async_session_factory", factory_mock):
+            with pytest.raises(InvalidCredentialsError):
+                await authenticate_user(db, user.email, "WrongPassword!1")
+        # Verify the lockout timestamp was written via the independent session
+        lockout_db.execute.assert_called_once()
+        lockout_db.commit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_locked_account_raises(self):
