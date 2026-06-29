@@ -7,6 +7,11 @@ export interface ApiKeyStatus {
   is_configured: boolean;
 }
 
+export interface FiscalYearStart {
+  fiscal_year_start_month: number | null;
+  fiscal_year_start_day: number | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SettingsService {
   private readonly api = inject(ApiService);
@@ -20,5 +25,9 @@ export class SettingsService {
 
   getApiKeyStatus(keyName: string): Observable<ApiKeyStatus> {
     return this.api.get<ApiKeyStatus>(`/settings/api-key/${keyName}`);
+  }
+
+  getFiscalYearStart(): Observable<FiscalYearStart> {
+    return this.api.get<FiscalYearStart>('/settings/fiscal-year');
   }
 }

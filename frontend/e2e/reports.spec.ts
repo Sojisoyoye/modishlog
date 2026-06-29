@@ -113,3 +113,41 @@ test.describe('Stock report generation', () => {
     await expect(page.locator('p.text-2xl.font-bold').first()).toHaveText(/\d[\d,]*\.\d{2}/);
   });
 });
+
+test.describe('Reports auto-load on page open', () => {
+  test.beforeAll(async () => {
+    const product = await ensureProduct('Auto-load Test Product');
+    await addStock(product.id, 5);
+  });
+
+  test('profit/loss page auto-loads report without user interaction', async ({ page }) => {
+    await page.goto('/reports/profit-loss');
+    await expect(page.getByRole('heading', { name: 'Profit & Loss Report' })).toBeVisible();
+    await expect(page.getByText('Net Profit', { exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('p.text-4xl.font-bold').first()).toBeVisible();
+  });
+
+  test('profit/loss date pickers are pre-filled on page open', async ({ page }) => {
+    await page.goto('/reports/profit-loss');
+    await expect(page.locator('#pl-start-date')).not.toHaveValue('', { timeout: 5000 });
+    await expect(page.locator('#pl-end-date')).not.toHaveValue('');
+  });
+
+  test('purchase-sale page auto-loads report without user interaction', async ({ page }) => {
+    await page.goto('/reports/purchase-sale');
+    await expect(page.getByRole('heading', { name: 'Purchase & Sale Report' })).toBeVisible();
+    await expect(page.getByText('Net Position', { exact: true })).toBeVisible({ timeout: 10000 });
+  });
+
+  test('purchase-sale date pickers are pre-filled on page open', async ({ page }) => {
+    await page.goto('/reports/purchase-sale');
+    await expect(page.locator('#ps-start-date')).not.toHaveValue('', { timeout: 5000 });
+    await expect(page.locator('#ps-end-date')).not.toHaveValue('');
+  });
+
+  test('stock report page auto-loads table without user interaction', async ({ page }) => {
+    await page.goto('/reports/stock');
+    await expect(page.getByRole('heading', { name: 'Stock Report' })).toBeVisible();
+    await expect(page.locator('table').first()).toBeVisible({ timeout: 10000 });
+  });
+});

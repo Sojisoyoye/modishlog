@@ -1,9 +1,12 @@
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
+import { catchError, of } from 'rxjs';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { ReportsService, PurchaseSaleReport } from '../../../core/services/reports.service';
+import { SettingsService } from '../../../core/services/settings.service';
+import { computeDefaultDateRange } from '../../../core/utils/fiscal-year.utils';
 
 interface SummaryCard {
   label: string;
@@ -107,14 +110,30 @@ interface SummaryCard {
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PurchaseSalePageComponent {
+export class PurchaseSalePageComponent implements OnInit {
   private readonly reportsService = inject(ReportsService);
+  private readonly settingsService = inject(SettingsService);
   private readonly messageService = inject(MessageService);
 
   startDate = '';
   endDate = '';
   loading = signal(false);
   report = signal<PurchaseSaleReport | null>(null);
+
+  ngOnInit(): void {
+    this.settingsService
+      .getFiscalYearStart()
+      .pipe(catchError(() => of({ fiscal_year_start_month: null, fiscal_year_start_day: null })))
+      .subscribe((fy) => {
+        const { start, end } = computeDefaultDateRange(
+          fy.fiscal_year_start_month,
+          fy.fiscal_year_start_day,
+        );
+        this.startDate = start;
+        this.endDate = end;
+        this.generateReport();
+      });
+  }
 
   buildCards(r: PurchaseSaleReport): SummaryCard[] {
     return [

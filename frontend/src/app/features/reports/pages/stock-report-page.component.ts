@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
@@ -119,12 +119,16 @@ import { ReportsService, StockReport } from '../../../core/services/reports.serv
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class StockReportPageComponent {
+export class StockReportPageComponent implements OnInit {
   private readonly reportsService = inject(ReportsService);
   private readonly messageService = inject(MessageService);
 
   loading = signal(false);
   report = signal<StockReport | null>(null);
+
+  ngOnInit(): void {
+    this.generateReport();
+  }
 
   generateReport(): void {
     this.loading.set(true);
