@@ -1,7 +1,14 @@
-import { Component, ChangeDetectionStrategy, OnInit, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, OnInit, inject, signal, computed, DestroyRef } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { SettingsService } from '../../../core/services/settings.service';
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 @Component({
   selector: 'app-settings-page',
@@ -121,6 +128,72 @@ import { SettingsService } from '../../../core/services/settings.service';
           </div>
         </div>
 
+        <!-- Fiscal Year Section -->
+        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div class="mb-5 flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
+              <i class="pi pi-calendar text-sm text-success"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Fiscal Year</h3>
+          </div>
+          <div class="space-y-4">
+            <p class="text-sm text-muted">
+              Set the start of your financial year. Reports will default to this date. Leave as
+              <em>Not configured</em> to use a rolling 365-day window.
+            </p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label for="fy-month" class="mb-1.5 block text-xs font-medium text-muted">Start Month</label>
+                <select
+                  id="fy-month"
+                  [ngModel]="fyMonth()"
+                  (ngModelChange)="fyMonth.set($event); fyDay.set(null); fyStatus.set(null)"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">Not configured</option>
+                  @for (name of monthNames; track $index) {
+                    <option [value]="'' + ($index + 1)">{{ name }}</option>
+                  }
+                </select>
+              </div>
+              <div>
+                <label for="fy-day" class="mb-1.5 block text-xs font-medium text-muted">Start Day</label>
+                <input
+                  id="fy-day"
+                  type="number"
+                  [ngModel]="fyDay()"
+                  (ngModelChange)="fyDay.set($event ? +$event : null); fyStatus.set(null)"
+                  [disabled]="!fyMonth()"
+                  min="1"
+                  max="31"
+                  placeholder="Day"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-muted"
+                />
+                @if (fyDayWarning()) {
+                  <p class="mt-1 text-xs text-warning">{{ fyDayWarning() }}</p>
+                }
+              </div>
+            </div>
+            <button
+              (click)="saveFiscalYear()"
+              [disabled]="fysSaving()"
+              class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+            >
+              <i class="pi pi-save text-sm"></i> Save Fiscal Year
+            </button>
+            @if (fyStatus() === 'saved') {
+              <div class="rounded-lg bg-green-50 p-3 text-sm text-success">
+                <i class="pi pi-check-circle mr-1 text-xs"></i>Fiscal year start saved
+              </div>
+            }
+            @if (fyStatus() === 'error') {
+              <div class="rounded-lg bg-red-50 p-3 text-sm text-danger">
+                <i class="pi pi-times-circle mr-1 text-xs"></i>Failed to save — check the day value and try again
+              </div>
+            }
+          </div>
+        </div>
+
         <!-- General Preferences -->
         <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm lg:col-span-2">
           <div class="mb-5 flex items-center gap-2">
@@ -162,6 +235,9 @@ import { SettingsService } from '../../../core/services/settings.service';
 })
 export class SettingsPageComponent implements OnInit {
   private readonly settingsService = inject(SettingsService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  readonly monthNames = MONTH_NAMES;
 
   apiKey = '';
   apiKeyVisible = signal(false);
@@ -171,11 +247,35 @@ export class SettingsPageComponent implements OnInit {
   defaultPair = 'USDNGN';
   globalStockThreshold = 10;
 
+  fyMonth = signal('');
+  fyDay = signal<number | null>(null);
+  fysSaving = signal(false);
+  fyStatus = signal<'saved' | 'error' | null>(null);
+
+  fyDayWarning = computed(() => {
+    const m = parseInt(this.fyMonth(), 10);
+    const d = this.fyDay();
+    if (!m || d === null) return null;
+    const max = MONTH_MAX_DAYS[m - 1];
+    if (d > max) return `${MONTH_NAMES[m - 1]} has at most ${max} days`;
+    return null;
+  });
+
   ngOnInit(): void {
     this.settingsService.getApiKeyStatus('anthropic').subscribe({
       next: (status) => this.apiKeyConfigured.set(status.is_configured),
       error: () => {},
     });
+    this.settingsService
+      .getFiscalYearStart()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (fy) => {
+          this.fyMonth.set(fy.fiscal_year_start_month ? String(fy.fiscal_year_start_month) : '');
+          this.fyDay.set(fy.fiscal_year_start_day ?? null);
+        },
+        error: () => {},
+      });
   }
 
   saveApiKey(): void {
@@ -190,6 +290,27 @@ export class SettingsPageComponent implements OnInit {
       },
       error: () => {
         this.saving.set(false);
+      },
+    });
+  }
+
+  saveFiscalYear(): void {
+    const month = this.fyMonth() ? parseInt(this.fyMonth(), 10) : null;
+    const day = this.fyMonth() ? this.fyDay() : null;
+    if (month !== null && day === null) {
+      this.fyStatus.set('error');
+      return;
+    }
+    this.fysSaving.set(true);
+    this.fyStatus.set(null);
+    this.settingsService.updateFiscalYearStart(month, day).subscribe({
+      next: () => {
+        this.fysSaving.set(false);
+        this.fyStatus.set('saved');
+      },
+      error: () => {
+        this.fysSaving.set(false);
+        this.fyStatus.set('error');
       },
     });
   }

@@ -30,4 +30,11 @@ export class SettingsService {
   getFiscalYearStart(): Observable<FiscalYearStart> {
     return this.api.get<FiscalYearStart>('/settings/fiscal-year');
   }
+
+  updateFiscalYearStart(month: number | null, day: number | null): Observable<FiscalYearStart> {
+    return this.api.put<FiscalYearStart>('/settings/fiscal-year', {
+      fiscal_year_start_month: month,
+      fiscal_year_start_day: day,
+    });
+  }
 }
