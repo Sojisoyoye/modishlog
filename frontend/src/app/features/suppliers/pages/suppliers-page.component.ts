@@ -35,13 +35,18 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
     <div>
       <!-- Header -->
       <div class="mb-6 flex items-center justify-between">
-        <div>
-          <h2 class="text-2xl font-bold text-text">Suppliers</h2>
-          <p class="mt-1 text-sm text-muted">Manage your suppliers and purchase history</p>
+        <div class="flex items-center gap-3">
+          <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+            <i class="pi pi-users text-lg"></i>
+          </div>
+          <div>
+            <h2 class="text-2xl font-bold text-text">Suppliers</h2>
+            <p class="mt-0.5 text-sm text-muted">Manage your suppliers and purchase history</p>
+          </div>
         </div>
         <button
           (click)="openAddDialog()"
-          class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+          class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md min-h-[44px]"
         >
           <i class="pi pi-plus text-sm"></i> Add Supplier
         </button>
@@ -56,42 +61,42 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             [(ngModel)]="searchTerm"
             (ngModelChange)="onSearch()"
             placeholder="Search suppliers..."
-            class="w-full rounded-lg border border-gray-300 py-2.5 pl-9 pr-3 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            class="w-full rounded-lg border border-gray-300 py-2.5 pl-9 pr-3 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
           />
         </div>
-        <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-muted">
+        <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-muted min-h-[44px]">
           <input type="checkbox" [(ngModel)]="activeOnly" (ngModelChange)="loadSuppliers()" />
           Active only
         </label>
       </div>
 
       <!-- Suppliers Table -->
-      <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div class="rounded-xl border border-gray-100 bg-white shadow-sm">
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
             <caption class="sr-only">Suppliers list</caption>
             <thead>
-              <tr class="bg-gray-50/80">
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">Name</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">Contact</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">Mobile</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">Email</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">Pay Terms</th>
-                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">Opening Bal.</th>
-                <th class="px-4 py-3 text-center text-xs font-semibold uppercase text-muted">Status</th>
-                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">Actions</th>
+              <tr class="bg-gray-50">
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Name</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Contact</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Mobile</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Email</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Pay Terms</th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Opening Bal.</th>
+                <th class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-500">Status</th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
               @for (s of suppliers(); track s.id) {
                 <tr
-                  class="cursor-pointer transition-colors hover:bg-gray-50/60"
+                  class="cursor-pointer transition-colors hover:bg-gray-50"
                   (click)="openDetail(s)"
                 >
-                  <td class="px-4 py-3 font-semibold text-secondary">{{ s.name }}</td>
-                  <td class="px-4 py-3 text-text">{{ s.contact_person ?? '—' }}</td>
-                  <td class="px-4 py-3 text-text">{{ s.mobile ?? '—' }}</td>
-                  <td class="px-4 py-3 text-text">{{ s.email ?? '—' }}</td>
+                  <td class="px-4 py-3 font-semibold text-gray-900">{{ s.name }}</td>
+                  <td class="px-4 py-3 text-sm text-gray-500">{{ s.contact_person ?? '—' }}</td>
+                  <td class="px-4 py-3 text-sm text-gray-500">{{ s.mobile ?? '—' }}</td>
+                  <td class="px-4 py-3 text-sm text-gray-500">{{ s.email ?? '—' }}</td>
                   <td class="px-4 py-3 text-text">
                     @if (s.pay_term_number) {
                       {{ s.pay_term_number }} {{ s.pay_term_type }}
@@ -114,14 +119,14 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                     <button
                       [attr.data-testid]="'edit-supplier-' + s.name"
                       (click)="openEditDialog(s)"
-                      class="mr-2 rounded p-1 text-muted transition-colors hover:bg-gray-100 hover:text-secondary"
+                      class="mr-2 inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded p-1 text-muted transition-colors hover:bg-gray-100 hover:text-secondary"
                       title="Edit"
                     >
                       <i class="pi pi-pencil text-xs"></i>
                     </button>
                     <button
                       (click)="toggleActive(s)"
-                      class="rounded p-1 text-muted transition-colors hover:bg-gray-100 hover:text-text"
+                      class="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded p-1 text-muted transition-colors hover:bg-gray-100 hover:text-text"
                       [title]="s.is_active ? 'Deactivate' : 'Activate'"
                     >
                       <i class="pi pi-power-off text-xs"></i>
@@ -130,9 +135,20 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="8" class="px-4 py-12 text-center text-muted">
-                    <i class="pi pi-users mb-2 block text-3xl text-gray-300"></i>
-                    No suppliers found. Add your first supplier to get started.
+                  <td colspan="8" class="px-4 py-16 text-center">
+                    <div class="flex flex-col items-center gap-3">
+                      <div class="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50">
+                        <i class="pi pi-users text-3xl text-emerald-300"></i>
+                      </div>
+                      <p class="font-semibold text-gray-900">No suppliers yet</p>
+                      <p class="text-sm text-muted">Add your first supplier to get started.</p>
+                      <button
+                        (click)="openAddDialog()"
+                        class="mt-1 flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 min-h-[44px]"
+                      >
+                        <i class="pi pi-plus text-xs"></i> Add Supplier
+                      </button>
+                    </div>
                   </td>
                 </tr>
               }
@@ -166,7 +182,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
               type="text"
               [(ngModel)]="form.name"
               placeholder="Supplier name"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
           <div>
@@ -175,7 +191,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
               type="text"
               [(ngModel)]="form.contact_person"
               placeholder="Contact person"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
           <div>
@@ -184,7 +200,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
               type="text"
               [(ngModel)]="form.tax_number"
               placeholder="TIN / VAT number"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
           <div>
@@ -193,7 +209,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
               type="email"
               [(ngModel)]="form.email"
               placeholder="Email address"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
           <div>
@@ -202,7 +218,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
               type="tel"
               [(ngModel)]="form.mobile"
               placeholder="Mobile number"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
           <div>
@@ -211,7 +227,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
               type="tel"
               [(ngModel)]="form.alternate_number"
               placeholder="Alternate number"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
         </div>
@@ -225,7 +241,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                 type="text"
                 [(ngModel)]="form.address_line_1"
                 placeholder="Address line 1"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               />
             </div>
             <div class="sm:col-span-2">
@@ -233,7 +249,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                 type="text"
                 [(ngModel)]="form.address_line_2"
                 placeholder="Address line 2"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               />
             </div>
             <div>
@@ -241,7 +257,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                 type="text"
                 [(ngModel)]="form.city"
                 placeholder="City"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               />
             </div>
             <div>
@@ -249,7 +265,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                 type="text"
                 [(ngModel)]="form.state"
                 placeholder="State"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               />
             </div>
             <div>
@@ -257,7 +273,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                 type="text"
                 [(ngModel)]="form.country"
                 placeholder="Country"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               />
             </div>
             <div>
@@ -265,7 +281,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                 type="text"
                 [(ngModel)]="form.zip_code"
                 placeholder="ZIP / Postal code"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               />
             </div>
           </div>
@@ -280,14 +296,14 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
               [(ngModel)]="form.pay_term_number"
               placeholder="e.g. 30"
               min="1"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
           <div>
             <label class="mb-1 block text-xs font-medium text-muted">Term Type</label>
             <select
               [(ngModel)]="form.pay_term_type"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             >
               <option value="">—</option>
               <option value="days">Days</option>
@@ -302,7 +318,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
               min="0"
               step="0.01"
               placeholder="0.00"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
         </div>
@@ -314,21 +330,30 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             [(ngModel)]="form.notes"
             rows="2"
             placeholder="Internal notes about this supplier"
-            class="w-full resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+            class="w-full resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
           ></textarea>
         </div>
 
-        <button
-          (click)="saveSupplier()"
-          [disabled]="saving() || !form.name"
-          class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
-        >
-          @if (saving()) {
-            <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
-          } @else {
-            <i class="pi pi-check text-sm"></i> Save Supplier
-          }
-        </button>
+        <div class="flex gap-3">
+          <button
+            type="button"
+            (click)="showForm = false"
+            class="flex flex-1 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all hover:bg-gray-50 min-h-[44px]"
+          >
+            Cancel
+          </button>
+          <button
+            (click)="saveSupplier()"
+            [disabled]="saving() || !form.name"
+            class="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50 min-h-[44px]"
+          >
+            @if (saving()) {
+              <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
+            } @else {
+              <i class="pi pi-check text-sm"></i> Save Supplier
+            }
+          </button>
+        </div>
       </div>
     </p-dialog>
 
@@ -342,18 +367,18 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
     >
       @if (selectedSupplier()) {
         <!-- Supplier summary strip -->
-        <div class="mb-4 grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-3 text-sm sm:grid-cols-4">
+        <div class="mb-4 grid grid-cols-2 gap-3 rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm sm:grid-cols-4">
           <div>
             <p class="text-xs text-muted">Contact</p>
-            <p class="font-medium text-text">{{ selectedSupplier()!.contact_person ?? '—' }}</p>
+            <p class="font-semibold text-gray-900">{{ selectedSupplier()!.contact_person ?? '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-muted">Mobile</p>
-            <p class="font-medium text-text">{{ selectedSupplier()!.mobile ?? '—' }}</p>
+            <p class="font-semibold text-gray-900">{{ selectedSupplier()!.mobile ?? '—' }}</p>
           </div>
           <div>
             <p class="text-xs text-muted">Pay Terms</p>
-            <p class="font-medium text-text">
+            <p class="font-semibold text-gray-900">
               @if (selectedSupplier()!.pay_term_number) {
                 {{ selectedSupplier()!.pay_term_number }} {{ selectedSupplier()!.pay_term_type }}
               } @else {
@@ -363,7 +388,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
           </div>
           <div>
             <p class="text-xs text-muted">Opening Balance</p>
-            <p class="font-medium text-text">{{ selectedSupplier()!.opening_balance | number: '1.2-2' }}</p>
+            <p class="font-semibold text-amber-700">{{ selectedSupplier()!.opening_balance | number: '1.2-2' }}</p>
           </div>
         </div>
 
@@ -374,10 +399,10 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
               role="tab"
               [attr.aria-selected]="activeTab() === tab.key"
               (click)="switchTab(tab.key)"
-              class="px-4 py-2.5 text-sm font-medium transition-colors"
+              class="px-4 py-2.5 text-sm transition-colors"
               [class]="activeTab() === tab.key
-                ? 'border-b-2 border-primary text-primary'
-                : 'text-muted hover:text-text'"
+                ? 'border-b-2 border-primary text-primary font-semibold'
+                : 'font-medium text-muted hover:text-text'"
             >
               {{ tab.label }}
             </button>
@@ -396,20 +421,20 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             } @else {
               <table class="min-w-full divide-y divide-gray-200 text-sm">
                 <thead>
-                  <tr class="bg-gray-50/80">
-                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Order #</th>
-                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Date</th>
-                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Status</th>
-                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Total</th>
+                  <tr class="bg-gray-50">
+                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Order #</th>
+                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Date</th>
+                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Status</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Total</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                   @for (p of supplierPurchases(); track p.id) {
-                    <tr>
+                    <tr class="hover:bg-gray-50">
                       <td class="px-3 py-2 font-medium text-secondary">{{ p.order_number }}</td>
                       <td class="px-3 py-2 text-muted">{{ p.created_at | date: 'mediumDate' }}</td>
                       <td class="px-3 py-2">{{ p.status }}</td>
-                      <td class="px-3 py-2 text-right font-semibold">{{ p.total_amount | number: '1.2-2' }}</td>
+                      <td class="px-3 py-2 text-right font-semibold text-gray-900">{{ p.total_amount | number: '1.2-2' }}</td>
                     </tr>
                   }
                 </tbody>
@@ -430,22 +455,22 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             } @else {
               <table class="min-w-full divide-y divide-gray-200 text-sm">
                 <thead>
-                  <tr class="bg-gray-50/80">
-                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">SKU</th>
-                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Product</th>
-                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Stock Qty</th>
-                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Unit Cost</th>
-                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Stock Value</th>
+                  <tr class="bg-gray-50">
+                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">SKU</th>
+                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Product</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Stock Qty</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Unit Cost</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Stock Value</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                   @for (item of supplierStock(); track item.product_id) {
-                    <tr>
+                    <tr class="hover:bg-gray-50">
                       <td class="px-3 py-2 text-muted">{{ item.sku }}</td>
                       <td class="px-3 py-2 font-medium text-text">{{ item.product_name }}</td>
                       <td class="px-3 py-2 text-right">{{ item.quantity_on_hand }}</td>
                       <td class="px-3 py-2 text-right">{{ item.unit_cost | number: '1.2-2' }}</td>
-                      <td class="px-3 py-2 text-right font-semibold">{{ item.stock_value | number: '1.2-2' }}</td>
+                      <td class="px-3 py-2 text-right font-semibold text-gray-900">{{ item.stock_value | number: '1.2-2' }}</td>
                     </tr>
                   }
                 </tbody>
@@ -469,7 +494,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                   <div class="flex items-start gap-3 rounded-lg border border-gray-100 p-3 text-sm">
                     <div
                       class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                      [class]="a.event_type === 'payment' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'"
+                      [class]="a.event_type === 'payment' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-100 text-blue-600'"
                     >
                       <i
                         class="pi text-xs"
@@ -481,7 +506,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                       <p class="text-xs text-muted">{{ a.timestamp | date: 'medium' }}</p>
                     </div>
                     @if (a.amount) {
-                      <p class="font-semibold text-text">{{ a.amount | number: '1.2-2' }}</p>
+                      <p class="font-semibold text-gray-900">{{ a.amount | number: '1.2-2' }}</p>
                     }
                   </div>
                 }
@@ -500,12 +525,12 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             } @else {
               <table class="min-w-full divide-y divide-gray-200 text-sm">
                 <thead>
-                  <tr class="bg-gray-50/80">
-                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Date</th>
-                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Description</th>
-                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Debit</th>
-                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Credit</th>
-                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Balance</th>
+                  <tr class="bg-gray-50">
+                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Date</th>
+                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Description</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Debit</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Credit</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Balance</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
@@ -515,19 +540,19 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                     </tr>
                   }
                   @for (entry of supplierLedger(); track $index) {
-                    <tr>
+                    <tr class="hover:bg-gray-50">
                       <td class="px-3 py-2 text-muted">{{ entry.date | date: 'mediumDate' }}</td>
                       <td class="px-3 py-2 text-text">{{ entry.description }}</td>
                       <td class="px-3 py-2 text-right">
                         @if (entry.debit > 0) {
-                          <span class="text-danger">{{ entry.debit | number: '1.2-2' }}</span>
+                          <span class="font-semibold text-red-600">{{ entry.debit | number: '1.2-2' }}</span>
                         } @else {
                           —
                         }
                       </td>
                       <td class="px-3 py-2 text-right">
                         @if (entry.credit > 0) {
-                          <span class="text-success">{{ entry.credit | number: '1.2-2' }}</span>
+                          <span class="font-semibold text-emerald-600">{{ entry.credit | number: '1.2-2' }}</span>
                         } @else {
                           —
                         }
