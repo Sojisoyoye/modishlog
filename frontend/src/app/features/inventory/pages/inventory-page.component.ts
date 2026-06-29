@@ -58,6 +58,18 @@ import { ProductsService } from '../../../core/services/products.service';
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
+              @if (pageLoading()) {
+                @for (i of [1,2,3,4,5,6]; track i) {
+                  <tr class="animate-pulse">
+                    <td class="px-4 py-3"><div class="h-4 w-36 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="ml-auto h-4 w-10 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="ml-auto h-4 w-10 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="h-5 w-16 rounded-full bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 w-24 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="mx-auto h-6 w-28 rounded bg-gray-200"></div></td>
+                  </tr>
+                }
+              } @else {
               @for (item of inventory(); track item.product_id) {
                 <tr [class]="stockRowClass(item)">
                   <td class="px-4 py-3 font-medium text-text">{{ item.product_name }}</td>
@@ -123,6 +135,7 @@ import { ProductsService } from '../../../core/services/products.service';
                   </td>
                 </tr>
               }
+              } <!-- end @else (pageLoading) -->
             </tbody>
           </table>
         </div>
@@ -314,6 +327,7 @@ export class InventoryPageComponent implements OnInit {
   private readonly productsService = inject(ProductsService);
   private readonly messageService = inject(MessageService);
 
+  pageLoading = signal(true);
   inventory = signal<InventoryItem[]>([]);
   movements = signal<StockMovement[]>([]);
   editingThresholdId = signal<string | null>(null);
@@ -334,6 +348,7 @@ export class InventoryPageComponent implements OnInit {
   }
 
   private loadData(): void {
+    this.pageLoading.set(true);
     this.productsService.getAll().subscribe({
       next: (products) => {
         const nameMap = new Map(products.map((p) => [p.id, p.name]));
@@ -341,7 +356,9 @@ export class InventoryPageComponent implements OnInit {
           next: (items) => {
             items.forEach((item) => (item.product_name = nameMap.get(item.product_id) ?? 'Unknown'));
             this.inventory.set(items);
+            this.pageLoading.set(false);
           },
+          error: () => { this.pageLoading.set(false); },
         });
         this.inventoryService.getMovements().subscribe({
           next: (movements) => {

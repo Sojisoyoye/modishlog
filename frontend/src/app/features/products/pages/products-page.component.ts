@@ -405,6 +405,24 @@ interface ColEntry {
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
+              @if (pageLoading()) {
+                @for (i of [1,2,3,4,5,6]; track i) {
+                  <tr class="animate-pulse">
+                    <td class="px-4 py-3">
+                      <div class="flex items-center gap-3">
+                        <div class="h-8 w-8 flex-shrink-0 rounded-lg bg-gray-200"></div>
+                        <div class="h-4 w-32 rounded bg-gray-200"></div>
+                      </div>
+                    </td>
+                    <td class="px-4 py-3"><div class="h-4 w-20 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 w-20 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="ml-auto h-4 w-16 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="ml-auto h-4 w-16 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="ml-auto h-4 w-10 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="ml-auto h-6 w-6 rounded bg-gray-200"></div></td>
+                  </tr>
+                }
+              } @else {
               @for (product of pagedProducts(); track product.id) {
                 <tr class="transition-colors hover:bg-gray-50">
                   <td class="px-4 py-3">
@@ -469,6 +487,7 @@ interface ColEntry {
                   </td>
                 </tr>
               }
+              } <!-- end @else (pageLoading) -->
             </tbody>
           </table>
         </div>
@@ -1307,6 +1326,7 @@ export class ProductsPageComponent implements OnInit {
   private readonly api = inject(ApiService);
 
   // ── Shared state ──────────────────────────────────────────────────────────
+  pageLoading = signal(true);
   products = signal<Product[]>([]);
   categories = signal<Category[]>([]);   // flat list: all top-level + sub-categories
   categoryTree = signal<Category[]>([]); // tree: top-level with children nested
@@ -1484,7 +1504,11 @@ export class ProductsPageComponent implements OnInit {
   }
 
   private loadProducts(): void {
-    this.productsService.getAll().subscribe({ next: (p) => this.products.set(p) });
+    this.pageLoading.set(true);
+    this.productsService.getAll().subscribe({
+      next: (p) => { this.products.set(p); this.pageLoading.set(false); },
+      error: () => { this.pageLoading.set(false); },
+    });
   }
 
   private loadCategories(): void {

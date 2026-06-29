@@ -8,6 +8,7 @@ import { Toast } from 'primeng/toast';
 import { ReportsService, PurchaseSaleReport } from '../../../core/services/reports.service';
 import { SettingsService } from '../../../core/services/settings.service';
 import { computeDefaultDateRange } from '../../../core/utils/fiscal-year.utils';
+import { DATE_PRESETS, DatePreset } from '../../../core/utils/date-presets.utils';
 
 interface SummaryCard {
   label: string;
@@ -30,23 +31,38 @@ interface SummaryCard {
 
       <!-- Date Filters -->
       <div class="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <h3 class="mb-4 text-sm font-semibold text-text">Date Range</h3>
+        <h3 class="mb-3 text-sm font-semibold text-text">Date Range</h3>
+        <!-- Quick presets -->
+        <div class="mb-4 flex flex-wrap gap-2">
+          @for (preset of presets; track preset.key) {
+            <button
+              type="button"
+              (click)="applyPreset(preset)"
+              class="rounded-full border px-3 py-1 text-xs font-medium transition-colors"
+              [class]="activePreset === preset.key
+                ? 'border-primary bg-primary text-white'
+                : 'border-gray-300 bg-white text-muted hover:border-primary hover:text-primary'"
+            >{{ preset.label }}</button>
+          }
+        </div>
         <div class="flex flex-wrap items-end gap-4">
           <div class="flex flex-col gap-1">
-            <label for="ps-start-date" class="text-xs font-medium text-muted">Start Date</label>
+            <label for="ps-start-date" class="text-xs font-medium text-muted">From</label>
             <input
               id="ps-start-date"
               type="date"
               [(ngModel)]="startDate"
+              (ngModelChange)="activePreset = null"
               class="rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             />
           </div>
           <div class="flex flex-col gap-1">
-            <label for="ps-end-date" class="text-xs font-medium text-muted">End Date</label>
+            <label for="ps-end-date" class="text-xs font-medium text-muted">To</label>
             <input
               id="ps-end-date"
               type="date"
               [(ngModel)]="endDate"
+              (ngModelChange)="activePreset = null"
               class="rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
             />
           </div>
@@ -121,6 +137,8 @@ export class PurchaseSalePageComponent implements OnInit {
   endDate = '';
   loading = signal(false);
   report = signal<PurchaseSaleReport | null>(null);
+  readonly presets: DatePreset[] = DATE_PRESETS;
+  activePreset: string | null = null;
 
   ngOnInit(): void {
     this.settingsService
@@ -147,6 +165,14 @@ export class PurchaseSalePageComponent implements OnInit {
       { label: 'Total Sales', value: r.total_sales, highlight: 'positive' },
       { label: 'Sales Returns', value: r.total_sales_returns, highlight: 'neutral' },
     ];
+  }
+
+  applyPreset(preset: DatePreset): void {
+    const { start, end } = preset.range();
+    this.startDate = start;
+    this.endDate = end;
+    this.activePreset = preset.key;
+    this.generateReport();
   }
 
   generateReport(): void {
