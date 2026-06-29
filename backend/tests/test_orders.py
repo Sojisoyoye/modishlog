@@ -339,6 +339,37 @@ class TestGetListOrders:
         assert total == 0
         assert items == []
 
+    @pytest.mark.asyncio
+    async def test_get_order_status_counts_returns_dict(self):
+        """get_order_status_counts returns a dict mapping status → count."""
+        from src.orders.service import get_order_status_counts
+        from src.orders.models import OrderStatus
+
+        db = _mock_db()
+        rows_result = MagicMock()
+        rows_result.all.return_value = [
+            (OrderStatus.PENDING, 3),
+            (OrderStatus.ORDERED, 1),
+        ]
+        db.execute = AsyncMock(return_value=rows_result)
+
+        counts = await get_order_status_counts(db)
+        assert counts["PENDING"] == 3
+        assert counts["ORDERED"] == 1
+
+    @pytest.mark.asyncio
+    async def test_get_order_status_counts_empty_db(self):
+        """get_order_status_counts returns empty dict when no orders exist."""
+        from src.orders.service import get_order_status_counts
+
+        db = _mock_db()
+        rows_result = MagicMock()
+        rows_result.all.return_value = []
+        db.execute = AsyncMock(return_value=rows_result)
+
+        counts = await get_order_status_counts(db)
+        assert counts == {}
+
 
 # ---------------------------------------------------------------------------
 # Service tests - update_order

@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy, ChangeDetectorRef, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, ChangeDetectorRef, DestroyRef, inject, signal, computed, OnInit } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, CurrencyPipe } from '@angular/common';
 import { Router } from '@angular/router';
@@ -6,7 +7,7 @@ import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
 import { DatePicker } from 'primeng/datepicker';
-import { forkJoin } from 'rxjs';
+import { Subject, debounceTime, forkJoin } from 'rxjs';
 import {
   SalesService,
   SaleRecord,
@@ -498,6 +499,18 @@ interface TransactionMeta {
               <option [value]="500">500</option>
             </select>
             entries
+          </div>
+
+          <!-- Search by customer name -->
+          <div class="relative">
+            <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
+            <input
+              type="text"
+              placeholder="Search customer..."
+              [ngModel]="txnSearch()"
+              (ngModelChange)="onTxnSearch($event)"
+              class="rounded-lg border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:border-primary focus:outline-none w-48"
+            />
           </div>
 
           <div class="ml-auto flex items-center gap-2">
@@ -1122,6 +1135,8 @@ export class SalesPageComponent implements OnInit {
   private readonly locationsService = inject(LocationsService);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly searchSubject = new Subject<string>();
 
   products = signal<Product[]>([]);
   history = signal<SaleRecord[]>([]);
@@ -1167,6 +1182,7 @@ export class SalesPageComponent implements OnInit {
   txnTotal = signal(0);
   txnPage = signal(1);
   txnPageSize = signal(25);
+  txnSearch = signal('');
   txnTotalPages = computed(() => Math.max(1, Math.ceil(this.txnTotal() / this.txnPageSize())));
 
   // All Sales filter state
@@ -1246,11 +1262,16 @@ export class SalesPageComponent implements OnInit {
     this.loadTransactions();
     this.loadCustomers();
     this.loadLocations();
+    this.searchSubject.pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef)).subscribe((value) => {
+      this.txnSearch.set(value);
+      this.txnPage.set(1);
+      this.loadTransactions();
+    });
   }
 
   private loadInventory(): void {
-    this.inventoryService.getCurrent().subscribe({
-      next: (items) => {
+    this.inventoryService.getCurrent(1, 10_000).subscribe({
+      next: ({ items }) => {
         const map = new Map<string, number>();
         items.forEach((item) => map.set(item.product_id, item.current_stock));
         this.stockMap.set(map);
@@ -1316,6 +1337,8 @@ export class SalesPageComponent implements OnInit {
     if (this.filterLocationId) params['location_id'] = this.filterLocationId;
     if (this.filterCustomerId) params['customer_id'] = this.filterCustomerId;
     if (this.filterPaymentStatus) params['payment_status'] = this.filterPaymentStatus;
+    const search = this.txnSearch().trim();
+    if (search) params['customer_name'] = search;
     const range = this.filterDateRange;
     if (range?.[0]) params['date_from'] = this.toLocalDateString(range[0]);
     if (range?.[1]) params['date_to'] = this.toLocalDateString(range[1]);
@@ -1382,6 +1405,10 @@ export class SalesPageComponent implements OnInit {
     this.txnPageSize.set(size);
     this.txnPage.set(1);
     this.loadTransactions();
+  }
+
+  onTxnSearch(value: string): void {
+    this.searchSubject.next(value);
   }
 
   private loadLocations(): void {

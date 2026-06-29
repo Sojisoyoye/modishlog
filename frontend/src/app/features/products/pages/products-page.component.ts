@@ -1529,8 +1529,8 @@ export class ProductsPageComponent implements OnInit {
   }
 
   private loadStock(): void {
-    this.inventoryService.getCurrent().subscribe({
-      next: (items) => {
+    this.inventoryService.getCurrent(1, 10_000).subscribe({
+      next: ({ items }) => {
         const sm = new Map<string, number>();
         const tm = new Map<string, number>();
         items.forEach((item) => {

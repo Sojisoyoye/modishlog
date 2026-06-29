@@ -145,15 +145,22 @@ export class OrdersService {
   private readonly api = inject(ApiService);
   private readonly http = inject(HttpClient);
 
-  getAll(params?: Record<string, string>): Observable<Order[]> {
+  getAll(params?: Record<string, string>): Observable<{ items: Order[]; total: number }> {
     return this.api.get<{ items: Order[]; total: number }>('/orders', params).pipe(
-      map((resp) => resp.items.map((o) => ({
-        ...o,
-        total_amount: Number(o.total_amount),
-        total_paid: Number(o.total_paid ?? 0),
-        balance_remaining: Number(o.balance_remaining ?? 0),
-      }))),
+      map((resp) => ({
+        items: resp.items.map((o) => ({
+          ...o,
+          total_amount: Number(o.total_amount),
+          total_paid: Number(o.total_paid ?? 0),
+          balance_remaining: Number(o.balance_remaining ?? 0),
+        })),
+        total: resp.total,
+      })),
     );
+  }
+
+  getStatusCounts(): Observable<Record<string, number>> {
+    return this.api.get<Record<string, number>>('/orders/status-counts');
   }
 
   getById(id: string): Observable<OrderDetail> {

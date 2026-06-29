@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureTestUser, loginViaUI } from './helpers/auth';
-import { ensureProduct } from './helpers/data';
+import { ensureProduct, createOrder } from './helpers/data';
 
 // ---------------------------------------------------------------------------
 // Orders Page E2E Tests
@@ -190,5 +190,25 @@ test.describe('Create Order flow', () => {
 
     // The order should now appear in the "All Orders" table
     await expect(page.getByText('E2E Test Supplier').first()).toBeVisible({ timeout: 5_000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------------
+
+test.describe('Orders pagination', () => {
+  test.beforeAll(async () => {
+    const product = await ensureProduct('E2E Pagination Product');
+    await createOrder(product.id);
+  });
+
+  test('shows pagination controls when orders exist', async ({ page }) => {
+    await expect(page.getByText(/Showing \d+/)).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('button:has(.pi-chevron-left)').first()).toBeVisible();
+  });
+
+  test('previous page button is disabled on page 1', async ({ page }) => {
+    await expect(page.locator('button:has(.pi-chevron-left)').first()).toBeDisabled({ timeout: 10_000 });
   });
 });

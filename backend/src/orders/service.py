@@ -252,6 +252,14 @@ async def get_order(
     return order
 
 
+async def get_order_status_counts(db: AsyncSession) -> dict[str, int]:
+    """Return a dict of order status → count for all orders."""
+    result = await db.execute(
+        select(PurchaseOrder.status, func.count(PurchaseOrder.id)).group_by(PurchaseOrder.status)
+    )
+    return {row[0].value: row[1] for row in result.all()}
+
+
 async def list_orders(
     db: AsyncSession,
     *,

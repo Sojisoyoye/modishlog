@@ -1120,6 +1120,51 @@ class TestSaleTransactions:
         assert transactions == []
 
     @pytest.mark.asyncio
+    async def test_list_transactions_filter_by_customer_name(self):
+        """list_transactions filters by customer_name substring (case-insensitive)."""
+        from src.sales.service import list_transactions
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar.return_value = 1
+            elif call_count == 2:
+                result.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+        transactions, total = await list_transactions(db, customer_name="alice")
+        assert total == 1
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_list_transactions_customer_name_empty_returns_all(self):
+        """list_transactions with customer_name=None applies no name filter."""
+        from src.sales.service import list_transactions
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar.return_value = 5
+            elif call_count == 2:
+                result.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+        transactions, total = await list_transactions(db, customer_name=None)
+        assert total == 5
+
+    @pytest.mark.asyncio
     async def test_create_sale_stores_transaction_id(self):
         """create_sale stores transaction_id on the Sale when provided."""
         product = _make_product(id=uuid.uuid4())
