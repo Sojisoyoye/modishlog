@@ -7,12 +7,12 @@ import { AuthService } from '../../core/services/auth.service';
   imports: [],
   template: `
     <header
-      class="flex h-16 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 md:px-6"
+      class="flex h-16 shrink-0 items-center justify-between border-b-2 border-b-emerald-500 bg-white px-4 md:px-6"
     >
       <div class="flex items-center gap-3">
         <button
           (click)="toggleMenu.emit()"
-          class="rounded-lg p-2 text-muted transition-colors hover:bg-gray-100 hover:text-text"
+          class="min-h-[44px] min-w-[44px] rounded-lg p-2 text-muted transition-colors hover:bg-gray-100 hover:text-text"
         >
           <i [class]="'pi text-lg ' + (sidebarCollapsed() ? 'pi-bars' : 'pi-bars')"></i>
         </button>
@@ -23,13 +23,13 @@ import { AuthService } from '../../core/services/auth.service';
       </div>
       <div class="flex items-center gap-3">
         <div
-          class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
+          class="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-sm font-semibold text-emerald-700"
         >
           A
         </div>
         <button
           (click)="onLogout()"
-          class="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-red-50 hover:text-danger"
+          class="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-red-50 hover:text-red-600"
         >
           <i class="pi pi-sign-out text-sm"></i>
           <span class="hidden sm:inline">Logout</span>

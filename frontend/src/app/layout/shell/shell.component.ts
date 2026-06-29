@@ -28,7 +28,7 @@ import { TopbarComponent } from '../topbar/topbar.component';
 
     @if (mobileOpen()) {
       <div
-        class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
+        class="fixed inset-0 z-30 bg-gray-900/60 backdrop-blur-sm lg:hidden"
         (click)="mobileOpen.set(false)"
       ></div>
     }
