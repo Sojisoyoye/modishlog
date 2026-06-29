@@ -4,7 +4,8 @@ WORKDIR /app
 
 # Install dependencies as root, then drop to non-root user
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    python -c "import cmdstanpy; cmdstanpy.install_cmdstan(dir='/usr/local/lib/python3.11/site-packages/prophet/stan_model/', overwrite=True)"
 
 COPY . .
 
