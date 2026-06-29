@@ -534,43 +534,54 @@ interface ElasticityEntry {
             </div>
           }
 
-          <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <h4 class="mb-2 text-xs font-semibold uppercase text-muted">
-                Above Target ({{ marginData().target_margin }}%)
-              </h4>
-              @for (item of subsidyFilteredAbove(); track item.product_name) {
-                <div class="flex items-center justify-between py-1.5">
-                  <span class="text-sm text-text">{{ item.product_name }}</span>
-                  <span class="text-sm font-semibold text-success">
-                    {{ item.margin_pct | number: '1.1-1' }}%
-                  </span>
-                </div>
-              } @empty {
-                <p class="text-sm text-muted">None</p>
+          <div class="mt-6 overflow-x-auto rounded-lg border border-gray-200">
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <caption class="sr-only">Above and below target margin breakdown</caption>
+              <thead>
+                <tr class="bg-gray-50/80">
+                  <th class="px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                    Above Target ({{ marginData().target_margin }}%)
+                  </th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-success">
+                    Margin
+                  </th>
+                  <th class="border-l border-gray-200 px-4 py-3 text-left text-xs font-semibold uppercase text-muted">
+                    Below Target ({{ marginData().target_margin }}%)
+                  </th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-danger">
+                    Margin
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                @for (i of subsidyTableRows(); track i.idx) {
+                  <tr class="transition-colors hover:bg-gray-50/50">
+                    <td class="px-4 py-2.5 text-text">{{ i.above?.product_name ?? '' }}</td>
+                    <td class="px-4 py-2.5 text-right font-semibold text-success">
+                      {{ i.above ? (i.above.margin_pct | number: '1.1-1') + '%' : '' }}
+                    </td>
+                    <td class="border-l border-gray-200 px-4 py-2.5 text-text">
+                      {{ i.below?.product_name ?? '' }}
+                    </td>
+                    <td class="px-4 py-2.5 text-right font-semibold text-danger">
+                      {{ i.below ? (i.below.margin_pct | number: '1.1-1') + '%' : '' }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+              @if (subsidyAboveMoreCount() > 0 || subsidyBelowMoreCount() > 0) {
+                <tfoot>
+                  <tr class="bg-gray-50/50">
+                    <td colspan="2" class="px-4 py-2 text-xs text-muted">
+                      @if (subsidyAboveMoreCount() > 0) { and {{ subsidyAboveMoreCount() }} more }
+                    </td>
+                    <td colspan="2" class="border-l border-gray-200 px-4 py-2 text-xs text-muted">
+                      @if (subsidyBelowMoreCount() > 0) { and {{ subsidyBelowMoreCount() }} more }
+                    </td>
+                  </tr>
+                </tfoot>
               }
-              @if (subsidyAboveMoreCount() > 0) {
-                <p class="mt-1 text-xs text-muted">and {{ subsidyAboveMoreCount() }} more</p>
-              }
-            </div>
-            <div>
-              <h4 class="mb-2 text-xs font-semibold uppercase text-muted">
-                Below Target ({{ marginData().target_margin }}%)
-              </h4>
-              @for (item of subsidyFilteredBelow(); track item.product_name) {
-                <div class="flex items-center justify-between py-1.5">
-                  <span class="text-sm text-text">{{ item.product_name }}</span>
-                  <span class="text-sm font-semibold text-danger">
-                    {{ item.margin_pct | number: '1.1-1' }}%
-                  </span>
-                </div>
-              } @empty {
-                <p class="text-sm text-muted">None</p>
-              }
-              @if (subsidyBelowMoreCount() > 0) {
-                <p class="mt-1 text-xs text-muted">and {{ subsidyBelowMoreCount() }} more</p>
-              }
-            </div>
+            </table>
           </div>
         } @else {
           <p class="py-4 text-center text-sm text-muted">
@@ -1315,6 +1326,17 @@ export class PricingPageComponent implements OnInit {
 
   subsidyFilteredBelow = computed(() => this.subsidyAllBelow().slice(0, 10));
   subsidyBelowMoreCount = computed(() => Math.max(0, this.subsidyAllBelow().length - 10));
+
+  subsidyTableRows = computed(() => {
+    const above = this.subsidyFilteredAbove();
+    const below = this.subsidyFilteredBelow();
+    const len = Math.max(above.length, below.length);
+    return Array.from({ length: len }, (_, idx) => ({
+      idx,
+      above: above[idx] ?? null,
+      below: below[idx] ?? null,
+    }));
+  });
 
   subsidyInsight = computed(() => {
     const above = this.aboveTarget();
