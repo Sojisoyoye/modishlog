@@ -13,11 +13,12 @@ import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { StockCountService } from '../services/stock-count.service';
 import { StockCountListItem } from '../models/stock-count.model';
+import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 
 @Component({
   selector: 'app-stock-count-list-page',
   standalone: true,
-  imports: [CommonModule, FormsModule, DialogModule, ToastModule, DatePipe],
+  imports: [CommonModule, FormsModule, DialogModule, ToastModule, DatePipe, StatusBadgeComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -25,54 +26,80 @@ import { StockCountListItem } from '../models/stock-count.model';
     <div class="p-6">
       <div class="mb-6 flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-text">Stock Counts</h1>
-          <p class="mt-1 text-sm text-muted">Physical inventory count sessions and variance reports</p>
+          <h1 class="text-2xl font-bold text-gray-900">Stock Counts</h1>
+          <p class="mt-1 text-sm text-gray-500">Physical inventory count sessions and variance reports</p>
         </div>
         <button
           (click)="showCreate = true"
-          class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
+          class="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
         >
           <i class="pi pi-plus text-sm"></i> New Stock Count
         </button>
       </div>
 
-      <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="rounded-xl border border-gray-100 bg-white shadow-sm">
         <table class="min-w-full divide-y divide-gray-200 text-sm">
           <caption class="sr-only">Stock count sessions</caption>
           <thead>
-            <tr class="bg-gray-50/80">
-              <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Count Date</th>
-              <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Type</th>
-              <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Status</th>
-              <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Items</th>
-              <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Created</th>
+            <tr class="bg-gray-50">
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Count Date</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Type</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Status</th>
+              <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Items</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Created</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Action</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
             @for (sc of counts(); track sc.id) {
               <tr
-                role="button"
-                tabindex="0"
+                class="cursor-pointer transition-colors hover:bg-gray-50"
                 (click)="open(sc.id)"
                 (keydown.enter)="open(sc.id)"
-                class="cursor-pointer transition-colors hover:bg-gray-50"
+                role="button"
+                tabindex="0"
               >
-                <td class="px-3 py-3 font-medium text-text">{{ sc.count_date | date: 'dd MMM yyyy' }}</td>
-                <td class="px-3 py-3 text-muted">{{ sc.count_type === 'PRODUCT' ? 'Product' : 'Lot' }}</td>
-                <td class="px-3 py-3">
-                  <span
-                    class="rounded-full px-2 py-0.5 text-xs font-semibold"
-                    [class]="sc.status === 'FINALIZED'
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-yellow-100 text-yellow-700'"
-                  >{{ sc.status }}</span>
+                <td class="px-4 py-3 font-medium text-gray-900">{{ sc.count_date | date: 'dd MMM yyyy' }}</td>
+                <td class="px-4 py-3 text-gray-500">{{ sc.count_type === 'PRODUCT' ? 'Product' : 'Lot' }}</td>
+                <td class="px-4 py-3">
+                  @if (sc.status === 'FINALIZED') {
+                    <app-status-badge label="Completed" status="success" />
+                  } @else if (sc.status === 'DRAFT') {
+                    <app-status-badge label="Draft" status="neutral" />
+                  } @else {
+                    <app-status-badge label="In Progress" status="warning" />
+                  }
                 </td>
-                <td class="px-3 py-3 text-right text-muted">{{ sc.item_count }}</td>
-                <td class="px-3 py-3 text-muted">{{ sc.created_at | date: 'dd MMM yyyy' }}</td>
+                <td class="px-4 py-3 text-right text-gray-500">{{ sc.item_count }}</td>
+                <td class="px-4 py-3 text-gray-500">{{ sc.created_at | date: 'dd MMM yyyy' }}</td>
+                <td class="px-4 py-3">
+                  <button
+                    (click)="open(sc.id); $event.stopPropagation()"
+                    class="inline-flex min-h-[44px] items-center rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50"
+                  >
+                    <i class="pi pi-eye mr-1.5 text-xs"></i> View
+                  </button>
+                </td>
               </tr>
             } @empty {
               <tr>
-                <td colspan="5" class="py-10 text-center text-muted">No stock counts yet</td>
+                <td colspan="6" class="py-16 text-center">
+                  <div class="flex flex-col items-center gap-3">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
+                      <i class="pi pi-clipboard text-xl text-gray-400"></i>
+                    </div>
+                    <div>
+                      <p class="text-sm font-medium text-gray-700">No stock counts yet</p>
+                      <p class="mt-0.5 text-xs text-gray-500">Start a new count to track inventory variance</p>
+                    </div>
+                    <button
+                      (click)="showCreate = true"
+                      class="mt-1 flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+                    >
+                      <i class="pi pi-plus text-sm"></i> New Stock Count
+                    </button>
+                  </div>
+                </td>
               </tr>
             }
           </tbody>
