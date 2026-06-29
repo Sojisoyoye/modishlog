@@ -163,11 +163,11 @@ export class FxService {
     );
   }
 
-  getHistory(days = 90): Observable<FxRate[]> {
+  getHistory(days = 90, pair = 'USDNGN'): Observable<FxRate[]> {
     const dateTo = new Date();
     const dateFrom = new Date(dateTo.getTime() - days * 24 * 60 * 60 * 1000);
     return this.api
-      .get<FXRateHistory>('/fx/rates/USDNGN/history', {
+      .get<FXRateHistory>(`/fx/rates/${pair}/history`, {
         date_from: dateFrom.toISOString().split('T')[0],
         date_to: dateTo.toISOString().split('T')[0],
       })

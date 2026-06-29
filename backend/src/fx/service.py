@@ -387,8 +387,10 @@ async def backfill_from_exchange_api(
     Fetches up to `days` days of daily NGN/USD data, skipping dates already in DB.
     Uses a concurrency limit of 5 to avoid hammering the CDN.
     """
-    if pair != "USDNGN":
-        raise ValueError(f"Only USDNGN is supported for free backfill, got {pair}")
+    if pair not in ("USDNGN", "EURNGN"):
+        raise ValueError(f"Only USDNGN or EURNGN supported for free backfill, got {pair}")
+
+    base_currency = "usd" if pair == "USDNGN" else "eur"
 
     today = date.today()
     dates_to_fetch = [today - timedelta(days=i) for i in range(days, 0, -1)]
@@ -405,14 +407,14 @@ async def backfill_from_exchange_api(
     sem = asyncio.Semaphore(5)
 
     async def _fetch(target_date: date) -> FXRate | None:
-        url = f"https://{target_date.isoformat()}.currency-api.pages.dev/v1/currencies/usd.json"
+        url = f"https://{target_date.isoformat()}.currency-api.pages.dev/v1/currencies/{base_currency}.json"
         try:
             async with sem:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.get(url)
                     resp.raise_for_status()
                     data = resp.json()
-            ngn_rate = Decimal(str(data["usd"]["ngn"]))
+            ngn_rate = Decimal(str(data[base_currency]["ngn"]))
             ts = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
             return FXRate(
                 pair=pair,

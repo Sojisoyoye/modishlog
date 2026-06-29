@@ -155,6 +155,46 @@ async def live_rate_endpoint(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
 
+@router.post("/rates/sync", response_model=list[FXRateRead])
+async def sync_rates_endpoint(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Trigger sync from external rate providers."""
+    try:
+        return await sync_external_rates(db)
+    except ExternalRateSyncError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+
+
+@router.post("/rates/backfill")
+async def backfill_endpoint(
+    pair: str,
+    date_from: date,
+    date_to: date,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Backfill historical data from API."""
+    try:
+        count = await backfill_historical_data(db, pair, date_from, date_to)
+        return {"pair": pair, "records_inserted": count}
+    except ExternalRateSyncError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
+
+
+@router.post("/rates/backfill-free")
+async def backfill_free_endpoint(
+    pair: str = "USDNGN",
+    days: int = 90,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Backfill historical NGN rates from exchange-api.pages.dev (free, no key needed)."""
+    count = await backfill_from_exchange_api(db, pair, days)
+    return {"pair": pair, "records_inserted": count}
+
+
 @router.delete("/rates/{rate_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rate_endpoint(
     rate_id: uuid.UUID,
@@ -204,46 +244,6 @@ async def rate_for_date_endpoint(
         return await get_rate_for_date(db, pair, rate_date)
     except FXPairNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-
-
-@router.post("/rates/sync", response_model=list[FXRateRead])
-async def sync_rates_endpoint(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-):
-    """Trigger sync from external rate providers."""
-    try:
-        return await sync_external_rates(db)
-    except ExternalRateSyncError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
-
-
-@router.post("/rates/backfill")
-async def backfill_endpoint(
-    pair: str,
-    date_from: date,
-    date_to: date,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-):
-    """Backfill historical data from API."""
-    try:
-        count = await backfill_historical_data(db, pair, date_from, date_to)
-        return {"pair": pair, "records_inserted": count}
-    except ExternalRateSyncError as e:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
-
-
-@router.post("/rates/backfill-free")
-async def backfill_free_endpoint(
-    pair: str = "USDNGN",
-    days: int = 90,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-):
-    """Backfill historical NGN/USD rates from exchange-api.pages.dev (free, no key needed)."""
-    count = await backfill_from_exchange_api(db, pair, days)
-    return {"pair": pair, "records_inserted": count}
 
 
 @router.get("/volatility/{pair}", response_model=VolatilityRead)

@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
-import { switchMap, of } from 'rxjs';
+import { switchMap, of, forkJoin } from 'rxjs';
 
 function fmtChartDate(iso: string): string {
   const d = new Date(iso);
@@ -62,15 +62,15 @@ import {
           } @else {
             <div class="mt-2 h-10 w-32 skeleton"></div>
           }
-          <!-- EUR/USD sub-card -->
+          <!-- NGN/EUR sub-card -->
           <div class="mt-4 border-t border-gray-100 pt-3">
-            <p class="text-xs font-medium text-muted">EUR/USD Rate</p>
-            @if (latestEurUsd()) {
+            <p class="text-xs font-medium text-muted">NGN/EUR Rate</p>
+            @if (latestRate() && latestEurUsd()) {
               <p class="mt-1 text-xl font-bold text-secondary">
-                {{ latestEurUsd()!.rate | number: '1.4-4' }}
+                &#8358;{{ latestRate()!.rate * latestEurUsd()!.rate | number: '1.2-2' }}
               </p>
             } @else {
-              <p class="mt-1 text-sm text-muted">No EUR/USD rate recorded</p>
+              <p class="mt-1 text-sm text-muted">No EUR rate recorded</p>
             }
           </div>
         </div>
@@ -476,24 +476,39 @@ export class FxPageComponent implements OnInit {
     this.fxService.getLatest().subscribe({ next: (r) => this.latestRate.set(r) });
     this.fxService.getLatestEurUsd().subscribe({ next: (r) => this.latestEurUsd.set(r) });
     this.fxService.getAlerts().subscribe({ next: (a) => this.alerts.set(a) });
-    this.fxService.getHistory(90).subscribe({
-      next: (rates) => {
-        this.historyRates.set(rates);
-        this.historyChartData.set({
-          labels: rates.map((r) => fmtChartDate(r.rate_date)),
-          datasets: [
-            {
-              label: 'NGN/USD',
-              data: rates.map((r) => r.rate),
-              borderColor: '#1F4E79',
-              backgroundColor: 'rgba(31, 78, 121, 0.05)',
-              fill: true,
-              tension: 0.3,
-              pointRadius: 2,
-              pointHoverRadius: 5,
-            },
-          ],
-        });
+    forkJoin({
+      usd: this.fxService.getHistory(90, 'USDNGN'),
+      eur: this.fxService.getHistory(90, 'EURNGN'),
+    }).subscribe({
+      next: ({ usd, eur }) => {
+        this.historyRates.set(usd);
+        if (usd.length > 0) {
+          this.historyChartData.set({
+            labels: usd.map((r) => fmtChartDate(r.rate_date)),
+            datasets: [
+              {
+                label: 'USD/NGN',
+                data: usd.map((r) => r.rate),
+                borderColor: '#1F4E79',
+                backgroundColor: 'rgba(31, 78, 121, 0.05)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+              },
+              {
+                label: 'EUR/NGN',
+                data: eur.map((r) => r.rate),
+                borderColor: '#C0392B',
+                backgroundColor: 'rgba(192, 57, 43, 0.05)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+              },
+            ],
+          });
+        }
       },
     });
     this.loadForecast(180);
@@ -597,36 +612,56 @@ export class FxPageComponent implements OnInit {
 
   loadHistoricalRates(): void {
     this.backfilling.set(true);
-    this.fxService.backfillFreeRates('USDNGN', 90).subscribe({
-      next: ({ records_inserted }) => {
+    forkJoin({
+      usd: this.fxService.backfillFreeRates('USDNGN', 90),
+      eur: this.fxService.backfillFreeRates('EURNGN', 90),
+    }).subscribe({
+      next: ({ usd, eur }) => {
         this.backfilling.set(false);
+        const total = usd.records_inserted + eur.records_inserted;
         this.messageService.add({
           severity: 'success',
           summary: 'History loaded',
-          detail: records_inserted > 0
-            ? `${records_inserted} days of NGN/USD rates added. Generating forecast…`
+          detail: total > 0
+            ? `${usd.records_inserted} USD/NGN + ${eur.records_inserted} EUR/NGN rates added.`
             : 'Rate history is already up to date.',
         });
-        // Reload the chart and auto-generate forecast with fresh data
-        this.fxService.getHistory(90).subscribe({
-          next: (rates) => {
-            this.historyRates.set(rates);
-            this.historyChartData.set({
-              labels: rates.map((r) => fmtChartDate(r.rate_date)),
-              datasets: [{
-                label: 'NGN/USD',
-                data: rates.map((r) => r.rate),
-                borderColor: '#1F4E79',
-                backgroundColor: 'rgba(31, 78, 121, 0.05)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: 2,
-                pointHoverRadius: 5,
-              }],
-            });
+        forkJoin({
+          usdH: this.fxService.getHistory(90, 'USDNGN'),
+          eurH: this.fxService.getHistory(90, 'EURNGN'),
+        }).subscribe({
+          next: ({ usdH, eurH }) => {
+            this.historyRates.set(usdH);
+            if (usdH.length > 0) {
+              this.historyChartData.set({
+                labels: usdH.map((r) => fmtChartDate(r.rate_date)),
+                datasets: [
+                  {
+                    label: 'USD/NGN',
+                    data: usdH.map((r) => r.rate),
+                    borderColor: '#1F4E79',
+                    backgroundColor: 'rgba(31, 78, 121, 0.05)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    pointHoverRadius: 5,
+                  },
+                  {
+                    label: 'EUR/NGN',
+                    data: eurH.map((r) => r.rate),
+                    borderColor: '#C0392B',
+                    backgroundColor: 'rgba(192, 57, 43, 0.05)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    pointHoverRadius: 5,
+                  },
+                ],
+              });
+            }
           },
         });
-        if (records_inserted > 0) {
+        if (total > 0) {
           this.refreshForecast();
         }
       },
