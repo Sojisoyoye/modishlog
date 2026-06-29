@@ -1,4 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { switchMap, of } from 'rxjs';
 
 function fmtChartDate(iso: string): string {
   const d = new Date(iso);
@@ -85,17 +86,14 @@ import {
           <div class="flex flex-wrap items-end gap-3">
             <div>
               <label for="fx-manual-pair" class="mb-1.5 block text-xs font-medium text-muted">Pair</label>
-              <div class="relative">
-                <select
-                  id="fx-manual-pair"
-                  [(ngModel)]="manualPair"
-                  class="appearance-none rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                >
-                  <option value="USDNGN">USD/NGN</option>
-                  <option value="EURUSD">EUR/USD</option>
-                </select>
-                <i class="pi pi-chevron-down pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
-              </div>
+              <select
+                id="fx-manual-pair"
+                [(ngModel)]="manualPair"
+                class="rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="USDNGN">USD/NGN</option>
+                <option value="EURUSD">EUR/USD</option>
+              </select>
             </div>
             <div>
               <label for="fx-manual-rate" class="mb-1.5 block text-xs font-medium text-muted">Rate</label>
@@ -119,18 +117,15 @@ import {
             </div>
             <div>
               <label for="fx-manual-source" class="mb-1.5 block text-xs font-medium text-muted">Source</label>
-              <div class="relative">
-                <select
-                  id="fx-manual-source"
-                  [(ngModel)]="manualSource"
-                  class="appearance-none rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                >
-                  <option value="MANUAL">Manual</option>
-                  <option value="PARALLEL_MARKET">Parallel Market</option>
-                  <option value="CBN_OFFICIAL">CBN Official</option>
-                </select>
-                <i class="pi pi-chevron-down pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
-              </div>
+              <select
+                id="fx-manual-source"
+                [(ngModel)]="manualSource"
+                class="rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              >
+                <option value="MANUAL">Manual</option>
+                <option value="PARALLEL_MARKET">Parallel Market</option>
+                <option value="CBN_OFFICIAL">CBN Official</option>
+              </select>
             </div>
             <button
               (click)="addRate()"
@@ -183,21 +178,38 @@ import {
             </div>
             <h3 class="text-base font-semibold text-text">{{ forecastDays() }}-Day Forecast</h3>
           </div>
-          <div class="flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-0.5">
-            @for (range of forecastRangeOptions; track range) {
-              <button
-                (click)="setForecastRange(range)"
-                class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
-                [class]="forecastDays() === range
-                  ? 'bg-white text-primary shadow-sm'
-                  : 'text-muted hover:text-text'"
-              >
-                {{ range }}d
-              </button>
-            }
+          <div class="flex items-center gap-2">
+            <button
+              (click)="refreshForecast()"
+              [disabled]="forecastGenerating()"
+              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text disabled:opacity-50"
+              title="Regenerate forecast using latest rate data"
+            >
+              <i class="pi text-xs" [class]="forecastGenerating() ? 'pi-spinner pi-spin' : 'pi-refresh'"></i>
+              {{ forecastGenerating() ? 'Generating…' : 'Refresh' }}
+            </button>
+            <div class="flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+              @for (range of forecastRangeOptions; track range) {
+                <button
+                  (click)="setForecastRange(range)"
+                  [disabled]="forecastGenerating()"
+                  class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40"
+                  [class]="forecastDays() === range
+                    ? 'bg-white text-primary shadow-sm'
+                    : 'text-muted hover:text-text'"
+                >
+                  {{ range }}d
+                </button>
+              }
+            </div>
           </div>
         </div>
-        @if (forecastChartData()) {
+        @if (forecastGenerating()) {
+          <div class="flex h-[300px] flex-col items-center justify-center gap-3">
+            <i class="pi pi-spinner pi-spin text-2xl text-primary"></i>
+            <p class="text-sm text-muted">Training forecast model — this takes about 30 seconds…</p>
+          </div>
+        } @else if (forecastChartData()) {
           <p-chart
             type="line"
             [data]="forecastChartData()!"
@@ -205,8 +217,15 @@ import {
             height="300px"
           />
         } @else {
-          <div class="flex h-[300px] items-center justify-center">
-            <p class="text-muted"><i class="pi pi-spinner pi-spin mr-2"></i>Loading forecast...</p>
+          <div class="flex h-[300px] flex-col items-center justify-center gap-3">
+            <i class="pi pi-chart-line text-2xl text-muted"></i>
+            <p class="text-sm text-muted">No forecast data yet.</p>
+            <button
+              (click)="refreshForecast()"
+              class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary/90"
+            >
+              <i class="pi pi-sparkles text-xs"></i> Generate Forecast
+            </button>
           </div>
         }
 
@@ -265,31 +284,25 @@ import {
         <div class="mb-5 flex flex-wrap items-end gap-3">
           <div>
             <label for="fx-alert-pair" class="mb-1.5 block text-xs font-medium text-muted">Pair</label>
-            <div class="relative">
-              <select
-                id="fx-alert-pair"
-                [(ngModel)]="alertPair"
-                class="appearance-none rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-              >
-                <option value="USDNGN">USD/NGN</option>
-                <option value="EURUSD">EUR/USD</option>
-              </select>
-              <i class="pi pi-chevron-down pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
-            </div>
+            <select
+              id="fx-alert-pair"
+              [(ngModel)]="alertPair"
+              class="rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              <option value="USDNGN">USD/NGN</option>
+              <option value="EURUSD">EUR/USD</option>
+            </select>
           </div>
           <div>
             <label for="fx-alert-direction" class="mb-1.5 block text-xs font-medium text-muted">Direction</label>
-            <div class="relative">
-              <select
-                id="fx-alert-direction"
-                [(ngModel)]="alertDirection"
-                class="appearance-none rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-              >
-                <option value="above">Above</option>
-                <option value="below">Below</option>
-              </select>
-              <i class="pi pi-chevron-down pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
-            </div>
+            <select
+              id="fx-alert-direction"
+              [(ngModel)]="alertDirection"
+              class="rounded-lg border border-gray-300 py-2.5 pl-3 pr-8 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            >
+              <option value="above">Above</option>
+              <option value="below">Below</option>
+            </select>
           </div>
           <div>
             <label for="fx-alert-threshold" class="mb-1.5 block text-xs font-medium text-muted">Threshold Rate</label>
@@ -413,6 +426,7 @@ export class FxPageComponent implements OnInit {
 
   alerts = signal<FXAlertRead[]>([]);
   forecastDays = signal(180);
+  forecastGenerating = signal(false);
   readonly forecastRangeOptions = [30, 90, 180];
 
   manualRate = 0;
@@ -458,43 +472,71 @@ export class FxPageComponent implements OnInit {
         });
       },
     });
-    this.fxService.getForecast(180).subscribe({
+    this.loadForecast(180);
+  }
+
+  private buildForecastDatasets(fc: FxForecast[]) {
+    return {
+      labels: fc.map((f) => fmtChartDate(f.date)),
+      datasets: [
+        {
+          label: 'Worst Case',
+          data: fc.map((f) => f.worst_case),
+          borderColor: 'rgba(192, 57, 43, 0.5)',
+          fill: false,
+          borderWidth: 1.5,
+          tension: 0.4,
+          pointRadius: 0,
+        },
+        {
+          label: 'Best Case',
+          data: fc.map((f) => f.best_case),
+          borderColor: 'rgba(26, 122, 74, 0.5)',
+          backgroundColor: 'rgba(100, 160, 130, 0.1)',
+          fill: '-1',
+          borderWidth: 1.5,
+          tension: 0.4,
+          pointRadius: 0,
+        },
+        {
+          label: 'Base',
+          data: fc.map((f) => f.base),
+          borderColor: '#1F4E79',
+          backgroundColor: 'rgba(31, 78, 121, 0)',
+          fill: false,
+          borderWidth: 2.5,
+          tension: 0.4,
+          pointRadius: 3,
+          pointHoverRadius: 6,
+        },
+      ],
+    };
+  }
+
+  private loadForecast(days: number): void {
+    this.forecastChartData.set(null);
+    this.forecasts.set([]);
+    this.fxService.getForecast(days).pipe(
+      switchMap((fc) => {
+        if (fc.length > 0) return of(fc);
+        // No stored forecast — generate one now
+        this.forecastGenerating.set(true);
+        return this.fxService.generateForecast('USDNGN', days).pipe(
+          switchMap(() => this.fxService.getForecast(days)),
+        );
+      }),
+    ).subscribe({
       next: (fc) => {
+        this.forecastGenerating.set(false);
         this.forecasts.set(fc);
-        this.forecastChartData.set({
-          labels: fc.map((f) => fmtChartDate(f.date)),
-          datasets: [
-            {
-              label: 'Worst Case',
-              data: fc.map((f) => f.worst_case),
-              borderColor: 'rgba(192, 57, 43, 0.5)',
-              fill: false,
-              borderWidth: 1.5,
-              tension: 0.4,
-              pointRadius: 0,
-            },
-            {
-              label: 'Best Case',
-              data: fc.map((f) => f.best_case),
-              borderColor: 'rgba(26, 122, 74, 0.5)',
-              backgroundColor: 'rgba(100, 160, 130, 0.1)',
-              fill: '-1',
-              borderWidth: 1.5,
-              tension: 0.4,
-              pointRadius: 0,
-            },
-            {
-              label: 'Base',
-              data: fc.map((f) => f.base),
-              borderColor: '#1F4E79',
-              backgroundColor: 'rgba(31, 78, 121, 0)',
-              fill: false,
-              borderWidth: 2.5,
-              tension: 0.4,
-              pointRadius: 3,
-              pointHoverRadius: 6,
-            },
-          ],
+        this.forecastChartData.set(this.buildForecastDatasets(fc));
+      },
+      error: () => {
+        this.forecastGenerating.set(false);
+        this.messageService.add({
+          severity: 'warn',
+          summary: 'Forecast unavailable',
+          detail: 'At least 30 days of rate history is needed to generate a forecast. Add more historical rates and try again.',
         });
       },
     });
@@ -502,45 +544,28 @@ export class FxPageComponent implements OnInit {
 
   setForecastRange(days: number): void {
     this.forecastDays.set(days);
+    this.loadForecast(days);
+  }
+
+  refreshForecast(): void {
+    this.forecastGenerating.set(true);
     this.forecastChartData.set(null);
     this.forecasts.set([]);
-    this.fxService.getForecast(days).subscribe({
+    this.fxService.generateForecast('USDNGN', this.forecastDays()).pipe(
+      switchMap(() => this.fxService.getForecast(this.forecastDays())),
+    ).subscribe({
       next: (fc) => {
+        this.forecastGenerating.set(false);
         this.forecasts.set(fc);
-        this.forecastChartData.set({
-          labels: fc.map((f) => fmtChartDate(f.date)),
-          datasets: [
-            {
-              label: 'Worst Case',
-              data: fc.map((f) => f.worst_case),
-              borderColor: 'rgba(192, 57, 43, 0.5)',
-              fill: false,
-              borderWidth: 1.5,
-              tension: 0.4,
-              pointRadius: 0,
-            },
-            {
-              label: 'Best Case',
-              data: fc.map((f) => f.best_case),
-              borderColor: 'rgba(26, 122, 74, 0.5)',
-              backgroundColor: 'rgba(100, 160, 130, 0.1)',
-              fill: '-1',
-              borderWidth: 1.5,
-              tension: 0.4,
-              pointRadius: 0,
-            },
-            {
-              label: 'Base',
-              data: fc.map((f) => f.base),
-              borderColor: '#1F4E79',
-              backgroundColor: 'rgba(31, 78, 121, 0)',
-              fill: false,
-              borderWidth: 2.5,
-              tension: 0.4,
-              pointRadius: 3,
-              pointHoverRadius: 6,
-            },
-          ],
+        this.forecastChartData.set(this.buildForecastDatasets(fc));
+        this.messageService.add({ severity: 'success', summary: 'Forecast updated', detail: 'New forecast generated.' });
+      },
+      error: () => {
+        this.forecastGenerating.set(false);
+        this.messageService.add({
+          severity: 'warn',
+          summary: 'Forecast failed',
+          detail: 'At least 30 days of rate history is needed to generate a forecast.',
         });
       },
     });

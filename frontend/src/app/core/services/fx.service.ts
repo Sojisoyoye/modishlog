@@ -185,6 +185,12 @@ export class FxService {
       );
   }
 
+  generateForecast(pair = 'USDNGN', horizonDays = 180): Observable<void> {
+    return this.api
+      .post<unknown>('/fx/forecast/generate', { pair, horizon_days: horizonDays, num_simulations: 10000 })
+      .pipe(map(() => void 0));
+  }
+
   getForecast(days = 30): Observable<FxForecast[]> {
     const dateFrom = new Date();
     const dateTo = new Date(dateFrom.getTime() + days * 24 * 60 * 60 * 1000);
