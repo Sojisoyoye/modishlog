@@ -18,23 +18,39 @@ import {
   template: `
     <p-toast />
     <div>
+      <!-- Page Header -->
       <div class="mb-6 flex items-center justify-between">
-        <div>
-          <h2 class="text-2xl font-bold text-text">AI Recommendations</h2>
-          <p class="mt-1 text-sm text-muted">AI-powered insights to optimize your business</p>
+        <div class="flex items-center gap-3">
+          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
+            <i class="pi pi-sparkles text-lg text-emerald-700"></i>
+          </div>
+          <div>
+            <h2 class="text-2xl font-bold text-gray-900">AI Recommendations</h2>
+            <p class="mt-0.5 text-sm text-gray-500">AI-powered insights to optimize your business</p>
+          </div>
         </div>
-        <div class="flex gap-2">
-          <button
-            (click)="toggleView()"
-            class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
-          >
-            <i [class]="showHistory() ? 'pi pi-list' : 'pi pi-history'" class="text-xs"></i>
-            {{ showHistory() ? 'Show Active' : 'Show History' }}
-          </button>
+        <div class="flex items-center gap-2">
+          <!-- Active / History toggle button group -->
+          <div class="flex rounded-lg border border-gray-300 overflow-hidden">
+            <button
+              (click)="showHistory.set(false)"
+              class="px-3 py-2 text-sm font-medium transition-colors"
+              [class]="!showHistory() ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+            >
+              Active
+            </button>
+            <button
+              (click)="!showHistory() && toggleView()"
+              class="px-3 py-2 text-sm font-medium border-l border-gray-300 transition-colors"
+              [class]="showHistory() ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
+            >
+              History
+            </button>
+          </div>
           <button
             (click)="generateNew()"
             [disabled]="generating()"
-            class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+            class="flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50"
           >
             @if (generating()) {
               <i class="pi pi-spinner pi-spin text-sm"></i> Generating...
@@ -45,37 +61,40 @@ import {
         </div>
       </div>
 
-      <!-- Impact Summary -->
+      <!-- Impact Summary Cards -->
       @if (!showHistory() && impact()) {
         <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-                <i class="pi pi-clock text-sm text-secondary"></i>
+          <!-- Pending -->
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center gap-3">
+              <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-50">
+                <i class="pi pi-clock text-sm text-amber-700"></i>
               </div>
-              <p class="text-sm font-medium text-muted">Pending</p>
+              <p class="text-sm font-medium text-gray-500">Pending</p>
             </div>
-            <p class="mt-2 text-3xl font-bold text-text">{{ impact()!.total_pending }}</p>
+            <p class="mt-3 text-2xl font-bold text-gray-900">{{ impact()!.total_pending }}</p>
           </div>
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
-                <i class="pi pi-arrow-up text-sm text-success"></i>
+          <!-- Implemented / Revenue Impact -->
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center gap-3">
+              <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50">
+                <i class="pi pi-arrow-up text-sm text-emerald-700"></i>
               </div>
-              <p class="text-sm font-medium text-muted">Revenue Impact</p>
+              <p class="text-sm font-medium text-gray-500">Revenue Impact</p>
             </div>
-            <p class="mt-2 text-3xl font-bold text-success">
+            <p class="mt-3 text-2xl font-bold text-gray-900">
               {{ impact()!.projected_revenue_impact | number: '1.0-0' }}
             </p>
           </div>
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50">
-                <i class="pi pi-wallet text-sm text-indigo-600"></i>
+          <!-- Total Impact / Cost Savings -->
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div class="flex items-center gap-3">
+              <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50">
+                <i class="pi pi-wallet text-sm text-blue-700"></i>
               </div>
-              <p class="text-sm font-medium text-muted">Cost Savings</p>
+              <p class="text-sm font-medium text-gray-500">Cost Savings</p>
             </div>
-            <p class="mt-2 text-3xl font-bold text-secondary">
+            <p class="mt-3 text-2xl font-bold text-gray-900">
               {{ impact()!.projected_cost_savings | number: '1.0-0' }}
             </p>
           </div>
@@ -91,8 +110,8 @@ import {
               class="rounded-full px-4 py-1.5 text-xs font-semibold transition-all"
               [class]="
                 activeCategory() === cat
-                  ? 'bg-primary text-white shadow-sm'
-                  : 'bg-gray-100 text-muted hover:bg-gray-200 hover:text-text'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700'
               "
             >
               {{ cat === 'ALL' ? 'All' : cat }}
@@ -106,43 +125,46 @@ import {
         @for (rec of filteredRecs(); track rec.id) {
           <div
             data-testid="rec-card"
-            class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
+            class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
           >
-            <div class="flex items-start justify-between">
-              <div class="flex-1">
+            <div class="flex items-start justify-between gap-4">
+              <div class="flex-1 min-w-0">
+                <!-- Category + priority row -->
                 <div class="mb-2 flex flex-wrap items-center gap-2">
                   <i [class]="categoryIcon(rec.category)"></i>
+                  <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">{{ rec.category }}</span>
                   <app-status-badge
                     [label]="rec.priority"
                     [status]="priorityStatus(rec.priority)"
                   />
-                  <span class="text-xs font-medium text-muted">{{ rec.category }}</span>
                   <span class="text-xs text-gray-300">&middot;</span>
-                  <span class="text-xs text-muted">{{ rec.created_at | date: 'short' }}</span>
+                  <span class="text-xs text-gray-500">{{ rec.created_at | date: 'short' }}</span>
                 </div>
-                <h4 class="text-sm font-bold text-text">{{ rec.title }}</h4>
-                <p class="mt-1 text-sm leading-relaxed text-muted">{{ rec.description }}</p>
+                <h4 class="text-base font-semibold text-gray-900">{{ rec.title }}</h4>
+                <p class="mt-1 text-sm leading-relaxed text-gray-600">{{ rec.description }}</p>
+                <!-- Expected impact chips -->
                 @if (rec.expected_impact) {
                   <div class="mt-3 flex flex-wrap gap-3 text-xs">
                     @for (entry of impactEntries(rec.expected_impact); track entry[0]) {
-                      <span class="rounded-lg bg-gray-50 px-2 py-1 text-muted">
-                        {{ entry[0] }}: <strong class="text-text">{{ entry[1] }}</strong>
+                      <span class="rounded-lg bg-gray-50 px-2 py-1 text-gray-500">
+                        {{ entry[0] }}: <strong class="text-gray-900">{{ entry[1] }}</strong>
                       </span>
                     }
                   </div>
                 }
               </div>
+              <!-- Actions -->
               @if (rec.status === 'PENDING') {
-                <div class="ml-4 flex shrink-0 gap-2">
+                <div class="flex shrink-0 flex-col gap-2 sm:flex-row">
                   <button
                     (click)="applyRec(rec.id)"
-                    class="flex items-center gap-1 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-success/90"
+                    class="flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-emerald-700"
                   >
-                    <i class="pi pi-check text-[10px]"></i> Apply
+                    <i class="pi pi-check text-xs"></i> Mark Implemented
                   </button>
                   <button
                     (click)="openDismiss(rec)"
-                    class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+                    class="flex min-h-[44px] items-center justify-center rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
                   >
                     Dismiss
                   </button>
@@ -156,11 +178,24 @@ import {
             </div>
           </div>
         } @empty {
-          <div class="rounded-xl border border-gray-200 bg-white py-16 text-center shadow-sm">
-            <i class="pi pi-sparkles mb-3 block text-4xl text-gray-300"></i>
-            <p class="text-muted">
-              {{ showHistory() ? 'No recommendation history' : 'No pending recommendations' }}
+          <!-- Empty state -->
+          <div class="rounded-xl border border-gray-100 bg-white py-20 text-center shadow-sm">
+            <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50">
+              <i class="pi pi-sparkles text-3xl text-emerald-700"></i>
+            </div>
+            <p class="text-base font-semibold text-gray-900">No recommendations yet</p>
+            <p class="mt-1 text-sm text-gray-500">
+              {{ showHistory() ? 'No recommendation history found.' : 'Generate AI-powered insights to get started.' }}
             </p>
+            @if (!showHistory()) {
+              <button
+                (click)="generateNew()"
+                [disabled]="generating()"
+                class="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50"
+              >
+                <i class="pi pi-sparkles text-sm"></i> Generate New
+              </button>
+            }
           </div>
         }
       </div>
@@ -175,17 +210,17 @@ import {
       [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
     >
       <div class="space-y-4">
-        <p class="text-sm text-muted">Why are you dismissing this recommendation?</p>
+        <p class="text-sm text-gray-500">Why are you dismissing this recommendation?</p>
         <textarea
           [(ngModel)]="dismissReason"
-          class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+          class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
           rows="3"
           placeholder="Reason for dismissal..."
         ></textarea>
         <button
           (click)="confirmDismiss()"
           [disabled]="!dismissReason"
-          class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+          class="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50"
         >
           <i class="pi pi-check text-sm"></i> Dismiss
         </button>
