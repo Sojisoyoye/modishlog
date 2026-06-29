@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { switchMap, of, forkJoin, catchError } from 'rxjs';
 
 function fmtChartDate(iso: string): string {
@@ -298,28 +298,83 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
 
         <!-- Forecast Table -->
         @if (forecasts().length > 0) {
-          <div class="mt-5 overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200 text-sm">
-              <caption class="sr-only">FX rate forecast data</caption>
-              <thead>
-                <tr class="bg-gray-50/80">
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Base</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Best</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Worst</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-100">
-                @for (f of forecasts(); track f.date) {
-                  <tr class="transition-colors hover:bg-gray-50/50">
-                    <td class="px-3 py-2.5 text-muted">{{ f.date | date: 'mediumDate' }}</td>
-                    <td class="px-3 py-2.5 text-right font-semibold">{{ f.base | number: '1.2-2' }}</td>
-                    <td class="px-3 py-2.5 text-right font-medium text-success">{{ f.best_case | number: '1.2-2' }}</td>
-                    <td class="px-3 py-2.5 text-right font-medium text-danger">{{ f.worst_case | number: '1.2-2' }}</td>
+          <div class="mt-5">
+            <!-- Page size selector -->
+            <div class="mb-3 flex items-center justify-between">
+              <p class="text-xs text-muted">
+                Showing {{ forecastPage() * forecastPageSize() + 1 }}–{{ forecastPageEnd() }}
+                of {{ forecasts().length }} days
+              </p>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-muted">Rows per page:</span>
+                <div class="flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+                  @for (size of forecastPageSizeOptions; track size) {
+                    <button
+                      (click)="setForecastPageSize(size)"
+                      class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+                      [class]="forecastPageSize() === size ? 'bg-white text-primary shadow-sm' : 'text-muted hover:text-text'"
+                    >{{ size }}</button>
+                  }
+                </div>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200 text-sm">
+                <caption class="sr-only">FX rate forecast data</caption>
+                <thead>
+                  <tr class="bg-gray-50/80">
+                    <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Date</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Base</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Best</th>
+                    <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Worst</th>
                   </tr>
-                }
-              </tbody>
-            </table>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  @for (f of pagedForecasts(); track f.date) {
+                    <tr class="transition-colors hover:bg-gray-50/50">
+                      <td class="px-3 py-2.5 text-muted">{{ f.date | date: 'mediumDate' }}</td>
+                      <td class="px-3 py-2.5 text-right font-semibold">{{ f.base | number: '1.2-2' }}</td>
+                      <td class="px-3 py-2.5 text-right font-medium text-success">{{ f.best_case | number: '1.2-2' }}</td>
+                      <td class="px-3 py-2.5 text-right font-medium text-danger">{{ f.worst_case | number: '1.2-2' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pagination controls -->
+            @if (forecastTotalPages() > 1) {
+              <div class="mt-3 flex items-center justify-between">
+                <button
+                  (click)="forecastPage.set(forecastPage() - 1)"
+                  [disabled]="forecastPage() === 0"
+                  class="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <i class="pi pi-chevron-left text-[10px]"></i> Previous
+                </button>
+                <div class="flex items-center gap-1">
+                  @for (p of pageRange(); track p) {
+                    @if (p === -1) {
+                      <span class="px-1 text-xs text-muted">…</span>
+                    } @else {
+                      <button
+                        (click)="forecastPage.set(p)"
+                        class="min-w-[28px] rounded-md px-2 py-1 text-xs font-medium transition-colors"
+                        [class]="forecastPage() === p ? 'bg-primary text-white' : 'text-muted hover:bg-gray-100 hover:text-text'"
+                      >{{ p + 1 }}</button>
+                    }
+                  }
+                </div>
+                <button
+                  (click)="forecastPage.set(forecastPage() + 1)"
+                  [disabled]="forecastPage() >= forecastTotalPages() - 1"
+                  class="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Next <i class="pi pi-chevron-right text-[10px]"></i>
+                </button>
+              </div>
+            }
           </div>
         }
       </div>
@@ -456,7 +511,35 @@ export class FxPageComponent implements OnInit {
   forecastPair = signal<ForecastPair>('USDNGN');
   forecastGenerating = signal(false);
   backfilling = signal(false);
+  forecastPage = signal(0);
+  forecastPageSize = signal(10);
   readonly forecastRangeOptions = [30, 90, 180];
+  readonly forecastPageSizeOptions = [10, 25, 50];
+
+  pagedForecasts = computed(() => {
+    const start = this.forecastPage() * this.forecastPageSize();
+    return this.forecasts().slice(start, start + this.forecastPageSize());
+  });
+
+  forecastTotalPages = computed(() =>
+    Math.ceil(this.forecasts().length / this.forecastPageSize()),
+  );
+
+  forecastPageEnd = computed(() =>
+    Math.min(this.forecasts().length, (this.forecastPage() + 1) * this.forecastPageSize()),
+  );
+
+  pageRange = computed(() => {
+    const total = this.forecastTotalPages();
+    const cur = this.forecastPage();
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i);
+    const pages: number[] = [0];
+    if (cur > 2) pages.push(-1);
+    for (let p = Math.max(1, cur - 1); p <= Math.min(total - 2, cur + 1); p++) pages.push(p);
+    if (cur < total - 3) pages.push(-1);
+    pages.push(total - 1);
+    return pages;
+  });
 
   manualRate = 0;
   manualDate = new Date().toISOString().split('T')[0];
@@ -596,6 +679,7 @@ export class FxPageComponent implements OnInit {
       next: (fc) => {
         this.forecastGenerating.set(false);
         this.forecasts.set(fc);
+        this.forecastPage.set(0);
         this.forecastChartData.set(this.buildForecastDatasets(fc, pair));
       },
       error: () => {
@@ -611,13 +695,20 @@ export class FxPageComponent implements OnInit {
 
   setForecastRange(days: number): void {
     this.forecastDays.set(days);
+    this.forecastPage.set(0);
     this.loadForecast(days, this.forecastPair());
   }
 
   switchForecastPair(pair: ForecastPair): void {
     if (pair === this.forecastPair()) return;
     this.forecastPair.set(pair);
+    this.forecastPage.set(0);
     this.loadForecast(this.forecastDays(), pair);
+  }
+
+  setForecastPageSize(size: number): void {
+    this.forecastPageSize.set(size);
+    this.forecastPage.set(0);
   }
 
   refreshForecast(): void {
