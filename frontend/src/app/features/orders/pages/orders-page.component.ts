@@ -137,6 +137,23 @@ import { FxService } from '../../../core/services/fx.service';
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
+              @if (pageLoading()) {
+                @for (i of [1,2,3,4,5,6]; track i) {
+                  <tr class="animate-pulse">
+                    <td class="px-3 py-2.5"><div class="h-4 w-20 rounded bg-gray-200"></div></td>
+                    <td class="px-3 py-2.5"><div class="h-4 w-28 rounded bg-gray-200"></div></td>
+                    <td class="px-3 py-2.5"><div class="ml-auto h-4 w-16 rounded bg-gray-200"></div></td>
+                    <td class="px-3 py-2.5"><div class="h-5 w-10 rounded-full bg-gray-200"></div></td>
+                    <td class="px-3 py-2.5"><div class="h-5 w-20 rounded-full bg-gray-200"></div></td>
+                    <td class="px-3 py-2.5"><div class="h-4 w-20 rounded bg-gray-200"></div></td>
+                    <td class="px-3 py-2.5"><div class="ml-auto h-4 w-16 rounded bg-gray-200"></div></td>
+                    <td class="px-3 py-2.5"><div class="ml-auto h-4 w-16 rounded bg-gray-200"></div></td>
+                    <td class="px-3 py-2.5"><div class="ml-auto h-4 w-16 rounded bg-gray-200"></div></td>
+                    <td class="px-3 py-2.5"><div class="ml-auto h-4 w-16 rounded bg-gray-200"></div></td>
+                    <td class="px-3 py-2.5"><div class="h-5 w-16 rounded-full bg-gray-200"></div></td>
+                  </tr>
+                }
+              } @else {
               @for (order of displayedOrders(); track order.id) {
                 <tr
                   class="cursor-pointer transition-colors hover:bg-gray-50/50"
@@ -195,6 +212,7 @@ import { FxService } from '../../../core/services/fx.service';
                   </td>
                 </tr>
               }
+              } <!-- end @else (pageLoading) -->
             </tbody>
           </table>
         </div>
@@ -738,6 +756,7 @@ export class OrdersPageComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly router = inject(Router);
 
+  pageLoading = signal(true);
   orders = signal<Order[]>([]);
   products = signal<Product[]>([]);
   selectedOrder = signal<Order | null>(null);
@@ -844,7 +863,11 @@ export class OrdersPageComponent implements OnInit {
   }
 
   private loadOrders(): void {
-    this.ordersService.getAll().subscribe({ next: (o) => this.orders.set(o) });
+    this.pageLoading.set(true);
+    this.ordersService.getAll().subscribe({
+      next: (o) => { this.orders.set(o); this.pageLoading.set(false); },
+      error: () => { this.pageLoading.set(false); },
+    });
   }
 
   ordersByStatus(status: string): Order[] {

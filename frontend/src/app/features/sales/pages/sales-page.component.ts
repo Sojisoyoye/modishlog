@@ -561,6 +561,22 @@ interface TransactionMeta {
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
+              @if (txnLoading()) {
+                @for (i of [1,2,3,4,5,6]; track i) {
+                  <tr class="animate-pulse">
+                    <td class="px-4 py-3"><div class="h-4 w-20 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 w-24 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 w-28 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 w-20 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="h-5 w-16 rounded-full bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="ml-auto h-4 w-20 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 w-16 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="ml-auto h-4 w-16 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="ml-auto h-4 w-16 rounded bg-gray-200"></div></td>
+                    <td class="px-4 py-3"><div class="ml-auto h-4 w-8 rounded bg-gray-200"></div></td>
+                  </tr>
+                }
+              } @else {
               @for (txn of transactions(); track txn.transaction_id) {
                 <tr
                   data-testid="transaction-row"
@@ -609,6 +625,7 @@ interface TransactionMeta {
                   </td>
                 </tr>
               }
+              } <!-- end @else (txnLoading) -->
             </tbody>
           </table>
         </div>
@@ -1144,6 +1161,7 @@ export class SalesPageComponent implements OnInit {
   uploadError = signal<string | null>(null);
 
   // Transaction state
+  txnLoading = signal(true);
   transactions = signal<SaleTransaction[]>([]);
   txnTotal = signal(0);
   txnPage = signal(1);
@@ -1288,6 +1306,7 @@ export class SalesPageComponent implements OnInit {
   }
 
   private loadTransactions(): void {
+    this.txnLoading.set(true);
     const params: Record<string, string> = {
       page: String(this.txnPage()),
       page_size: String(this.txnPageSize()),
@@ -1302,8 +1321,10 @@ export class SalesPageComponent implements OnInit {
       next: (r) => {
         this.transactions.set(r.items ?? []);
         this.txnTotal.set(r.total ?? 0);
+        this.txnLoading.set(false);
       },
       error: () => {
+        this.txnLoading.set(false);
         this.messageService.add({
           severity: 'error',
           summary: 'Error',
