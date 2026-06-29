@@ -289,15 +289,44 @@ interface ElasticityEntry {
 
       <!-- Cross-Subsidisation Display (Task 32) -->
       <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div class="mb-5 flex items-center gap-2">
+        <div class="mb-4 flex items-center gap-2">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-50">
             <i class="pi pi-arrows-h text-sm text-orange-600"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Cross-Subsidisation</h3>
         </div>
+
+        <!-- Toolbar: page-size + search -->
+        <div class="mb-3 flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-2 text-sm text-muted">
+            Show
+            <select
+              [ngModel]="subsidyPageSize()"
+              (ngModelChange)="onSubsidyPageSizeChange(+$event)"
+              class="rounded-lg border border-gray-300 py-1 pl-3 pr-7 text-sm focus:border-primary focus:outline-none"
+            >
+              <option [value]="10">10</option>
+              <option [value]="20">20</option>
+              <option [value]="50">50</option>
+            </select>
+            entries
+          </div>
+
+          <div class="relative ml-auto">
+            <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted"></i>
+            <input
+              type="text"
+              placeholder="Search product..."
+              [ngModel]="subsidySearch()"
+              (ngModelChange)="onSubsidySearch($event)"
+              class="w-48 rounded-lg border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:border-primary focus:outline-none"
+            />
+          </div>
+        </div>
+
         @if (subsidyPairs().length > 0) {
           <div class="space-y-3">
-            @for (pair of subsidyPairs(); track pair.high.product_name + pair.low.product_name) {
+            @for (pair of subsidyPagedPairs(); track pair.high.product_name + pair.low.product_name) {
               <div
                 class="flex items-center gap-3 rounded-lg border border-gray-100 bg-gray-50/50 px-4 py-3"
               >
@@ -313,14 +342,65 @@ interface ElasticityEntry {
                   {{ pair.low.product_name }} ({{ pair.low.margin_pct | number: '1.0-0' }}%)
                 </span>
               </div>
+            } @empty {
+              <div class="py-10 text-center text-muted">
+                <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
+                @if (subsidySearch()) {
+                  No pairs match "{{ subsidySearch() }}"
+                } @else {
+                  No cross-subsidisation pairs found
+                }
+              </div>
             }
           </div>
+
+          <!-- Pagination bar -->
+          @if (subsidyTotal() > 0) {
+            <div class="mt-4 flex items-center justify-between text-sm text-muted">
+              <span
+                >Showing {{ subsidyShowingFrom() }}–{{ subsidyShowingTo() }} of
+                {{ subsidyTotal() }} pairs</span
+              >
+              <div class="flex items-center gap-1">
+                <button
+                  type="button"
+                  (click)="subsidyGoToPage(subsidyPage() - 1)"
+                  [disabled]="subsidyPage() === 1"
+                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+                >
+                  <i class="pi pi-chevron-left text-xs"></i>
+                </button>
+                @for (n of subsidyPageNumbers(); track n) {
+                  <button
+                    type="button"
+                    (click)="subsidyGoToPage(n)"
+                    [class]="
+                      n === subsidyPage()
+                        ? 'rounded bg-primary px-2.5 py-1 text-xs font-semibold text-white'
+                        : 'rounded px-2.5 py-1 text-xs hover:bg-gray-100'
+                    "
+                  >
+                    {{ n }}
+                  </button>
+                }
+                <button
+                  type="button"
+                  (click)="subsidyGoToPage(subsidyPage() + 1)"
+                  [disabled]="subsidyPage() === subsidyTotalPages()"
+                  class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+                >
+                  <i class="pi pi-chevron-right text-xs"></i>
+                </button>
+              </div>
+            </div>
+          }
+
           <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <h4 class="mb-2 text-xs font-semibold uppercase text-muted">
                 Above Target ({{ marginData().target_margin }}%)
               </h4>
-              @for (item of aboveTarget(); track item.product_name) {
+              @for (item of subsidyFilteredAbove(); track item.product_name) {
                 <div class="flex items-center justify-between py-1.5">
                   <span class="text-sm text-text">{{ item.product_name }}</span>
                   <span class="text-sm font-semibold text-success">
@@ -335,7 +415,7 @@ interface ElasticityEntry {
               <h4 class="mb-2 text-xs font-semibold uppercase text-muted">
                 Below Target ({{ marginData().target_margin }}%)
               </h4>
-              @for (item of belowTarget(); track item.product_name) {
+              @for (item of subsidyFilteredBelow(); track item.product_name) {
                 <div class="flex items-center justify-between py-1.5">
                   <span class="text-sm text-text">{{ item.product_name }}</span>
                   <span class="text-sm font-semibold text-danger">
@@ -1010,6 +1090,58 @@ export class PricingPageComponent implements OnInit {
   belowTarget = signal<CrossSubsidyItem[]>([]);
   subsidyPairs = signal<SubsidyPair[]>([]);
 
+  subsidySearch = signal('');
+  subsidyPage = signal(1);
+  subsidyPageSize = signal(20);
+
+  private subsidyFilteredPairs = computed(() => {
+    const q = this.subsidySearch().toLowerCase().trim();
+    const all = this.subsidyPairs();
+    return q
+      ? all.filter(
+          (pair) =>
+            pair.high.product_name.toLowerCase().includes(q) ||
+            pair.low.product_name.toLowerCase().includes(q),
+        )
+      : all;
+  });
+
+  subsidyTotal = computed(() => this.subsidyFilteredPairs().length);
+  subsidyTotalPages = computed(() => Math.max(1, Math.ceil(this.subsidyTotal() / this.subsidyPageSize())));
+  subsidyShowingFrom = computed(() =>
+    this.subsidyTotal() === 0 ? 0 : (this.subsidyPage() - 1) * this.subsidyPageSize() + 1,
+  );
+  subsidyShowingTo = computed(() =>
+    Math.min(this.subsidyPage() * this.subsidyPageSize(), this.subsidyTotal()),
+  );
+  subsidyPagedPairs = computed(() => {
+    const start = (this.subsidyPage() - 1) * this.subsidyPageSize();
+    return this.subsidyFilteredPairs().slice(start, start + this.subsidyPageSize());
+  });
+  subsidyPageNumbers = computed(() => {
+    const total = this.subsidyTotalPages();
+    const current = this.subsidyPage();
+    const start = Math.max(1, current - 2);
+    const end = Math.min(total, start + 4);
+    const pages: number[] = [];
+    for (let i = start; i <= end; i++) pages.push(i);
+    return pages;
+  });
+
+  subsidyFilteredAbove = computed(() => {
+    const q = this.subsidySearch().toLowerCase().trim();
+    return q
+      ? this.aboveTarget().filter((i) => i.product_name.toLowerCase().includes(q))
+      : this.aboveTarget();
+  });
+
+  subsidyFilteredBelow = computed(() => {
+    const q = this.subsidySearch().toLowerCase().trim();
+    return q
+      ? this.belowTarget().filter((i) => i.product_name.toLowerCase().includes(q))
+      : this.belowTarget();
+  });
+
   // Task 31: Demand elasticity
   products = signal<Product[]>([]);
   elasticityEntries = signal<ElasticityEntry[]>([]);
@@ -1415,6 +1547,21 @@ export class PricingPageComponent implements OnInit {
   marginGoToPage(page: number): void {
     const p = Math.max(1, Math.min(page, this.marginTotalPages()));
     this.marginPage.set(p);
+  }
+
+  onSubsidySearch(value: string): void {
+    this.subsidySearch.set(value);
+    this.subsidyPage.set(1);
+  }
+
+  onSubsidyPageSizeChange(size: number): void {
+    this.subsidyPageSize.set(size);
+    this.subsidyPage.set(1);
+  }
+
+  subsidyGoToPage(page: number): void {
+    const p = Math.max(1, Math.min(page, this.subsidyTotalPages()));
+    this.subsidyPage.set(p);
   }
 }
 
