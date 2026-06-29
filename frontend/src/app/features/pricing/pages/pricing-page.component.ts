@@ -266,21 +266,56 @@ interface ElasticityEntry {
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           @for (rec of pricingRecs(); track rec.id) {
             <div class="rounded-xl border border-gray-200 p-4 transition-shadow hover:shadow-md">
+              <!-- Header: priority badge + product count chip -->
               <div class="mb-2 flex items-center justify-between">
                 <app-status-badge
-                  [label]="rec.priority"
-                  [status]="rec.priority === 'HIGH' ? 'danger' : 'warning'"
+                  [label]="rec.priority | uppercase"
+                  [status]="rec.priority === 'high' ? 'danger' : rec.priority === 'medium' ? 'warning' : 'info'"
                 />
-                <span class="text-xs text-muted">{{ rec.category }}</span>
+                @if (rec.action_payload?.['count']) {
+                  <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-muted">
+                    {{ rec.action_payload['count'] }} product{{ rec.action_payload['count'] !== 1 ? 's' : '' }}
+                  </span>
+                }
               </div>
-              <h4 class="text-sm font-semibold text-text">{{ rec.title }}</h4>
-              <p class="mt-1 text-xs text-muted leading-relaxed">{{ rec.description }}</p>
+
+              <!-- Category title + avg gap -->
+              <h4 class="text-sm font-semibold text-text">
+                {{ rec.action_payload?.['category_name'] ?? rec.title }}
+              </h4>
+              <p class="mt-0.5 text-xs text-muted">
+                Avg margin gap:
+                <span class="font-semibold text-danger">{{ rec.action_payload?.['avg_gap'] }}%</span>
+              </p>
+
+              <!-- Top 3 products preview -->
+              @if (rec.action_payload?.['products']?.length) {
+                <div class="mt-2 space-y-1 border-t border-gray-100 pt-2">
+                  @for (p of rec.action_payload['products'].slice(0, 3); track p.product_id) {
+                    <div class="flex items-center justify-between text-xs">
+                      <span class="truncate text-text" style="max-width:55%">{{ p.product_name }}</span>
+                      <span class="text-muted">
+                        {{ p.current_price | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                        <i class="pi pi-arrow-right mx-0.5 text-[9px]"></i>
+                        <span class="font-semibold text-success">{{ p.suggested_price | currency: 'NGN' : 'symbol' : '1.0-0' }}</span>
+                      </span>
+                    </div>
+                  }
+                  @if (rec.action_payload['products'].length > 3) {
+                    <p class="text-xs text-muted">
+                      and {{ rec.action_payload['products'].length - 3 }} more…
+                    </p>
+                  }
+                </div>
+              }
+
+              <!-- Actions -->
               <div class="mt-3 flex gap-2">
                 <button
                   (click)="applyRec(rec.id)"
                   class="flex items-center gap-1 rounded-lg bg-success px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-success/90"
                 >
-                  <i class="pi pi-check text-[10px]"></i> Apply
+                  <i class="pi pi-check text-[10px]"></i> Mark Reviewed
                 </button>
                 <button
                   (click)="dismissRec(rec.id)"
