@@ -212,21 +212,25 @@ import { AuthService } from '../../../core/services/auth.service';
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 
         <!-- Money Out -->
-        <div class="col-span-1 sm:col-span-2 lg:col-span-3 pb-0.5 pt-1">
-          <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Money Out</p>
-          <hr class="mt-1 border-gray-100">
-        </div>
-        <app-kpi-card label="Total Purchased"    iconClass="pi pi-shopping-bag" colorScheme="blue"   [value]="kpi()?.total_purchase        ?? '0.00'" [loading]="kpiLoading()" tooltipText="Total value of all purchase orders placed" />
-        <app-kpi-card label="Amount Owed"        iconClass="pi pi-credit-card"  colorScheme="amber"  [value]="kpi()?.purchase_due          ?? '0.00'" [loading]="kpiLoading()" tooltipText="Outstanding balance you owe to suppliers" />
-        <app-kpi-card label="Monthly Expenses"   iconClass="pi pi-minus-circle" colorScheme="purple" [value]="kpi()?.expense               ?? '0.00'" [loading]="kpiLoading()" tooltipText="Operating costs (rent, salaries, utilities, etc.)" />
+        <button type="button" class="col-span-1 sm:col-span-2 lg:col-span-3 flex w-full items-center justify-between border-b border-gray-100 pb-1.5 pt-1 text-left" (click)="moneyOutOpen.set(!moneyOutOpen())">
+          <span class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Money Out</span>
+          <i class="pi text-gray-400 text-xs" [class]="moneyOutOpen() ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
+        </button>
+        @if (moneyOutOpen()) {
+          <app-kpi-card label="Total Purchased"    iconClass="pi pi-shopping-bag" colorScheme="blue"   [value]="kpi()?.total_purchase        ?? '0.00'" [loading]="kpiLoading()" tooltipText="Total value of all purchase orders placed" />
+          <app-kpi-card label="Amount Owed"        iconClass="pi pi-credit-card"  colorScheme="amber"  [value]="kpi()?.purchase_due          ?? '0.00'" [loading]="kpiLoading()" tooltipText="Outstanding balance you owe to suppliers" />
+          <app-kpi-card label="Monthly Expenses"   iconClass="pi pi-minus-circle" colorScheme="purple" [value]="kpi()?.expense               ?? '0.00'" [loading]="kpiLoading()" tooltipText="Operating costs (rent, salaries, utilities, etc.)" />
+        }
 
         <!-- Returns -->
-        <div class="col-span-1 sm:col-span-2 lg:col-span-3 pb-0.5 pt-1">
-          <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Returns</p>
-          <hr class="mt-1 border-gray-100">
-        </div>
-        <app-kpi-card label="Customer Returns"   iconClass="pi pi-undo"         colorScheme="red"    [value]="kpi()?.total_sell_return     ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned by customers"             [subLines]="sellReturnSubLines()" />
-        <app-kpi-card label="Supplier Refunds"   iconClass="pi pi-replay"       colorScheme="red"    [value]="kpi()?.total_purchase_return ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned to suppliers"             [subLines]="purchaseReturnSubLines()" />
+        <button type="button" class="col-span-1 sm:col-span-2 lg:col-span-3 flex w-full items-center justify-between border-b border-gray-100 pb-1.5 pt-1 text-left" (click)="returnsOpen.set(!returnsOpen())">
+          <span class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Returns</span>
+          <i class="pi text-gray-400 text-xs" [class]="returnsOpen() ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
+        </button>
+        @if (returnsOpen()) {
+          <app-kpi-card label="Customer Returns"   iconClass="pi pi-undo"         colorScheme="red"    [value]="kpi()?.total_sell_return     ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned by customers"             [subLines]="sellReturnSubLines()" />
+          <app-kpi-card label="Supplier Refunds"   iconClass="pi pi-replay"       colorScheme="red"    [value]="kpi()?.total_purchase_return ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned to suppliers"             [subLines]="purchaseReturnSubLines()" />
+        }
       </div>
 
       @if (kpiError()) {
@@ -662,6 +666,8 @@ export class DashboardPageComponent implements OnInit {
   });
 
   isToday = signal(true);
+  moneyOutOpen = signal(false);
+  returnsOpen = signal(false);
 
   private checkIsToday(dates: Date[]): boolean {
     if (dates.length < 2 || !dates[0] || !dates[1]) return true;
