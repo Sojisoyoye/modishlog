@@ -73,8 +73,8 @@ test.describe('Dashboard widget cards', () => {
     expect(hasExposure || hasRows).toBe(true);
   });
 
-  test('displays the Profit Margin card', async ({ page }) => {
-    await expect(page.getByText('Profit Margin').first()).toBeVisible();
+  test('displays the Margin vs Target card', async ({ page }) => {
+    await expect(page.getByText('Margin vs Target').first()).toBeVisible();
     await expect(page.getByText('Target:').first()).toBeVisible();
   });
 

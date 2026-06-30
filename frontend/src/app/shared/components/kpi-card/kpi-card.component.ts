@@ -13,15 +13,15 @@ export interface KpiSubLine {
   imports: [CommonModule, Tooltip],
   template: `
     <div
-      class="flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+      class="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:gap-4"
       data-testid="kpi-card"
     >
       <!-- Circle icon -->
       <div
-        class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full"
+        class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full sm:h-14 sm:w-14"
         [class]="iconContainerClass()"
       >
-        <i class="text-xl" [class]="iconClass()"></i>
+        <i class="text-base sm:text-xl" [class]="iconClass()"></i>
       </div>
 
       <!-- Label + value -->
