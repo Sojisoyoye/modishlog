@@ -14,7 +14,7 @@ import { AuthService } from '../../core/services/auth.service';
           (click)="toggleMenu.emit()"
           class="min-h-[44px] min-w-[44px] rounded-lg p-2 text-muted transition-colors hover:bg-gray-100 hover:text-text"
         >
-          <i [class]="'pi text-lg ' + (sidebarCollapsed() ? 'pi-bars' : 'pi-bars')"></i>
+          <i [class]="'pi text-lg ' + (sidebarCollapsed() ? 'pi-bars' : 'pi-times')"></i>
         </button>
         <div class="hidden items-center gap-2 lg:flex">
           <i class="pi pi-building text-muted"></i>
