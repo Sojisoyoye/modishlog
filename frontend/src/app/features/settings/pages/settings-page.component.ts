@@ -17,22 +17,22 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   template: `
     <div>
       <div class="mb-6">
-        <h2 class="text-2xl font-bold text-text">Settings</h2>
-        <p class="mt-1 text-sm text-muted">Manage API keys and alert thresholds</p>
+        <h2 class="text-2xl font-bold text-gray-900">Settings</h2>
+        <p class="mt-1 text-sm text-gray-500">Manage API keys and alert thresholds</p>
       </div>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <!-- API Key Section -->
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
           <div class="mb-5 flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-              <i class="pi pi-key text-sm text-secondary"></i>
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
+              <i class="pi pi-key text-sm text-purple-700"></i>
             </div>
             <h3 class="text-base font-semibold text-text">API Key</h3>
           </div>
           <div class="space-y-4">
             @if (apiKeyConfigured()) {
-              <div class="flex flex-col gap-2 rounded-lg bg-green-50 px-4 py-3 text-sm text-success">
+              <div class="flex flex-col gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                 <div class="flex items-center gap-2">
                   <i class="pi pi-check-circle text-xs"></i>
                   <span>Configured</span>
@@ -45,7 +45,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                   </button>
                 </div>
                 @if (apiKeyStatus() === 'saved') {
-                  <p class="text-xs text-success">API key saved successfully</p>
+                  <p class="text-xs text-emerald-700">API key saved successfully</p>
                 }
               </div>
             } @else {
@@ -56,11 +56,11 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                     [type]="apiKeyVisible() ? 'text' : 'password'"
                     [(ngModel)]="apiKey"
                     placeholder="Enter your API key"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 pr-10 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 pr-10 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
                   />
                   <button
                     (click)="apiKeyVisible.set(!apiKeyVisible())"
-                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-text"
+                    class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-text min-h-[44px] min-w-[44px] flex items-center justify-center"
                     type="button"
                   >
                     <i class="pi text-sm" [class]="apiKeyVisible() ? 'pi-eye-slash' : 'pi-eye'"></i>
@@ -71,13 +71,13 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                 <button
                   (click)="saveApiKey()"
                   [disabled]="saving()"
-                  class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+                  class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50 min-h-[44px]"
                 >
                   <i class="pi pi-save text-sm"></i> Save
                 </button>
                 <button
                   (click)="testApiKey()"
-                  class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+                  class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 min-h-[44px]"
                 >
                   <i class="pi pi-play text-sm"></i> Test Connection
                 </button>
@@ -85,7 +85,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
               @if (apiKeyStatus()) {
                 <div
                   class="rounded-lg p-3 text-sm"
-                  [class]="apiKeyStatus() === 'saved' ? 'bg-green-50 text-success' : 'bg-gray-50 text-muted'"
+                  [class]="apiKeyStatus() === 'saved' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-50 text-muted'"
                 >
                   <i class="pi mr-1 text-xs" [class]="apiKeyStatus() === 'saved' ? 'pi-check-circle' : 'pi-info-circle'"></i>
                   {{ apiKeyStatus() === 'saved' ? 'API key saved successfully' : 'Test connection feature coming soon' }}
@@ -96,10 +96,10 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
         </div>
 
         <!-- FX Alert Thresholds Section -->
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
           <div class="mb-5 flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50">
-              <i class="pi pi-bell text-sm text-danger"></i>
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+              <i class="pi pi-bell text-sm text-amber-700"></i>
             </div>
             <h3 class="text-base font-semibold text-text">FX Alert Thresholds</h3>
           </div>
@@ -111,7 +111,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
             <div class="rounded-lg bg-gray-50 p-4">
               <div class="flex items-center gap-3">
                 <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100">
-                  <i class="pi pi-money-bill text-lg text-warning"></i>
+                  <i class="pi pi-money-bill text-lg text-amber-700"></i>
                 </div>
                 <div>
                   <p class="text-sm font-semibold text-text">Manage FX Alerts</p>
@@ -129,10 +129,10 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
         </div>
 
         <!-- Fiscal Year Section -->
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
           <div class="mb-5 flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
-              <i class="pi pi-calendar text-sm text-success"></i>
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+              <i class="pi pi-calendar text-sm text-blue-700"></i>
             </div>
             <h3 class="text-base font-semibold text-text">Fiscal Year</h3>
           </div>
@@ -148,7 +148,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                   id="fy-month"
                   [ngModel]="fyMonth()"
                   (ngModelChange)="fyMonth.set($event); fyDay.set(null); fyStatus.set(null)"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
                 >
                   <option value="">Not configured</option>
                   @for (name of monthNames; track $index) {
@@ -167,7 +167,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                   min="1"
                   max="31"
                   placeholder="Day"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-muted"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-muted min-h-[44px]"
                 />
                 @if (fyDayWarning()) {
                   <p class="mt-1 text-xs text-warning">{{ fyDayWarning() }}</p>
@@ -177,17 +177,17 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
             <button
               (click)="saveFiscalYear()"
               [disabled]="fysSaving()"
-              class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+              class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50 min-h-[44px]"
             >
               <i class="pi pi-save text-sm"></i> Save Fiscal Year
             </button>
             @if (fyStatus() === 'saved') {
-              <div class="rounded-lg bg-green-50 p-3 text-sm text-success">
+              <div class="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">
                 <i class="pi pi-check-circle mr-1 text-xs"></i>Fiscal year start saved
               </div>
             }
             @if (fyStatus() === 'error') {
-              <div class="rounded-lg bg-red-50 p-3 text-sm text-danger">
+              <div class="rounded-lg bg-red-50 p-3 text-sm text-red-700">
                 <i class="pi pi-times-circle mr-1 text-xs"></i>Failed to save — check the day value and try again
               </div>
             }
@@ -195,10 +195,10 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
         </div>
 
         <!-- General Preferences -->
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm lg:col-span-2">
+        <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm lg:col-span-2">
           <div class="mb-5 flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
-              <i class="pi pi-sliders-h text-sm text-purple-600"></i>
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+              <i class="pi pi-sliders-h text-sm text-emerald-700"></i>
             </div>
             <h3 class="text-base font-semibold text-text">General Preferences</h3>
           </div>
@@ -207,7 +207,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
               <label class="mb-1.5 block text-xs font-medium text-muted">Default Currency Pair</label>
               <select
                 [(ngModel)]="defaultPair"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               >
                 <option value="USDNGN">USD/NGN</option>
                 <option value="EURUSD">EUR/USD</option>
@@ -219,7 +219,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                 type="number"
                 [(ngModel)]="globalStockThreshold"
                 min="0"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               />
             </div>
           </div>

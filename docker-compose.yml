@@ -28,6 +28,9 @@ services:
       CORS_ORIGINS: '["http://localhost:4200","http://localhost","https://modishlog-staging.vercel.app"]'
       ENVIRONMENT: development
       TZ: UTC
+      # Force watchfiles (uvicorn --reload engine) to use mtime polling instead
+      # of inotify, which doesn't propagate from macOS host into Docker volumes.
+      WATCHFILES_FORCE_POLLING: 'true'
     ports: ['8000:8000']
     depends_on: { db: { condition: service_healthy } }
     volumes:
@@ -43,12 +46,7 @@ services:
       - ./frontend:/frontend
       - /frontend/node_modules
     environment:
-      # Angular 21 uses @parcel/watcher (not Chokidar) for file detection.
-      # On macOS host + Docker/Colima, inotify events don't propagate from
-      # the host into the Linux container, so @parcel/watcher never sees
-      # source file edits. Forcing the brute-force backend makes it poll
-      # for changes by comparing mtimes, which works across Docker volumes.
-      PARCEL_WATCHER_BACKEND: 'brute-force'
+      NODE_ENV: development
 
 volumes:
   postgres_data:
