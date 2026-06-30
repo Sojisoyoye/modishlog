@@ -244,7 +244,7 @@ export class LoginPageComponent implements OnDestroy {
     this.authService.login({ email: this.email, password: this.password }).subscribe({
       next: () => {
         this.loading.set(false);
-        this.router.navigate(['/']);
+        this.router.navigate(['/dashboard']);
       },
       error: (err: HttpErrorResponse) => {
         this.loading.set(false);
