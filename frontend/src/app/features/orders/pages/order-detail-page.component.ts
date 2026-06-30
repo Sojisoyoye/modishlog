@@ -109,7 +109,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         </div>
 
         <!-- Order Metadata Grid -->
-        <div class="grid grid-cols-2 gap-4 rounded-xl border border-gray-100 bg-white p-5 shadow-sm sm:grid-cols-3 lg:grid-cols-4">
+        <div class="grid grid-cols-2 gap-4 rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow sm:grid-cols-3 lg:grid-cols-4">
           <div>
             <p class="text-xs font-medium text-muted">Supplier</p>
             @if (editing()) {
@@ -320,7 +320,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         </div>
 
         <!-- Line Items (full width) -->
-        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
               <p class="mb-4 text-xs font-bold uppercase tracking-wider text-muted">Line Items</p>
               <div class="overflow-x-auto">
                 <table
@@ -505,7 +505,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         </div>
 
         <!-- Notes (full width) -->
-        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
           <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Notes</p>
           @if (editing()) {
             <textarea
@@ -524,7 +524,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         <!-- Cost Breakdown + Payments (2-col) -->
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <!-- Cost Breakdown -->
-            <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+            <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
               <p class="mb-4 text-xs font-bold uppercase tracking-wider text-muted">
                 Cost Breakdown
               </p>
@@ -697,7 +697,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
             </div>
 
             <!-- Payment Panel -->
-            <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm" data-testid="payment-section">
+            <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow" data-testid="payment-section">
               <p class="mb-4 text-xs font-bold uppercase tracking-wider text-muted">
                 Payments
               </p>
@@ -890,7 +890,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         </div>
 
         <!-- Profit Overview (full width) -->
-        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
           <p class="mb-4 text-xs font-bold uppercase tracking-wider text-muted">Profit Overview</p>
           @if (!canComputeProfitOverview()) {
             <p class="text-sm text-muted">
@@ -903,9 +903,9 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
           } @else {
             <!-- Revenue / Gross Profit / Net Profit figures -->
             <div class="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div class="rounded-lg bg-emerald-50 px-4 py-3">
+              <div class="rounded-lg bg-blue-50 px-4 py-3">
                 <p class="mb-0.5 text-xs font-medium text-muted">Revenue</p>
-                <p class="text-xl font-bold text-gray-900">
+                <p class="text-xl font-bold text-secondary">
                   ₦{{ totalRevenueNGN() | number: '1.0-0' }}
                 </p>
                 <p class="mt-0.5 text-xs text-muted">Σ sell price × qty</p>
