@@ -120,8 +120,8 @@ import { ProductsService } from '../../../core/services/products.service';
                   [class.text-emerald-700]="(transaction()!.payment_status || 'paid') === 'paid'"
                   [class.bg-amber-100]="(transaction()!.payment_status || 'paid') === 'partial'"
                   [class.text-amber-700]="(transaction()!.payment_status || 'paid') === 'partial'"
-                  [class.bg-red-100]="(transaction()!.payment_status || 'paid') === 'credit'"
-                  [class.text-red-700]="(transaction()!.payment_status || 'paid') === 'credit'"
+                  [class.bg-amber-100]="(transaction()!.payment_status || 'paid') === 'credit'"
+                  [class.text-amber-700]="(transaction()!.payment_status || 'paid') === 'credit'"
                 >
                   {{ transaction()!.payment_status || 'paid' }}
                 </span>

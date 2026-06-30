@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -256,13 +256,13 @@ export class RecommendationsPageComponent implements OnInit {
     });
   }
 
-  filteredRecs(): Recommendation[] {
+  readonly filteredRecs = computed(() => {
     if (this.showHistory()) return this.historyRecs();
     const cat = this.activeCategory();
     const items = this.recs();
     if (cat === 'ALL') return items.filter((r) => r.status === 'PENDING');
     return items.filter((r) => r.status === 'PENDING' && r.category === cat);
-  }
+  });
 
   toggleView(): void {
     this.showHistory.update((v) => !v);
@@ -304,6 +304,7 @@ export class RecommendationsPageComponent implements OnInit {
     this.recsService.apply(id).subscribe({
       next: () => {
         this.recs.update((recs) => recs.filter((r) => r.id !== id));
+        this.historyRecs.set([]);
         this.messageService.add({
           severity: 'success',
           summary: 'Applied',
@@ -325,6 +326,7 @@ export class RecommendationsPageComponent implements OnInit {
     this.recsService.dismiss(target.id, this.dismissReason).subscribe({
       next: () => {
         this.recs.update((recs) => recs.filter((r) => r.id !== target.id));
+        this.historyRecs.set([]);
         this.dismissVisible = false;
         this.messageService.add({
           severity: 'info',
