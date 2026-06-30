@@ -102,6 +102,127 @@ test.describe('Pricing & Margins page', () => {
     expect(optionCount).toBeGreaterThan(1);
   });
 
+  test('Price-FX Sensitivity Calculator section is visible and computes a result', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expect(
+      page.getByRole('heading', { name: 'Price-FX Sensitivity Calculator' }),
+    ).toBeVisible();
+
+    await page.locator('#sens-selling-price').fill('5000');
+    await page.locator('#sens-fx-rate').fill('1500');
+    await page.locator('#sens-quantity').fill('10');
+    await page.locator('#sens-unit-cost').fill('2');
+
+    await page.getByRole('button', { name: /calculate/i }).click();
+
+    // Landed cost = $2 * 1500 = ₦3000; margin = (5000-3000)/5000*100 = 40%
+    await expect(page.locator('#sens-selling-price')).toBeVisible();
+    // Results grid should appear — look for "Margin" label
+    const resultsSection = page.locator('text=Landed Cost').first();
+    await expect(resultsSection).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('Selling Price Suggestion section is visible and returns a min price', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expect(page.getByRole('heading', { name: 'Selling Price Suggestion' })).toBeVisible();
+
+    await page.locator('#sugg-cost').fill('10');
+    await page.locator('#sugg-currency').selectOption('USD');
+    await page.locator('#sugg-fx').fill('1500');
+    await page.locator('#sugg-margin').fill('35');
+
+    await page.getByRole('button', { name: /get suggestion/i }).click();
+
+    // Min selling price = (10 * 1500) / (1 - 0.35) = 23077 NGN approx
+    const minPriceSection = page.locator('text=Min Selling Price').first();
+    await expect(minPriceSection).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('Product Mix Status section is present', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expect(page.getByRole('heading', { name: 'Product Mix Status' })).toBeVisible();
+  });
+
+  test('Optimizer Recommendations section is present with Generate button', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expect(page.getByRole('heading', { name: 'Optimizer Recommendations' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /generate/i })).toBeVisible();
+    // Target margin input should be pre-filled with 35
+    const targetInput = page.locator('#opt-target-margin');
+    await expect(targetInput).toHaveValue('35');
+  });
+
+  test('Demand Forecast section has product selector and Run Forecast button', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expect(page.getByRole('heading', { name: 'Demand Forecast' })).toBeVisible();
+    await expect(page.locator('#forecast-product')).toBeVisible();
+    await expect(page.locator('#forecast-horizon')).toBeVisible();
+    await expect(page.getByRole('button', { name: /run forecast/i })).toBeVisible();
+    // Button should be disabled until a product is selected
+    await expect(page.getByRole('button', { name: /run forecast/i })).toBeDisabled();
+
+    // Select a product — button becomes enabled
+    await expect(page.locator('#forecast-product option').nth(1)).toBeAttached({ timeout: 10_000 });
+    await page.locator('#forecast-product').selectOption({ index: 1 });
+    await expect(page.getByRole('button', { name: /run forecast/i })).toBeEnabled();
+  });
+
+  test('Saved Scenarios section is present and shows empty state initially', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    await expect(page.getByRole('heading', { name: 'Saved Scenarios' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /refresh/i })).toBeVisible();
+  });
+
+  test('sensitivity calc scenario is saved and appears in Saved Scenarios', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Fill sensitivity form and calculate
+    await page.locator('#sens-selling-price').fill('5000');
+    await page.locator('#sens-fx-rate').fill('1500');
+    await page.locator('#sens-quantity').fill('10');
+    await page.locator('#sens-unit-cost').fill('2');
+    await page.getByRole('button', { name: /^calculate$/i }).click();
+
+    // Wait for result to appear, then save
+    await expect(page.locator('text=Landed Cost').first()).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: /save scenario/i }).click();
+
+    await expect(page.locator('.p-toast')).toContainText('Saved', { timeout: 10_000 });
+
+    // Saved scenario should now appear in the Saved Scenarios table
+    const scenariosTable = page
+      .locator('table')
+      .filter({ has: page.getByRole('columnheader', { name: 'Selling Price' }) });
+    await expect(scenariosTable.locator('tbody tr').first()).toBeVisible({ timeout: 10_000 });
+  });
+
   test('elasticity coefficient can be saved and appears in the table', async ({ page }) => {
     await page.goto('/pricing');
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({

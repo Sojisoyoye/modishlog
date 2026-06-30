@@ -33,13 +33,13 @@ import { FxService } from '../../../core/services/fx.service';
         <div class="flex gap-2">
           <button
             (click)="openImportDialog()"
-            class="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-text shadow-sm transition-all hover:bg-gray-50"
+            class="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-text shadow-sm transition-all hover:bg-gray-50 min-h-[44px]"
           >
             <i class="pi pi-upload text-sm"></i> Import Orders
           </button>
           <button
             (click)="showCreate = true"
-            class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+            class="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md min-h-[44px]"
           >
             <i class="pi pi-plus text-sm"></i> New Order
           </button>
@@ -52,35 +52,35 @@ import { FxService } from '../../../core/services/fx.service';
         <button
           type="button"
           (click)="togglePipelineFilter(null)"
-          class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-all"
+          class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-all min-h-[44px]"
           [class]="pipelineFilter() === null
-            ? 'border-secondary bg-secondary/10 text-secondary ring-1 ring-secondary'
-            : 'border-gray-200 bg-white text-muted hover:border-secondary/50 hover:text-text'"
+            ? 'bg-emerald-600 text-white border-emerald-600'
+            : 'border border-gray-300 text-gray-600 hover:border-emerald-400'"
         >
           All
-          <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-bold text-text">{{ orders().length }}</span>
+          <span class="rounded-full px-1.5 py-0.5 text-xs font-bold" [class]="pipelineFilter() === null ? 'bg-white/20 text-white' : 'bg-gray-100 text-text'">{{ orders().length }}</span>
         </button>
         @for (status of pipelineStatuses; track status) {
           <button
             type="button"
             (click)="togglePipelineFilter(status)"
-            class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-all"
+            class="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-all min-h-[44px]"
             [class]="pipelineFilter() === status
-              ? 'border-secondary bg-secondary/10 text-secondary ring-1 ring-secondary'
-              : 'border-gray-200 bg-white text-muted hover:border-secondary/50 hover:text-text'"
+              ? 'bg-emerald-600 text-white border-emerald-600 border'
+              : 'border border-gray-300 text-gray-600 hover:border-emerald-400'"
           >
             {{ statusLabel[status] }}
-            <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs font-bold text-text">{{ statusCounts()[status] ?? 0 }}</span>
+            <span class="rounded-full px-1.5 py-0.5 text-xs font-bold" [class]="pipelineFilter() === status ? 'bg-white/20 text-white' : 'bg-gray-100 text-text'">{{ statusCounts()[status] ?? 0 }}</span>
           </button>
         }
       </div>
 
       <!-- Orders Table -->
-      <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm hover:shadow-md transition-shadow">
         <div class="mb-5 flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-              <i class="pi pi-list text-sm text-secondary"></i>
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+              <i class="pi pi-list text-sm text-emerald-700"></i>
             </div>
             <h3 class="text-base font-semibold text-text">
               {{ pipelineFilter() ? statusLabel[pipelineFilter()!] + ' Orders' : 'All Orders' }}
@@ -90,7 +90,7 @@ import { FxService } from '../../../core/services/fx.service';
             type="button"
             data-testid="export-orders-csv"
             (click)="exportOrdersCsv()"
-            class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+            class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text min-h-[44px]"
           >
             <i class="pi pi-download text-xs"></i>
             Export CSV
@@ -100,38 +100,38 @@ import { FxService } from '../../../core/services/fx.service';
           <table class="min-w-full divide-y divide-gray-200 text-sm">
             <caption class="sr-only">All purchase orders</caption>
             <thead>
-              <tr class="bg-gray-50/80">
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+              <tr class="bg-gray-50">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Order #
                 </th>
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Supplier
                 </th>
-                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Total (USD)
                 </th>
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Type
                 </th>
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Status
                 </th>
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   ETA
                 </th>
-                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Est. Locked (30%)
                 </th>
-                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Est. Float (70%)
                 </th>
-                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Paid
                 </th>
-                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Balance
                 </th>
-                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Payment
                 </th>
               </tr>
@@ -161,7 +161,7 @@ import { FxService } from '../../../core/services/fx.service';
                 >
                   <td class="px-3 py-2.5 font-semibold text-secondary">{{ order.order_number }}</td>
                   <td class="px-3 py-2.5">{{ order.supplier_name }}</td>
-                  <td class="px-3 py-2.5 text-right font-semibold">
+                  <td class="px-3 py-2.5 text-right text-xl font-bold text-gray-900">
                     {{ order.total_amount | currency: 'USD' : 'symbol' : '1.0-0' }}
                   </td>
                   <td class="px-3 py-2.5">
@@ -207,8 +207,8 @@ import { FxService } from '../../../core/services/fx.service';
               } @empty {
                 <tr>
                   <td colspan="11" class="px-3 py-10 text-center text-muted">
-                    <i class="pi pi-inbox mb-2 block text-2xl text-gray-300"></i>
-                    No orders found
+                    <i class="pi pi-truck mb-2 block text-2xl text-gray-300"></i>
+                    No orders yet
                   </td>
                 </tr>
               }
@@ -233,7 +233,7 @@ import { FxService } from '../../../core/services/fx.service';
                 <button
                   type="button"
                   (click)="ordersGoToPage(n)"
-                  [class]="n === ordersPage() ? 'rounded bg-primary px-2.5 py-1 text-xs font-semibold text-white' : 'rounded px-2.5 py-1 text-xs hover:bg-gray-100'"
+                  [class]="n === ordersPage() ? 'rounded bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white' : 'rounded px-2.5 py-1 text-xs hover:bg-gray-100'"
                 >
                   {{ n }}
                 </button>
@@ -304,11 +304,11 @@ import { FxService } from '../../../core/services/fx.service';
               <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Line Items</p>
               <table class="min-w-full divide-y divide-gray-200 text-sm" data-testid="line-items-table">
                 <thead>
-                  <tr class="bg-gray-50/80">
-                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Product</th>
-                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Qty</th>
-                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Unit Cost</th>
-                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Line Total</th>
+                  <tr class="bg-gray-50">
+                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Product</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Qty</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Unit Cost</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Line Total</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
@@ -390,11 +390,11 @@ import { FxService } from '../../../core/services/fx.service';
               <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200 text-sm">
                   <thead>
-                    <tr class="bg-gray-50/80">
-                      <th class="px-3 py-2 text-left text-xs font-semibold uppercase text-muted">Scenario</th>
-                      <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">FX Rate</th>
-                      <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Total Cost (NGN)</th>
-                      <th class="px-3 py-2 text-right text-xs font-semibold uppercase text-muted">Profit (NGN)</th>
+                    <tr class="bg-gray-50">
+                      <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Scenario</th>
+                      <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">FX Rate</th>
+                      <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Total Cost (NGN)</th>
+                      <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Profit (NGN)</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-100">
@@ -453,7 +453,7 @@ import { FxService } from '../../../core/services/fx.service';
                 @for (ns of nextStatuses(selectedOrder()!.status); track ns) {
                   <button
                     (click)="transitionStatus(selectedOrder()!.id, ns)"
-                    class="flex items-center gap-1.5 rounded-lg border border-secondary px-4 py-2 text-sm font-semibold text-secondary transition-all hover:bg-secondary hover:text-white"
+                    class="flex items-center gap-1.5 rounded-lg border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-600 transition-all hover:bg-emerald-600 hover:text-white min-h-[44px]"
                   >
                     <i class="pi pi-arrow-right text-xs"></i> Move to {{ statusLabel[ns] }}
                   </button>
@@ -675,7 +675,7 @@ import { FxService } from '../../../core/services/fx.service';
         <button
           (click)="createOrder()"
           [disabled]="creating()"
-          class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+          class="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50 min-h-[44px]"
         >
           @if (creating()) {
             <i class="pi pi-spinner pi-spin text-sm"></i> Creating...
@@ -768,7 +768,7 @@ import { FxService } from '../../../core/services/fx.service';
         <button
           (click)="submitImport()"
           [disabled]="!importFile() || importing()"
-          class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+          class="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50 min-h-[44px]"
         >
           @if (importing()) {
             <i class="pi pi-spinner pi-spin text-sm"></i> Importing...

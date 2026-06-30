@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, input } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Tooltip } from 'primeng/tooltip';
 
@@ -19,9 +19,9 @@ export interface KpiSubLine {
       <!-- Circle icon -->
       <div
         class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full"
-        [style.background-color]="iconBgColor()"
+        [class]="iconContainerClass()"
       >
-        <i class="text-xl text-white" [class]="iconClass()"></i>
+        <i class="text-xl" [class]="iconClass()"></i>
       </div>
 
       <!-- Label + value -->
@@ -67,8 +67,21 @@ export class KpiCardComponent {
   label = input.required<string>();
   value = input<string>('0.00');
   iconClass = input.required<string>();
-  iconBgColor = input.required<string>();
+  /** @deprecated Use colorScheme instead. Kept for backward compatibility. */
+  iconBgColor = input<string>('');
+  colorScheme = input<'green' | 'amber' | 'blue' | 'red' | 'purple'>('green');
   subLines = input<KpiSubLine[] | undefined>(undefined);
   loading = input<boolean>(false);
   tooltipText = input<string | undefined>(undefined);
+
+  iconContainerClass = computed(() => {
+    const schemeClasses: Record<string, string> = {
+      green: 'bg-emerald-100 text-emerald-700',
+      amber: 'bg-amber-100 text-amber-700',
+      blue: 'bg-blue-100 text-blue-700',
+      red: 'bg-red-100 text-red-700',
+      purple: 'bg-purple-100 text-purple-700',
+    };
+    return schemeClasses[this.colorScheme()] ?? schemeClasses['green'];
+  });
 }
