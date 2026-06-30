@@ -78,7 +78,7 @@ import { AuthService } from '../../../core/services/auth.service';
       <!-- ============================================================
            Hero row — Today's Revenue | Net Profit | Sales Today | Unpaid Sales
            ============================================================ -->
-      <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
         <!-- Today's Revenue — emerald hero card -->
         <div class="flex flex-col justify-between rounded-2xl bg-emerald-600 p-6 text-white shadow-sm" data-testid="hero-revenue-card">
