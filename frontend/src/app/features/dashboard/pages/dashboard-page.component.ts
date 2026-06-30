@@ -212,9 +212,9 @@ import { AuthService } from '../../../core/services/auth.service';
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 
         <!-- Money Out -->
-        <button type="button" class="col-span-1 sm:col-span-2 lg:col-span-3 flex w-full items-center justify-between border-b border-gray-100 pb-1.5 pt-1 text-left" (click)="moneyOutOpen.set(!moneyOutOpen())">
-          <span class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Money Out</span>
-          <i class="pi text-gray-400 text-xs" [class]="moneyOutOpen() ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
+        <button type="button" class="col-span-1 sm:col-span-2 lg:col-span-3 flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" (click)="moneyOutOpen.set(!moneyOutOpen())">
+          <i class="pi text-gray-500 text-sm" [class]="moneyOutOpen() ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
+          <span class="text-xs font-semibold uppercase tracking-widest text-gray-500">Money Out</span>
         </button>
         @if (moneyOutOpen()) {
           <app-kpi-card label="Total Purchased"    iconClass="pi pi-shopping-bag" colorScheme="blue"   [value]="kpi()?.total_purchase        ?? '0.00'" [loading]="kpiLoading()" tooltipText="Total value of all purchase orders placed" />
@@ -223,9 +223,9 @@ import { AuthService } from '../../../core/services/auth.service';
         }
 
         <!-- Returns -->
-        <button type="button" class="col-span-1 sm:col-span-2 lg:col-span-3 flex w-full items-center justify-between border-b border-gray-100 pb-1.5 pt-1 text-left" (click)="returnsOpen.set(!returnsOpen())">
-          <span class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Returns</span>
-          <i class="pi text-gray-400 text-xs" [class]="returnsOpen() ? 'pi-chevron-up' : 'pi-chevron-down'"></i>
+        <button type="button" class="col-span-1 sm:col-span-2 lg:col-span-3 flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" (click)="returnsOpen.set(!returnsOpen())">
+          <i class="pi text-gray-500 text-sm" [class]="returnsOpen() ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
+          <span class="text-xs font-semibold uppercase tracking-widest text-gray-500">Returns</span>
         </button>
         @if (returnsOpen()) {
           <app-kpi-card label="Customer Returns"   iconClass="pi pi-undo"         colorScheme="red"    [value]="kpi()?.total_sell_return     ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned by customers"             [subLines]="sellReturnSubLines()" />
