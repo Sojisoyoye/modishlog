@@ -396,7 +396,7 @@ interface TransactionMeta {
               <button
                 (click)="submitEntries()"
                 [disabled]="submitting() || hasStockExceeded()"
-                class="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+                class="flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50"
               >
                 @if (submitting()) {
                   <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
@@ -434,7 +434,7 @@ interface TransactionMeta {
 
         <!-- Filter panel -->
         @if (showSalesFilters) {
-          <div class="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div class="mb-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
             <div class="flex flex-wrap items-end gap-3">
               <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium text-muted">Location</label>
@@ -494,7 +494,7 @@ interface TransactionMeta {
               <button
                 type="button"
                 (click)="applyFilters()"
-                class="min-h-[44px] rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+                class="min-h-[44px] rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
               >
                 Apply
               </button>
@@ -568,7 +568,7 @@ interface TransactionMeta {
               type="button"
               data-testid="add-sale-btn"
               (click)="activeTab.set('record')"
-              class="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
+              class="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700"
             >
               <i class="pi pi-plus text-xs"></i> Add Sale
             </button>
@@ -716,7 +716,7 @@ interface TransactionMeta {
               <a
                 data-testid="download-template-link"
                 (click)="downloadTemplate()"
-                class="inline-flex cursor-pointer items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80 hover:underline"
+                class="inline-flex cursor-pointer items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
               >
                 <i class="pi pi-download text-xs"></i>
                 Download Template
@@ -746,7 +746,7 @@ interface TransactionMeta {
               (click)="uploadCsv()"
               [disabled]="!selectedFile() || uploading()"
               data-testid="upload-csv-btn"
-              class="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+              class="flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50"
             >
               @if (uploading()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i>
@@ -839,7 +839,7 @@ interface TransactionMeta {
                 data-testid="quick-quote-calculate-btn"
                 (click)="calculateQuote()"
                 [disabled]="!qqProductId || qqQuantity < 1 || qqCalculating()"
-                class="w-full min-h-[44px] rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                class="w-full min-h-[44px] rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 @if (qqCalculating()) { Calculating… } @else { Calculate }
               </button>
@@ -869,7 +869,7 @@ interface TransactionMeta {
                   </div>
                   <div class="flex items-center justify-between border-t border-gray-200 pt-3">
                     <span class="text-sm font-semibold text-text">Min Sell Price / Unit</span>
-                    <span data-testid="qq-min-price" class="text-base font-bold text-primary">
+                    <span data-testid="qq-min-price" class="text-base font-bold text-emerald-700">
                       {{ qqResult()!.min_sell_price_per_unit | currency: 'NGN' : 'symbol' : '1.2-2' }}
                     </span>
                   </div>
@@ -951,7 +951,7 @@ interface TransactionMeta {
               (click)="submitEdit()"
               [disabled]="saving()"
               data-testid="save-edit-btn"
-              class="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+              class="flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50"
             >
               @if (saving()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
@@ -1069,7 +1069,7 @@ interface TransactionMeta {
           <button
             (click)="saveNewCustomer()"
             [disabled]="savingCustomer() || !newCustomerForm.name.trim()"
-            class="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+            class="flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50"
           >
             @if (savingCustomer()) {
               <i class="pi pi-spinner pi-spin text-sm"></i> Saving...

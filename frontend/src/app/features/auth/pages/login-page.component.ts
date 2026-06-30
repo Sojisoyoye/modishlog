@@ -38,7 +38,7 @@ import { AuthService } from '../../../core/services/auth.service';
         <div class="w-full max-w-md">
           <!-- Mobile logo (shown only on small screens) -->
           <div class="mb-8 text-center lg:hidden">
-            <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500 text-xl font-bold text-white shadow-lg">
+            <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-xl font-bold text-white shadow-lg">
               M
             </div>
             <span class="text-2xl font-bold text-gray-900">ModishLog</span>
@@ -79,7 +79,7 @@ import { AuthService } from '../../../core/services/auth.service';
                   [(ngModel)]="email"
                   name="email"
                   autocomplete="email"
-                  class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
                   placeholder="you@example.com"
                   required
                 />
@@ -97,7 +97,7 @@ import { AuthService } from '../../../core/services/auth.service';
                   [(ngModel)]="password"
                   name="password"
                   autocomplete="current-password"
-                  class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-10 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10 pr-10"
                   required
                   minlength="8"
                 />
@@ -115,7 +115,7 @@ import { AuthService } from '../../../core/services/auth.service';
             <button
               type="submit"
               [disabled]="loading() || lockoutSeconds() > 0"
-              class="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 min-h-[44px]"
+              class="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-secondary disabled:opacity-50 min-h-[44px] flex items-center justify-center gap-2"
             >
               @if (loading()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i>
@@ -131,7 +131,7 @@ import { AuthService } from '../../../core/services/auth.service';
             <button
               type="button"
               (click)="showForgotPassword.set(!showForgotPassword())"
-              class="text-sm text-emerald-600 hover:underline"
+              class="text-sm text-primary hover:underline"
             >
               Forgot password?
             </button>
@@ -166,7 +166,7 @@ import { AuthService } from '../../../core/services/auth.service';
                       [(ngModel)]="forgotEmail"
                       name="forgotEmail"
                       autocomplete="email"
-                      class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
                       placeholder="you@example.com"
                       required
                     />
@@ -175,7 +175,7 @@ import { AuthService } from '../../../core/services/auth.service';
                 <button
                   type="submit"
                   [disabled]="forgotLoading()"
-                  class="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 min-h-[44px]"
+                  class="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-secondary disabled:opacity-50 min-h-[44px] flex items-center justify-center gap-2"
                 >
                   @if (forgotLoading()) {
                     <i class="pi pi-spinner pi-spin text-sm"></i>
@@ -264,7 +264,7 @@ export class LoginPageComponent implements OnDestroy {
     this.authService.login({ email: this.email, password: this.password }).subscribe({
       next: () => {
         this.loading.set(false);
-        this.router.navigate(['/']);
+        this.router.navigate(['/dashboard']);
       },
       error: (err: HttpErrorResponse) => {
         this.loading.set(false);

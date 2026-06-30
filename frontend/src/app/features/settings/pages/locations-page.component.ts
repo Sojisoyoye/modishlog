@@ -29,13 +29,13 @@ import {
       <!-- Page Header -->
       <div class="mb-6 flex items-center justify-between">
         <div>
-          <h2 class="text-2xl font-bold text-text">Locations</h2>
-          <p class="mt-1 text-sm text-muted">Manage your business locations and branches</p>
+          <h2 class="text-2xl font-bold text-gray-900">Locations</h2>
+          <p class="mt-1 text-sm text-gray-500">Manage your business locations and branches</p>
         </div>
         <button
           data-testid="add-location-btn"
           (click)="openAddDialog()"
-          class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+          class="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md min-h-[44px]"
         >
           <i class="pi pi-plus text-sm"></i> Add Location
         </button>
@@ -50,13 +50,13 @@ import {
             [(ngModel)]="searchQuery"
             (ngModelChange)="onSearch()"
             placeholder="Search locations..."
-            class="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            class="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
           />
         </div>
       </div>
 
       <!-- Locations Table -->
-      <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
             <i class="pi pi-map-marker text-sm text-secondary"></i>
@@ -70,31 +70,39 @@ import {
             <i class="pi pi-spin pi-spinner text-2xl text-primary"></i>
           </div>
         } @else if (locations().length === 0) {
-          <div class="flex flex-col items-center justify-center py-12 text-center">
-            <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
-              <i class="pi pi-map-marker text-2xl text-muted"></i>
+          <div class="flex flex-col items-center justify-center py-16 text-center gap-4">
+            <div class="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
+              <i class="pi pi-map-marker text-3xl text-muted"></i>
             </div>
-            <p class="text-sm font-medium text-text">No locations found</p>
-            <p class="mt-1 text-xs text-muted">Add your first business location to get started</p>
+            <div>
+              <p class="text-sm font-semibold text-text">No locations yet</p>
+              <p class="mt-1 text-xs text-muted">Add your first business location to get started</p>
+            </div>
+            <button
+              (click)="openAddDialog()"
+              class="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 min-h-[44px]"
+            >
+              <i class="pi pi-plus text-sm"></i> Add Location
+            </button>
           </div>
         } @else {
           <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <table class="min-w-full divide-y divide-gray-100 text-sm">
               <caption class="sr-only">Business locations</caption>
               <thead>
-                <tr class="bg-gray-50/80">
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Name</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Code</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Mobile</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Email</th>
-                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">City</th>
-                  <th class="px-3 py-2.5 text-center text-xs font-semibold uppercase text-muted">Status</th>
-                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Actions</th>
+                <tr class="bg-gray-50">
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted">Name</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted">Code</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted">Mobile</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted">Email</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted">City</th>
+                  <th class="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-muted">Status</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-muted">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 @for (loc of locations(); track loc.id) {
-                  <tr class="transition-colors hover:bg-gray-50/50">
+                  <tr class="transition-colors hover:bg-gray-50/60">
                     <td class="px-3 py-3 font-medium text-text">{{ loc.name }}</td>
                     <td class="px-3 py-3 font-mono text-xs text-muted">{{ loc.location_code }}</td>
                     <td class="px-3 py-3 text-text">{{ loc.mobile ?? '—' }}</td>
@@ -102,28 +110,29 @@ import {
                     <td class="px-3 py-3 text-text">{{ loc.city ?? '—' }}</td>
                     <td class="px-3 py-3 text-center">
                       @if (loc.is_active) {
-                        <span class="inline-flex items-center rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">
+                        <span class="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
                           Active
                         </span>
                       } @else {
-                        <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
+                        <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">
                           Inactive
                         </span>
                       }
                     </td>
                     <td class="px-3 py-3 text-right">
-                      <div class="flex items-center justify-end gap-2">
+                      <div class="flex items-center justify-end gap-1">
                         <button
                           (click)="openEditDialog(loc)"
                           title="Edit location"
-                          class="rounded p-1 text-muted transition-colors hover:bg-gray-100 hover:text-secondary"
+                          class="inline-flex items-center justify-center rounded p-2 text-muted transition-colors hover:bg-gray-100 hover:text-secondary min-h-[44px] min-w-[44px]"
                         >
                           <i class="pi pi-pencil text-xs"></i>
                         </button>
                         <button
                           (click)="toggleActive(loc)"
                           [title]="loc.is_active ? 'Deactivate' : 'Activate'"
-                          class="rounded p-1 text-muted transition-colors hover:bg-gray-100 hover:text-text"
+                          class="inline-flex items-center justify-center rounded p-2 text-muted transition-colors hover:bg-gray-100 min-h-[44px] min-w-[44px]"
+                          [class]="loc.is_active ? 'hover:text-emerald-600' : 'hover:text-text'"
                         >
                           <i class="pi pi-power-off text-xs"></i>
                         </button>
@@ -159,7 +168,7 @@ import {
               [(ngModel)]="form.name"
               placeholder="e.g. Main Branch"
               maxlength="255"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
           <div>
@@ -171,7 +180,7 @@ import {
               [(ngModel)]="form.location_code"
               placeholder="e.g. LOC-001"
               maxlength="20"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
         </div>
@@ -185,7 +194,7 @@ import {
               [(ngModel)]="form.mobile"
               placeholder="e.g. 08012345678"
               maxlength="50"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
           <div>
@@ -195,7 +204,7 @@ import {
               [(ngModel)]="form.alternate_number"
               placeholder="e.g. 07098765432"
               maxlength="50"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
         </div>
@@ -209,7 +218,7 @@ import {
               [(ngModel)]="form.email"
               placeholder="branch@example.com"
               maxlength="255"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
           <div>
@@ -219,7 +228,7 @@ import {
               [(ngModel)]="form.website"
               placeholder="https://example.com"
               maxlength="255"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
         </div>
@@ -233,7 +242,7 @@ import {
               [(ngModel)]="form.city"
               placeholder="e.g. Lagos"
               maxlength="100"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
           <div>
@@ -243,7 +252,7 @@ import {
               [(ngModel)]="form.state"
               placeholder="e.g. Lagos State"
               maxlength="100"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
         </div>
@@ -257,7 +266,7 @@ import {
               [(ngModel)]="form.country"
               placeholder="e.g. Nigeria"
               maxlength="100"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
           <div>
@@ -267,7 +276,7 @@ import {
               [(ngModel)]="form.zip_code"
               placeholder="e.g. 100001"
               maxlength="20"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             />
           </div>
         </div>
@@ -280,7 +289,7 @@ import {
             [(ngModel)]="form.landmark"
             placeholder="e.g. Near Central Bank"
             maxlength="255"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
           />
         </div>
       </div>
@@ -289,14 +298,14 @@ import {
         <div class="flex justify-end gap-3 pt-2">
           <button
             (click)="closeDialog()"
-            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 min-h-[44px]"
           >
             Cancel
           </button>
           <button
             (click)="saveLocation()"
             [disabled]="saving()"
-            class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+            class="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50 min-h-[44px]"
           >
             @if (saving()) {
               <i class="pi pi-spin pi-spinner text-xs"></i>

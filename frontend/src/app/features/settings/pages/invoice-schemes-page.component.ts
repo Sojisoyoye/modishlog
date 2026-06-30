@@ -31,12 +31,12 @@ import {
     <div class="mb-6">
       <div class="flex items-center justify-between">
         <div>
-          <h2 class="text-2xl font-bold text-text">Invoice Schemes</h2>
-          <p class="mt-1 text-sm text-muted">Manage invoice numbering schemes</p>
+          <h2 class="text-2xl font-bold text-gray-900">Invoice Schemes</h2>
+          <p class="mt-1 text-sm text-gray-500">Manage invoice numbering schemes</p>
         </div>
         <button
           (click)="openAddDialog()"
-          class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+          class="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md min-h-[44px]"
         >
           <i class="pi pi-plus text-sm"></i> Add Scheme
         </button>
@@ -44,7 +44,7 @@ import {
     </div>
 
     <!-- Schemes Table -->
-    <div class="rounded-xl border border-gray-200 bg-white shadow-sm">
+    <div class="rounded-xl border border-gray-100 bg-white shadow-sm">
       @if (loading()) {
         <div class="flex items-center justify-center py-16">
           <i class="pi pi-spinner pi-spin text-2xl text-muted"></i>
@@ -58,7 +58,7 @@ import {
         <div class="overflow-x-auto">
           <table class="w-full">
             <thead>
-              <tr class="border-b border-gray-200 bg-gray-50">
+              <tr class="border-b border-gray-100 bg-gray-50">
                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">Name</th>
                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">Prefix</th>
                 <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">Type</th>
@@ -87,7 +87,7 @@ import {
                   <td class="px-4 py-3">
                     <span
                       class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
-                      [class]="scheme.is_active ? 'bg-green-50 text-success' : 'bg-gray-100 text-muted'"
+                      [class]="scheme.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'"
                     >
                       {{ scheme.is_active ? 'Active' : 'Inactive' }}
                     </span>
@@ -96,7 +96,7 @@ import {
                   <td class="px-4 py-3 text-right">
                     <button
                       (click)="openEditDialog(scheme)"
-                      class="rounded px-2 py-1 text-xs font-medium text-secondary hover:bg-blue-50 transition-colors"
+                      class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-secondary hover:bg-blue-50 transition-colors min-h-[44px]"
                     >
                       <i class="pi pi-pencil text-xs"></i> Edit
                     </button>
@@ -126,7 +126,7 @@ import {
             [(ngModel)]="form.name"
             placeholder="e.g. Default Invoice"
             maxlength="255"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
           />
         </div>
 
@@ -140,7 +140,7 @@ import {
                 name="scheme_type"
                 value="blank"
                 [(ngModel)]="form.scheme_type"
-                class="accent-primary"
+                class="accent-emerald-600"
               />
               <span>Blank <span class="text-xs text-muted">(prefix + number)</span></span>
             </label>
@@ -150,7 +150,7 @@ import {
                 name="scheme_type"
                 value="year"
                 [(ngModel)]="form.scheme_type"
-                class="accent-primary"
+                class="accent-emerald-600"
               />
               <span>Year <span class="text-xs text-muted">(prefix + year + number)</span></span>
             </label>
@@ -165,7 +165,7 @@ import {
             [(ngModel)]="form.prefix"
             placeholder="e.g. INV-"
             maxlength="20"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
           />
         </div>
 
@@ -176,7 +176,7 @@ import {
             type="number"
             [(ngModel)]="form.start_number"
             min="1"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
           />
         </div>
 
@@ -188,7 +188,7 @@ import {
             [(ngModel)]="form.total_digits"
             min="3"
             max="8"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
           />
         </div>
 
@@ -203,14 +203,14 @@ import {
         <div class="flex justify-end gap-2 pt-4">
           <button
             (click)="dialogVisible = false"
-            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-muted hover:bg-gray-50 transition-colors"
+            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors min-h-[44px]"
           >
             Cancel
           </button>
           <button
             (click)="saveScheme()"
             [disabled]="saving()"
-            class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary/90 disabled:opacity-50 transition-all"
+            class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 transition-all min-h-[44px]"
           >
             @if (saving()) {
               <i class="pi pi-spinner pi-spin text-sm"></i>
