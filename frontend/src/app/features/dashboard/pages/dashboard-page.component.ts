@@ -76,9 +76,9 @@ import { AuthService } from '../../../core/services/auth.service';
       </div>
 
       <!-- ============================================================
-           Hero row — Today's Revenue | Net Profit | Sales Today
+           Hero row — Today's Revenue | Net Profit | Sales Today | Unpaid Sales
            ============================================================ -->
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
 
         <!-- Today's Revenue — emerald hero card -->
         <div class="flex flex-col justify-between rounded-2xl bg-emerald-600 p-6 text-white shadow-sm" data-testid="hero-revenue-card">
@@ -130,6 +130,21 @@ import { AuthService } from '../../../core/services/auth.service';
             }
           </div>
           <p class="mt-4 text-sm text-muted">transactions</p>
+        </div>
+
+        <!-- Unpaid Sales -->
+        <div class="flex flex-col justify-between rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div>
+            <p class="text-sm font-medium text-muted">Unpaid Sales</p>
+            @if (kpiLoading()) {
+              <div class="mt-2 h-10 w-24 animate-pulse rounded bg-gray-100"></div>
+            } @else {
+              <p class="mt-2 text-4xl font-bold tracking-tight text-amber-600">
+                ₦{{ kpi()?.invoice_due ?? '0.00' | number: '1.0-0' }}
+              </p>
+            }
+          </div>
+          <p class="mt-4 text-sm text-muted">awaiting payment</p>
         </div>
       </div>
 
@@ -192,17 +207,9 @@ import { AuthService } from '../../../core/services/auth.service';
       </div>
 
       <!-- ============================================================
-           KPI Cards — 7 business metrics grouped into 3 sections
+           KPI Cards — 5 business metrics: Money Out + Returns
            ============================================================ -->
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-
-        <!-- Money In -->
-        <div class="col-span-1 sm:col-span-2 lg:col-span-3 pb-0.5 pt-1">
-          <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Money In</p>
-          <hr class="mt-1 border-gray-100">
-        </div>
-        <app-kpi-card label="Net Profit"         iconClass="pi pi-trending-up"  colorScheme="green"  [value]="kpi()?.net                  ?? '0.00'" [loading]="kpiLoading()" tooltipText="Your actual profit after deducting what you paid for goods and operating costs" />
-        <app-kpi-card label="Unpaid Sales"       iconClass="pi pi-clock"        colorScheme="amber"  [value]="kpi()?.invoice_due           ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales where payment hasn't been received yet" />
 
         <!-- Money Out -->
         <div class="col-span-1 sm:col-span-2 lg:col-span-3 pb-0.5 pt-1">
