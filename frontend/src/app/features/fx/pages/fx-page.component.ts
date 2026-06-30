@@ -38,8 +38,8 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
     <div>
       <div class="mb-6 flex items-center justify-between">
         <div>
-          <h2 class="text-2xl font-bold text-text">FX Rates</h2>
-          <p class="mt-1 text-sm text-muted">Track and forecast NGN exchange rates</p>
+          <h2 class="text-2xl font-bold text-gray-900">FX Rates</h2>
+          <p class="mt-1 text-sm text-gray-500">Track and forecast NGN exchange rates</p>
         </div>
         <button
           type="button"
@@ -59,13 +59,13 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
             <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50">
               <i class="pi pi-dollar text-base text-emerald-700"></i>
             </div>
-            <p class="text-sm font-semibold text-muted">USD / NGN</p>
+            <p class="text-sm font-semibold text-gray-500">USD / NGN</p>
           </div>
           @if (latestRate()) {
-            <p class="text-3xl font-bold text-text">
+            <p class="text-3xl font-bold text-gray-900">
               &#8358;{{ latestRate()!.rate | number: '1.2-2' }}
             </p>
-            <p class="mt-1.5 text-xs text-muted">
+            <p class="mt-1.5 text-xs text-gray-500">
               <i class="pi pi-calendar mr-1 text-[10px]"></i>
               {{ latestRate()!.rate_date | date: 'mediumDate' }}
               <span class="mx-1">&middot;</span>{{ fmtSource(latestRate()!.source) }}
@@ -81,25 +81,25 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
             <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50">
               <i class="pi pi-euro text-base text-emerald-700"></i>
             </div>
-            <p class="text-sm font-semibold text-muted">EUR / NGN</p>
+            <p class="text-sm font-semibold text-gray-500">EUR / NGN</p>
           </div>
           @if (latestEurNgn()) {
-            <p class="text-3xl font-bold text-text">
+            <p class="text-3xl font-bold text-gray-900">
               &#8358;{{ latestEurNgn()!.rate | number: '1.2-2' }}
             </p>
-            <p class="mt-1.5 text-xs text-muted">
+            <p class="mt-1.5 text-xs text-gray-500">
               <i class="pi pi-calendar mr-1 text-[10px]"></i>
               {{ latestEurNgn()!.rate_date | date: 'mediumDate' }}
               <span class="mx-1">&middot;</span>{{ fmtSource(latestEurNgn()!.source) }}
             </p>
           } @else if (latestRate() && latestEurUsd()) {
-            <p class="text-3xl font-bold text-text">
+            <p class="text-3xl font-bold text-gray-900">
               &#8358;{{ latestRate()!.rate * latestEurUsd()!.rate | number: '1.2-2' }}
             </p>
-            <p class="mt-1.5 text-xs text-muted">Derived from USD/NGN × EUR/USD</p>
+            <p class="mt-1.5 text-xs text-gray-500">Derived from USD/NGN × EUR/USD</p>
           } @else {
             <div class="mt-2 h-9 w-28 skeleton rounded"></div>
-            <p class="mt-1.5 text-xs text-muted">Load history to populate</p>
+            <p class="mt-1.5 text-xs text-gray-500">Load history to populate</p>
           }
         </div>
 
@@ -109,7 +109,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
             <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
               <i class="pi pi-plus text-sm text-emerald-700"></i>
             </div>
-            <h3 class="text-base font-semibold text-text">Add Rate</h3>
+            <h3 class="text-base font-semibold text-gray-900">Add Rate</h3>
           </div>
           <div class="flex flex-wrap items-end gap-3">
             <div>
@@ -173,7 +173,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
             <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
               <i class="pi pi-chart-line text-sm text-emerald-700"></i>
             </div>
-            <h3 class="text-base font-semibold text-text">Historical Rates (90 days)</h3>
+            <h3 class="text-base font-semibold text-gray-900">Historical Rates (90 days)</h3>
           </div>
           <div class="flex items-center gap-2">
             <button
@@ -228,9 +228,9 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
             <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
               <i class="pi pi-sparkles text-sm text-purple-700"></i>
             </div>
-            <h3 class="text-base font-semibold text-text">
+            <h3 class="text-base font-semibold text-gray-900">
               {{ forecastDays() }}-Day Forecast
-              <span class="ml-1.5 text-xs font-normal text-muted">({{ forecastPair() === 'USDNGN' ? 'USD/NGN' : 'EUR/NGN' }})</span>
+              <span class="ml-1.5 text-xs font-normal text-gray-500">({{ forecastPair() === 'USDNGN' ? 'USD/NGN' : 'EUR/NGN' }})</span>
             </h3>
           </div>
           <div class="flex items-center gap-2">
@@ -304,22 +304,22 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
                 <i class="pi text-base" [class]="insight.trendIcon + ' ' + insight.trendColor"></i>
               </div>
               <div class="flex-1 min-w-0">
-                <p class="text-sm font-semibold text-text">{{ insight.headline }}</p>
-                <p class="mt-1 text-xs leading-relaxed text-muted">{{ insight.summary }}</p>
+                <p class="text-sm font-semibold text-gray-900">{{ insight.headline }}</p>
+                <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ insight.summary }}</p>
 
                 <!-- Milestone row -->
                 <div class="mt-3 grid grid-cols-3 gap-3">
                   <div class="rounded-lg bg-white px-3 py-2 text-center shadow-sm">
-                    <p class="text-[10px] font-medium uppercase text-muted">Today (actual)</p>
-                    <p class="mt-0.5 text-sm font-bold text-text">₦{{ insight.currentRate | number:'1.2-2' }}</p>
+                    <p class="text-[10px] font-medium uppercase text-gray-500">Today (actual)</p>
+                    <p class="mt-0.5 text-sm font-bold text-gray-900">₦{{ insight.currentRate | number:'1.2-2' }}</p>
                   </div>
                   <div class="rounded-lg bg-white px-3 py-2 text-center shadow-sm">
-                    <p class="text-[10px] font-medium uppercase text-muted">30-day forecast</p>
-                    <p class="mt-0.5 text-sm font-bold text-text">₦{{ insight.day30.base | number:'1.2-2' }}</p>
+                    <p class="text-[10px] font-medium uppercase text-gray-500">30-day forecast</p>
+                    <p class="mt-0.5 text-sm font-bold text-gray-900">₦{{ insight.day30.base | number:'1.2-2' }}</p>
                   </div>
                   <div class="rounded-lg bg-white px-3 py-2 text-center shadow-sm">
-                    <p class="text-[10px] font-medium uppercase text-muted">{{ insight.days }}-day forecast</p>
-                    <p class="mt-0.5 text-sm font-bold text-text">₦{{ insight.last.base | number:'1.2-2' }}</p>
+                    <p class="text-[10px] font-medium uppercase text-gray-500">{{ insight.days }}-day forecast</p>
+                    <p class="mt-0.5 text-sm font-bold text-gray-900">₦{{ insight.last.base | number:'1.2-2' }}</p>
                   </div>
                 </div>
 
@@ -329,7 +329,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
                   <p class="mt-1 text-xs leading-relaxed">{{ insight.action }}</p>
                 </div>
 
-                <p class="mt-2 text-[10px] text-muted">
+                <p class="mt-2 text-[10px] text-gray-400">
                   <i class="pi pi-info-circle mr-1"></i>
                   Forecast uses Prophet + Monte Carlo simulation trained on {{ insight.days }} days of history. Not financial advice — ranges reflect 80% confidence interval.
                 </p>
@@ -343,12 +343,12 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
           <div class="mt-5">
             <!-- Page size selector -->
             <div class="mb-3 flex items-center justify-between">
-              <p class="text-xs text-muted">
+              <p class="text-xs text-gray-500">
                 Showing {{ forecastPage() * forecastPageSize() + 1 }}–{{ forecastPageEnd() }}
                 of {{ forecasts().length }} days
               </p>
               <div class="flex items-center gap-2">
-                <span class="text-xs text-muted">Rows per page:</span>
+                <span class="text-xs text-gray-500">Rows per page:</span>
                 <div class="flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-0.5">
                   @for (size of forecastPageSizeOptions; track size) {
                     <button
@@ -427,7 +427,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
             <i class="pi pi-bell text-sm text-amber-700"></i>
           </div>
-          <h3 class="text-base font-semibold text-text">Rate Alerts</h3>
+          <h3 class="text-base font-semibold text-gray-900">Rate Alerts</h3>
         </div>
 
         <!-- Create Alert Form -->
