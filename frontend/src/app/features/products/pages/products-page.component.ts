@@ -565,7 +565,7 @@ interface ColEntry {
                 <p class="text-xs text-muted">Stock: <span [class]="stockStatus(product.id) === 'out' ? 'font-semibold text-red-600' : stockStatus(product.id) === 'low' ? 'font-semibold text-amber-600' : 'font-semibold text-text'">{{ stockMap().get(product.id) ?? 0 }}</span></p>
               </div>
               <div class="mt-3 flex gap-2 border-t border-gray-100 pt-3">
-                <button (click)="openEdit(product)" class="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-blue-50">
+                <button (click)="openEdit(product)" class="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50">
                   <i class="pi pi-pencil mr-1 text-[10px]"></i> Edit
                 </button>
                 <button (click)="confirmDelete(product)" class="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-50">
