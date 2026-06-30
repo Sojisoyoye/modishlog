@@ -191,7 +191,7 @@ interface ElasticityEntry {
                   (click)="applyRec(rec.id)"
                   class="flex min-h-[44px] items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-emerald-700"
                 >
-                  <i class="pi pi-check text-[10px]"></i> Mark Reviewed
+                  <i class="pi pi-check text-[10px]"></i> Apply
                 </button>
                 <button
                   (click)="dismissRec(rec.id)"
