@@ -211,7 +211,7 @@ import { AuthService } from '../../../core/services/auth.service';
               </span>
             </div>
             <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100">
-              <div class="h-2 rounded-full transition-all" [class]="marginColor() === 'text-green-600' ? 'bg-emerald-500' : 'bg-amber-500'" [style.width.%]="marginBarWidth()"></div>
+              <div class="h-2 rounded-full transition-all" [class]="marginColor() === 'text-green-600' ? 'bg-emerald-500' : marginColor() === 'text-red-600' ? 'bg-red-500' : 'bg-amber-500'" [style.width.%]="marginBarWidth()"></div>
             </div>
             <p class="mt-1.5 text-xs text-gray-400">Target: {{ data().profitMargin.target_margin }}%</p>
           </div>
