@@ -1178,3 +1178,299 @@ class TestCategoryAwarePriceSuggestion:
         expected = Decimal("10000") / Decimal("0.60")
         assert abs(suggestion.suggested_price_ngn - expected) < Decimal("1")
         assert suggestion.target_margin_pct == Decimal("0.40")
+
+
+# ---------------------------------------------------------------------------
+# Portfolio Margin API response shape
+# ---------------------------------------------------------------------------
+
+
+class TestPortfolioMarginResponseShape:
+    """Verify that the portfolio-margin endpoint returns the fields the frontend expects."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+
+        u = _make_user()
+
+        async def _fake_auth():
+            return u
+
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
+    def test_portfolio_margin_returns_margin_gap_field(self):
+        """Response must include margin_gap (not gap) — matches frontend mapping."""
+        from unittest.mock import MagicMock, AsyncMock
+
+        self._override_auth()
+
+        from src.core.database import get_db
+
+        async def _fake_db():
+            # Return empty products (no sales in last 30d)
+            result_mock = MagicMock()
+            result_mock.all.return_value = []
+            db = AsyncMock()
+            db.execute = AsyncMock(return_value=result_mock)
+            db.flush = AsyncMock()
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/pricing/portfolio-margin")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        # These are the exact keys the frontend service maps from:
+        assert "blended_margin" in body
+        assert "target_margin" in body
+        assert "margin_gap" in body, "Frontend maps 'margin_gap' → 'gap'; field must be present"
+        assert "products" in body
+
+    def test_portfolio_margin_product_shape(self):
+        """Each product entry must have margin_pct and unit_cost (not current_margin/cost_price).
+        Now uses two queries: first for sales data, second for all active products."""
+        from unittest.mock import MagicMock, AsyncMock
+        from decimal import Decimal
+
+        self._override_auth()
+        from src.core.database import get_db
+
+        async def _fake_db():
+            pid = uuid.uuid4()
+
+            # First execute: sales aggregation query → (product_id, qty, revenue)
+            sales_result = MagicMock()
+            sales_result.all.return_value = [(pid, 10, Decimal("15000"))]
+
+            # Second execute: all active products → (id, name, unit_cost, selling_price)
+            products_result = MagicMock()
+            products_result.all.return_value = [
+                (pid, "Widget", Decimal("1000"), Decimal("1500"))
+            ]
+
+            db = AsyncMock()
+            db.execute = AsyncMock(side_effect=[sales_result, products_result])
+            db.flush = AsyncMock()
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/pricing/portfolio-margin")
+
+        assert resp.status_code == 200
+        products = resp.json()["products"]
+        assert len(products) == 1
+        p = products[0]
+        assert "margin_pct" in p, "Frontend maps margin_pct → current_margin"
+        assert "unit_cost" in p, "Frontend maps unit_cost → cost_price"
+        assert "selling_price" in p
+        assert "current_margin" not in p
+        assert "cost_price" not in p
+
+
+# ---------------------------------------------------------------------------
+# calculate_portfolio_margin — all-products inclusion
+# ---------------------------------------------------------------------------
+
+
+class TestCalculatePortfolioMarginAllProducts:
+    """Verify that all active products appear in the per-product breakdown,
+    regardless of whether they had sales in the last 30 days."""
+
+    def _make_db(self, sales_rows, product_rows):
+        """Return a mock db where the first execute returns sales_rows
+        and the second returns product_rows."""
+        sales_result = MagicMock()
+        sales_result.all.return_value = sales_rows
+
+        products_result = MagicMock()
+        products_result.all.return_value = product_rows
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[sales_result, products_result])
+        return db
+
+    @pytest.mark.asyncio
+    async def test_product_without_sales_appears_with_theoretical_margin(self):
+        """A product with no 30-day sales must still appear using cost vs price margin."""
+        from src.pricing.service import calculate_portfolio_margin
+
+        pid = uuid.uuid4()
+        # No sales rows
+        db = self._make_db(
+            sales_rows=[],
+            product_rows=[(pid, "Widget", Decimal("1000"), Decimal("1500"))],
+        )
+
+        result = await calculate_portfolio_margin(db)
+
+        assert len(result["products"]) == 1
+        p = result["products"][0]
+        assert p["product_name"] == "Widget"
+        # Theoretical margin: (1500 - 1000) / 1500 * 100 = 33.33%
+        assert abs(p["margin_pct"] - 33.33) < 0.1
+        assert p["revenue_30d"] == Decimal("0")
+        assert p["quantity_30d"] == 0
+
+    @pytest.mark.asyncio
+    async def test_blended_margin_only_counts_products_with_sales(self):
+        """Blended portfolio margin is revenue-weighted; no-sale products don't shift it."""
+        from src.pricing.service import calculate_portfolio_margin
+
+        pid1 = uuid.uuid4()
+        pid2 = uuid.uuid4()
+
+        # Only pid1 has sales: 10 units @ ₦1500 = ₦15 000 revenue, COGS = 10×₦1000 = ₦10 000
+        db = self._make_db(
+            sales_rows=[(pid1, 10, Decimal("15000"))],
+            product_rows=[
+                (pid1, "Product A", Decimal("1000"), Decimal("1500")),
+                (pid2, "Product B", Decimal("500"), Decimal("800")),
+            ],
+        )
+
+        result = await calculate_portfolio_margin(db)
+
+        assert len(result["products"]) == 2
+
+        # Blended margin = (15000 - 10000) / 15000 × 100 = 33.33 % (only from Product A)
+        assert abs(float(result["blended_margin"]) - 33.33) < 0.1
+
+        # Product B: theoretical margin = (800 - 500) / 800 × 100 = 37.5 %
+        product_b = next(p for p in result["products"] if p["product_name"] == "Product B")
+        assert abs(product_b["margin_pct"] - 37.5) < 0.1
+        assert product_b["revenue_30d"] == Decimal("0")
+
+    @pytest.mark.asyncio
+    async def test_product_with_sales_uses_actual_revenue_margin(self):
+        """Products with sales use (revenue − COGS) / revenue, not theoretical price margin."""
+        from src.pricing.service import calculate_portfolio_margin
+
+        pid = uuid.uuid4()
+        # Sold at ₦1500 avg (< current selling_price ₦2000) — actual margin ≠ theoretical
+        db = self._make_db(
+            sales_rows=[(pid, 10, Decimal("15000"))],
+            product_rows=[(pid, "Widget", Decimal("1200"), Decimal("2000"))],
+        )
+
+        result = await calculate_portfolio_margin(db)
+
+        p = result["products"][0]
+        # Actual: (15000 − 12000) / 15000 × 100 = 20 %, not theoretical (2000−1200)/2000 = 40 %
+        assert abs(p["margin_pct"] - 20.0) < 0.1
+        assert p["revenue_30d"] == Decimal("15000")
+        assert p["quantity_30d"] == 10
+
+    @pytest.mark.asyncio
+    async def test_zero_selling_price_product_shows_zero_margin(self):
+        """Products with selling_price = 0 must not raise a ZeroDivisionError."""
+        from src.pricing.service import calculate_portfolio_margin
+
+        pid = uuid.uuid4()
+        db = self._make_db(
+            sales_rows=[],
+            product_rows=[(pid, "Free Item", Decimal("0"), Decimal("0"))],
+        )
+
+        result = await calculate_portfolio_margin(db)
+
+        assert result["products"][0]["margin_pct"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Sensitivity Calc API
+# ---------------------------------------------------------------------------
+
+
+class TestSensitivityCalcEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+
+        u = _make_user()
+
+        async def _fake_auth():
+            return u
+
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+
+    def test_sensitivity_calc_stateless(self):
+        """Stateless calc with explicit unit_cost_usd returns expected margin."""
+        from src.core.database import get_db
+        from unittest.mock import AsyncMock, MagicMock
+
+        self._override_auth()
+
+        async def _fake_db():
+            db = AsyncMock()
+            db.execute = AsyncMock(return_value=MagicMock())
+            db.flush = AsyncMock()
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/pricing/sensitivity-calc",
+                json={
+                    "selling_price_override": 5000,
+                    "fx_rate_override": 1500,
+                    "quantity": 10,
+                    "unit_cost_usd": 2,  # $2 * 1500 = ₦3000 landed cost
+                },
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "margin_pct" in body
+        assert "landed_cost_ngn" in body
+        assert "gross_profit" in body
+        # margin = (5000 - 3000) / 5000 * 100 = 40%
+        assert float(body["margin_pct"]) == pytest.approx(40.0, abs=0.1)
+
+    def test_sensitivity_calc_requires_cost_source(self):
+        """Without product_id or unit_cost_usd the endpoint returns 400."""
+        from src.core.database import get_db
+        from unittest.mock import AsyncMock, MagicMock
+
+        self._override_auth()
+
+        async def _fake_db():
+            db = AsyncMock()
+            db.execute = AsyncMock(return_value=MagicMock())
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/pricing/sensitivity-calc",
+                json={
+                    "selling_price_override": 5000,
+                    "fx_rate_override": 1500,
+                    "quantity": 10,
+                    # neither product_id nor unit_cost_usd
+                },
+            )
+
+        assert resp.status_code == 400

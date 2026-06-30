@@ -57,9 +57,10 @@ interface TransactionMeta {
             data-testid="tab-all-sales"
             (click)="activeTab.set('all')"
             [attr.aria-selected]="activeTab() === 'all'"
-            class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+            class="min-h-[44px] whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
             [class.border-primary]="activeTab() === 'all'"
             [class.text-primary]="activeTab() === 'all'"
+            [class.font-semibold]="activeTab() === 'all'"
             [class.border-transparent]="activeTab() !== 'all'"
             [class.text-muted]="activeTab() !== 'all'"
             [class.hover:border-gray-300]="activeTab() !== 'all'"
@@ -73,9 +74,10 @@ interface TransactionMeta {
             data-testid="tab-upload-csv"
             (click)="activeTab.set('upload')"
             [attr.aria-selected]="activeTab() === 'upload'"
-            class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+            class="min-h-[44px] whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
             [class.border-primary]="activeTab() === 'upload'"
             [class.text-primary]="activeTab() === 'upload'"
+            [class.font-semibold]="activeTab() === 'upload'"
             [class.border-transparent]="activeTab() !== 'upload'"
             [class.text-muted]="activeTab() !== 'upload'"
             [class.hover:border-gray-300]="activeTab() !== 'upload'"
@@ -89,9 +91,10 @@ interface TransactionMeta {
             data-testid="tab-quick-quote"
             (click)="activeTab.set('quick-quote')"
             [attr.aria-selected]="activeTab() === 'quick-quote'"
-            class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+            class="min-h-[44px] whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
             [class.border-primary]="activeTab() === 'quick-quote'"
             [class.text-primary]="activeTab() === 'quick-quote'"
+            [class.font-semibold]="activeTab() === 'quick-quote'"
             [class.border-transparent]="activeTab() !== 'quick-quote'"
             [class.text-muted]="activeTab() !== 'quick-quote'"
             [class.hover:border-gray-300]="activeTab() !== 'quick-quote'"
@@ -105,9 +108,10 @@ interface TransactionMeta {
             data-testid="tab-record-sales"
             (click)="activeTab.set('record')"
             [attr.aria-selected]="activeTab() === 'record'"
-            class="whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+            class="min-h-[44px] whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
             [class.border-primary]="activeTab() === 'record'"
             [class.text-primary]="activeTab() === 'record'"
+            [class.font-semibold]="activeTab() === 'record'"
             [class.border-transparent]="activeTab() !== 'record'"
             [class.text-muted]="activeTab() !== 'record'"
             [class.hover:border-gray-300]="activeTab() !== 'record'"
@@ -126,8 +130,8 @@ interface TransactionMeta {
 
           <!-- Card header -->
           <div class="flex items-center gap-3 border-b border-gray-100 px-6 py-4">
-            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-              <i class="pi pi-shopping-cart text-sm text-primary"></i>
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50">
+              <i class="pi pi-shopping-cart text-sm text-emerald-700"></i>
             </div>
             <div>
               <h3 class="text-base font-semibold text-text">New Sale</h3>
@@ -170,7 +174,7 @@ interface TransactionMeta {
                   type="button"
                   (click)="newCustomerDialogVisible = true"
                   title="Add new customer"
-                  class="flex shrink-0 items-center gap-1 rounded-lg border border-primary/40 bg-white px-2.5 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/5"
+                  class="flex min-h-[44px] shrink-0 items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
                 >
                   <i class="pi pi-plus text-xs"></i> New
                 </button>
@@ -183,15 +187,15 @@ interface TransactionMeta {
             <span class="text-[11px] font-semibold uppercase tracking-wide text-muted">Products</span>
             <button
               (click)="addRow()"
-              class="flex items-center gap-1 rounded-lg border border-dashed border-primary/40 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/5"
+              class="flex min-h-[44px] items-center gap-1 rounded-lg border border-dashed border-emerald-300 px-2.5 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:border-emerald-500 hover:bg-emerald-50"
               type="button"
             >
               <i class="pi pi-plus text-[10px]"></i> Add Product
             </button>
           </div>
 
-          <!-- Column headers -->
-          <div class="flex items-center gap-2 bg-gray-50/60 px-5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+          <!-- Column headers — hidden on mobile, visible md+ -->
+          <div class="hidden items-center gap-2 bg-gray-50 px-5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:flex">
             <div class="min-w-0 flex-1">Product</div>
             <div class="w-14 shrink-0 text-right">Qty</div>
             <div class="w-24 shrink-0 text-right">Unit Price</div>
@@ -200,20 +204,21 @@ interface TransactionMeta {
             <div class="w-6 shrink-0"></div>
           </div>
 
-          <!-- Product rows — compact inline -->
+          <!-- Product rows — responsive: stacked on mobile, inline on md+ -->
           <div class="divide-y divide-gray-50">
             @for (row of entryRows(); track $index) {
-              <div class="px-5 py-2" [class.bg-red-50]="exceedsStock(row)">
-                <!-- items-start so fixed-height stock slot below product doesn't shift other cells -->
-                <div class="flex items-start gap-2">
+              <div class="px-5 py-3" [class.bg-red-50]="exceedsStock(row)">
+                <!-- Mobile: vertical stack | md+: horizontal flex row -->
+                <div class="flex flex-col gap-2 md:flex-row md:items-start">
 
-                  <!-- Product dropdown + fixed-height stock slot (row height stays constant) -->
+                  <!-- Product dropdown + fixed-height stock slot -->
                   <div class="min-w-0 flex-1">
+                    <label class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:hidden">Product</label>
                     <select
                       [(ngModel)]="row.product_id"
                       [name]="'product_' + $index"
                       (change)="onProductChange(row)"
-                      class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm font-medium text-text transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                      class="min-h-[44px] w-full rounded border border-gray-300 px-2 py-1.5 text-sm font-medium text-text transition-colors focus:border-primary focus:ring-1 focus:ring-primary md:min-h-0"
                     >
                       <option value="">Select product</option>
                       @for (p of products(); track p.id) {
@@ -233,77 +238,90 @@ interface TransactionMeta {
                     </div>
                   </div>
 
-                  <!-- Qty -->
-                  <input
-                    type="number"
-                    [(ngModel)]="row.quantity"
-                    (ngModelChange)="refreshRows()"
-                    [name]="'qty_' + $index"
-                    min="1"
-                    class="h-8 w-14 shrink-0 rounded border px-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                    [class.border-red-400]="exceedsStock(row)"
-                    [class.border-gray-300]="!exceedsStock(row)"
-                  />
+                  <!-- Mobile row 2: Qty + Unit Price + Discount + Total + Remove -->
+                  <div class="flex items-center gap-2">
 
-                  <!-- Unit Price (read-only) -->
-                  <div
-                    data-testid="entry-price-input"
-                    class="flex h-8 w-24 shrink-0 items-center justify-end rounded border border-gray-200 bg-gray-50 px-2 text-sm text-text"
-                  >
-                    @if (row.unit_price !== null) {
-                      {{ row.unit_price | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                    <!-- Qty -->
+                    <div class="flex flex-col gap-1">
+                      <label class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:hidden">Qty</label>
+                      <input
+                        type="number"
+                        [(ngModel)]="row.quantity"
+                        (ngModelChange)="refreshRows()"
+                        [name]="'qty_' + $index"
+                        min="1"
+                        class="h-8 w-14 shrink-0 rounded border px-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary md:h-8"
+                        [class.border-red-400]="exceedsStock(row)"
+                        [class.border-gray-300]="!exceedsStock(row)"
+                      />
+                    </div>
+
+                    <!-- Unit Price (read-only) -->
+                    <div class="flex flex-col gap-1">
+                      <label class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:hidden">Price</label>
+                      <div
+                        data-testid="entry-price-input"
+                        class="flex h-8 w-24 shrink-0 items-center justify-end rounded border border-gray-200 bg-gray-50 px-2 text-sm text-text"
+                      >
+                        @if (row.unit_price !== null) {
+                          {{ row.unit_price | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                        } @else {
+                          <span class="text-muted">—</span>
+                        }
+                      </div>
+                    </div>
+
+                    <!-- Discount -->
+                    <div class="flex flex-col gap-1">
+                      <label class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:hidden">Discount</label>
+                      <input
+                        type="number"
+                        [(ngModel)]="row.discount_amount"
+                        (ngModelChange)="refreshRows()"
+                        [name]="'discount_' + $index"
+                        min="0"
+                        step="0.01"
+                        data-testid="entry-discount-input"
+                        placeholder="0"
+                        class="h-8 w-20 shrink-0 rounded border border-gray-300 px-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+
+                    <!-- Line Total -->
+                    <div class="flex flex-col gap-1">
+                      <label class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:hidden">Total</label>
+                      <div
+                        data-testid="entry-line-total"
+                        class="flex h-8 w-24 shrink-0 items-center justify-end rounded border border-gray-200 bg-gray-50 px-2 text-sm font-semibold text-text"
+                      >
+                        {{ lineTotal(row) | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                      </div>
+                    </div>
+
+                    <!-- Remove -->
+                    @if (entryRows().length > 1) {
+                      <button
+                        (click)="removeRow($index)"
+                        class="flex h-8 w-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                        type="button"
+                        title="Remove row"
+                      >
+                        <i class="pi pi-times text-[10px]"></i>
+                      </button>
                     } @else {
-                      <span class="text-muted">—</span>
+                      <div class="w-6 shrink-0"></div>
                     }
+
                   </div>
-
-                  <!-- Discount -->
-                  <input
-                    type="number"
-                    [(ngModel)]="row.discount_amount"
-                    (ngModelChange)="refreshRows()"
-                    [name]="'discount_' + $index"
-                    min="0"
-                    step="0.01"
-                    data-testid="entry-discount-input"
-                    placeholder="0"
-                    class="h-8 w-20 shrink-0 rounded border border-gray-300 px-2 text-right text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
-                  />
-
-                  <!-- Line Total -->
-                  <div
-                    data-testid="entry-line-total"
-                    class="flex h-8 w-24 shrink-0 items-center justify-end rounded border border-gray-200 bg-gray-50 px-2 text-sm font-semibold text-text"
-                  >
-                    {{ lineTotal(row) | currency: 'NGN' : 'symbol' : '1.0-0' }}
-                  </div>
-
-                  <!-- Remove -->
-                  @if (entryRows().length > 1) {
-                    <button
-                      (click)="removeRow($index)"
-                      class="flex h-8 w-6 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-red-50 hover:text-danger"
-                      type="button"
-                      title="Remove row"
-                    >
-                      <i class="pi pi-times text-[10px]"></i>
-                    </button>
-                  } @else {
-                    <div class="w-6 shrink-0"></div>
-                  }
-
                 </div>
               </div>
             }
           </div>
 
-          <!-- Grand total — value aligned with the Total column -->
-          <div class="flex items-center gap-2 border-t-2 border-gray-200 bg-gray-50/60 px-5 py-2.5">
-            <div class="min-w-0 flex-1"></div>
-            <div class="w-14 shrink-0"></div>
-            <div class="w-24 shrink-0"></div>
-            <div class="w-20 shrink-0 text-right text-xs font-semibold text-text">Grand Total</div>
-            <div class="w-24 shrink-0 text-right text-sm font-bold text-primary">{{ grandTotal() | currency: 'NGN' : 'symbol' : '1.0-0' }}</div>
+          <!-- Grand total -->
+          <div class="flex items-center justify-end gap-4 border-t-2 border-gray-200 bg-gray-50/60 px-5 py-2.5">
+            <div class="text-xs font-semibold text-text">Grand Total</div>
+            <div class="text-sm font-bold text-emerald-700">{{ grandTotal() | currency: 'NGN' : 'symbol' : '1.0-0' }}</div>
             <div class="w-6 shrink-0"></div>
           </div>
 
@@ -378,7 +396,7 @@ interface TransactionMeta {
               <button
                 (click)="submitEntries()"
                 [disabled]="submitting() || hasStockExceeded()"
-                class="flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+                class="flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50"
               >
                 @if (submitting()) {
                   <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
@@ -400,11 +418,11 @@ interface TransactionMeta {
         <div class="mb-3 flex items-center gap-3">
           <button
             (click)="showSalesFilters = !showSalesFilters"
-            class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+            class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
           >
             <i class="pi pi-filter text-xs"></i> Filters
             @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateRange?.length) {
-              <span class="ml-0.5 h-1.5 w-1.5 rounded-full bg-primary"></span>
+              <span class="ml-0.5 h-1.5 w-1.5 rounded-full bg-emerald-600"></span>
             }
           </button>
           @if (filterLocationId || filterCustomerId || filterPaymentStatus || filterDateRange?.length) {
@@ -416,7 +434,7 @@ interface TransactionMeta {
 
         <!-- Filter panel -->
         @if (showSalesFilters) {
-          <div class="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div class="mb-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
             <div class="flex flex-wrap items-end gap-3">
               <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium text-muted">Location</label>
@@ -476,7 +494,7 @@ interface TransactionMeta {
               <button
                 type="button"
                 (click)="applyFilters()"
-                class="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90"
+                class="min-h-[44px] rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
               >
                 Apply
               </button>
@@ -518,7 +536,7 @@ interface TransactionMeta {
               type="button"
               data-testid="export-sales-csv"
               (click)="exportSalesCsv()"
-              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
               <i class="pi pi-download text-xs"></i> CSV
             </button>
@@ -526,7 +544,7 @@ interface TransactionMeta {
               type="button"
               data-testid="export-sales-excel"
               (click)="exportSalesExcel()"
-              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
               <i class="pi pi-file-excel text-xs"></i> Excel
             </button>
@@ -534,7 +552,7 @@ interface TransactionMeta {
               type="button"
               data-testid="export-sales-pdf"
               (click)="exportSalesPdf()"
-              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
               <i class="pi pi-file-pdf text-xs"></i> PDF
             </button>
@@ -542,7 +560,7 @@ interface TransactionMeta {
               type="button"
               data-testid="export-sales-print"
               (click)="printSales()"
-              class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+              class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
               <i class="pi pi-print text-xs"></i> Print
             </button>
@@ -550,7 +568,7 @@ interface TransactionMeta {
               type="button"
               data-testid="add-sale-btn"
               (click)="activeTab.set('record')"
-              class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
+              class="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700"
             >
               <i class="pi pi-plus text-xs"></i> Add Sale
             </button>
@@ -562,16 +580,16 @@ interface TransactionMeta {
             <caption class="sr-only">All sales transactions</caption>
             <thead>
               <tr class="border-b border-gray-200 bg-gray-50">
-                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Date</th>
-                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Invoice No.</th>
-                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Customer</th>
-                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Contact</th>
-                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Payment Status</th>
-                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Total Amount</th>
-                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Method</th>
-                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Total Paid</th>
-                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Sale Due</th>
-                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Items</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Date</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Invoice No.</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Customer</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Contact</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Payment Status</th>
+                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Total Amount</th>
+                <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Method</th>
+                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Total Paid</th>
+                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Sale Due</th>
+                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Items</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -630,12 +648,11 @@ interface TransactionMeta {
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="10" class="py-16 text-center text-muted">
-                    <i class="pi pi-list mb-3 block text-4xl text-gray-300"></i>
-                    No transactions recorded yet.
-                    <button (click)="activeTab.set('record')" class="mt-2 block mx-auto text-primary hover:underline">
-                      Record your first sale
-                    </button>
+                  <td colspan="10">
+                    <div class="py-12 text-center">
+                      <i class="pi pi-receipt block text-4xl text-gray-200 mb-3"></i>
+                      <p class="text-sm text-gray-500">No sales yet</p>
+                    </div>
                   </td>
                 </tr>
               }
@@ -684,8 +701,8 @@ interface TransactionMeta {
         <div class="mx-auto max-w-2xl">
           <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
             <div class="mb-5 flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
-                <i class="pi pi-upload text-sm text-purple-600"></i>
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                <i class="pi pi-upload text-sm text-emerald-700"></i>
               </div>
               <h3 class="text-base font-semibold text-text">Upload CSV</h3>
             </div>
@@ -699,7 +716,7 @@ interface TransactionMeta {
               <a
                 data-testid="download-template-link"
                 (click)="downloadTemplate()"
-                class="inline-flex cursor-pointer items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80 hover:underline"
+                class="inline-flex cursor-pointer items-center gap-1.5 text-sm font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
               >
                 <i class="pi pi-download text-xs"></i>
                 Download Template
@@ -715,7 +732,7 @@ interface TransactionMeta {
                 accept=".csv"
                 data-testid="csv-file-input"
                 (change)="onFileSelected($event)"
-                class="block w-full text-sm text-muted file:mr-4 file:rounded-lg file:border-0 file:bg-primary/10 file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-primary hover:file:bg-primary/20"
+                class="block w-full text-sm text-muted file:mr-4 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-4 file:py-2.5 file:text-sm file:font-semibold file:text-emerald-700 hover:file:bg-emerald-100"
               />
               @if (selectedFile()) {
                 <p class="mt-1.5 text-xs text-muted">
@@ -729,7 +746,7 @@ interface TransactionMeta {
               (click)="uploadCsv()"
               [disabled]="!selectedFile() || uploading()"
               data-testid="upload-csv-btn"
-              class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+              class="flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50"
             >
               @if (uploading()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i>
@@ -780,8 +797,8 @@ interface TransactionMeta {
         <div class="mx-auto max-w-lg">
           <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
             <div class="mb-5 flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
-                <i class="pi pi-calculator text-sm text-amber-600"></i>
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                <i class="pi pi-calculator text-sm text-emerald-700"></i>
               </div>
               <h3 class="text-base font-semibold text-text">Quick Quote</h3>
             </div>
@@ -822,7 +839,7 @@ interface TransactionMeta {
                 data-testid="quick-quote-calculate-btn"
                 (click)="calculateQuote()"
                 [disabled]="!qqProductId || qqQuantity < 1 || qqCalculating()"
-                class="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                class="w-full min-h-[44px] rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 @if (qqCalculating()) { Calculating… } @else { Calculate }
               </button>
@@ -852,7 +869,7 @@ interface TransactionMeta {
                   </div>
                   <div class="flex items-center justify-between border-t border-gray-200 pt-3">
                     <span class="text-sm font-semibold text-text">Min Sell Price / Unit</span>
-                    <span data-testid="qq-min-price" class="text-base font-bold text-primary">
+                    <span data-testid="qq-min-price" class="text-base font-bold text-emerald-700">
                       {{ qqResult()!.min_sell_price_per_unit | currency: 'NGN' : 'symbol' : '1.2-2' }}
                     </span>
                   </div>
@@ -934,7 +951,7 @@ interface TransactionMeta {
               (click)="submitEdit()"
               [disabled]="saving()"
               data-testid="save-edit-btn"
-              class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+              class="flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50"
             >
               @if (saving()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
@@ -989,7 +1006,7 @@ interface TransactionMeta {
               (click)="submitVoid()"
               [disabled]="saving()"
               data-testid="confirm-void-btn"
-              class="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-red-700 disabled:opacity-50"
+              class="flex min-h-[44px] items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-red-700 disabled:opacity-50"
             >
               @if (saving()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i> Voiding...
@@ -1052,7 +1069,7 @@ interface TransactionMeta {
           <button
             (click)="saveNewCustomer()"
             [disabled]="savingCustomer() || !newCustomerForm.name.trim()"
-            class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
+            class="flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50"
           >
             @if (savingCustomer()) {
               <i class="pi pi-spinner pi-spin text-sm"></i> Saving...

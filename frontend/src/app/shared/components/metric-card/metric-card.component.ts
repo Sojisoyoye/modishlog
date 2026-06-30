@@ -13,11 +13,11 @@ import { Component, ChangeDetectionStrategy, input, computed } from '@angular/co
       <p class="mt-2 text-2xl font-bold text-text">{{ value() }}</p>
       <div class="mt-2 flex items-center gap-1 text-xs">
         @if (trend() === 'up') {
-          <span class="flex items-center gap-0.5 font-medium text-success">
+          <span class="flex items-center gap-0.5 font-medium text-emerald-600">
             <i class="pi pi-arrow-up text-[10px]"></i> {{ trendLabel() }}
           </span>
         } @else if (trend() === 'down') {
-          <span class="flex items-center gap-0.5 font-medium text-danger">
+          <span class="flex items-center gap-0.5 font-medium text-red-600">
             <i class="pi pi-arrow-down text-[10px]"></i> {{ trendLabel() }}
           </span>
         } @else {
@@ -38,9 +38,9 @@ export class MetricCardComponent {
   borderClass = computed(() => {
     const classes: Record<string, string> = {
       default: 'border-gray-200',
-      success: 'border-l-4 border-l-success border-t-gray-200 border-r-gray-200 border-b-gray-200',
-      warning: 'border-l-4 border-l-warning border-t-gray-200 border-r-gray-200 border-b-gray-200',
-      danger: 'border-l-4 border-l-danger border-t-gray-200 border-r-gray-200 border-b-gray-200',
+      success: 'border-l-4 border-l-emerald-500 border-t-gray-200 border-r-gray-200 border-b-gray-200',
+      warning: 'border-l-4 border-l-amber-500 border-t-gray-200 border-r-gray-200 border-b-gray-200',
+      danger: 'border-l-4 border-l-red-500 border-t-gray-200 border-r-gray-200 border-b-gray-200',
     };
     return classes[this.severity()] ?? 'border-gray-200';
   });
