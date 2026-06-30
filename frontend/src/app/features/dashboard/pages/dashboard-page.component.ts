@@ -212,7 +212,7 @@ import { AuthService } from '../../../core/services/auth.service';
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 
         <!-- Money Out -->
-        <button type="button" class="col-span-1 sm:col-span-2 lg:col-span-3 flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" (click)="moneyOutOpen.set(!moneyOutOpen())">
+        <button type="button" class="col-span-1 sm:col-span-2 lg:col-span-3 flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" [attr.aria-expanded]="moneyOutOpen()" (click)="moneyOutOpen.set(!moneyOutOpen())">
           <i class="pi text-gray-500 text-sm" [class]="moneyOutOpen() ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
           <span class="text-xs font-semibold uppercase tracking-widest text-gray-500">Money Out</span>
         </button>
@@ -223,7 +223,7 @@ import { AuthService } from '../../../core/services/auth.service';
         }
 
         <!-- Returns -->
-        <button type="button" class="col-span-1 sm:col-span-2 lg:col-span-3 flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" (click)="returnsOpen.set(!returnsOpen())">
+        <button type="button" class="col-span-1 sm:col-span-2 lg:col-span-3 flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" [attr.aria-expanded]="returnsOpen()" (click)="returnsOpen.set(!returnsOpen())">
           <i class="pi text-gray-500 text-sm" [class]="returnsOpen() ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
           <span class="text-xs font-semibold uppercase tracking-widest text-gray-500">Returns</span>
         </button>
@@ -257,7 +257,7 @@ import { AuthService } from '../../../core/services/auth.service';
 
         <!-- ── Stock & Purchase Metrics ─────────────────────────────────── -->
         <div class="space-y-3">
-          <button type="button" class="flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" (click)="stockPurchaseOpen.set(!stockPurchaseOpen())">
+          <button type="button" class="flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" [attr.aria-expanded]="stockPurchaseOpen()" (click)="stockPurchaseOpen.set(!stockPurchaseOpen())">
             <i class="pi text-gray-500 text-sm" [class]="stockPurchaseOpen() ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
             <span class="text-xs font-semibold uppercase tracking-widest text-gray-500">Stock & Purchase Metrics</span>
           </button>
@@ -375,7 +375,7 @@ import { AuthService } from '../../../core/services/auth.service';
 
         <!-- ── Pulse Metrics ──────────────────────────────────────────────── -->
         <div class="space-y-3">
-          <button type="button" class="flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" (click)="pulseOpen.set(!pulseOpen())">
+          <button type="button" class="flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" [attr.aria-expanded]="pulseOpen()" (click)="pulseOpen.set(!pulseOpen())">
             <i class="pi text-gray-500 text-sm" [class]="pulseOpen() ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
             <span class="text-xs font-semibold uppercase tracking-widest text-gray-500">Pulse Metrics</span>
           </button>
@@ -572,7 +572,7 @@ import { AuthService } from '../../../core/services/auth.service';
 
         <!-- ── AI Smart Suggestions ───────────────────────────────────────── -->
         <div class="space-y-3">
-          <button type="button" class="flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" (click)="aiOpen.set(!aiOpen())">
+          <button type="button" class="flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" [attr.aria-expanded]="aiOpen()" (click)="aiOpen.set(!aiOpen())">
             <i class="pi text-gray-500 text-sm" [class]="aiOpen() ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
             <span class="text-xs font-semibold uppercase tracking-widest text-gray-500">AI Smart Suggestions</span>
           </button>
