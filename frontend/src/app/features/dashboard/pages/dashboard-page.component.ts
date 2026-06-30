@@ -43,7 +43,7 @@ import { AuthService } from '../../../core/services/auth.service';
         <!-- Today's Revenue — emerald hero card -->
         <div class="flex flex-col justify-between rounded-2xl bg-emerald-600 p-6 text-white shadow-sm">
           <div>
-            <p class="text-sm font-medium text-emerald-100">Today's Revenue</p>
+            <p class="text-sm font-medium text-emerald-100">{{ isToday() ? "Today's Revenue" : 'Period Revenue' }}</p>
             @if (kpiLoading()) {
               <div class="mt-2 h-10 w-32 animate-pulse rounded bg-emerald-500"></div>
             } @else {
@@ -79,7 +79,7 @@ import { AuthService } from '../../../core/services/auth.service';
         <!-- Sales Today -->
         <div class="flex flex-col justify-between rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
           <div>
-            <p class="text-sm font-medium text-muted">Sales Today</p>
+            <p class="text-sm font-medium text-muted">{{ isToday() ? 'Sales Today' : 'Period Sales' }}</p>
             @if (kpiLoading()) {
               <div class="mt-2 h-10 w-16 animate-pulse rounded bg-gray-100"></div>
             } @else {
@@ -117,7 +117,7 @@ import { AuthService } from '../../../core/services/auth.service';
               </tr>
             </thead>
             <tbody>
-              @for (sale of kpi()!.recent_sales; track sale.product_name) {
+              @for (sale of kpi()!.recent_sales; track $index) {
                 <tr class="border-b border-gray-50 last:border-0">
                   <td class="px-6 py-3 font-medium text-gray-900">{{ sale.product_name }}</td>
                   <td class="px-6 py-3 text-right text-muted">{{ sale.quantity }}</td>
@@ -650,6 +650,17 @@ export class DashboardPageComponent implements OnInit {
       { label: 'Total returned', value: k?.total_purchase_return ?? '0.00' },
       { label: 'Amount refunded', value: k?.total_purchase_return_paid ?? '0.00' },
     ];
+  });
+
+  isToday = computed(() => {
+    if (this.dateRange.length !== 2) return true;
+    const [from, to] = this.dateRange;
+    const t = new Date();
+    const sameDay = (a: Date, b: Date) =>
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate();
+    return sameDay(from, t) && sameDay(to, t);
   });
 
   revenueChangePct = computed(() => {
