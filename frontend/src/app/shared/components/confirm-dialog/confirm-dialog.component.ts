@@ -19,13 +19,13 @@ import { Dialog } from 'primeng/dialog';
       <div class="flex justify-end gap-2 pt-4">
         <button
           (click)="cancelled.emit()"
-          class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-text transition-colors hover:bg-gray-50"
+          class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 min-h-[44px]"
         >
           Cancel
         </button>
         <button
           (click)="confirmed.emit()"
-          class="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+          class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 min-h-[44px]"
         >
           {{ confirmLabel() }}
         </button>
