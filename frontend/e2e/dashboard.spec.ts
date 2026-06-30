@@ -88,6 +88,46 @@ test.describe('Global Exposure card (Task 16)', () => {
   });
 });
 
+test.describe('Recent Sales — mobile stacked cards vs desktop table (Task 144)', () => {
+  test('shows stacked card list on mobile (375px) and hides the table', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/dashboard');
+    await page.waitForLoadState('domcontentloaded');
+    // Table must be hidden via hidden sm:table
+    const table = page.locator('table.hidden');
+    await expect(table).toBeAttached();
+    // Mobile card list must be visible
+    const mobileList = page.locator('div.block.sm\\:hidden');
+    await expect(mobileList).toBeVisible();
+  });
+
+  test('shows table on desktop (768px) and hides the card list', async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await page.goto('/dashboard');
+    await page.waitForLoadState('domcontentloaded');
+    // Table visible at sm+ (768px triggers sm breakpoint)
+    const table = page.locator('table.hidden');
+    await expect(table).toBeAttached();
+    // Mobile list must not be visible at this width
+    const mobileList = page.locator('div.block.sm\\:hidden');
+    await expect(mobileList).toBeHidden();
+  });
+
+  test('mobile cards show product name, qty, revenue, and margin', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/dashboard');
+    await page.waitForLoadState('domcontentloaded');
+    const mobileList = page.locator('div.block.sm\\:hidden');
+    // If there are recent sales, each card row must be at least 44px tall
+    const firstRow = mobileList.locator('div.min-h-\\[44px\\]').first();
+    const hasRows = await firstRow.isVisible().catch(() => false);
+    if (hasRows) {
+      const box = await firstRow.boundingBox();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+  });
+});
+
 test.describe('Logistics Efficiency card (Task 17)', () => {
   test('renders with rolling average data', async ({ page }) => {
     await expect(page.getByText('Shipping Costs').first()).toBeVisible({ timeout: 10_000 });

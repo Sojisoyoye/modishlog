@@ -107,7 +107,7 @@ import { AuthService } from '../../../core/services/auth.service';
         } @else if (!(kpi()?.recent_sales?.length)) {
           <div class="px-6 py-8 text-center text-sm text-muted">No sales recorded today yet.</div>
         } @else {
-          <table class="w-full text-sm">
+          <table class="hidden sm:table w-full text-sm">
             <thead>
               <tr class="border-b border-gray-100">
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">Product</th>
@@ -129,6 +129,24 @@ import { AuthService } from '../../../core/services/auth.service';
               }
             </tbody>
           </table>
+
+          <!-- Mobile stacked list (hidden sm+) -->
+          <div class="block sm:hidden divide-y divide-gray-100">
+            @for (sale of kpi()!.recent_sales; track $index) {
+              <div class="flex items-center justify-between px-4 py-3 min-h-[44px]">
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-medium text-gray-900 truncate">{{ sale.product_name }}</p>
+                  <p class="text-xs text-muted">Qty: {{ sale.quantity }}</p>
+                </div>
+                <div class="ml-4 text-right flex-shrink-0">
+                  <p class="text-sm font-semibold text-gray-900">₦{{ sale.revenue | number: '1.0-0' }}</p>
+                  <p class="text-xs font-semibold" [class]="marginClass(sale.margin_pct)">
+                    {{ sale.margin_pct !== null ? sale.margin_pct + '%' : '—' }}
+                  </p>
+                </div>
+              </div>
+            }
+          </div>
         }
       </div>
 
