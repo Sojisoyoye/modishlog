@@ -92,10 +92,14 @@ import { AuthService } from '../../../core/services/auth.service';
               </p>
             }
           </div>
-          <p class="mt-4 flex items-center gap-1.5 text-sm font-medium" [class]="revenueChangeClass()">
-            <i [class]="revenueChangeIcon()"></i>
-            {{ revenueChangePct() }}% vs yesterday
-          </p>
+          @if (isToday()) {
+            <p class="mt-4 flex items-center gap-1.5 text-sm font-medium" [class]="revenueChangeClass()">
+              <i [class]="revenueChangeIcon()"></i>
+              {{ revenueChangePct() }}% vs yesterday
+            </p>
+          } @else {
+            <p class="mt-4 text-sm text-emerald-200">Filtered period total</p>
+          }
         </div>
 
         <!-- Net Profit -->
@@ -650,16 +654,17 @@ export class DashboardPageComponent implements OnInit {
     ];
   });
 
-  isToday = computed(() => {
-    if (this.dateRange.length !== 2) return true;
-    const [from, to] = this.dateRange;
+  isToday = signal(true);
+
+  private checkIsToday(dates: Date[]): boolean {
+    if (dates.length < 2 || !dates[0] || !dates[1]) return true;
     const t = new Date();
     const sameDay = (a: Date, b: Date) =>
       a.getFullYear() === b.getFullYear() &&
       a.getMonth() === b.getMonth() &&
       a.getDate() === b.getDate();
-    return sameDay(from, t) && sameDay(to, t);
-  });
+    return sameDay(dates[0], t) && sameDay(dates[1], t);
+  }
 
   revenueChangePct = computed(() => {
     const today = parseFloat(this.kpi()?.total_sales ?? '0');
@@ -765,14 +770,15 @@ export class DashboardPageComponent implements OnInit {
   onLocationChange(): void { this.loadKpi(); }
 
   onDateChange(): void {
-    if (!this.dateRange[1]) {
-      if (this.dateRange.length === 0) {
+    if (!this.dateRange?.[1]) {
+      if (!this.dateRange?.length) {
         const today = new Date();
         this.dateRange = [today, today];
       } else {
-        return;
+        return; // user clicked first date only — wait for second
       }
     }
+    this.isToday.set(this.checkIsToday(this.dateRange));
     this.loadKpi();
   }
 
