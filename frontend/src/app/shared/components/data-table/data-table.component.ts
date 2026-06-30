@@ -14,10 +14,10 @@ interface TableColumn {
     <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white">
       <table class="min-w-full divide-y divide-gray-200">
         <thead>
-          <tr class="bg-gray-50/80">
+          <tr class="bg-gray-50">
             @for (col of columns(); track col.key) {
               <th
-                class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted"
+                class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500"
               >
                 {{ col.header }}
               </th>
@@ -26,7 +26,7 @@ interface TableColumn {
         </thead>
         <tbody class="divide-y divide-gray-100">
           @for (row of data(); track $index) {
-            <tr class="transition-colors hover:bg-gray-50/50">
+            <tr class="transition-colors hover:bg-gray-50">
               @for (col of columns(); track col.key) {
                 <td class="whitespace-nowrap px-4 py-3 text-sm text-text">
                   {{ row[col.key] }}

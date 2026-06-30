@@ -7,14 +7,14 @@ import { AuthService } from '../../core/services/auth.service';
   imports: [],
   template: `
     <header
-      class="flex h-16 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 md:px-6"
+      class="flex h-16 shrink-0 items-center justify-between border-b-2 border-b-primary bg-white px-4 md:px-6"
     >
       <div class="flex items-center gap-3">
         <button
           (click)="toggleMenu.emit()"
-          class="rounded-lg p-2 text-muted transition-colors hover:bg-gray-100 hover:text-text"
+          class="min-h-[44px] min-w-[44px] rounded-lg p-2 text-muted transition-colors hover:bg-gray-100 hover:text-text"
         >
-          <i [class]="'pi text-lg ' + (sidebarCollapsed() ? 'pi-bars' : 'pi-bars')"></i>
+          <i [class]="'pi text-lg ' + (sidebarCollapsed() ? 'pi-bars' : 'pi-times')"></i>
         </button>
         <div class="hidden items-center gap-2 lg:flex">
           <i class="pi pi-building text-muted"></i>
