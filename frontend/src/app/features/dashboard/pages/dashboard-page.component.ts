@@ -36,53 +36,143 @@ import { AuthService } from '../../../core/services/auth.service';
     <div class="space-y-5">
 
       <!-- ============================================================
-           Welcome Banner + Filters
+           Hero row — Today's Revenue | Gross Margin | Sales Today
            ============================================================ -->
-      <div class="rounded-2xl bg-gradient-to-br from-slate-800 via-slate-700 to-blue-700 p-5 text-white shadow-lg sm:p-6">
-        <div class="mb-5 flex flex-wrap items-start justify-between gap-3">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+
+        <!-- Today's Revenue — emerald hero card -->
+        <div class="flex flex-col justify-between rounded-2xl bg-emerald-600 p-6 text-white shadow-sm">
           <div>
-            <p class="text-sm font-medium text-blue-200">Good day,</p>
-            <h1 class="text-2xl font-bold tracking-tight">{{ userName() }}</h1>
+            <p class="text-sm font-medium text-emerald-100">Today's Revenue</p>
+            @if (kpiLoading()) {
+              <div class="mt-2 h-10 w-32 animate-pulse rounded bg-emerald-500"></div>
+            } @else {
+              <p class="mt-2 text-4xl font-bold tracking-tight">
+                ₦{{ kpi()?.total_sales ?? '0.00' | number: '1.0-0' }}
+              </p>
+            }
           </div>
-          @if (liveRate() !== null) {
-            <div class="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-sm backdrop-blur-sm">
-              <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400"></span>
-              <span class="font-semibold">$1 = ₦{{ liveRate()! | number: '1.0-0' }}</span>
-            </div>
-          }
+          <p class="mt-4 flex items-center gap-1.5 text-sm font-medium" [class]="revenueChangeClass()">
+            <i [class]="revenueChangeIcon()"></i>
+            {{ revenueChangePct() }}% vs yesterday
+          </p>
         </div>
-        <div class="flex flex-wrap items-center gap-3">
-          <p-select
-            [options]="locationOptions()"
-            [(ngModel)]="selectedLocationId"
-            optionLabel="label"
-            optionValue="value"
-            placeholder="All locations"
-            [showClear]="true"
-            styleClass="w-48"
-            (onChange)="onLocationChange()"
-            data-testid="location-dropdown"
-          />
-          <p-datepicker
-            [(ngModel)]="dateRange"
-            selectionMode="range"
-            [readonlyInput]="true"
-            placeholder="Filter by date"
-            (onSelect)="onDateChange()"
-            (onClearClick)="onDateChange()"
-            [showButtonBar]="true"
-            [iconDisplay]="'input'"
-            [showIcon]="true"
-          >
-            <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
-              <i class="pi pi-calendar cursor-pointer" (click)="clickCallBack($event)"></i>
-            </ng-template>
-          </p-datepicker>
+
+        <!-- Gross Margin -->
+        <div class="flex flex-col justify-between rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div>
+            <p class="text-sm font-medium text-muted">Gross Margin</p>
+            @if (loading()) {
+              <div class="mt-2 h-10 w-24 animate-pulse rounded bg-gray-100"></div>
+            } @else {
+              <p class="mt-2 text-4xl font-bold tracking-tight text-gray-900">
+                {{ data().profitMargin.blended_margin | number: '1.1-1' }}%
+              </p>
+            }
+          </div>
+          <p class="mt-4 flex items-center gap-1.5 text-sm font-medium" [class]="marginGapColor()">
+            <i class="text-xs" [class]="data().profitMargin.margin_gap >= 0 ? 'pi pi-arrow-up' : 'pi pi-arrow-down'"></i>
+            {{ data().profitMargin.margin_gap >= 0 ? 'On target' : ((data().profitMargin.margin_gap | number: '1.1-1') + '% vs target') }}
+          </p>
+        </div>
+
+        <!-- Sales Today -->
+        <div class="flex flex-col justify-between rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div>
+            <p class="text-sm font-medium text-muted">Sales Today</p>
+            @if (kpiLoading()) {
+              <div class="mt-2 h-10 w-16 animate-pulse rounded bg-gray-100"></div>
+            } @else {
+              <p class="mt-2 text-4xl font-bold tracking-tight text-gray-900">
+                {{ kpi()?.transaction_count ?? 0 }}
+              </p>
+            }
+          </div>
+          <p class="mt-4 text-sm text-muted">transactions</p>
         </div>
       </div>
 
       <!-- ============================================================
-           KPI Cards — 8 business metrics
+           Recent Sales table
+           ============================================================ -->
+      <div class="rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <h2 class="text-base font-semibold text-gray-900">Recent Sales</h2>
+          <a routerLink="/sales" class="text-xs font-semibold text-emerald-600 hover:text-emerald-700">
+            View all <i class="pi pi-arrow-right text-[10px]"></i>
+          </a>
+        </div>
+        @if (kpiLoading()) {
+          <div class="px-6 py-8 text-center text-sm text-muted">Loading…</div>
+        } @else if (!(kpi()?.recent_sales?.length)) {
+          <div class="px-6 py-8 text-center text-sm text-muted">No sales recorded today yet.</div>
+        } @else {
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-gray-100">
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">Product</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Qty</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Revenue</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (sale of kpi()!.recent_sales; track sale.product_name) {
+                <tr class="border-b border-gray-50 last:border-0">
+                  <td class="px-6 py-3 font-medium text-gray-900">{{ sale.product_name }}</td>
+                  <td class="px-6 py-3 text-right text-muted">{{ sale.quantity }}</td>
+                  <td class="px-6 py-3 text-right text-gray-900">₦{{ sale.revenue | number: '1.0-0' }}</td>
+                  <td class="px-6 py-3 text-right font-semibold" [class]="marginClass(sale.margin_pct)">
+                    {{ sale.margin_pct !== null ? sale.margin_pct + '%' : '—' }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
+
+      <!-- ============================================================
+           Filters (kept for the KPI cards row below)
+           ============================================================ -->
+      <div class="flex flex-wrap items-center gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
+        <span class="text-xs font-medium text-muted">Filter period:</span>
+        <p-select
+          [options]="locationOptions()"
+          [(ngModel)]="selectedLocationId"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="All locations"
+          [showClear]="true"
+          styleClass="w-48"
+          (onChange)="onLocationChange()"
+          data-testid="location-dropdown"
+        />
+        <p-datepicker
+          [(ngModel)]="dateRange"
+          selectionMode="range"
+          [readonlyInput]="true"
+          placeholder="Filter by date"
+          (onSelect)="onDateChange()"
+          (onClearClick)="onDateChange()"
+          [showButtonBar]="true"
+          [iconDisplay]="'input'"
+          [showIcon]="true"
+        >
+          <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
+            <i class="pi pi-calendar cursor-pointer" (click)="clickCallBack($event)"></i>
+          </ng-template>
+        </p-datepicker>
+        @if (liveRate() !== null) {
+          <div class="ml-auto flex items-center gap-1.5 text-sm text-muted">
+            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span>
+            <span>$1 = ₦{{ liveRate()! | number: '1.0-0' }}</span>
+          </div>
+        }
+      </div>
+
+      <!-- ============================================================
+           KPI Cards — 8 business metrics (keep existing)
            ============================================================ -->
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <app-kpi-card label="Total Sales"        iconClass="pi pi-chart-bar"    colorScheme="blue"   [value]="kpi()?.total_sales          ?? '0.00'" [loading]="kpiLoading()" tooltipText="All completed sales in the selected period" />
@@ -561,6 +651,31 @@ export class DashboardPageComponent implements OnInit {
       { label: 'Amount refunded', value: k?.total_purchase_return_paid ?? '0.00' },
     ];
   });
+
+  revenueChangePct = computed(() => {
+    const today = parseFloat(this.kpi()?.total_sales ?? '0');
+    const yesterday = parseFloat(this.kpi()?.yesterday_sales ?? '0');
+    if (yesterday === 0) return 0;
+    return Math.abs(Math.round(((today - yesterday) / yesterday) * 100));
+  });
+
+  revenueChangeClass = computed(() => {
+    const today = parseFloat(this.kpi()?.total_sales ?? '0');
+    const yesterday = parseFloat(this.kpi()?.yesterday_sales ?? '0');
+    return today >= yesterday ? 'text-emerald-200' : 'text-red-200';
+  });
+
+  revenueChangeIcon = computed(() => {
+    const today = parseFloat(this.kpi()?.total_sales ?? '0');
+    const yesterday = parseFloat(this.kpi()?.yesterday_sales ?? '0');
+    return today >= yesterday ? 'pi pi-arrow-up text-xs' : 'pi pi-arrow-down text-xs';
+  });
+
+  marginClass(pct: string | null): string {
+    if (pct === null) return 'text-muted';
+    const n = parseFloat(pct);
+    return n >= 30 ? 'text-emerald-600' : n >= 15 ? 'text-amber-600' : 'text-red-500';
+  }
 
   // ---- Cash Health helpers -----------------------------------------------
 
