@@ -190,17 +190,36 @@ import { AuthService } from '../../../core/services/auth.service';
       </div>
 
       <!-- ============================================================
-           KPI Cards — 8 business metrics (keep existing)
+           KPI Cards — 8 business metrics grouped into 3 sections
            ============================================================ -->
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+
+        <!-- Money In -->
+        <div class="col-span-2 sm:col-span-3 pb-0.5 pt-1">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Money In</p>
+          <hr class="mt-1 border-gray-100">
+        </div>
         <app-kpi-card label="Total Sales"        iconClass="pi pi-chart-bar"    colorScheme="blue"   [value]="kpi()?.total_sales          ?? '0.00'" [loading]="kpiLoading()" tooltipText="All completed sales in the selected period" />
         <app-kpi-card label="Net Profit"         iconClass="pi pi-trending-up"  colorScheme="green"  [value]="kpi()?.net                  ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales Revenue − Cost of Goods Sold − Expenses" />
         <app-kpi-card label="Unpaid Sales"       iconClass="pi pi-clock"        colorScheme="amber"  [value]="kpi()?.invoice_due           ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales where payment hasn't been received yet" />
+
+        <!-- Money Out -->
+        <div class="col-span-2 sm:col-span-3 pb-0.5 pt-1">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Money Out</p>
+          <hr class="mt-1 border-gray-100">
+        </div>
         <app-kpi-card label="Total Purchased"    iconClass="pi pi-shopping-bag" colorScheme="blue"   [value]="kpi()?.total_purchase        ?? '0.00'" [loading]="kpiLoading()" tooltipText="Total value of all purchase orders placed" />
         <app-kpi-card label="Amount Owed"        iconClass="pi pi-credit-card"  colorScheme="amber"  [value]="kpi()?.purchase_due          ?? '0.00'" [loading]="kpiLoading()" tooltipText="Outstanding balance you owe to suppliers" />
         <app-kpi-card label="Monthly Expenses"   iconClass="pi pi-minus-circle" colorScheme="purple" [value]="kpi()?.expense               ?? '0.00'" [loading]="kpiLoading()" tooltipText="Operating costs (rent, salaries, utilities, etc.)" />
+
+        <!-- Returns -->
+        <div class="col-span-2 sm:col-span-3 pb-0.5 pt-1">
+          <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Returns</p>
+          <hr class="mt-1 border-gray-100">
+        </div>
         <app-kpi-card label="Customer Returns"   iconClass="pi pi-undo"         colorScheme="red"    [value]="kpi()?.total_sell_return     ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned by customers"             [subLines]="sellReturnSubLines()" />
         <app-kpi-card label="Supplier Refunds"   iconClass="pi pi-replay"       colorScheme="red"    [value]="kpi()?.total_purchase_return ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned to suppliers"             [subLines]="purchaseReturnSubLines()" />
+
       </div>
 
       @if (kpiError()) {

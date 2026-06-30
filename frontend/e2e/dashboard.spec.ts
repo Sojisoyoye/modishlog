@@ -35,6 +35,30 @@ test.describe('Dashboard simplified labels (Task 145)', () => {
   });
 });
 
+test.describe('KPI card section grouping (Task 146)', () => {
+  test('shows three group divider labels in the KPI grid', async ({ page }) => {
+    await expect(page.getByText('Money In').first()).toBeVisible();
+    await expect(page.getByText('Money Out').first()).toBeVisible();
+    await expect(page.getByText('Returns').first()).toBeVisible();
+  });
+
+  test('Money In section contains Total Sales and Net Profit', async ({ page }) => {
+    const moneyIn = page.locator('text=Money In').locator('..');
+    await expect(page.getByText('Total Sales').first()).toBeVisible();
+    await expect(page.getByText('Net Profit').first()).toBeVisible();
+    // Confirm the section label itself is a small uppercase element
+    const label = page.locator('p.text-\\[10px\\].font-semibold.uppercase', { hasText: 'Money In' });
+    await expect(label).toBeAttached();
+  });
+
+  test('Returns section contains Customer Returns and Supplier Refunds', async ({ page }) => {
+    await expect(page.getByText('Customer Returns').first()).toBeVisible();
+    await expect(page.getByText('Supplier Refunds').first()).toBeVisible();
+    const label = page.locator('p.text-\\[10px\\].font-semibold.uppercase', { hasText: 'Returns' });
+    await expect(label).toBeAttached();
+  });
+});
+
 test.describe('Dashboard widget cards', () => {
   test('displays the Cash Health card', async ({ page }) => {
     await expect(page.getByText('Cash Health').first()).toBeVisible();
