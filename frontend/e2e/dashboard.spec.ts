@@ -93,10 +93,10 @@ test.describe('Recent Sales — mobile stacked cards vs desktop table (Task 144)
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/dashboard');
     await page.waitForLoadState('domcontentloaded');
-    // Table must be hidden via hidden sm:table
-    const table = page.locator('table.hidden');
-    await expect(table).toBeAttached();
-    // Mobile card list must be visible
+    // Table must be hidden (display:none) at mobile — check computed visibility
+    const table = page.locator('table').first();
+    await expect(table).toBeHidden();
+    // Mobile card list container must be visible
     const mobileList = page.locator('div.block.sm\\:hidden');
     await expect(mobileList).toBeVisible();
   });
@@ -105,20 +105,22 @@ test.describe('Recent Sales — mobile stacked cards vs desktop table (Task 144)
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.goto('/dashboard');
     await page.waitForLoadState('domcontentloaded');
-    // Table visible at sm+ (768px triggers sm breakpoint)
-    const table = page.locator('table.hidden');
-    await expect(table).toBeAttached();
-    // Mobile list must not be visible at this width
+    // Table must be visible at sm+ — sm breakpoint activates at 640px, 768px exceeds it
+    const table = page.locator('table').first();
+    await expect(table).toBeVisible();
+    // Mobile card list must be hidden at this width
     const mobileList = page.locator('div.block.sm\\:hidden');
     await expect(mobileList).toBeHidden();
   });
 
-  test('mobile cards show product name, qty, revenue, and margin', async ({ page }) => {
+  test('mobile card list is rendered and card rows meet 44px tap target', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/dashboard');
     await page.waitForLoadState('domcontentloaded');
     const mobileList = page.locator('div.block.sm\\:hidden');
-    // If there are recent sales, each card row must be at least 44px tall
+    // Container itself is always rendered (even when empty — @for produces nothing but div exists)
+    await expect(mobileList).toBeAttached();
+    // When rows exist, each must meet the 44px minimum tap target
     const firstRow = mobileList.locator('div.min-h-\\[44px\\]').first();
     const hasRows = await firstRow.isVisible().catch(() => false);
     if (hasRows) {
