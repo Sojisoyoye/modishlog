@@ -219,7 +219,6 @@ import { AuthService } from '../../../core/services/auth.service';
         </div>
         <app-kpi-card label="Customer Returns"   iconClass="pi pi-undo"         colorScheme="red"    [value]="kpi()?.total_sell_return     ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned by customers"             [subLines]="sellReturnSubLines()" />
         <app-kpi-card label="Supplier Refunds"   iconClass="pi pi-replay"       colorScheme="red"    [value]="kpi()?.total_purchase_return ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned to suppliers"             [subLines]="purchaseReturnSubLines()" />
-
       </div>
 
       @if (kpiError()) {

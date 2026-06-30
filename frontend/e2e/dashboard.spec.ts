@@ -43,7 +43,6 @@ test.describe('KPI card section grouping (Task 146)', () => {
   });
 
   test('Money In section contains Total Sales and Net Profit', async ({ page }) => {
-    const moneyIn = page.locator('text=Money In').locator('..');
     await expect(page.getByText('Total Sales').first()).toBeVisible();
     await expect(page.getByText('Net Profit').first()).toBeVisible();
     // Confirm the section label itself is a small uppercase element
