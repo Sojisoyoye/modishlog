@@ -242,362 +242,380 @@ import { AuthService } from '../../../core/services/auth.service';
       }
 
       <!-- ============================================================
-           Row 1: Cash Health | Order Activity | Margin vs Target
+           Accordions: Stock & Purchase | Pulse Metrics | AI Suggestions
            ============================================================ -->
       @if (loading()) {
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
           @for (i of [1,2,3]; track i) { <div class="h-44 rounded-xl skeleton"></div> }
         </div>
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          @for (i of [1,2]; track i) { <div class="h-48 rounded-xl skeleton"></div> }
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          @for (i of [1,2]; track i) { <div class="h-44 rounded-xl skeleton"></div> }
         </div>
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          @for (i of [1,2,3]; track i) { <div class="h-40 rounded-xl skeleton"></div> }
-        </div>
+        <div class="h-64 rounded-xl skeleton"></div>
+        <div class="h-40 rounded-xl skeleton"></div>
       } @else {
 
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <!-- ── Stock & Purchase Metrics ─────────────────────────────────── -->
+        <div class="space-y-3">
+          <button type="button" class="flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" (click)="stockPurchaseOpen.set(!stockPurchaseOpen())">
+            <i class="pi text-gray-500 text-sm" [class]="stockPurchaseOpen() ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
+            <span class="text-xs font-semibold uppercase tracking-widest text-gray-500">Stock & Purchase Metrics</span>
+          </button>
+          @if (stockPurchaseOpen()) {
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
 
-          <!-- Cash Health -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="mb-4 flex items-center gap-3">
-              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-blue-50">
-                <i class="pi pi-wallet text-lg text-blue-600"></i>
-              </div>
-              <div>
-                <p class="font-semibold text-slate-800">Cash Health</p>
-                <p class="text-xs text-slate-400">How long your money lasts</p>
-              </div>
-            </div>
-            <div class="space-y-3">
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">Cash Runway</span>
-                <span class="text-sm font-bold text-slate-800">
-                  @if (data().liquidity.runway_months > 0) {
-                    {{ data().liquidity.runway_months | number: '1.1-1' }} mo
-                  } @else { Profitable ✓ }
-                </span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">Profit Score (DSCR)</span>
-                <span class="text-sm font-bold" [class]="dscrColor()">
-                  @if (data().liquidity.dscr >= 99) { Excellent }
-                  @else if (data().liquidity.dscr > 0) { {{ data().liquidity.dscr | number: '1.1-1' }} }
-                  @else { — }
-                </span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">Status</span>
-                <span class="rounded-full px-3 py-1 text-xs font-semibold" [class]="riskBadgeClass()">
-                  {{ riskLabel() }}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Order Activity -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="mb-4 flex items-center gap-3">
-              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-50">
-                <i class="pi pi-box text-lg text-amber-600"></i>
-              </div>
-              <div>
-                <p class="font-semibold text-slate-800">Order Activity</p>
-                <p class="text-xs text-slate-400">Purchases &amp; shipments</p>
-              </div>
-            </div>
-            <div class="space-y-3">
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">In Progress</span>
-                <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.active_orders }}</span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">All Time</span>
-                <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.total_orders }}</span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-sm text-slate-500">Delivered</span>
-                <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.by_status['DELIVERED'] || 0 }}</span>
-              </div>
-            </div>
-            <a routerLink="/orders" class="mt-4 flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
-              View orders <i class="pi pi-arrow-right text-[10px]"></i>
-            </a>
-          </div>
-
-          <!-- Margin vs Target -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="mb-4 flex items-center gap-3">
-              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-purple-50">
-                <i class="pi pi-percentage text-lg text-purple-600"></i>
-              </div>
-              <div>
-                <p class="font-semibold text-slate-800">Margin vs Target</p>
-                <p class="text-xs text-slate-400">How your margin compares to your goal</p>
-              </div>
-            </div>
-            <div class="flex items-baseline gap-2">
-              <p class="text-3xl font-bold tracking-tight" [class]="marginColor()">
-                {{ data().profitMargin.blended_margin | number: '1.1-1' }}%
-              </p>
-              <span class="text-sm font-medium" [class]="marginGapColor()">
-                @if (data().profitMargin.margin_gap >= 0) {
-                  +{{ data().profitMargin.margin_gap | number: '1.1-1' }}% vs target
+              <!-- Stock Levels -->
+              <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div class="mb-4 flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-red-50">
+                      <i class="pi pi-exclamation-triangle text-lg text-red-500"></i>
+                    </div>
+                    <div>
+                      <p class="font-semibold text-slate-800">Stock Levels</p>
+                      <p class="text-xs text-slate-400">Products running low</p>
+                    </div>
+                  </div>
+                  <a routerLink="/inventory" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                    Inventory <i class="pi pi-arrow-right text-[10px]"></i>
+                  </a>
+                </div>
+                @let lsc = data().lowStockCount;
+                @if (lsc === 0) {
+                  <div class="flex items-center gap-3 rounded-xl bg-green-50 p-4">
+                    <i class="pi pi-check-circle text-xl text-green-600"></i>
+                    <div>
+                      <p class="font-medium text-green-700">All stock levels healthy</p>
+                      <p class="text-xs text-green-600">No products need restocking</p>
+                    </div>
+                  </div>
                 } @else {
-                  {{ data().profitMargin.margin_gap | number: '1.1-1' }}% vs target
+                  <div class="flex items-center gap-4 rounded-xl bg-red-50 p-4">
+                    <div class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-red-100">
+                      <span class="text-2xl font-bold text-red-600">{{ lsc }}</span>
+                    </div>
+                    <div>
+                      <p class="font-semibold text-red-700">{{ lsc }} product{{ lsc !== 1 ? 's' : '' }} low</p>
+                      <p class="text-xs text-red-500">Check inventory and restock soon</p>
+                    </div>
+                  </div>
                 }
-              </span>
-            </div>
-            <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100">
-              <div class="h-2 rounded-full transition-all" [class]="marginColor() === 'text-green-600' ? 'bg-emerald-500' : marginColor() === 'text-red-600' ? 'bg-red-500' : 'bg-amber-500'" [style.width.%]="marginBarWidth()"></div>
-            </div>
-            <p class="mt-1.5 text-xs text-slate-400">Target: {{ data().profitMargin.target_margin }}%</p>
-          </div>
-        </div>
-
-        <!-- ============================================================
-             Row 2: Currency & Import Risks (merged FX + Global Exposure)
-             ============================================================ -->
-        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div class="mb-4 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-sky-50">
-                <i class="pi pi-arrow-right-arrow-left text-lg text-sky-600"></i>
               </div>
-              <div>
-                <p class="font-semibold text-slate-800">Currency & Import Risks</p>
-                <p class="text-xs text-slate-400">Your foreign currency exposure and obligations</p>
-              </div>
-            </div>
-            <a routerLink="/fx" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
-              Manage <i class="pi pi-arrow-right text-[10px]"></i>
-            </a>
-          </div>
 
-          <!-- Section 1: Open Order Exposure -->
-          <p class="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Open Order Exposure</p>
-          @if (fxExposure().length === 0) {
-            <div class="rounded-xl bg-slate-50 p-4 text-center">
-              <i class="pi pi-info-circle mb-2 text-xl text-slate-400"></i>
-              <p class="text-sm font-medium text-slate-600">No FX exposure tracked yet</p>
-              <p class="mt-1 text-xs text-slate-400">Recorded when purchase orders include a USD/EUR component.</p>
-              <a routerLink="/orders" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline">
-                Create a purchase order <i class="pi pi-arrow-right text-[10px]"></i>
-              </a>
-            </div>
-          } @else {
-            <div class="space-y-3">
-              @for (entry of fxExposure(); track entry.pair) {
-                <div class="rounded-xl border border-gray-100 p-4">
-                  <div class="mb-3 flex items-center justify-between">
-                    <span class="rounded-full bg-sky-100 px-3 py-0.5 text-xs font-bold text-sky-700">{{ entry.pair }}</span>
-                    <span class="text-xs" [class]="entry.unrealized_pnl >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'">
-                      {{ entry.unrealized_pnl >= 0 ? '+' : '' }}{{ entry.unrealized_pnl | number: '1.0-0' }} P&amp;L
+              <!-- Order Activity -->
+              <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div class="mb-4 flex items-center gap-3">
+                  <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-amber-50">
+                    <i class="pi pi-box text-lg text-amber-600"></i>
+                  </div>
+                  <div>
+                    <p class="font-semibold text-slate-800">Order Activity</p>
+                    <p class="text-xs text-slate-400">Purchases &amp; shipments</p>
+                  </div>
+                </div>
+                <div class="space-y-3">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-slate-500">In Progress</span>
+                    <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.active_orders }}</span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-slate-500">All Time</span>
+                    <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.total_orders }}</span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-slate-500">Delivered</span>
+                    <span class="text-sm font-bold text-slate-800">{{ data().ordersSummary.by_status['DELIVERED'] || 0 }}</span>
+                  </div>
+                </div>
+                <a routerLink="/orders" class="mt-4 flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
+                  View orders <i class="pi pi-arrow-right text-[10px]"></i>
+                </a>
+              </div>
+
+              <!-- Shipping Costs -->
+              <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div class="mb-4 flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" [class]="logisticsIconBg()">
+                      <i class="pi pi-truck text-lg" [class]="logisticsIconColor()"></i>
+                    </div>
+                    <div>
+                      <p class="font-semibold text-slate-800">Shipping Costs</p>
+                      <p class="text-xs text-slate-400">Logistics as % of order value</p>
+                    </div>
+                  </div>
+                  <a routerLink="/orders" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                    Orders <i class="pi pi-arrow-right text-[10px]"></i>
+                  </a>
+                </div>
+                @let lg = logistics();
+                @if (lg) {
+                  <p class="text-4xl font-bold" [class]="logisticsValueColor()">
+                    {{ lg.rolling_90d_avg_pct | number: '1.1-1' }}%
+                  </p>
+                  <p class="mt-1 text-xs text-slate-400">90-day rolling average</p>
+                  <div class="mt-3 flex items-center gap-2">
+                    <span class="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold" [class]="logisticsBadgeClass()">
+                      <i class="pi" [class]="lg.status === 'healthy' ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
+                      {{ lg.status === 'healthy' ? 'Within target' : lg.status === 'amber' ? 'Watch closely' : 'Above limit' }}
                     </span>
                   </div>
-                  <div class="grid grid-cols-2 gap-3">
-                    <div>
-                      <p class="text-xs text-slate-400">Locked ({{ (entry.locked_pct * 100) | number: '1.0-0' }}%)</p>
-                      <p class="font-bold text-slate-800">{{ entry.locked_amount | number: '1.0-0' }}</p>
-                      <p class="text-[10px] text-slate-400">at {{ entry.weighted_locked_rate | number: '1.2-2' }}</p>
-                    </div>
-                    <div>
-                      <p class="text-xs text-slate-400">Floating ({{ (entry.floating_pct * 100) | number: '1.0-0' }}%)</p>
-                      <p class="font-bold text-slate-800">{{ entry.floating_amount | number: '1.0-0' }}</p>
-                      <p class="text-[10px] text-slate-400">market {{ entry.current_market_rate | number: '1.2-2' }}</p>
-                    </div>
+                  <p class="mt-3 text-xs text-slate-400">Target: below {{ lg.amber_threshold_pct }}% of order value</p>
+                } @else {
+                  <div class="space-y-2">
+                    <div class="h-10 w-24 rounded skeleton"></div>
+                    <div class="h-4 w-32 rounded skeleton"></div>
                   </div>
-                  <div class="mt-3 flex h-2 w-full overflow-hidden rounded-full">
-                    <div class="bg-blue-500" [style.width.%]="entry.locked_pct * 100"></div>
-                    <div class="bg-amber-400" [style.width.%]="entry.floating_pct * 100"></div>
-                  </div>
-                  <div class="mt-1 flex justify-between text-[10px] text-slate-400">
-                    <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500"></span> Locked</span>
-                    <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"></span> Floating</span>
-                  </div>
-                </div>
-              }
+                }
+              </div>
+
             </div>
           }
+        </div>
 
-          <hr class="my-4 border-gray-100">
+        <!-- ── Pulse Metrics ──────────────────────────────────────────────── -->
+        <div class="space-y-3">
+          <button type="button" class="flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" (click)="pulseOpen.set(!pulseOpen())">
+            <i class="pi text-gray-500 text-sm" [class]="pulseOpen() ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
+            <span class="text-xs font-semibold uppercase tracking-widest text-gray-500">Pulse Metrics</span>
+          </button>
+          @if (pulseOpen()) {
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
-          <!-- Section 2: Total Obligations -->
-          <p class="mb-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Total Obligations</p>
-          @let ge = globalExposure();
-          @if (ge) {
-            <div class="mb-4 rounded-xl bg-indigo-50 p-4">
-              <p class="text-xs font-semibold uppercase tracking-wider text-indigo-400">Total Amount Owed (₦)</p>
-              <p class="mt-1 text-2xl font-bold text-indigo-700">₦{{ ge.total_global_exposure_ngn | number: '1.0-0' }}</p>
-              <div class="mt-2 flex items-center gap-2">
-                <span class="text-xs text-indigo-500">Risk Level:</span>
-                <span class="text-xs font-bold" [class]="ge.debt_to_trade_ratio > 1.5 ? 'text-red-600' : ge.debt_to_trade_ratio > 0.8 ? 'text-amber-600' : 'text-green-600'">
-                  {{ ge.debt_to_trade_ratio | number: '1.2-2' }}
-                  @if (ge.debt_to_trade_ratio <= 0.8) { (Healthy) }
-                  @else if (ge.debt_to_trade_ratio <= 1.5) { (Moderate) }
-                  @else { (High) }
-                </span>
-              </div>
-            </div>
-            <div class="space-y-3">
-              <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
-                <div class="flex items-center gap-2">
-                  <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-green-50 text-xs font-bold text-green-700">$</span>
+              <!-- Margin vs Target -->
+              <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div class="mb-4 flex items-center gap-3">
+                  <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-purple-50">
+                    <i class="pi pi-percentage text-lg text-purple-600"></i>
+                  </div>
                   <div>
-                    <p class="text-sm font-medium text-slate-700">USD Order Obligations</p>
-                    <p class="text-xs text-slate-400">Balance owed on open purchase orders</p>
+                    <p class="font-semibold text-slate-800">Margin vs Target</p>
+                    <p class="text-xs text-slate-400">How your margin compares to your goal</p>
                   </div>
                 </div>
-                <span class="text-sm font-bold text-slate-800">\${{ ge.open_order_usd_obligations | number: '1.0-0' }}</span>
+                <div class="flex items-baseline gap-2">
+                  <p class="text-3xl font-bold tracking-tight" [class]="marginColor()">
+                    {{ data().profitMargin.blended_margin | number: '1.1-1' }}%
+                  </p>
+                  <span class="text-sm font-medium" [class]="marginGapColor()">
+                    @if (data().profitMargin.margin_gap >= 0) {
+                      +{{ data().profitMargin.margin_gap | number: '1.1-1' }}% vs target
+                    } @else {
+                      {{ data().profitMargin.margin_gap | number: '1.1-1' }}% vs target
+                    }
+                  </span>
+                </div>
+                <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                  <div class="h-2 rounded-full transition-all" [class]="marginColor() === 'text-green-600' ? 'bg-emerald-500' : marginColor() === 'text-red-600' ? 'bg-red-500' : 'bg-amber-500'" [style.width.%]="marginBarWidth()"></div>
+                </div>
+                <p class="mt-1.5 text-xs text-slate-400">Target: {{ data().profitMargin.target_margin }}%</p>
               </div>
-              <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
-                <div class="flex items-center gap-2">
-                  <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-xs font-bold text-blue-700">€</span>
+
+              <!-- Cash Health -->
+              <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div class="mb-4 flex items-center gap-3">
+                  <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-blue-50">
+                    <i class="pi pi-wallet text-lg text-blue-600"></i>
+                  </div>
                   <div>
-                    <p class="text-sm font-medium text-slate-700">EUR Loan Balance</p>
-                    <p class="text-xs text-slate-400">Outstanding loan obligations in EUR</p>
+                    <p class="font-semibold text-slate-800">Cash Health</p>
+                    <p class="text-xs text-slate-400">How long your money lasts</p>
                   </div>
                 </div>
-                <span class="text-sm font-bold text-slate-800">€{{ ge.eur_loan_balance_eur | number: '1.0-0' }}</span>
+                <div class="space-y-3">
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-slate-500">Cash Runway</span>
+                    <span class="text-sm font-bold text-slate-800">
+                      @if (data().liquidity.runway_months > 0) {
+                        {{ data().liquidity.runway_months | number: '1.1-1' }} mo
+                      } @else { Profitable ✓ }
+                    </span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-slate-500">Profit Score (DSCR)</span>
+                    <span class="text-sm font-bold" [class]="dscrColor()">
+                      @if (data().liquidity.dscr >= 99) { Excellent }
+                      @else if (data().liquidity.dscr > 0) { {{ data().liquidity.dscr | number: '1.1-1' }} }
+                      @else { — }
+                    </span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-sm text-slate-500">Status</span>
+                    <span class="rounded-full px-3 py-1 text-xs font-semibold" [class]="riskBadgeClass()">
+                      {{ riskLabel() }}
+                    </span>
+                  </div>
+                </div>
               </div>
+
             </div>
-            <div class="mt-4 flex flex-wrap gap-3 border-t border-gray-100 pt-3">
-              <span class="text-xs text-slate-400">$1 = ₦{{ ge.ngn_usd_rate | number: '1.0-0' }}</span>
-              @if (ge.eur_usd_rate_available) {
-                <span class="text-xs text-slate-400">€1 = \${{ ge.eur_usd_rate | number: '1.3-3' }}</span>
-                <span class="text-xs text-slate-400">€1 = ₦{{ ge.eur_ngn_derived_rate | number: '1.0-0' }}</span>
+
+            <!-- Currency & Import Risks (full width) -->
+            <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div class="mb-4 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-sky-50">
+                    <i class="pi pi-arrow-right-arrow-left text-lg text-sky-600"></i>
+                  </div>
+                  <div>
+                    <p class="font-semibold text-slate-800">Currency & Import Risks</p>
+                    <p class="text-xs text-slate-400">Your foreign currency exposure and obligations</p>
+                  </div>
+                </div>
+                <a routerLink="/fx" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                  Manage <i class="pi pi-arrow-right text-[10px]"></i>
+                </a>
+              </div>
+
+              <!-- Section 1: Open Order Exposure -->
+              <p class="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Open Order Exposure</p>
+              @if (fxExposure().length === 0) {
+                <div class="rounded-xl bg-slate-50 p-4 text-center">
+                  <i class="pi pi-info-circle mb-2 text-xl text-slate-400"></i>
+                  <p class="text-sm font-medium text-slate-600">No FX exposure tracked yet</p>
+                  <p class="mt-1 text-xs text-slate-400">Recorded when purchase orders include a USD/EUR component.</p>
+                  <a routerLink="/orders" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline">
+                    Create a purchase order <i class="pi pi-arrow-right text-[10px]"></i>
+                  </a>
+                </div>
               } @else {
-                <span class="text-xs text-amber-500">EUR/USD rate unavailable</span>
+                <div class="space-y-3">
+                  @for (entry of fxExposure(); track entry.pair) {
+                    <div class="rounded-xl border border-gray-100 p-4">
+                      <div class="mb-3 flex items-center justify-between">
+                        <span class="rounded-full bg-sky-100 px-3 py-0.5 text-xs font-bold text-sky-700">{{ entry.pair }}</span>
+                        <span class="text-xs" [class]="entry.unrealized_pnl >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'">
+                          {{ entry.unrealized_pnl >= 0 ? '+' : '' }}{{ entry.unrealized_pnl | number: '1.0-0' }} P&amp;L
+                        </span>
+                      </div>
+                      <div class="grid grid-cols-2 gap-3">
+                        <div>
+                          <p class="text-xs text-slate-400">Locked ({{ (entry.locked_pct * 100) | number: '1.0-0' }}%)</p>
+                          <p class="font-bold text-slate-800">{{ entry.locked_amount | number: '1.0-0' }}</p>
+                          <p class="text-[10px] text-slate-400">at {{ entry.weighted_locked_rate | number: '1.2-2' }}</p>
+                        </div>
+                        <div>
+                          <p class="text-xs text-slate-400">Floating ({{ (entry.floating_pct * 100) | number: '1.0-0' }}%)</p>
+                          <p class="font-bold text-slate-800">{{ entry.floating_amount | number: '1.0-0' }}</p>
+                          <p class="text-[10px] text-slate-400">market {{ entry.current_market_rate | number: '1.2-2' }}</p>
+                        </div>
+                      </div>
+                      <div class="mt-3 flex h-2 w-full overflow-hidden rounded-full">
+                        <div class="bg-blue-500" [style.width.%]="entry.locked_pct * 100"></div>
+                        <div class="bg-amber-400" [style.width.%]="entry.floating_pct * 100"></div>
+                      </div>
+                      <div class="mt-1 flex justify-between text-[10px] text-slate-400">
+                        <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500"></span> Locked</span>
+                        <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"></span> Floating</span>
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+
+              <hr class="my-4 border-gray-100">
+
+              <!-- Section 2: Total Obligations -->
+              <p class="mb-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Total Obligations</p>
+              @let ge = globalExposure();
+              @if (ge) {
+                <div class="mb-4 rounded-xl bg-indigo-50 p-4">
+                  <p class="text-xs font-semibold uppercase tracking-wider text-indigo-400">Total Amount Owed (₦)</p>
+                  <p class="mt-1 text-2xl font-bold text-indigo-700">₦{{ ge.total_global_exposure_ngn | number: '1.0-0' }}</p>
+                  <div class="mt-2 flex items-center gap-2">
+                    <span class="text-xs text-indigo-500">Risk Level:</span>
+                    <span class="text-xs font-bold" [class]="ge.debt_to_trade_ratio > 1.5 ? 'text-red-600' : ge.debt_to_trade_ratio > 0.8 ? 'text-amber-600' : 'text-green-600'">
+                      {{ ge.debt_to_trade_ratio | number: '1.2-2' }}
+                      @if (ge.debt_to_trade_ratio <= 0.8) { (Healthy) }
+                      @else if (ge.debt_to_trade_ratio <= 1.5) { (Moderate) }
+                      @else { (High) }
+                    </span>
+                  </div>
+                </div>
+                <div class="space-y-3">
+                  <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
+                    <div class="flex items-center gap-2">
+                      <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-green-50 text-xs font-bold text-green-700">$</span>
+                      <div>
+                        <p class="text-sm font-medium text-slate-700">USD Order Obligations</p>
+                        <p class="text-xs text-slate-400">Balance owed on open purchase orders</p>
+                      </div>
+                    </div>
+                    <span class="text-sm font-bold text-slate-800">\${{ ge.open_order_usd_obligations | number: '1.0-0' }}</span>
+                  </div>
+                  <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
+                    <div class="flex items-center gap-2">
+                      <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-xs font-bold text-blue-700">€</span>
+                      <div>
+                        <p class="text-sm font-medium text-slate-700">EUR Loan Balance</p>
+                        <p class="text-xs text-slate-400">Outstanding loan obligations in EUR</p>
+                      </div>
+                    </div>
+                    <span class="text-sm font-bold text-slate-800">€{{ ge.eur_loan_balance_eur | number: '1.0-0' }}</span>
+                  </div>
+                </div>
+                <div class="mt-4 flex flex-wrap gap-3 border-t border-gray-100 pt-3">
+                  <span class="text-xs text-slate-400">$1 = ₦{{ ge.ngn_usd_rate | number: '1.0-0' }}</span>
+                  @if (ge.eur_usd_rate_available) {
+                    <span class="text-xs text-slate-400">€1 = \${{ ge.eur_usd_rate | number: '1.3-3' }}</span>
+                    <span class="text-xs text-slate-400">€1 = ₦{{ ge.eur_ngn_derived_rate | number: '1.0-0' }}</span>
+                  } @else {
+                    <span class="text-xs text-amber-500">EUR/USD rate unavailable</span>
+                  }
+                </div>
+              } @else {
+                <div class="h-32 rounded-xl skeleton"></div>
               }
             </div>
-          } @else {
-            <div class="h-32 rounded-xl skeleton"></div>
           }
         </div>
 
-        <!-- ============================================================
-             Row 3: Logistics Efficiency | Low Stock | AI Suggestions
-             ============================================================ -->
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-
-          <!-- Logistics Efficiency -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="mb-4 flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" [class]="logisticsIconBg()">
-                  <i class="pi pi-truck text-lg" [class]="logisticsIconColor()"></i>
-                </div>
-                <div>
-                  <p class="font-semibold text-slate-800">Shipping Costs</p>
-                  <p class="text-xs text-slate-400">Logistics as % of order value</p>
-                </div>
-              </div>
-              <a routerLink="/orders" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                Orders <i class="pi pi-arrow-right text-[10px]"></i>
-              </a>
-            </div>
-
-            @let lg = logistics();
-            @if (lg) {
-              <p class="text-4xl font-bold" [class]="logisticsValueColor()">
-                {{ lg.rolling_90d_avg_pct | number: '1.1-1' }}%
-              </p>
-              <p class="mt-1 text-xs text-slate-400">90-day rolling average</p>
-
-              <!-- Status badge -->
-              <div class="mt-3 flex items-center gap-2">
-                <span class="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold" [class]="logisticsBadgeClass()">
-                  <i class="pi" [class]="lg.status === 'healthy' ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
-                  {{ lg.status === 'healthy' ? 'Within target' : lg.status === 'amber' ? 'Watch closely' : 'Above limit' }}
-                </span>
-              </div>
-
-              <p class="mt-3 text-xs text-slate-400">Target: below {{ lg.amber_threshold_pct }}% of order value</p>
-            } @else {
-              <div class="space-y-2">
-                <div class="h-10 w-24 rounded skeleton"></div>
-                <div class="h-4 w-32 rounded skeleton"></div>
-              </div>
-            }
-          </div>
-
-          <!-- Low Stock Alerts -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="mb-4 flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-red-50">
-                  <i class="pi pi-exclamation-triangle text-lg text-red-500"></i>
-                </div>
-                <div>
-                  <p class="font-semibold text-slate-800">Stock Levels</p>
-                  <p class="text-xs text-slate-400">Products running low</p>
-                </div>
-              </div>
-              <a routerLink="/inventory" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                Inventory <i class="pi pi-arrow-right text-[10px]"></i>
-              </a>
-            </div>
-            @let lsc = data().lowStockCount;
-            @if (lsc === 0) {
-              <div class="flex items-center gap-3 rounded-xl bg-green-50 p-4">
-                <i class="pi pi-check-circle text-xl text-green-600"></i>
-                <div>
-                  <p class="font-medium text-green-700">All stock levels healthy</p>
-                  <p class="text-xs text-green-600">No products need restocking</p>
-                </div>
-              </div>
-            } @else {
-              <div class="flex items-center gap-4 rounded-xl bg-red-50 p-4">
-                <div class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-red-100">
-                  <span class="text-2xl font-bold text-red-600">{{ lsc }}</span>
-                </div>
-                <div>
-                  <p class="font-semibold text-red-700">{{ lsc }} product{{ lsc !== 1 ? 's' : '' }} low</p>
-                  <p class="text-xs text-red-500">Check inventory and restock soon</p>
-                </div>
-              </div>
-            }
-          </div>
-
-          <!-- AI Smart Suggestions -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="mb-4 flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50">
-                  <i class="pi pi-sparkles text-lg text-indigo-600"></i>
-                </div>
-                <div>
-                  <p class="font-semibold text-slate-800">Smart Suggestions</p>
-                  <p class="text-xs text-slate-400">AI-powered business tips</p>
-                </div>
-              </div>
-              <a routerLink="/recommendations" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                View all <i class="pi pi-arrow-right text-[10px]"></i>
-              </a>
-            </div>
-            @if (data().recommendations.length === 0) {
-              <div class="flex items-center gap-3 rounded-xl bg-slate-50 p-4">
-                <i class="pi pi-check-circle text-xl text-slate-400"></i>
-                <p class="text-sm text-slate-500">No new suggestions right now.</p>
-              </div>
-            } @else {
-              <div class="space-y-2">
-                @for (rec of data().recommendations; track rec.id) {
-                  <div class="flex items-start gap-3 rounded-xl border border-gray-100 p-3 transition-colors hover:bg-slate-50">
-                    <span class="mt-0.5 flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" [class]="priorityClass(rec.priority)">
-                      {{ rec.priority }}
-                    </span>
-                    <div class="min-w-0">
-                      <p class="truncate text-sm font-medium text-slate-800">{{ rec.title }}</p>
-                      <p class="truncate text-xs text-slate-400">{{ rec.category }}</p>
-                    </div>
+        <!-- ── AI Smart Suggestions ───────────────────────────────────────── -->
+        <div class="space-y-3">
+          <button type="button" class="flex w-full items-center gap-2 border-b border-gray-100 pb-2 pt-1 text-left" (click)="aiOpen.set(!aiOpen())">
+            <i class="pi text-gray-500 text-sm" [class]="aiOpen() ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
+            <span class="text-xs font-semibold uppercase tracking-widest text-gray-500">AI Smart Suggestions</span>
+          </button>
+          @if (aiOpen()) {
+            <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div class="mb-4 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50">
+                    <i class="pi pi-sparkles text-lg text-indigo-600"></i>
                   </div>
-                }
+                  <div>
+                    <p class="font-semibold text-slate-800">Smart Suggestions</p>
+                    <p class="text-xs text-slate-400">AI-powered business tips</p>
+                  </div>
+                </div>
+                <a routerLink="/recommendations" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                  View all <i class="pi pi-arrow-right text-[10px]"></i>
+                </a>
               </div>
-            }
-          </div>
-
+              @if (data().recommendations.length === 0) {
+                <div class="flex items-center gap-3 rounded-xl bg-slate-50 p-4">
+                  <i class="pi pi-check-circle text-xl text-slate-400"></i>
+                  <p class="text-sm text-slate-500">No new suggestions right now.</p>
+                </div>
+              } @else {
+                <div class="space-y-2">
+                  @for (rec of data().recommendations; track rec.id) {
+                    <div class="flex items-start gap-3 rounded-xl border border-gray-100 p-3 transition-colors hover:bg-slate-50">
+                      <span class="mt-0.5 flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" [class]="priorityClass(rec.priority)">
+                        {{ rec.priority }}
+                      </span>
+                      <div class="min-w-0">
+                        <p class="truncate text-sm font-medium text-slate-800">{{ rec.title }}</p>
+                        <p class="truncate text-xs text-slate-400">{{ rec.category }}</p>
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
         </div>
+
       }
     </div>
   `,
@@ -668,6 +686,9 @@ export class DashboardPageComponent implements OnInit {
   isToday = signal(true);
   moneyOutOpen = signal(false);
   returnsOpen = signal(false);
+  stockPurchaseOpen = signal(false);
+  pulseOpen = signal(false);
+  aiOpen = signal(false);
 
   private checkIsToday(dates: Date[]): boolean {
     if (dates.length < 2 || !dates[0] || !dates[1]) return true;
