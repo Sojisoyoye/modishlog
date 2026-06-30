@@ -1,14 +1,14 @@
 """Dashboard domain — KPI summary aggregation service."""
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
-from src.dashboard.schemas import DashboardSummaryResponse
+from src.dashboard.schemas import DashboardSummaryResponse, RecentSaleItem
 from src.orders.models import (
     OrderPayment,
     OrderPaymentStatus,
@@ -16,6 +16,7 @@ from src.orders.models import (
     PurchaseOrder,
     PurchaseReturn,
 )
+from src.products.models import Product
 from src.sales.models import Sale, SaleStatus, SellReturn
 
 
@@ -79,12 +80,16 @@ async def get_dashboard_summary(
         q_inv = q_inv.where(Sale.sale_date <= date_to)
 
     # Merged sell-return query: both sums in one JOIN to halve the DB work.
-    q_sr = select(
-        func.coalesce(func.sum(SellReturn.total_amount), _ZERO),
-        func.coalesce(func.sum(SellReturn.amount_paid), _ZERO),
-    ).join(Sale, SellReturn.sale_id == Sale.id).where(
-        Sale.recorded_by == user_id,
-        Sale.status == SaleStatus.COMPLETED,
+    q_sr = (
+        select(
+            func.coalesce(func.sum(SellReturn.total_amount), _ZERO),
+            func.coalesce(func.sum(SellReturn.amount_paid), _ZERO),
+        )
+        .join(Sale, SellReturn.sale_id == Sale.id)
+        .where(
+            Sale.recorded_by == user_id,
+            Sale.status == SaleStatus.COMPLETED,
+        )
     )
     if location_id is not None:
         q_sr = q_sr.where(Sale.location_id == location_id)
@@ -119,8 +124,7 @@ async def get_dashboard_summary(
         select(
             func.coalesce(
                 func.sum(
-                    PurchaseOrder.total_amount
-                    - func.coalesce(_paid_subq.c.paid, _ZERO)
+                    PurchaseOrder.total_amount - func.coalesce(_paid_subq.c.paid, _ZERO)
                 ),
                 _ZERO,
             )
@@ -141,18 +145,60 @@ async def get_dashboard_summary(
         q_pd = q_pd.where(PurchaseOrder.order_date <= date_to)
 
     # Fetch both total_amount and amount_paid in one pass through the join.
-    q_pr = select(
-        func.coalesce(func.sum(PurchaseReturn.total_amount), _ZERO),
-        func.coalesce(func.sum(PurchaseReturn.amount_paid), _ZERO),
-    ).join(
-        PurchaseOrder, PurchaseReturn.original_order_id == PurchaseOrder.id
-    ).where(PurchaseOrder.created_by == user_id)
+    q_pr = (
+        select(
+            func.coalesce(func.sum(PurchaseReturn.total_amount), _ZERO),
+            func.coalesce(func.sum(PurchaseReturn.amount_paid), _ZERO),
+        )
+        .join(PurchaseOrder, PurchaseReturn.original_order_id == PurchaseOrder.id)
+        .where(PurchaseOrder.created_by == user_id)
+    )
     if location_id is not None:
         q_pr = q_pr.where(PurchaseOrder.location_id == location_id)
     if date_from is not None:
         q_pr = q_pr.where(PurchaseReturn.return_date >= date_from)
     if date_to is not None:
         q_pr = q_pr.where(PurchaseReturn.return_date <= date_to)
+
+    # -- transaction count for the selected period -------------------------
+    q_count = select(func.count(Sale.id)).where(
+        Sale.recorded_by == user_id,
+        Sale.status == SaleStatus.COMPLETED,
+    )
+    if location_id is not None:
+        q_count = q_count.where(Sale.location_id == location_id)
+    if date_from is not None:
+        q_count = q_count.where(Sale.sale_date >= date_from)
+    if date_to is not None:
+        q_count = q_count.where(Sale.sale_date <= date_to)
+
+    # -- yesterday's revenue (always calendar yesterday, same location) ----
+    _yesterday = date.today() - timedelta(days=1)
+    q_yesterday = select(func.coalesce(func.sum(Sale.total_amount), _ZERO)).where(
+        Sale.recorded_by == user_id,
+        Sale.status == SaleStatus.COMPLETED,
+        Sale.sale_date == _yesterday,
+    )
+    if location_id is not None:
+        q_yesterday = q_yesterday.where(Sale.location_id == location_id)
+
+    # -- last 5 recent sales with product name ----------------------------
+    q_recent = (
+        select(Product.name, Sale.quantity, Sale.total_amount, Sale.fifo_cogs)
+        .join(Product, Sale.product_id == Product.id)
+        .where(
+            Sale.recorded_by == user_id,
+            Sale.status == SaleStatus.COMPLETED,
+        )
+        .order_by(Sale.created_at.desc())
+        .limit(5)
+    )
+    if location_id is not None:
+        q_recent = q_recent.where(Sale.location_id == location_id)
+    if date_from is not None:
+        q_recent = q_recent.where(Sale.sale_date >= date_from)
+    if date_to is not None:
+        q_recent = q_recent.where(Sale.sale_date <= date_to)
 
     # -- Execute queries sequentially on the shared AsyncSession ----------
     # AsyncSession is not safe for concurrent use across multiple coroutines;
@@ -165,6 +211,9 @@ async def get_dashboard_summary(
     r_po = await db.execute(q_po)
     r_pd = await db.execute(q_pd)
     r_pr = await db.execute(q_pr)
+    r_count = await db.execute(q_count)
+    r_yesterday = await db.execute(q_yesterday)
+    r_recent = await db.execute(q_recent)
 
     total_sales: Decimal = r_sales.scalar_one()
     total_cogs: Decimal = r_cogs.scalar_one()
@@ -181,6 +230,25 @@ async def get_dashboard_summary(
     pr_row = r_pr.one()
     total_purchase_return: Decimal = pr_row[0]
     total_purchase_return_paid: Decimal = pr_row[1]
+
+    transaction_count: int = r_count.scalar_one()
+    yesterday_sales: Decimal = r_yesterday.scalar_one()
+    recent_rows = r_recent.all()
+
+    def _margin_str(revenue: Decimal, cogs: Decimal | None) -> str | None:
+        if cogs is None or revenue == _ZERO:
+            return None
+        return f"{((revenue - cogs) / revenue * 100):.1f}"
+
+    recent_sales = [
+        RecentSaleItem(
+            product_name=row[0],
+            quantity=row[1],
+            revenue=f"{row[2]:.2f}",
+            margin_pct=_margin_str(row[2], row[3]),
+        )
+        for row in recent_rows
+    ]
 
     # -- Derived values ---------------------------------------------------
     if date_from and date_to:
@@ -202,4 +270,7 @@ async def get_dashboard_summary(
         total_purchase_return=total_purchase_return,
         total_purchase_return_paid=total_purchase_return_paid,
         expense=expense,
+        transaction_count=transaction_count,
+        yesterday_sales=yesterday_sales,
+        recent_sales=recent_sales,
     )

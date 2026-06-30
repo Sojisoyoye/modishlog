@@ -276,3 +276,63 @@ def test_summary_scoped_to_user():
 
     call_kwargs = mock_svc.call_args.kwargs
     assert call_kwargs["user_id"] == user.id
+
+
+def test_summary_new_hero_fields():
+    """GET /dashboard/summary returns transaction_count, yesterday_sales, recent_sales."""
+    from src.main import app
+    from src.dashboard.schemas import DashboardSummaryResponse, RecentSaleItem
+
+    user = _make_user()
+    summary = _make_summary(
+        transaction_count=5,
+        yesterday_sales=Decimal("800.00"),
+        recent_sales=[
+            RecentSaleItem(product_name="Ankara Fabric", quantity=3, revenue="18000.00", margin_pct="41.0")
+        ],
+    )
+    app_inst, _, orig = _setup_app(user)
+
+    try:
+        import src.dashboard.router as dash_router
+        original = dash_router.get_dashboard_summary
+        dash_router.get_dashboard_summary = AsyncMock(return_value=summary)
+        with TestClient(app_inst) as client:
+            resp = client.get("/api/v1/dashboard/summary", headers=_auth_headers(user))
+    finally:
+        dash_router.get_dashboard_summary = original
+        _teardown_app(app_inst, orig)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["transaction_count"] == 5
+    assert data["yesterday_sales"] == "800.00"
+    assert len(data["recent_sales"]) == 1
+    assert data["recent_sales"][0]["product_name"] == "Ankara Fabric"
+    assert data["recent_sales"][0]["margin_pct"] == "41.0"
+
+
+def test_summary_hero_fields_zero_state():
+    """Hero fields serialize correctly when there are no sales."""
+    from src.main import app
+    from src.dashboard.schemas import DashboardSummaryResponse
+
+    user = _make_user()
+    summary = _make_summary(transaction_count=0, yesterday_sales=Decimal("0.00"), recent_sales=[])
+    app_inst, _, orig = _setup_app(user)
+
+    try:
+        import src.dashboard.router as dash_router
+        original = dash_router.get_dashboard_summary
+        dash_router.get_dashboard_summary = AsyncMock(return_value=summary)
+        with TestClient(app_inst) as client:
+            resp = client.get("/api/v1/dashboard/summary", headers=_auth_headers(user))
+    finally:
+        dash_router.get_dashboard_summary = original
+        _teardown_app(app_inst, orig)
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["transaction_count"] == 0
+    assert data["yesterday_sales"] == "0.00"
+    assert data["recent_sales"] == []
