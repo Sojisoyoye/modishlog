@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './core/guards/auth.guard';
+import { noAuthGuard } from './core/guards/no-auth.guard';
 
 export const routes: Routes = [
   {
@@ -9,6 +10,7 @@ export const routes: Routes = [
         (m) => m.LandingPageComponent,
       ),
     pathMatch: 'full',
+    canActivate: [noAuthGuard],
   },
   {
     path: '',
@@ -184,6 +186,6 @@ export const routes: Routes = [
   },
   {
     path: '**',
-    redirectTo: '',
+    redirectTo: 'dashboard',
   },
 ];

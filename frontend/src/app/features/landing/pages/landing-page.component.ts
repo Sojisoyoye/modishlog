@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 @Component({
@@ -20,21 +20,40 @@ import { RouterLink } from '@angular/router';
             <span class="text-xl font-bold text-gray-900">ModishLog</span>
           </div>
 
-          <!-- Center nav links -->
+          <!-- Center nav links (desktop) -->
           <nav class="hidden md:flex items-center gap-8">
             <a href="#features" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Features</a>
             <a href="#pricing" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Pricing</a>
             <a routerLink="/login" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Login</a>
           </nav>
 
-          <!-- Right CTA -->
-          <a
-            routerLink="/login"
-            class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
-          >
-            Launch My POS →
-          </a>
+          <!-- Right: CTA (desktop) + hamburger (mobile) -->
+          <div class="flex items-center gap-3">
+            <a
+              routerLink="/login"
+              class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+            >
+              Launch My POS →
+            </a>
+            <button
+              class="md:hidden flex h-10 w-10 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
+              (click)="mobileMenuOpen.set(!mobileMenuOpen())"
+              aria-label="Toggle navigation menu"
+              [attr.aria-expanded]="mobileMenuOpen()"
+            >
+              <i [class]="mobileMenuOpen() ? 'pi pi-times text-lg' : 'pi pi-bars text-lg'"></i>
+            </button>
+          </div>
         </div>
+
+        <!-- Mobile nav drawer -->
+        @if (mobileMenuOpen()) {
+          <nav class="md:hidden border-t border-gray-100 py-3 flex flex-col gap-1" aria-label="Mobile navigation">
+            <a href="#features" (click)="mobileMenuOpen.set(false)" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Features</a>
+            <a href="#pricing" (click)="mobileMenuOpen.set(false)" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Pricing</a>
+            <a routerLink="/login" (click)="mobileMenuOpen.set(false)" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Login</a>
+          </nav>
+        }
       </div>
     </header>
 
@@ -565,4 +584,6 @@ import { RouterLink } from '@angular/router';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class LandingPageComponent {}
+export class LandingPageComponent {
+  readonly mobileMenuOpen = signal(false);
+}
