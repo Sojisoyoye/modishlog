@@ -94,69 +94,102 @@ async def _generate_price_recommendations(
     db: AsyncSession,
     now: datetime,
 ) -> list[AIRecommendation]:
-    """Generate price adjustment recommendations from pricing analysis."""
+    """Generate one price recommendation per product category with below-target products."""
     from src.pricing.service import calculate_portfolio_margin
+    from src.products.models import Product, ProductCategory
 
     try:
         portfolio = await calculate_portfolio_margin(db)
     except Exception:
         return []
 
-    recommendations: list[AIRecommendation] = []
-    target_margin = float(portfolio.get("target_margin", 35))
+    target_margin = Decimal(str(portfolio.get("target_margin", 35)))
 
+    # Fetch category name for every active product in one query
+    cat_result = await db.execute(
+        select(Product.id, ProductCategory.name)
+        .join(ProductCategory, Product.category_id == ProductCategory.id)
+        .where(Product.is_active.is_(True))
+    )
+    category_by_product: dict = {pid: cat_name for pid, cat_name in cat_result.all()}
+
+    # Build per-category buckets for below-target products
+    buckets: dict[str, list[dict]] = {}
     for p in portfolio.get("products", []):
-        margin_pct = p.get("margin_pct", 0)
+        margin_pct = Decimal(str(p.get("margin_pct", 0)))
         if margin_pct >= target_margin:
             continue
 
-        margin_gap = target_margin - margin_pct
         product_id = p["product_id"]
-        selling_price = p["selling_price"]
         unit_cost = p["unit_cost"]
+        selling_price = p["selling_price"]
+        margin_gap = target_margin - margin_pct
         revenue_30d = p.get("revenue_30d", Decimal("0"))
 
-        # Estimate impact: potential revenue improvement from closing margin gap
-        financial_impact = Decimal(str(round(float(revenue_30d) * margin_gap / 100, 2)))
-
-        urgency = Decimal("1.0")  # Price changes can be applied immediately
-        confidence = Decimal("75.00")
-
-        score = _calculate_priority_score(financial_impact, urgency, confidence)
-
-        # Suggest price increase to meet target margin
-        target_price = (
-            unit_cost / (Decimal("1") - Decimal(str(target_margin)) / Decimal("100"))
-        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        price_change_pct = (
-            float((target_price - selling_price) / selling_price * 100)
-            if selling_price
-            else 0
+        denominator = Decimal("1") - Decimal(str(target_margin)) / Decimal("100")
+        if denominator <= 0:
+            continue
+        target_price = (unit_cost / denominator).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
         )
+
+        cat_name = category_by_product.get(product_id, "Uncategorised")
+        buckets.setdefault(cat_name, []).append(
+            {
+                "product_id": str(product_id),
+                "product_name": p.get("product_name", ""),
+                "current_price": str(selling_price),
+                "suggested_price": str(target_price),
+                "margin_pct": float(margin_pct),
+                "margin_gap": float(margin_gap),
+                "revenue_30d": str(revenue_30d),
+            }
+        )
+
+    recommendations: list[AIRecommendation] = []
+    confidence = Decimal("75.00")
+
+    for cat_name, products in buckets.items():
+        count = len(products)
+        avg_gap = float(
+            (sum(Decimal(str(p["margin_gap"])) for p in products) / Decimal(str(count))).quantize(
+                Decimal("0.1"), rounding=ROUND_HALF_UP
+            )
+        )
+        total_impact = sum(
+            Decimal(p["revenue_30d"]) * Decimal(str(p["margin_gap"])) / Decimal("100")
+            for p in products
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        # Sort worst-gap products first for display
+        products.sort(key=lambda x: x["margin_gap"], reverse=True)
+
+        score = _calculate_priority_score(total_impact, Decimal("1.0"), confidence)
 
         rec = AIRecommendation(
             category=RecommendationCategory.PRICING,
-            title=f"Increase price for product (margin gap: {margin_gap:.1f}%)",
+            title=f"Review pricing for {cat_name} — {count} product{'s' if count != 1 else ''} below target",
             description=(
-                f"Current margin {margin_pct:.1f}% is below {target_margin:.0f}% target. "
-                f"Suggested price increase of {price_change_pct:.1f}% to meet target margin."
+                f"{count} product{'s' if count != 1 else ''} in {cat_name} "
+                f"{'are' if count != 1 else 'is'} below the {target_margin:.0f}% margin target. "
+                f"Average gap: {avg_gap}%. Review selling prices to improve portfolio margin."
             ),
             priority=_assign_priority_level(score),
             confidence=confidence,
             expected_impact={
                 "metric": "margin_improvement",
-                "current_margin": margin_pct,
-                "target_margin": target_margin,
-                "estimated_revenue_impact": str(financial_impact),
+                "category_name": cat_name,
+                "product_count": count,
+                "avg_margin_gap": avg_gap,
+                "estimated_revenue_impact": str(total_impact),
             },
             action_type=ActionType.PRICE_CHANGE,
             action_payload={
-                "product_id": str(product_id),
-                "current_price": str(selling_price),
-                "suggested_price": str(target_price),
+                "category_name": cat_name,
+                "count": count,
+                "avg_gap": avg_gap,
+                "products": products,
             },
-            reference_id=product_id,
-            reference_type="product",
+            reference_type="product_category",
             status=RecommendationStatus.PENDING,
             created_at=now,
             expires_at=now + timedelta(days=RECOMMENDATION_EXPIRY_DAYS),
@@ -617,17 +650,19 @@ async def apply_recommendation(
 
     # Route based on action type
     if rec.action_type == ActionType.PRICE_CHANGE and rec.action_payload:
-        # For price changes, update the product price
         payload = rec.action_payload
-        product_id = uuid.UUID(payload["product_id"])
-        new_price = Decimal(payload["suggested_price"])
-
-        product_result = await db.execute(
-            select(Product).where(Product.id == product_id)
-        )
-        product = product_result.scalar_one_or_none()
-        if product:
-            product.selling_price = new_price
+        if "product_id" in payload and "suggested_price" in payload:
+            # Legacy single-product payload: apply the suggested price directly.
+            product_id = uuid.UUID(payload["product_id"])
+            new_price = Decimal(payload["suggested_price"])
+            product_result = await db.execute(
+                select(Product).where(Product.id == product_id)
+            )
+            product = product_result.scalar_one_or_none()
+            if product:
+                product.selling_price = new_price
+        # Grouped category payload ({category_name, products:[...]}):
+        # status update below marks it reviewed; user applies via the optimizer.
 
     # For other types (REORDER, USD_PURCHASE, COST_CUT), flag for manual action
     # The status update itself marks it as actioned

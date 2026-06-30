@@ -257,16 +257,20 @@ async def calculate_portfolio_margin(
     db: AsyncSession,
     target_margin: Decimal = DEFAULT_TARGET_MARGIN,
 ) -> dict:
-    """Calculate blended portfolio margin from last 30 days of sales."""
+    """Calculate blended portfolio margin and per-product breakdown.
+
+    Blended margin is revenue-weighted from actual sales in the last 30 days.
+    Per-product breakdown covers ALL active products:
+    - Products with recent sales: actual (revenue − COGS) / revenue margin.
+    - Products without recent sales: theoretical (selling_price − unit_cost) /
+      selling_price margin, so they are never invisible to the user.
+    """
     thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).date()
 
-    # Get all active products with recent sales
-    result = await db.execute(
+    # Query 1: aggregate sales per product over the last 30 days (for blended margin)
+    sales_result = await db.execute(
         select(
             Product.id,
-            Product.name,
-            Product.unit_cost,
-            Product.selling_price,
             func.sum(Sale.quantity).label("qty"),
             func.sum(Sale.total_amount).label("revenue"),
         )
@@ -276,18 +280,49 @@ async def calculate_portfolio_margin(
             Sale.status == SaleStatus.COMPLETED,
             Sale.sale_date >= thirty_days_ago,
         )
-        .group_by(Product.id, Product.name, Product.unit_cost, Product.selling_price)
+        .group_by(Product.id)
     )
-    rows = result.all()
+    sales_by_product: dict = {
+        pid: {"qty": qty, "revenue": revenue}
+        for pid, qty, revenue in sales_result.all()
+    }
+
+    # Query 2: every active product (for the per-product table)
+    all_products_result = await db.execute(
+        select(
+            Product.id,
+            Product.name,
+            Product.unit_cost,
+            Product.selling_price,
+        )
+        .where(Product.is_active.is_(True))
+        .order_by(Product.name)
+    )
 
     products = []
     total_revenue = Decimal("0")
     total_cogs = Decimal("0")
 
-    for row in rows:
-        pid, name, unit_cost, selling_price, qty, revenue = row
-        cogs = unit_cost * qty
-        margin_pct = float((revenue - cogs) / revenue * 100) if revenue else 0.0
+    for pid, name, unit_cost, selling_price in all_products_result.all():
+        sales = sales_by_product.get(pid)
+
+        if sales:
+            qty = sales["qty"]
+            revenue = sales["revenue"]
+            cogs = unit_cost * qty
+            margin_pct = float((revenue - cogs) / revenue * 100) if revenue else 0.0
+            total_revenue += revenue
+            total_cogs += cogs
+        else:
+            # No recent sales — show theoretical margin from current cost vs price
+            qty = 0
+            revenue = Decimal("0")
+            cogs = Decimal("0")
+            margin_pct = (
+                float((selling_price - unit_cost) / selling_price * 100)
+                if selling_price > 0
+                else 0.0
+            )
 
         products.append(
             {
@@ -301,8 +336,6 @@ async def calculate_portfolio_margin(
                 "quantity_30d": qty,
             }
         )
-        total_revenue += revenue
-        total_cogs += cogs
 
     blended_margin = (
         (total_revenue - total_cogs) / total_revenue * 100
@@ -1187,3 +1220,4 @@ async def get_suggestion_history(
         .limit(limit)
     )
     return list(result.scalars().all())
+
