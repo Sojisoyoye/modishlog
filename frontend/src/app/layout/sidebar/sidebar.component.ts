@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, signal, input, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
 interface NavItem {
@@ -27,7 +27,7 @@ interface NavGroup {
       <!-- Brand -->
       <div class="flex h-16 shrink-0 items-center gap-2 border-b border-gray-200 px-4">
         <div
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white"
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white"
         >
           M
         </div>
@@ -39,10 +39,10 @@ interface NavGroup {
       <!-- Navigation -->
       <nav aria-label="Main navigation" class="flex-1 overflow-y-auto px-2 py-4">
         <!-- Dashboard (ungrouped) -->
-        @for (item of dashboardItems(); track item.route) {
+        @for (item of dashboardItems; track item.route) {
           <a
             [routerLink]="item.route"
-            routerLinkActive="!bg-emerald-50 !text-emerald-700 !font-semibold"
+            routerLinkActive="!bg-primary/10 !text-primary !font-semibold"
             [routerLinkActiveOptions]="{ exact: true }"
             (click)="closeMobile.emit()"
             class="flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
@@ -56,7 +56,7 @@ interface NavGroup {
         }
 
         <!-- Grouped sections -->
-        @for (group of navGroups(); track group.label) {
+        @for (group of navGroups; track group.label) {
           <hr class="my-2 border-gray-100">
           @if (!collapsed()) {
             <p class="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">{{ group.label }}</p>
@@ -64,7 +64,7 @@ interface NavGroup {
           @for (item of group.items; track item.route) {
             <a
               [routerLink]="item.route"
-              routerLinkActive="!bg-emerald-50 !text-emerald-700 !font-semibold"
+              routerLinkActive="!bg-primary/10 !text-primary !font-semibold"
               [routerLinkActiveOptions]="{ exact: item.route === '/settings' }"
               (click)="closeMobile.emit()"
               class="flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
@@ -94,11 +94,11 @@ export class SidebarComponent {
   collapsed = input(false);
   closeMobile = output<void>();
 
-  readonly dashboardItems = signal<NavItem[]>([
+  readonly dashboardItems: NavItem[] = [
     { label: 'Dashboard', route: '/dashboard', icon: 'pi-home' },
-  ]);
+  ];
 
-  readonly navGroups = signal<NavGroup[]>([
+  readonly navGroups: NavGroup[] = [
     {
       label: 'OPERATIONS',
       items: [
@@ -133,5 +133,5 @@ export class SidebarComponent {
         { label: 'Settings', route: '/settings', icon: 'pi-cog' },
       ],
     },
-  ]);
+  ];
 }
