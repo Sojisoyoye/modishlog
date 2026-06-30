@@ -85,14 +85,14 @@ import { AuthService } from '../../../core/services/auth.service';
            KPI Cards — 8 business metrics
            ============================================================ -->
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <app-kpi-card label="Total Sales"        iconClass="pi pi-chart-bar"    iconBgColor="#0EA5E9" [value]="kpi()?.total_sales          ?? '0.00'" [loading]="kpiLoading()" tooltipText="All completed sales in the selected period" />
-        <app-kpi-card label="Net Profit"         iconClass="pi pi-trending-up"  iconBgColor="#22C55E" [value]="kpi()?.net                  ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales Revenue − Cost of Goods Sold − Expenses" />
-        <app-kpi-card label="Unpaid Sales"       iconClass="pi pi-clock"        iconBgColor="#F59E0B" [value]="kpi()?.invoice_due           ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales where payment hasn't been received yet" />
-        <app-kpi-card label="Total Purchased"    iconClass="pi pi-shopping-bag" iconBgColor="#0EA5E9" [value]="kpi()?.total_purchase        ?? '0.00'" [loading]="kpiLoading()" tooltipText="Total value of all purchase orders placed" />
-        <app-kpi-card label="Amount Owed"        iconClass="pi pi-credit-card"  iconBgColor="#F59E0B" [value]="kpi()?.purchase_due          ?? '0.00'" [loading]="kpiLoading()" tooltipText="Outstanding balance you owe to suppliers" />
-        <app-kpi-card label="Monthly Expenses"   iconClass="pi pi-minus-circle" iconBgColor="#8B5CF6" [value]="kpi()?.expense               ?? '0.00'" [loading]="kpiLoading()" tooltipText="Operating costs (rent, salaries, utilities, etc.)" />
-        <app-kpi-card label="Customer Returns"   iconClass="pi pi-undo"         iconBgColor="#EF4444" [value]="kpi()?.total_sell_return     ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned by customers"             [subLines]="sellReturnSubLines()" />
-        <app-kpi-card label="Supplier Refunds"   iconClass="pi pi-replay"       iconBgColor="#EF4444" [value]="kpi()?.total_purchase_return ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned to suppliers"             [subLines]="purchaseReturnSubLines()" />
+        <app-kpi-card label="Total Sales"        iconClass="pi pi-chart-bar"    colorScheme="blue"   [value]="kpi()?.total_sales          ?? '0.00'" [loading]="kpiLoading()" tooltipText="All completed sales in the selected period" />
+        <app-kpi-card label="Net Profit"         iconClass="pi pi-trending-up"  colorScheme="green"  [value]="kpi()?.net                  ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales Revenue − Cost of Goods Sold − Expenses" />
+        <app-kpi-card label="Unpaid Sales"       iconClass="pi pi-clock"        colorScheme="amber"  [value]="kpi()?.invoice_due           ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales where payment hasn't been received yet" />
+        <app-kpi-card label="Total Purchased"    iconClass="pi pi-shopping-bag" colorScheme="blue"   [value]="kpi()?.total_purchase        ?? '0.00'" [loading]="kpiLoading()" tooltipText="Total value of all purchase orders placed" />
+        <app-kpi-card label="Amount Owed"        iconClass="pi pi-credit-card"  colorScheme="amber"  [value]="kpi()?.purchase_due          ?? '0.00'" [loading]="kpiLoading()" tooltipText="Outstanding balance you owe to suppliers" />
+        <app-kpi-card label="Monthly Expenses"   iconClass="pi pi-minus-circle" colorScheme="purple" [value]="kpi()?.expense               ?? '0.00'" [loading]="kpiLoading()" tooltipText="Operating costs (rent, salaries, utilities, etc.)" />
+        <app-kpi-card label="Customer Returns"   iconClass="pi pi-undo"         colorScheme="red"    [value]="kpi()?.total_sell_return     ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned by customers"             [subLines]="sellReturnSubLines()" />
+        <app-kpi-card label="Supplier Refunds"   iconClass="pi pi-replay"       colorScheme="red"    [value]="kpi()?.total_purchase_return ?? '0.00'" [loading]="kpiLoading()" tooltipText="Value of goods returned to suppliers"             [subLines]="purchaseReturnSubLines()" />
       </div>
 
       @if (kpiError()) {

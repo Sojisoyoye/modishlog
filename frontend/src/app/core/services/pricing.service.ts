@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import { ApiService } from './api.service';
 
 export interface PortfolioMarginData {
@@ -102,12 +103,72 @@ export interface ScenarioRead {
   created_at: string;
 }
 
+export interface DemandForecastDay {
+  date: string;
+  demand: number;
+  demand_lower: number;
+  demand_upper: number;
+}
+
+export interface DemandForecastResponse {
+  product_id: string;
+  horizon_days: number;
+  forecasts: DemandForecastDay[];
+  total_projected_demand: number;
+}
+
+export interface PricingOptimizerRec {
+  id: string;
+  product_id: string;
+  current_price: number;
+  recommended_price: number;
+  expected_demand_change_pct: number;
+  expected_revenue_change_pct: number;
+  expected_margin_change_pct: number;
+  confidence: number;
+  reasoning: string;
+  status: string;
+  created_at: string;
+}
+
+export interface SellingPriceSuggestionRequest {
+  product_id?: string;
+  unit_cost_override?: number;
+  currency?: string;
+  fx_rate_override?: number;
+  min_margin_pct?: number;
+}
+
+export interface SellingPriceSuggestionResponse {
+  unit_cost: number;
+  currency: string;
+  fx_rate: number;
+  unit_cost_ngn: number;
+  min_margin_pct: number;
+  min_selling_price: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class PricingService {
   private readonly api = inject(ApiService);
 
   getPortfolioMargin(): Observable<PortfolioMarginData> {
-    return this.api.get<PortfolioMarginData>('/pricing/portfolio-margin');
+    return this.api.get<any>('/pricing/portfolio-margin').pipe(
+      map((r) => ({
+        blended_margin: Number(r.blended_margin),
+        target_margin: Number(r.target_margin),
+        gap: Number(r.margin_gap),
+        products: (r.products ?? []).map((p: any) => ({
+          product_id: p.product_id,
+          product_name: p.product_name,
+          current_margin: Number(p.margin_pct),
+          target_margin: Number(r.target_margin),
+          gap: Number(p.margin_pct) - Number(r.target_margin),
+          cost_price: Number(p.unit_cost),
+          selling_price: Number(p.selling_price),
+        })),
+      })),
+    );
   }
 
   getMixStatus(days: number = 90): Observable<MixStatusResponse> {
@@ -149,5 +210,41 @@ export class PricingService {
       `/pricing/configure-elasticity/${productId}`,
       body,
     );
+  }
+
+  getSellingPriceSuggestion(
+    body: SellingPriceSuggestionRequest,
+  ): Observable<SellingPriceSuggestionResponse> {
+    return this.api.post<SellingPriceSuggestionResponse>(
+      '/pricing/selling-price-suggestion',
+      body,
+    );
+  }
+
+  getDemandForecast(
+    productId: string,
+    horizonDays: number = 90,
+  ): Observable<DemandForecastResponse> {
+    return this.api.get<DemandForecastResponse>(`/pricing/demand-forecast/${productId}`, {
+      horizon_days: horizonDays.toString(),
+    });
+  }
+
+  getOptimizerRecs(): Observable<PricingOptimizerRec[]> {
+    return this.api.get<PricingOptimizerRec[]>('/pricing/recommendations');
+  }
+
+  generateOptimizerRecs(targetMargin: number): Observable<PricingOptimizerRec[]> {
+    return this.api.post<PricingOptimizerRec[]>('/pricing/recommendations/generate', {
+      target_margin: targetMargin,
+    });
+  }
+
+  applyOptimizerRec(recId: string): Observable<PricingOptimizerRec> {
+    return this.api.post<PricingOptimizerRec>(`/pricing/recommendations/${recId}/apply`, {});
+  }
+
+  dismissOptimizerRec(recId: string): Observable<PricingOptimizerRec> {
+    return this.api.post<PricingOptimizerRec>(`/pricing/recommendations/${recId}/dismiss`, {});
   }
 }
