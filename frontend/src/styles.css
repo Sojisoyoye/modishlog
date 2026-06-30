@@ -8,17 +8,19 @@
 @source "./app/**/*.{html,ts}";
 
 @theme {
-  --color-primary: #1F4E79;
-  --color-primary-light: #2E75B6;
-  --color-secondary: #2E75B6;
-  --color-success: #1A7A4A;
+  --color-primary: #059669;
+  --color-primary-light: #ECFDF5;
+  --color-secondary: #047857;
+  --color-success: #16a34a;
   --color-warning: #D97706;
-  --color-danger: #C0392B;
-  --color-background: #F8FAFC;
+  --color-danger: #DC2626;
+  --color-info: #2563EB;
+  --color-text: #111827;
+  --color-muted: #6B7280;
+  --color-background: #F9FAFB;
   --color-surface: #FFFFFF;
-  --color-text: #1E293B;
-  --color-muted: #64748B;
-  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --color-border: #E5E7EB;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 html {
@@ -67,12 +69,12 @@ input[type="number"] {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #6b7280;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #4b5563;
 }
 
 /* Loading skeleton */
@@ -111,7 +113,7 @@ input[type="number"] {
 
 /* Focus ring consistency */
 *:focus-visible {
-  outline: 2px solid var(--color-secondary);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
