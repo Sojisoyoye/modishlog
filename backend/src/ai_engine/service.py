@@ -103,7 +103,7 @@ async def _generate_price_recommendations(
     except Exception:
         return []
 
-    target_margin = float(portfolio.get("target_margin", 35))
+    target_margin = Decimal(str(portfolio.get("target_margin", 35)))
 
     # Fetch category name for every active product in one query
     cat_result = await db.execute(
@@ -116,13 +116,13 @@ async def _generate_price_recommendations(
     # Build per-category buckets for below-target products
     buckets: dict[str, list[dict]] = {}
     for p in portfolio.get("products", []):
-        if p.get("margin_pct", 0) >= target_margin:
+        margin_pct = Decimal(str(p.get("margin_pct", 0)))
+        if margin_pct >= target_margin:
             continue
 
         product_id = p["product_id"]
         unit_cost = p["unit_cost"]
         selling_price = p["selling_price"]
-        margin_pct = p["margin_pct"]
         margin_gap = target_margin - margin_pct
         revenue_30d = p.get("revenue_30d", Decimal("0"))
 
@@ -140,8 +140,8 @@ async def _generate_price_recommendations(
                 "product_name": p.get("product_name", ""),
                 "current_price": str(selling_price),
                 "suggested_price": str(target_price),
-                "margin_pct": round(margin_pct, 1),
-                "margin_gap": round(margin_gap, 1),
+                "margin_pct": float(margin_pct),
+                "margin_gap": float(margin_gap),
                 "revenue_30d": str(revenue_30d),
             }
         )
@@ -151,10 +151,15 @@ async def _generate_price_recommendations(
 
     for cat_name, products in buckets.items():
         count = len(products)
-        avg_gap = round(sum(float(p["margin_gap"]) for p in products) / count, 1)
-        total_impact = Decimal(
-            str(round(sum(float(p["revenue_30d"]) * float(p["margin_gap"]) / 100 for p in products), 2))
+        avg_gap = float(
+            (sum(Decimal(str(p["margin_gap"])) for p in products) / Decimal(str(count))).quantize(
+                Decimal("0.1"), rounding=ROUND_HALF_UP
+            )
         )
+        total_impact = sum(
+            Decimal(p["revenue_30d"]) * Decimal(str(p["margin_gap"])) / Decimal("100")
+            for p in products
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         # Sort worst-gap products first for display
         products.sort(key=lambda x: x["margin_gap"], reverse=True)
 

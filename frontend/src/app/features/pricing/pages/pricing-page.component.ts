@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, effect, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe, CurrencyPipe, DatePipe, UpperCasePipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -1282,6 +1282,15 @@ export class PricingPageComponent implements OnInit {
   private readonly productsService = inject(ProductsService);
   private readonly messageService = inject(MessageService);
 
+  constructor() {
+    // Lazy-load products only when the Demand & Mix tab is first opened
+    effect(() => {
+      if (this.activeTab() === 'demand' && this.products().length === 0) {
+        this.productsService.getAll().subscribe({ next: (p) => this.products.set(p) });
+      }
+    });
+  }
+
   activeTab = signal<'overview' | 'margins' | 'recommendations' | 'analysis' | 'tools' | 'demand'>('overview');
 
   marginData = signal<PortfolioMarginData>({
@@ -1515,9 +1524,6 @@ export class PricingPageComponent implements OnInit {
         });
       },
       error: () => this.recsGenerating.set(false),
-    });
-    this.productsService.getAll().subscribe({
-      next: (p) => this.products.set(p),
     });
     this.pricingService.getMixStatus().subscribe({
       next: (r) => this.mixStatus.set(r.categories),

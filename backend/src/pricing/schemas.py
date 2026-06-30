@@ -194,15 +194,15 @@ class SensitivityCalcRequest(BaseModel):
 
 
 class SensitivityCalcResponse(BaseModel):
-    unit_cost_usd: float
-    fx_rate: float
-    landed_cost_ngn: float
-    selling_price: float
-    margin_pct: float
+    unit_cost_usd: Decimal
+    fx_rate: Decimal
+    landed_cost_ngn: Decimal
+    selling_price: Decimal
+    margin_pct: Decimal
     quantity: int
-    total_revenue: float
-    total_cost: float
-    gross_profit: float
+    total_revenue: Decimal
+    total_cost: Decimal
+    gross_profit: Decimal
 
 
 # ---------------------------------------------------------------------------
