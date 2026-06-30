@@ -192,10 +192,10 @@ import { AuthService } from '../../../core/services/auth.service';
       <!-- ============================================================
            KPI Cards — 8 business metrics grouped into 3 sections
            ============================================================ -->
-      <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 
         <!-- Money In -->
-        <div class="col-span-2 sm:col-span-3 pb-0.5 pt-1">
+        <div class="col-span-1 sm:col-span-2 lg:col-span-3 pb-0.5 pt-1">
           <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Money In</p>
           <hr class="mt-1 border-gray-100">
         </div>
@@ -204,7 +204,7 @@ import { AuthService } from '../../../core/services/auth.service';
         <app-kpi-card label="Unpaid Sales"       iconClass="pi pi-clock"        colorScheme="amber"  [value]="kpi()?.invoice_due           ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales where payment hasn't been received yet" />
 
         <!-- Money Out -->
-        <div class="col-span-2 sm:col-span-3 pb-0.5 pt-1">
+        <div class="col-span-1 sm:col-span-2 lg:col-span-3 pb-0.5 pt-1">
           <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Money Out</p>
           <hr class="mt-1 border-gray-100">
         </div>
@@ -213,7 +213,7 @@ import { AuthService } from '../../../core/services/auth.service';
         <app-kpi-card label="Monthly Expenses"   iconClass="pi pi-minus-circle" colorScheme="purple" [value]="kpi()?.expense               ?? '0.00'" [loading]="kpiLoading()" tooltipText="Operating costs (rent, salaries, utilities, etc.)" />
 
         <!-- Returns -->
-        <div class="col-span-2 sm:col-span-3 pb-0.5 pt-1">
+        <div class="col-span-1 sm:col-span-2 lg:col-span-3 pb-0.5 pt-1">
           <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Returns</p>
           <hr class="mt-1 border-gray-100">
         </div>
