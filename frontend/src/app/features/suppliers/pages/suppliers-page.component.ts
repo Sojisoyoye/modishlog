@@ -137,17 +137,22 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                 <tr>
                   <td colspan="8" class="px-4 py-16 text-center">
                     <div class="flex flex-col items-center gap-3">
-                      <div class="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50">
-                        <i class="pi pi-users text-3xl text-emerald-300"></i>
-                      </div>
-                      <p class="font-semibold text-gray-900">No suppliers yet</p>
-                      <p class="text-sm text-muted">Add your first supplier to get started.</p>
-                      <button
-                        (click)="openAddDialog()"
-                        class="mt-1 flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 min-h-[44px]"
-                      >
-                        <i class="pi pi-plus text-xs"></i> Add Supplier
-                      </button>
+                      @if (searchTerm || activeOnly) {
+                        <i class="pi pi-search text-2xl text-muted"></i>
+                        <p class="text-sm text-muted">No suppliers match your filters.</p>
+                      } @else {
+                        <div class="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50">
+                          <i class="pi pi-users text-3xl text-emerald-300"></i>
+                        </div>
+                        <p class="font-semibold text-gray-900">No suppliers yet</p>
+                        <p class="text-sm text-muted">Add your first supplier to get started.</p>
+                        <button
+                          (click)="openAddDialog()"
+                          class="mt-1 flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 min-h-[44px]"
+                        >
+                          <i class="pi pi-plus text-xs"></i> Add Supplier
+                        </button>
+                      }
                     </div>
                   </td>
                 </tr>
