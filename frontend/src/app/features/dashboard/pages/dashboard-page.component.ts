@@ -230,7 +230,7 @@ import { AuthService } from '../../../core/services/auth.service';
       }
 
       <!-- ============================================================
-           Row 1: Cash Health | Order Activity | Profit Margin
+           Row 1: Cash Health | Order Activity | Margin vs Target
            ============================================================ -->
       @if (loading()) {
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -313,15 +313,15 @@ import { AuthService } from '../../../core/services/auth.service';
             </a>
           </div>
 
-          <!-- Profit Margin -->
+          <!-- Margin vs Target -->
           <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <div class="mb-4 flex items-center gap-3">
               <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-purple-50">
                 <i class="pi pi-percentage text-lg text-purple-600"></i>
               </div>
               <div>
-                <p class="font-semibold text-slate-800">Profit Margin</p>
-                <p class="text-xs text-slate-400">Average across all products</p>
+                <p class="font-semibold text-slate-800">Margin vs Target</p>
+                <p class="text-xs text-slate-400">How your margin compares to your goal</p>
               </div>
             </div>
             <div class="flex items-baseline gap-2">
