@@ -64,15 +64,15 @@ interface ColEntry {
           role="menuitem"
           title="Edit product"
           (click)="openEditFromMenu()"
-          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-gray-50 min-h-[44px]"
+          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-gray-50"
         >
-          <i class="pi pi-pencil text-xs text-secondary"></i> Edit
+          <i class="pi pi-pencil text-xs text-emerald-700"></i> Edit
         </button>
         <button
           role="menuitem"
           title="Toggle active"
           (click)="toggleActivateFromMenu()"
-          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-gray-50 min-h-[44px]"
+          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-gray-50"
         >
           <i class="pi pi-power-off text-xs text-muted"></i>
           {{ menuProduct()?.is_active ? 'Deactivate' : 'Activate' }}
@@ -81,7 +81,7 @@ interface ColEntry {
           role="menuitem"
           title="Suggest sell price"
           (click)="openSuggestFromMenu()"
-          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-emerald-50 hover:text-emerald-700 min-h-[44px]"
+          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-text hover:bg-gray-50"
         >
           <i class="pi pi-tag text-xs text-primary"></i> Suggest Price
         </button>
@@ -90,7 +90,7 @@ interface ColEntry {
           role="menuitem"
           title="Delete product"
           (click)="confirmDeleteFromMenu()"
-          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50 min-h-[44px]"
+          class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-500 hover:bg-red-50"
         >
           <i class="pi pi-trash text-xs"></i> Delete
         </button>
@@ -103,7 +103,7 @@ interface ColEntry {
         <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" (click)="$event.stopPropagation()">
           <div class="mb-4 flex items-center justify-between">
             <h3 class="font-bold text-text">Suggest Sell Price</h3>
-            <button (click)="closeSuggestPanel()" class="rounded p-1 text-muted hover:bg-gray-100 min-h-[44px] min-w-[44px]"><i class="pi pi-times text-sm"></i></button>
+            <button (click)="closeSuggestPanel()" class="rounded p-1 text-muted hover:bg-gray-100"><i class="pi pi-times text-sm"></i></button>
           </div>
           <p class="mb-3 text-sm text-muted">
             Product: <strong class="text-text">{{ products().find(p => p.id === suggestionPanelProductId())?.name }}</strong>
@@ -118,7 +118,7 @@ interface ColEntry {
           <button
             (click)="runSuggestion()"
             [disabled]="suggestionLoading()"
-            class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 min-h-[44px]"
+            class="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50"
           >
             @if (suggestionLoading()) {
               <i class="pi pi-spinner pi-spin text-xs"></i> Computing…
@@ -127,9 +127,9 @@ interface ColEntry {
             }
           </button>
           @if (latestSuggestion()) {
-            <div class="mt-4 rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-sm">
+            <div class="mt-4 rounded-lg bg-green-50 p-4 text-sm">
               <p class="mb-1 text-xs font-bold uppercase tracking-wider text-muted">Suggested Price</p>
-              <p class="text-xl font-bold text-emerald-700">₦{{ latestSuggestion()!.suggested_price_ngn | number: '1.0-0' }}</p>
+              <p class="text-2xl font-bold text-success">₦{{ latestSuggestion()!.suggested_price_ngn | number: '1.0-0' }}</p>
               <div class="mt-2 space-y-1 text-xs text-muted">
                 <p>Weighted landed cost: ₦{{ latestSuggestion()!.unit_cost_ngn | number: '1.0-0' }}</p>
                 <p>FX rate used: ₦{{ latestSuggestion()!.fx_rate_used | number: '1.0-0' }}/USD</p>
@@ -156,7 +156,7 @@ interface ColEntry {
         </div>
         <button
           (click)="activeTab.set('add')"
-          class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md min-h-[44px]"
+          class="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
         >
           <i class="pi pi-plus text-sm"></i> New Product
         </button>
@@ -166,32 +166,32 @@ interface ColEntry {
       <div class="mt-4 flex gap-1 border-b border-gray-200">
         <button
           (click)="activeTab.set('products')"
-          [class]="activeTab() === 'products' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary min-h-[44px]' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text min-h-[44px]'"
+          [class]="activeTab() === 'products' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
         >
           <i class="pi pi-box mr-1.5 text-xs"></i> All Products
           <span class="ml-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-muted">{{ products().length }}</span>
         </button>
         <button
           (click)="activeTab.set('stock-report')"
-          [class]="activeTab() === 'stock-report' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary min-h-[44px]' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text min-h-[44px]'"
+          [class]="activeTab() === 'stock-report' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
         >
           <i class="pi pi-chart-bar mr-1.5 text-xs"></i> Stock Report
         </button>
         <button
           (click)="activeTab.set('add')"
-          [class]="activeTab() === 'add' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary min-h-[44px]' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text min-h-[44px]'"
+          [class]="activeTab() === 'add' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
         >
           <i class="pi pi-plus-circle mr-1.5 text-xs"></i> Add Product
         </button>
         <button
           (click)="activeTab.set('upload')"
-          [class]="activeTab() === 'upload' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary min-h-[44px]' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text min-h-[44px]'"
+          [class]="activeTab() === 'upload' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
         >
           <i class="pi pi-upload mr-1.5 text-xs"></i> Bulk Upload
         </button>
         <button
           (click)="activeTab.set('categories')"
-          [class]="activeTab() === 'categories' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary min-h-[44px]' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text min-h-[44px]'"
+          [class]="activeTab() === 'categories' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
         >
           <i class="pi pi-tag mr-1.5 text-xs"></i> Categories
           <span class="ml-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-muted">{{ categories().length }}</span>
@@ -222,7 +222,7 @@ interface ColEntry {
 
       <!-- Filter panel -->
       @if (showFilters()) {
-        <div class="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div class="mb-4 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
           <div class="flex flex-wrap gap-4">
             <div class="min-w-[160px] flex-1">
               <label for="products-filter-category" class="mb-1 block text-xs font-medium text-muted">Category</label>
@@ -318,14 +318,14 @@ interface ColEntry {
           <div class="flex items-center rounded-lg border border-gray-200 bg-white p-0.5">
             <button
               (click)="viewMode.set('grid')"
-              [class]="viewMode() === 'grid' ? 'rounded-md bg-emerald-600 px-3 py-1.5 text-white min-h-[44px]' : 'rounded-md px-3 py-1.5 text-muted hover:text-text min-h-[44px]'"
+              [class]="viewMode() === 'grid' ? 'rounded-md bg-primary px-3 py-1.5 text-white' : 'rounded-md px-3 py-1.5 text-muted hover:text-text'"
               title="Grid view"
             >
               <i class="pi pi-th-large text-sm"></i>
             </button>
             <button
               (click)="viewMode.set('list')"
-              [class]="viewMode() === 'list' ? 'rounded-md bg-emerald-600 px-3 py-1.5 text-white min-h-[44px]' : 'rounded-md px-3 py-1.5 text-muted hover:text-text min-h-[44px]'"
+              [class]="viewMode() === 'list' ? 'rounded-md bg-primary px-3 py-1.5 text-white' : 'rounded-md px-3 py-1.5 text-muted hover:text-text'"
               title="List view"
             >
               <i class="pi pi-list text-sm"></i>
@@ -348,21 +348,21 @@ interface ColEntry {
 
       <!-- LIST VIEW -->
       @if (viewMode() === 'list') {
-        <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div class="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
           <table class="min-w-full text-sm">
             <caption class="sr-only">Product catalog</caption>
             <thead>
               <tr class="border-b border-gray-200 bg-gray-50">
                 <th
                   (click)="toggleSort('name')"
-                  class="cursor-pointer whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-text"
+                  class="cursor-pointer whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted hover:text-text"
                 >
                   <span class="inline-flex items-center gap-1">Name <i [class]="sortIcon('name')"></i></span>
                 </th>
                 @if (visibleCols().sku) {
                   <th
                     (click)="toggleSort('sku')"
-                    class="cursor-pointer whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-text"
+                    class="cursor-pointer whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted hover:text-text"
                   >
                     <span class="inline-flex items-center gap-1">SKU <i [class]="sortIcon('sku')"></i></span>
                   </th>
@@ -370,7 +370,7 @@ interface ColEntry {
                 @if (visibleCols().category) {
                   <th
                     (click)="toggleSort('category')"
-                    class="cursor-pointer whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-text"
+                    class="cursor-pointer whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted hover:text-text"
                   >
                     <span class="inline-flex items-center gap-1">Category <i [class]="sortIcon('category')"></i></span>
                   </th>
@@ -378,7 +378,7 @@ interface ColEntry {
                 @if (visibleCols().unit_cost) {
                   <th
                     (click)="toggleSort('unit_cost')"
-                    class="cursor-pointer whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-text"
+                    class="cursor-pointer whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted hover:text-text"
                   >
                     <span class="inline-flex items-center justify-end gap-1">Unit Cost <i [class]="sortIcon('unit_cost')"></i></span>
                   </th>
@@ -386,7 +386,7 @@ interface ColEntry {
                 @if (visibleCols().selling_price) {
                   <th
                     (click)="toggleSort('selling_price')"
-                    class="cursor-pointer whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-text"
+                    class="cursor-pointer whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted hover:text-text"
                   >
                     <span class="inline-flex items-center justify-end gap-1">Price <i [class]="sortIcon('selling_price')"></i></span>
                   </th>
@@ -394,12 +394,12 @@ interface ColEntry {
                 @if (visibleCols().stock) {
                   <th
                     (click)="toggleSort('stock')"
-                    class="cursor-pointer whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500 hover:text-text"
+                    class="cursor-pointer whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted hover:text-text"
                   >
                     <span class="inline-flex items-center justify-end gap-1">Stock <i [class]="sortIcon('stock')"></i></span>
                   </th>
                 }
-                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
+                <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">
                   Actions
                 </th>
               </tr>
@@ -449,11 +449,11 @@ interface ColEntry {
                     <td class="px-4 py-3 text-right text-text">{{ product.unit_cost | number: '1.2-2' }}</td>
                   }
                   @if (visibleCols().selling_price) {
-                    <td class="px-4 py-3 text-right font-semibold text-secondary">{{ product.selling_price | number: '1.2-2' }}</td>
+                    <td class="px-4 py-3 text-right font-semibold text-emerald-700">{{ product.selling_price | number: '1.2-2' }}</td>
                   }
                   @if (visibleCols().stock) {
                     <td class="px-4 py-3 text-right">
-                      <span [class]="stockStatus(product.id) === 'out' ? 'font-semibold text-red-600' : stockStatus(product.id) === 'low' ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'">
+                      <span [class]="stockStatus(product.id) === 'out' ? 'font-semibold text-red-600' : stockStatus(product.id) === 'low' ? 'font-semibold text-amber-600' : 'text-text'">
                         {{ stockMap().get(product.id) ?? 0 }}
                       </span>
                     </td>
@@ -464,7 +464,7 @@ interface ColEntry {
                       [attr.aria-expanded]="openActionId() === product.id"
                       aria-haspopup="true"
                       aria-label="Product actions"
-                      class="rounded-lg p-1.5 text-muted hover:bg-gray-100 min-h-[44px] min-w-[44px]"
+                      class="rounded-lg p-1.5 text-muted hover:bg-gray-100"
                     >
                       <i class="pi pi-ellipsis-v text-sm"></i>
                     </button>
@@ -472,18 +472,16 @@ interface ColEntry {
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="8" class="py-16 text-center">
-                    <i class="pi pi-barcode mb-3 block text-5xl text-gray-300"></i>
-                    <p class="text-base font-semibold text-gray-900 mb-1">No products yet</p>
+                  <td colspan="8" class="py-16 text-center text-muted">
+                    <i class="pi pi-box mb-3 block text-4xl text-gray-300"></i>
+                    No products found.
                     @if (searchQuery() || filterCategoryId() || filterStatus()) {
-                      <p class="text-sm text-muted mb-3">No products match your filters.</p>
-                      <button (click)="resetFilters()" class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 min-h-[44px]">
-                        <i class="pi pi-filter-slash text-xs"></i> Clear filters
+                      <button (click)="resetFilters()" class="mt-2 block mx-auto text-primary hover:underline">
+                        Clear filters
                       </button>
                     } @else {
-                      <p class="text-sm text-muted mb-3">Start building your product catalog.</p>
-                      <button (click)="activeTab.set('add')" class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 min-h-[44px]">
-                        <i class="pi pi-plus text-xs"></i> Add Product
+                      <button (click)="activeTab.set('add')" class="mt-2 block mx-auto text-primary hover:underline">
+                        Add your first product
                       </button>
                     }
                   </td>
@@ -535,20 +533,18 @@ interface ColEntry {
       @if (viewMode() === 'grid') {
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           @for (product of pagedProducts(); track product.id) {
-            <div class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
-              <div class="mb-3 aspect-square overflow-hidden rounded-lg bg-gray-50">
+            <div class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-all hover:shadow-md">
+              <div class="mb-3 flex h-32 items-center justify-center overflow-hidden rounded-lg bg-gray-100">
                 @if (product.image_url) {
                   <img [src]="'http://localhost:8000' + product.image_url" [alt]="product.name" class="h-full w-full object-cover" />
                 } @else {
-                  <div class="flex h-full w-full items-center justify-center">
-                    <i class="pi pi-image text-3xl text-gray-300"></i>
-                  </div>
+                  <i class="pi pi-image text-3xl text-gray-300"></i>
                 }
               </div>
               <div class="space-y-1">
                 <div class="flex items-start justify-between gap-2">
-                  <p class="text-sm font-semibold text-gray-900 truncate">{{ product.name }}</p>
-                  <span [class]="product.is_active ? 'rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 shrink-0' : 'rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 shrink-0'">
+                  <p class="font-semibold text-text">{{ product.name }}</p>
+                  <span [class]="product.is_active ? 'rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700' : 'rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500'">
                     {{ product.is_active ? 'Active' : 'Inactive' }}
                   </span>
                 </div>
@@ -556,31 +552,31 @@ interface ColEntry {
                 @if (categoryName(product.category_id)) {
                   <p class="text-xs text-muted"><i class="pi pi-tag mr-1 text-[10px]"></i>{{ categoryName(product.category_id) }}</p>
                 }
-                <div class="mt-2 grid grid-cols-2 gap-1">
+                <div class="mt-2 grid grid-cols-2 gap-1 text-xs">
                   <div>
-                    <p class="text-xs text-gray-500">Cost</p>
-                    <p class="text-sm font-semibold text-gray-900">{{ product.unit_cost | number: '1.2-2' }}</p>
+                    <p class="text-muted">Cost</p>
+                    <p class="font-semibold text-text">{{ product.unit_cost | number: '1.2-2' }}</p>
                   </div>
                   <div>
-                    <p class="text-xs text-gray-500">Price</p>
-                    <p class="text-sm font-semibold text-gray-900">{{ product.selling_price | number: '1.2-2' }}</p>
+                    <p class="text-muted">Price</p>
+                    <p class="font-semibold text-emerald-700">{{ product.selling_price | number: '1.2-2' }}</p>
                   </div>
                 </div>
-                <p class="text-xs text-muted">Stock: <span [class]="stockStatus(product.id) === 'out' ? 'font-semibold text-red-600' : stockStatus(product.id) === 'low' ? 'font-semibold text-amber-700' : 'font-semibold text-emerald-700'">{{ stockMap().get(product.id) ?? 0 }}</span></p>
+                <p class="text-xs text-muted">Stock: <span [class]="stockStatus(product.id) === 'out' ? 'font-semibold text-red-600' : stockStatus(product.id) === 'low' ? 'font-semibold text-amber-600' : 'font-semibold text-text'">{{ stockMap().get(product.id) ?? 0 }}</span></p>
               </div>
               <div class="mt-3 flex gap-2 border-t border-gray-100 pt-3">
-                <button (click)="openEdit(product)" class="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-secondary transition-colors hover:bg-blue-50 min-h-[44px]">
+                <button (click)="openEdit(product)" class="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50">
                   <i class="pi pi-pencil mr-1 text-[10px]"></i> Edit
                 </button>
-                <button (click)="confirmDelete(product)" class="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-50 min-h-[44px]">
+                <button (click)="confirmDelete(product)" class="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 transition-colors hover:bg-red-50">
                   <i class="pi pi-trash mr-1 text-[10px]"></i> Delete
                 </button>
               </div>
             </div>
           } @empty {
-            <div class="col-span-full py-12 text-center">
-              <i class="pi pi-barcode block text-4xl text-gray-200 mb-3"></i>
-              <p class="text-sm text-gray-500">No products yet</p>
+            <div class="col-span-full py-16 text-center">
+              <i class="pi pi-box mb-3 block text-4xl text-gray-300"></i>
+              <p class="text-muted">No products yet.</p>
             </div>
           }
         </div>
@@ -601,18 +597,18 @@ interface ColEntry {
 
     <!-- ── STOCK REPORT TAB ────────────────────────────────────────────────── -->
     @if (activeTab() === 'stock-report') {
-      <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div class="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
         <table class="min-w-full text-sm">
           <caption class="sr-only">Stock report</caption>
           <thead>
             <tr class="border-b border-gray-200 bg-gray-50">
-              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Product</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">SKU</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Unit Cost</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Selling Price</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Stock</th>
-              <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Margin %</th>
-              <th class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-500">Stock Status</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Product</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">SKU</th>
+              <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Unit Cost</th>
+              <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Selling Price</th>
+              <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Stock</th>
+              <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Margin %</th>
+              <th class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-muted">Stock Status</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
@@ -621,10 +617,10 @@ interface ColEntry {
                 <td class="px-4 py-3 font-medium text-text">{{ product.name }}</td>
                 <td class="px-4 py-3 font-mono text-xs text-muted">{{ product.sku }}</td>
                 <td class="px-4 py-3 text-right text-text">{{ product.unit_cost | number: '1.2-2' }}</td>
-                <td class="px-4 py-3 text-right font-semibold text-secondary">{{ product.selling_price | number: '1.2-2' }}</td>
+                <td class="px-4 py-3 text-right font-semibold text-emerald-700">{{ product.selling_price | number: '1.2-2' }}</td>
                 <td class="px-4 py-3 text-right text-text">{{ stockMap().get(product.id) ?? 0 }}</td>
                 <td class="px-4 py-3 text-right">
-                  <span [class]="margin(product) >= 30 ? 'font-semibold text-green-600' : margin(product) >= 15 ? 'font-semibold text-amber-600' : 'font-semibold text-red-500'">
+                  <span [class]="margin(product) >= 30 ? 'font-semibold text-emerald-700' : margin(product) >= 15 ? 'font-semibold text-amber-600' : 'font-semibold text-red-500'">
                     {{ margin(product) | number: '1.0-1' }}%
                   </span>
                 </td>
@@ -634,7 +630,7 @@ interface ColEntry {
                   } @else if (stockStatus(product.id) === 'low') {
                     <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">Low Stock</span>
                   } @else {
-                    <span class="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">In Stock</span>
+                    <span class="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">In Stock</span>
                   }
                 </td>
               </tr>
@@ -650,9 +646,9 @@ interface ColEntry {
 
     <!-- ── ADD PRODUCT TAB ────────────────────────────────────────────────── -->
     @if (activeTab() === 'add') {
-      <div id="add-product-form" class="mx-auto max-w-lg rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div id="add-product-form" class="mx-auto max-w-lg rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
-          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
             <i class="pi pi-plus text-sm text-emerald-700"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Add New Product</h3>
@@ -664,7 +660,7 @@ interface ColEntry {
             <input
               [(ngModel)]="addForm.name"
               placeholder="Product name"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
@@ -688,7 +684,7 @@ interface ColEntry {
               <select
                 id="add-cat-select"
                 [(ngModel)]="addForm.category_id"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="">-- None --</option>
                 @for (cat of categoryTree(); track cat.id) {
@@ -710,7 +706,7 @@ interface ColEntry {
                 <input
                   [(ngModel)]="inlineCategoryName"
                   placeholder="Category name"
-                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   (keydown.enter)="submitInlineCategory()"
                   (keydown.escape)="showInlineCategoryForm = false"
                 />
@@ -719,7 +715,7 @@ interface ColEntry {
                   title="Save category"
                   (click)="submitInlineCategory()"
                   [disabled]="savingInlineCategory() || !inlineCategoryName.trim()"
-                  class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 min-h-[44px]"
+                  class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50"
                 >
                   @if (savingInlineCategory()) {
                     <i class="pi pi-spinner pi-spin text-xs"></i>
@@ -739,7 +735,7 @@ interface ColEntry {
               <select
                 [ngModel]="addCurrency()"
                 (ngModelChange)="addCurrency.set($event)"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="NGN">NGN (Naira)</option>
                 <option value="USD">USD (Dollar)</option>
@@ -757,7 +753,7 @@ interface ColEntry {
                 min="1"
                 max="99"
                 step="1"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
           </div>
@@ -777,7 +773,7 @@ interface ColEntry {
                 (ngModelChange)="addForm.unit_cost = parseMoney($event)"
                 (blur)="onAddCostBlur()"
                 placeholder="0.00"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
             <div>
@@ -789,14 +785,14 @@ interface ColEntry {
                 (ngModelChange)="addForm.selling_price = parseMoney($event)"
                 (blur)="onAddPriceBlur()"
                 placeholder="0.00"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
           </div>
           @if (addMinSellingPrice !== null) {
             <p
               data-testid="add-min-price-hint"
-              class="text-xs font-medium text-blue-600"
+              class="text-xs font-medium text-emerald-600"
             >
               Min. suggested price ({{ addMinMarginPct() }}% margin): {{ addMinSellingPrice | number: '1.0-2' }} NGN
             </p>
@@ -805,7 +801,7 @@ interface ColEntry {
             <p
               data-testid="add-margin"
               class="text-xs font-medium"
-              [class.text-green-600]="addFormMargin >= 0"
+              [class.text-emerald-700]="addFormMargin >= 0"
               [class.text-red-500]="addFormMargin < 0"
             >
               Margin: {{ addFormMargin | number: '1.1-1' }}%
@@ -827,7 +823,7 @@ interface ColEntry {
               [(ngModel)]="addForm.description"
               rows="2"
               placeholder="Optional description"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             ></textarea>
           </div>
 
@@ -837,7 +833,7 @@ interface ColEntry {
               type="file"
               accept="image/*"
               (change)="onAddFileChange($event)"
-              class="w-full text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-emerald-700"
+              class="w-full text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary"
             />
           </div>
 
@@ -845,14 +841,14 @@ interface ColEntry {
             <button
               type="button"
               (click)="cancelAdd()"
-              class="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted hover:bg-gray-50 min-h-[44px]"
+              class="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-muted hover:bg-gray-50"
             >
               Cancel
             </button>
             <button
               (click)="submitAdd()"
               [disabled]="savingAdd()"
-              class="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50 min-h-[44px]"
+              class="flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
             >
               @if (savingAdd()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
@@ -868,9 +864,9 @@ interface ColEntry {
     <!-- ── BULK UPLOAD TAB ────────────────────────────────────────────────── -->
     @if (activeTab() === 'upload') {
       <div class="mx-auto max-w-2xl">
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
           <div class="mb-5 flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
               <i class="pi pi-upload text-sm text-emerald-700"></i>
             </div>
             <h3 class="text-base font-semibold text-text">Bulk Upload Products</h3>
@@ -879,9 +875,9 @@ interface ColEntry {
           <div class="mb-6 rounded-lg border border-blue-100 bg-blue-50/50 p-4">
             <p class="mb-2 text-sm font-medium text-text">Required columns</p>
             <div class="flex flex-wrap gap-2">
-              <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">name</span>
-              <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">unit_cost</span>
-              <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">selling_price</span>
+              <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">name</span>
+              <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">unit_cost</span>
+              <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">selling_price</span>
             </div>
             <p class="mt-2 text-sm font-medium text-text">Optional columns</p>
             <div class="flex flex-wrap gap-2">
@@ -894,7 +890,7 @@ interface ColEntry {
 
           <button
             (click)="downloadBulkTemplate()"
-            class="mb-5 flex items-center gap-2 text-sm font-medium text-secondary transition-colors hover:text-primary hover:underline"
+            class="mb-5 flex items-center gap-2 text-sm font-medium text-emerald-700 transition-colors hover:text-primary hover:underline"
           >
             <i class="pi pi-download text-xs"></i> Download CSV template
           </button>
@@ -917,14 +913,14 @@ interface ColEntry {
               type="file"
               accept=".csv,.xlsx,.xls"
               (change)="onBulkFileChange($event)"
-              class="mt-3 text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-emerald-700"
+              class="mt-3 text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-primary"
             />
           </div>
 
           <button
             (click)="submitBulkUpload()"
             [disabled]="!bulkFile || uploadingBulk()"
-            class="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50 min-h-[44px]"
+            class="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
           >
             @if (uploadingBulk()) {
               <i class="pi pi-spinner pi-spin text-sm"></i> Uploading...
@@ -935,7 +931,7 @@ interface ColEntry {
 
           @if (bulkResult()) {
             <div class="mt-5 rounded-lg border p-4" [class]="bulkResult()!.failed ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'">
-              <p class="text-sm font-semibold" [class]="bulkResult()!.failed ? 'text-amber-700' : 'text-green-700'">
+              <p class="text-sm font-semibold" [class]="bulkResult()!.failed ? 'text-amber-700' : 'text-emerald-700'">
                 {{ bulkResult()!.successful }} of {{ bulkResult()!.total_rows }} products created
                 @if (bulkResult()!.failed) {
                   &mdash; {{ bulkResult()!.failed }} failed
@@ -957,26 +953,26 @@ interface ColEntry {
     <!-- ── CATEGORIES TAB ──────────────────────────────────────────────────── -->
     @if (activeTab() === 'categories') {
       <div class="space-y-6">
-        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <h3 class="mb-4 text-sm font-semibold text-text">Add New Category</h3>
           <div class="flex flex-wrap gap-3">
             <input
               [(ngModel)]="newCategoryName"
               placeholder="Category name"
-              class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               (keydown.enter)="submitCreateCategory()"
             />
             <input
               [(ngModel)]="newCategoryDescription"
               placeholder="Description (optional)"
-              class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               (keydown.enter)="submitCreateCategory()"
             />
             <select
               [(ngModel)]="newCategoryParentId"
               data-testid="new-cat-parent-select"
               aria-label="Parent category"
-              class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              class="rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             >
               <option value="">None (top-level)</option>
               @for (cat of categoryTree(); track cat.id) {
@@ -992,14 +988,14 @@ interface ColEntry {
                 max="99"
                 step="1"
                 aria-label="Default margin %"
-                class="w-44 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                class="w-44 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
               <span class="text-xs text-muted">%</span>
             </div>
             <button
               (click)="submitCreateCategory()"
               [disabled]="savingCategory() || !newCategoryName.trim()"
-              class="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50 min-h-[44px]"
+              class="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
             >
               @if (savingCategory()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i>
@@ -1012,15 +1008,15 @@ interface ColEntry {
         </div>
 
 
-        <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div class="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
           <table class="min-w-full text-sm">
             <thead>
               <tr class="border-b border-gray-200 bg-gray-50">
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Name</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Description</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Default Margin</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Products</th>
-                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Actions</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Name</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Description</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Default Margin</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted">Products</th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -1037,10 +1033,10 @@ interface ColEntry {
                   </td>
                   <td class="px-4 py-3 text-muted">{{ productCountForCategory(cat.id) }}</td>
                   <td class="px-4 py-3 text-right">
-                    <button (click)="openEditCategory(cat)" class="rounded-lg p-1.5 text-muted hover:bg-gray-100 mr-1 min-h-[44px] min-w-[44px]" title="Edit category">
+                    <button (click)="openEditCategory(cat)" class="rounded-lg p-1.5 text-muted hover:bg-gray-100 mr-1" title="Edit category">
                       <i class="pi pi-pencil text-xs"></i>
                     </button>
-                    <button (click)="confirmDeleteCategory(cat)" class="rounded-lg p-1.5 text-red-400 hover:bg-red-50 min-h-[44px] min-w-[44px]" title="Delete category">
+                    <button (click)="confirmDeleteCategory(cat)" class="rounded-lg p-1.5 text-red-400 hover:bg-red-50" title="Delete category">
                       <i class="pi pi-trash text-xs"></i>
                     </button>
                   </td>
@@ -1061,10 +1057,10 @@ interface ColEntry {
                     </td>
                     <td class="px-4 py-2 text-sm text-muted">{{ productCountForCategory(child.id) }}</td>
                     <td class="px-4 py-2 text-right">
-                      <button (click)="openEditCategory(child)" class="rounded-lg p-1.5 text-muted hover:bg-gray-100 mr-1 min-h-[44px] min-w-[44px]" title="Edit sub-category">
+                      <button (click)="openEditCategory(child)" class="rounded-lg p-1.5 text-muted hover:bg-gray-100 mr-1" title="Edit sub-category">
                         <i class="pi pi-pencil text-xs"></i>
                       </button>
-                      <button (click)="confirmDeleteCategory(child)" class="rounded-lg p-1.5 text-red-400 hover:bg-red-50 min-h-[44px] min-w-[44px]" title="Delete sub-category">
+                      <button (click)="confirmDeleteCategory(child)" class="rounded-lg p-1.5 text-red-400 hover:bg-red-50" title="Delete sub-category">
                         <i class="pi pi-trash text-xs"></i>
                       </button>
                     </td>
@@ -1130,7 +1126,7 @@ interface ColEntry {
           <button
             (click)="saveEditCategory()"
             [disabled]="!categoryEditForm.name.trim()"
-            class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 min-h-[44px]"
+            class="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <i class="pi pi-check text-sm"></i> Save
           </button>
@@ -1238,7 +1234,7 @@ interface ColEntry {
         @if (editMinSellingPrice !== null) {
           <p
             data-testid="edit-min-price-hint"
-            class="text-xs font-medium text-blue-600"
+            class="text-xs font-medium text-emerald-600"
           >
             Min. suggested price ({{ editMinMarginPct() }}% margin): {{ editMinSellingPrice | number: '1.0-2' }} NGN
           </p>
@@ -1247,7 +1243,7 @@ interface ColEntry {
           <p
             data-testid="edit-margin"
             class="text-xs font-medium"
-            [class.text-green-600]="editFormMargin >= 0"
+            [class.text-emerald-700]="editFormMargin >= 0"
             [class.text-red-500]="editFormMargin < 0"
           >
             Margin: {{ editFormMargin | number: '1.1-1' }}%
@@ -1285,13 +1281,13 @@ interface ColEntry {
             type="file"
             accept="image/*"
             (change)="onEditFileChange($event)"
-            class="w-full text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary"
+            class="w-full text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-primary"
           />
         </div>
         <button
           (click)="submitEdit()"
           [disabled]="saving()"
-          class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50 min-h-[44px]"
+          class="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 disabled:opacity-50"
         >
           @if (saving()) {
             <i class="pi pi-spinner pi-spin text-sm"></i> Saving...
