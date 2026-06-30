@@ -64,10 +64,8 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
                 <td class="px-4 py-3">
                   @if (sc.status === 'FINALIZED') {
                     <app-status-badge label="Completed" status="success" />
-                  } @else if (sc.status === 'DRAFT') {
-                    <app-status-badge label="Draft" status="neutral" />
                   } @else {
-                    <app-status-badge label="In Progress" status="warning" />
+                    <app-status-badge label="Draft" status="neutral" />
                   }
                 </td>
                 <td class="px-4 py-3 text-right text-gray-500">{{ sc.item_count }}</td>

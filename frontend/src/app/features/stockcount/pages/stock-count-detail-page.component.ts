@@ -43,10 +43,8 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
                   </h1>
                   @if (sc.status === 'FINALIZED') {
                     <app-status-badge label="Completed" status="success" />
-                  } @else if (sc.status === 'DRAFT') {
-                    <app-status-badge label="Draft" status="neutral" />
                   } @else {
-                    <app-status-badge label="In Progress" status="warning" />
+                    <app-status-badge label="Draft" status="neutral" />
                   }
                 </div>
                 <p class="mt-1 text-sm text-gray-500">
