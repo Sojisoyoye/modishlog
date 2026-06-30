@@ -9,22 +9,42 @@ import { AuthService } from '../../../core/services/auth.service';
   standalone: true,
   imports: [FormsModule],
   template: `
-    <div
-      class="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary to-secondary p-4"
-    >
-      <div class="w-full max-w-md">
-        <!-- Card -->
-        <div class="rounded-2xl bg-white p-8 shadow-2xl">
-          <!-- Logo -->
-          <div class="mb-6 text-center">
-            <div
-              class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-xl font-bold text-white shadow-lg"
-            >
+    <div class="flex min-h-screen">
+      <!-- Left brand panel (hidden on mobile) -->
+      <div class="hidden lg:flex lg:w-[45%] flex-col justify-between bg-gradient-to-br from-gray-900 via-emerald-950 to-gray-900 p-12 text-white">
+        <!-- Top: logo + tagline -->
+        <div>
+          <div class="mb-4">
+            <div class="rounded-xl bg-primary text-white w-14 h-14 flex items-center justify-center text-2xl font-bold mb-4">M</div>
+            <h1 class="text-3xl font-bold tracking-tight">ModishLog</h1>
+          </div>
+          <p class="mt-3 text-lg text-emerald-200">
+            Your shop runs better when you can see the numbers.
+          </p>
+        </div>
+
+        <!-- Bottom: social proof quote -->
+        <div class="bg-white/10 rounded-xl p-5 text-sm text-white/90">
+          <p class="mb-4 text-sm italic text-white/80 leading-relaxed">
+            "I used to spend 2 hours every evening on my books. Now it takes 4 minutes."
+          </p>
+          <p class="text-sm font-semibold text-emerald-300">Adaeze O., Lagos Market Trader</p>
+          <p class="mt-1.5 text-emerald-400 text-sm tracking-widest">&#9679;&#9679;&#9679;&#9679;&#9679;</p>
+        </div>
+      </div>
+
+      <!-- Right form panel -->
+      <div class="flex flex-1 flex-col items-center justify-center px-6 py-12 lg:px-16 bg-white">
+        <div class="w-full max-w-md">
+          <!-- Mobile logo (shown only on small screens) -->
+          <div class="mb-8 text-center lg:hidden">
+            <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-xl font-bold text-white shadow-lg">
               M
             </div>
-            <h1 class="text-2xl font-bold text-text">ModishLog</h1>
-            <p class="mt-1 text-sm text-muted">Sign in to your business dashboard</p>
+            <span class="text-2xl font-bold text-gray-900">ModishLog</span>
           </div>
+
+          <h2 class="mb-8 text-2xl font-bold text-gray-900">Sign in to your account</h2>
 
           @if (lockoutDisplay()) {
             <div
@@ -48,10 +68,10 @@ import { AuthService } from '../../../core/services/auth.service';
 
           <form (ngSubmit)="onLogin()">
             <div class="mb-4">
-              <label for="login-email" class="mb-1.5 block text-sm font-medium text-text">Email</label>
+              <label for="login-email" class="mb-1.5 block text-sm font-medium text-gray-700">Email</label>
               <div class="relative">
                 <i
-                  class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted"
+                  class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
                 ></i>
                 <input
                   id="login-email"
@@ -59,17 +79,17 @@ import { AuthService } from '../../../core/services/auth.service';
                   [(ngModel)]="email"
                   name="email"
                   autocomplete="email"
-                  class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
                   placeholder="you@example.com"
                   required
                 />
               </div>
             </div>
             <div class="mb-6">
-              <label for="login-password" class="mb-1.5 block text-sm font-medium text-text">Password</label>
+              <label for="login-password" class="mb-1.5 block text-sm font-medium text-gray-700">Password</label>
               <div class="relative">
                 <i
-                  class="pi pi-lock absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted"
+                  class="pi pi-lock absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
                 ></i>
                 <input
                   id="login-password"
@@ -77,7 +97,7 @@ import { AuthService } from '../../../core/services/auth.service';
                   [(ngModel)]="password"
                   name="password"
                   autocomplete="current-password"
-                  class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-10 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10 pr-10"
                   required
                   minlength="8"
                 />
@@ -85,7 +105,7 @@ import { AuthService } from '../../../core/services/auth.service';
                   type="button"
                   data-testid="toggle-password"
                   (click)="showPassword.set(!showPassword())"
-                  class="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text focus:outline-none"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 focus:outline-none"
                   [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
                 >
                   <i [class]="showPassword() ? 'pi pi-eye-slash text-sm' : 'pi pi-eye text-sm'"></i>
@@ -95,7 +115,7 @@ import { AuthService } from '../../../core/services/auth.service';
             <button
               type="submit"
               [disabled]="loading() || lockoutSeconds() > 0"
-              class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
+              class="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-secondary disabled:opacity-50 min-h-[44px] flex items-center justify-center gap-2"
             >
               @if (loading()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i>
@@ -120,7 +140,7 @@ import { AuthService } from '../../../core/services/auth.service';
           <!-- Forgot password inline form -->
           @if (showForgotPassword()) {
             <div class="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <p class="mb-3 text-sm text-muted">
+              <p class="mb-3 text-sm text-gray-500">
                 Enter your email address and we'll send you a reset link.
               </p>
 
@@ -138,7 +158,7 @@ import { AuthService } from '../../../core/services/auth.service';
                   <label for="forgot-email" class="sr-only">Email for password reset</label>
                   <div class="relative">
                     <i
-                      class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted"
+                      class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
                     ></i>
                     <input
                       id="forgot-email"
@@ -146,7 +166,7 @@ import { AuthService } from '../../../core/services/auth.service';
                       [(ngModel)]="forgotEmail"
                       name="forgotEmail"
                       autocomplete="email"
-                      class="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
                       placeholder="you@example.com"
                       required
                     />
@@ -155,7 +175,7 @@ import { AuthService } from '../../../core/services/auth.service';
                 <button
                   type="submit"
                   [disabled]="forgotLoading()"
-                  class="flex w-full items-center justify-center gap-2 rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-secondary/90 disabled:opacity-50"
+                  class="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-secondary disabled:opacity-50 min-h-[44px] flex items-center justify-center gap-2"
                 >
                   @if (forgotLoading()) {
                     <i class="pi pi-spinner pi-spin text-sm"></i>
@@ -167,12 +187,12 @@ import { AuthService } from '../../../core/services/auth.service';
               </form>
             </div>
           }
-        </div>
 
-        <!-- Footer -->
-        <p class="mt-6 text-center text-xs text-white/70">
-          Smart business management for everyday traders
-        </p>
+          <!-- Footer text -->
+          <p class="mt-8 text-center text-xs text-gray-400">
+            Don't have an account? <a href="mailto:hello@modishlog.com" class="text-emerald-600 hover:underline">Contact us</a>
+          </p>
+        </div>
       </div>
     </div>
   `,
