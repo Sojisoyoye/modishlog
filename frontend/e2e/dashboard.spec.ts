@@ -18,6 +18,23 @@ test.beforeEach(async ({ page }) => {
     .waitFor({ timeout: 20000 }).catch(() => {});
 });
 
+test.describe('Dashboard simplified labels (Task 145)', () => {
+  test('hero card shows "Profit Margin (%)" not "Gross Margin"', async ({ page }) => {
+    await expect(page.getByText('Profit Margin (%)').first()).toBeVisible();
+    await expect(page.getByText('Gross Margin')).toHaveCount(0);
+  });
+
+  test('FX widget header shows "Currency Risk" not "FX Exposure"', async ({ page }) => {
+    await expect(page.getByText('Currency Risk').first()).toBeVisible();
+    await expect(page.getByText('FX Exposure')).toHaveCount(0);
+  });
+
+  test('Global Exposure widget header shows "Foreign Currency Risk"', async ({ page }) => {
+    await expect(page.getByText('Foreign Currency Risk').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Global Exposure')).toHaveCount(0);
+  });
+});
+
 test.describe('Dashboard widget cards', () => {
   test('displays the Cash Health card', async ({ page }) => {
     await expect(page.getByText('Cash Health').first()).toBeVisible();
@@ -25,8 +42,8 @@ test.describe('Dashboard widget cards', () => {
     await expect(page.getByText('Profit Score (DSCR)').first()).toBeVisible();
   });
 
-  test('displays the FX Exposure card with empty state when no records', async ({ page }) => {
-    await expect(page.getByText('FX Exposure').first()).toBeVisible();
+  test('displays the Currency Risk card with empty state when no records', async ({ page }) => {
+    await expect(page.getByText('Currency Risk').first()).toBeVisible();
     // The card always renders — either exposure rows or the empty-state message
     const hasExposure = await page.getByText('No FX exposure tracked yet').isVisible().catch(() => false);
     const hasRows = await page.locator('.rounded-xl.border.border-gray-100').first().isVisible().catch(() => false);
@@ -67,11 +84,11 @@ test.describe('Global Exposure card (Task 16)', () => {
   });
 
   test('renders when data is available', async ({ page }) => {
-    await expect(page.getByText('Global Exposure').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Foreign Currency Risk').first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('EUR Loan Balance').first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('USD Order Obligations').first()).toBeVisible();
-    await expect(page.getByText('Total Exposure (NGN)').first()).toBeVisible();
-    await expect(page.getByText('Debt/Trade Ratio:').first()).toBeVisible();
+    await expect(page.getByText('Total Amount Owed (₦)').first()).toBeVisible();
+    await expect(page.getByText('Risk Level:').first()).toBeVisible();
   });
 
   test('shows numeric total exposure value', async ({ page }) => {
