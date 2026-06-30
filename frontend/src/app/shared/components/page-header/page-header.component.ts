@@ -20,6 +20,6 @@ import { Component, ChangeDetectionStrategy, input } from '@angular/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PageHeaderComponent {
-  title = input<string>('');
+  title = input.required<string>();
   subtitle = input<string>('');
 }

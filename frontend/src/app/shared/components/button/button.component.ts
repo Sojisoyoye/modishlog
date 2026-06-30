@@ -10,6 +10,9 @@ import {
   selector: 'app-button',
   standalone: true,
   imports: [],
+  host: {
+    '(click)': 'interceptHostClick($event)',
+  },
   template: `
     <button
       [type]="type()"
@@ -34,10 +37,16 @@ export class ButtonComponent {
 
   clicked = output<void>();
 
-  handleClick(): void {
-    if (!this.disabled() && !this.loading()) {
-      this.clicked.emit();
+  /** Stops host-element click propagation when the button is disabled or loading. */
+  interceptHostClick(event: MouseEvent): void {
+    if (this.disabled() || this.loading()) {
+      event.stopImmediatePropagation();
+      event.preventDefault();
     }
+  }
+
+  handleClick(): void {
+    this.clicked.emit();
   }
 
   buttonClass = computed(() => {

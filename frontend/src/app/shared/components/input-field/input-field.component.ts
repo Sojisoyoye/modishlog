@@ -44,9 +44,10 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InputFieldComponent {
+  private static _counter = 0;
   label = input<string>('');
-  id = input<string>('');
-  type = input<'text' | 'number' | 'email' | 'password'>('text');
+  id = input<string>(`app-input-${++InputFieldComponent._counter}`);
+  type = input<'text' | 'number' | 'email' | 'password' | 'date' | 'search' | 'tel' | 'url'>('text');
   placeholder = input<string>('');
   value = input<string>('');
   errorMessage = input<string>('');
