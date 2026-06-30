@@ -13,69 +13,131 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   await loginViaUI(page);
   await page.waitForLoadState('domcontentloaded');
-  // Wait for widget card headers to render (loading() signal becomes false after data loads)
-  await page.locator('p.font-semibold.text-slate-800').first()
+  // Wait for the page to settle past the loading skeleton
+  await page.locator('[data-testid="dashboard-filter-bar"]')
     .waitFor({ timeout: 20000 }).catch(() => {});
 });
 
-test.describe('Dashboard simplified labels (Task 145)', () => {
-  test('hero card shows "Profit Margin (%)" not "Gross Margin"', async ({ page }) => {
-    await expect(page.getByText('Profit Margin (%)').first()).toBeVisible();
-    await expect(page.getByText('Gross Margin')).toHaveCount(0);
+// ---------------------------------------------------------------------------
+// Tasks 148–151: unified layout
+// ---------------------------------------------------------------------------
+
+test.describe('Dashboard unified layout — Tasks 148-151', () => {
+  test('filter bar appears before hero cards in DOM order (Task 148)', async ({ page }) => {
+    const filterBar = page.locator('[data-testid="dashboard-filter-bar"]');
+    const heroCard  = page.locator('[data-testid="hero-revenue-card"]');
+    await expect(filterBar).toBeVisible();
+    await expect(heroCard).toBeVisible();
+    const filterBox = await filterBar.boundingBox();
+    const heroBox   = await heroCard.boundingBox();
+    expect(filterBox!.y).toBeLessThan(heroBox!.y);
   });
 
-  test('FX widget header shows "Currency Risk" not "FX Exposure"', async ({ page }) => {
-    await expect(page.getByText('Currency Risk').first()).toBeVisible();
-    await expect(page.getByText('FX Exposure')).toHaveCount(0);
+  test('hero row shows Net Profit not Profit Margin (%) (Task 149)', async ({ page }) => {
+    await expect(page.getByText('Net Profit').first()).toBeVisible();
+    await expect(page.getByText('Profit Margin (%)')).toHaveCount(0);
   });
 
-  test('Global Exposure widget header shows "Foreign Currency Risk"', async ({ page }) => {
-    await expect(page.getByText('Foreign Currency Risk').first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText('Global Exposure')).toHaveCount(0);
+  test('Total Sales KPI card not present anywhere on page (Task 149)', async ({ page }) => {
+    // Sections are collapsed — any stray "Total Sales" text means the card leaked back in
+    await expect(page.getByText('Total Sales')).toHaveCount(0);
+  });
+
+  test('Currency & Import Risks card shows both sub-sections (Task 150)', async ({ page }) => {
+    // Card lives inside the Pulse Metrics accordion — open it first
+    await page.getByText('Pulse Metrics').click();
+    await expect(page.getByText('Currency & Import Risks').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Open Order Exposure').first()).toBeVisible();
+    await expect(page.getByText('Total Obligations').first()).toBeVisible();
+  });
+
+  test('Shipping Costs card has no threshold table (Task 151)', async ({ page }) => {
+    // Card lives inside the Stock & Purchase Metrics accordion — open it first
+    await page.getByText('Stock & Purchase Metrics').click();
+    await expect(page.getByText('Shipping Costs').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('90-day rolling average').first()).toBeVisible();
+    // "Caution" row was removed from the threshold table
+    await expect(page.getByText('Caution')).toHaveCount(0);
   });
 });
 
-test.describe('KPI card section grouping (Task 146)', () => {
-  test('shows three group divider labels in the KPI grid', async ({ page }) => {
-    await expect(page.getByText('Money In').first()).toBeVisible();
+// ---------------------------------------------------------------------------
+// Accordion structure
+// ---------------------------------------------------------------------------
+
+test.describe('KPI accordion structure', () => {
+  test('all five accordion section labels are visible on load', async ({ page }) => {
     await expect(page.getByText('Money Out').first()).toBeVisible();
     await expect(page.getByText('Returns').first()).toBeVisible();
+    await expect(page.getByText('Stock & Purchase Metrics').first()).toBeVisible();
+    await expect(page.getByText('Pulse Metrics').first()).toBeVisible();
+    await expect(page.getByText('AI Smart Suggestions').first()).toBeVisible();
   });
 
-  test('Money In section contains Total Sales and Net Profit', async ({ page }) => {
-    await expect(page.getByText('Total Sales').first()).toBeVisible();
-    await expect(page.getByText('Net Profit').first()).toBeVisible();
-    // Confirm the section label itself is a small uppercase element
-    const label = page.locator('p.text-\\[10px\\].font-semibold.uppercase', { hasText: 'Money In' });
-    await expect(label).toBeAttached();
+  test('Money Out section expands and reveals KPI cards', async ({ page }) => {
+    await expect(page.getByText('Total Purchased')).not.toBeVisible();
+    await page.getByText('Money Out').click();
+    await expect(page.getByText('Total Purchased').first()).toBeVisible();
+    await expect(page.getByText('Amount Owed').first()).toBeVisible();
+    await expect(page.getByText('Monthly Expenses').first()).toBeVisible();
   });
 
-  test('Returns section contains Customer Returns and Supplier Refunds', async ({ page }) => {
+  test('Returns section expands and reveals KPI cards', async ({ page }) => {
+    await expect(page.getByText('Customer Returns')).not.toBeVisible();
+    await page.getByText('Returns').click();
     await expect(page.getByText('Customer Returns').first()).toBeVisible();
     await expect(page.getByText('Supplier Refunds').first()).toBeVisible();
-    const label = page.locator('p.text-\\[10px\\].font-semibold.uppercase', { hasText: 'Returns' });
-    await expect(label).toBeAttached();
+  });
+
+  test('Stock & Purchase Metrics expands and reveals cards', async ({ page }) => {
+    await expect(page.getByText('Stock Levels')).not.toBeVisible();
+    await page.getByText('Stock & Purchase Metrics').click();
+    await expect(page.getByText('Stock Levels').first()).toBeVisible();
+    await expect(page.getByText('Order Activity').first()).toBeVisible();
+    await expect(page.getByText('Shipping Costs').first()).toBeVisible();
+  });
+
+  test('Pulse Metrics expands and reveals cards', async ({ page }) => {
+    await expect(page.getByText('Margin vs Target')).not.toBeVisible();
+    await page.getByText('Pulse Metrics').click();
+    await expect(page.getByText('Margin vs Target').first()).toBeVisible();
+    await expect(page.getByText('Cash Health').first()).toBeVisible();
+    await expect(page.getByText('Currency & Import Risks').first()).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('AI Smart Suggestions expands and reveals card', async ({ page }) => {
+    await expect(page.getByText('Smart Suggestions')).not.toBeVisible();
+    await page.getByText('AI Smart Suggestions').click();
+    await expect(page.getByText('Smart Suggestions').first()).toBeVisible();
+  });
+
+  test('accordion collapses again on second click', async ({ page }) => {
+    // Open Money Out then close it
+    await page.getByText('Money Out').click();
+    await expect(page.getByText('Total Purchased').first()).toBeVisible();
+    await page.getByText('Money Out').click();
+    await expect(page.getByText('Total Purchased')).not.toBeVisible();
+  });
+
+  test('accordion buttons have aria-expanded attribute', async ({ page }) => {
+    const moneyOutBtn = page.getByRole('button', { name: /money out/i });
+    await expect(moneyOutBtn).toHaveAttribute('aria-expanded', 'false');
+    await moneyOutBtn.click();
+    await expect(moneyOutBtn).toHaveAttribute('aria-expanded', 'true');
   });
 });
 
-test.describe('Dashboard widget cards', () => {
-  test('displays the Cash Health card', async ({ page }) => {
-    await expect(page.getByText('Cash Health').first()).toBeVisible();
-    await expect(page.getByText('Cash Runway').first()).toBeVisible();
-    await expect(page.getByText('Profit Score (DSCR)').first()).toBeVisible();
+// ---------------------------------------------------------------------------
+// Widget cards — each group opens its parent accordion first
+// ---------------------------------------------------------------------------
+
+test.describe('Stock & Purchase Metrics cards', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.getByText('Stock & Purchase Metrics').click();
   });
 
-  test('displays the Currency Risk card with empty state when no records', async ({ page }) => {
-    await expect(page.getByText('Currency Risk').first()).toBeVisible();
-    // The card always renders — either exposure rows or the empty-state message
-    const hasExposure = await page.getByText('No FX exposure tracked yet').isVisible().catch(() => false);
-    const hasRows = await page.locator('.rounded-xl.border.border-gray-100').first().isVisible().catch(() => false);
-    expect(hasExposure || hasRows).toBe(true);
-  });
-
-  test('displays the Margin vs Target card', async ({ page }) => {
-    await expect(page.getByText('Margin vs Target').first()).toBeVisible();
-    await expect(page.getByText('Target:').first()).toBeVisible();
+  test('displays the Stock Levels card', async ({ page }) => {
+    await expect(page.getByText('Stock Levels').first()).toBeVisible();
   });
 
   test('displays the Order Activity card', async ({ page }) => {
@@ -83,20 +145,60 @@ test.describe('Dashboard widget cards', () => {
     await expect(page.getByText('In Progress').first()).toBeVisible({ timeout: 10_000 });
   });
 
-  test('displays Stock Levels card', async ({ page }) => {
-    await expect(page.getByText('Stock Levels').first()).toBeVisible();
+  test('displays the Shipping Costs card with rolling average', async ({ page }) => {
+    await expect(page.getByText('Shipping Costs').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('90-day rolling average').first()).toBeVisible();
   });
 
-  test('displays Smart Suggestions card', async ({ page }) => {
+  test('Shipping Costs shows a numeric percentage value', async ({ page }) => {
+    const pctElement = page.locator('p.text-4xl.font-bold').filter({ hasText: /%/ });
+    await expect(pctElement).toBeVisible();
+    await expect(pctElement).toContainText(/\d+\.\d%/);
+  });
+});
+
+test.describe('Pulse Metrics cards', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.getByText('Pulse Metrics').click();
+  });
+
+  test('displays the Cash Health card', async ({ page }) => {
+    await expect(page.getByText('Cash Health').first()).toBeVisible();
+    await expect(page.getByText('Cash Runway').first()).toBeVisible();
+    await expect(page.getByText('Profit Score (DSCR)').first()).toBeVisible();
+  });
+
+  test('displays the Margin vs Target card', async ({ page }) => {
+    await expect(page.getByText('Margin vs Target').first()).toBeVisible();
+    await expect(page.getByText('Target:').first()).toBeVisible();
+  });
+
+  test('displays the Currency & Import Risks card', async ({ page }) => {
+    await expect(page.getByText('Currency & Import Risks').first()).toBeVisible({ timeout: 15_000 });
+    const hasExposure = await page.getByText('No FX exposure tracked yet').isVisible().catch(() => false);
+    const hasRows = await page.locator('.rounded-xl.border.border-gray-100').first().isVisible().catch(() => false);
+    expect(hasExposure || hasRows).toBe(true);
+  });
+});
+
+test.describe('AI Smart Suggestions card', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.getByText('AI Smart Suggestions').click();
+  });
+
+  test('displays the Smart Suggestions card', async ({ page }) => {
     await expect(page.getByText('Smart Suggestions').first()).toBeVisible();
   });
 });
 
-test.describe('Global Exposure card (Task 16)', () => {
+// ---------------------------------------------------------------------------
+// Currency & Import Risks — global exposure data (Task 16)
+// ---------------------------------------------------------------------------
+
+test.describe('Currency & Import Risks — global exposure (Task 16)', () => {
   let usdOrderId: string;
 
   test.beforeAll(async () => {
-    // Seed a USD purchase order so the global-exposure API returns non-null data
     const product = await ensureProduct('E2E Global Exposure Product');
     const order = await createOrder(product.id, { currency: 'USD', quantity: 5, unitCost: '200.00' });
     usdOrderId = order.id;
@@ -106,8 +208,12 @@ test.describe('Global Exposure card (Task 16)', () => {
     if (usdOrderId) await deleteOrder(usdOrderId);
   });
 
-  test('renders when data is available', async ({ page }) => {
-    await expect(page.getByText('Foreign Currency Risk').first()).toBeVisible({ timeout: 15_000 });
+  test.beforeEach(async ({ page }) => {
+    await page.getByText('Pulse Metrics').click();
+  });
+
+  test('renders total obligations when data is available', async ({ page }) => {
+    await expect(page.getByText('Currency & Import Risks').first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('EUR Loan Balance').first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('USD Order Obligations').first()).toBeVisible();
     await expect(page.getByText('Total Amount Owed (₦)').first()).toBeVisible();
@@ -115,28 +221,28 @@ test.describe('Global Exposure card (Task 16)', () => {
   });
 
   test('shows numeric total exposure value', async ({ page }) => {
-    // Total headline renders as ₦<number> in the indigo summary box
     const totalEl = page.locator('p.text-2xl.font-bold.text-indigo-700').first();
     await expect(totalEl).toBeVisible();
     await expect(totalEl).toContainText(/₦[\d,]+/);
   });
 
   test('shows debt-to-trade ratio as a decimal', async ({ page }) => {
-    // Ratio renders via number:'1.2-2' inside the indigo summary box
     const ratioEl = page.locator('span.text-xs.font-bold').filter({ hasText: /\d+\.\d{2}/ }).first();
     await expect(ratioEl).toBeVisible();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Recent Sales — mobile stacked cards vs desktop table (Task 144)
+// ---------------------------------------------------------------------------
 
 test.describe('Recent Sales — mobile stacked cards vs desktop table (Task 144)', () => {
   test('shows stacked card list on mobile (375px) and hides the table', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/dashboard');
     await page.waitForLoadState('domcontentloaded');
-    // Table must be hidden (display:none) at mobile — check computed visibility
     const table = page.locator('table').first();
     await expect(table).toBeHidden();
-    // Mobile card list container must be visible
     const mobileList = page.locator('div.block.sm\\:hidden');
     await expect(mobileList).toBeVisible();
   });
@@ -145,47 +251,23 @@ test.describe('Recent Sales — mobile stacked cards vs desktop table (Task 144)
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.goto('/dashboard');
     await page.waitForLoadState('domcontentloaded');
-    // Table must be visible at sm+ — sm breakpoint activates at 640px, 768px exceeds it
     const table = page.locator('table').first();
     await expect(table).toBeVisible();
-    // Mobile card list must be hidden at this width
     const mobileList = page.locator('div.block.sm\\:hidden');
     await expect(mobileList).toBeHidden();
   });
 
-  test('mobile card list is rendered and card rows meet 44px tap target', async ({ page }) => {
+  test('mobile card rows meet 44px tap target', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/dashboard');
     await page.waitForLoadState('domcontentloaded');
     const mobileList = page.locator('div.block.sm\\:hidden');
-    // Container itself is always rendered (even when empty — @for produces nothing but div exists)
     await expect(mobileList).toBeAttached();
-    // When rows exist, each must meet the 44px minimum tap target
     const firstRow = mobileList.locator('div.min-h-\\[44px\\]').first();
     const hasRows = await firstRow.isVisible().catch(() => false);
     if (hasRows) {
       const box = await firstRow.boundingBox();
       expect(box!.height).toBeGreaterThanOrEqual(44);
     }
-  });
-});
-
-test.describe('Logistics Efficiency card (Task 17)', () => {
-  test('renders with rolling average data', async ({ page }) => {
-    await expect(page.getByText('Shipping Costs').first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('90-day rolling average').first()).toBeVisible();
-  });
-
-  test('shows a numeric percentage value', async ({ page }) => {
-    // rolling_90d_avg_pct renders via number:'1.1-1' as e.g. "0.0%" or "58.4%"
-    const pctElement = page.locator('p.text-4xl.font-bold').filter({ hasText: /%/ });
-    await expect(pctElement).toBeVisible();
-    await expect(pctElement).toContainText(/\d+\.\d%/);
-  });
-
-  test('shows threshold guide with Target, Caution, High rows', async ({ page }) => {
-    await expect(page.getByText('Target').first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Caution').first()).toBeVisible();
-    await expect(page.getByText('High').first()).toBeVisible();
   });
 });
