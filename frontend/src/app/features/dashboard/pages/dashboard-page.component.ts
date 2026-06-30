@@ -36,12 +36,51 @@ import { AuthService } from '../../../core/services/auth.service';
     <div class="space-y-5">
 
       <!-- ============================================================
-           Hero row — Today's Revenue | Gross Margin | Sales Today
+           Global filters — affect all data on this page
+           ============================================================ -->
+      <div class="flex flex-wrap items-center gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm" data-testid="dashboard-filter-bar">
+        <span class="text-xs font-medium text-muted">Filter period:</span>
+        <p-select
+          [options]="locationOptions()"
+          [(ngModel)]="selectedLocationId"
+          optionLabel="label"
+          optionValue="value"
+          placeholder="All locations"
+          [showClear]="true"
+          styleClass="w-48"
+          (onChange)="onLocationChange()"
+          data-testid="location-dropdown"
+        />
+        <p-datepicker
+          [(ngModel)]="dateRange"
+          selectionMode="range"
+          [readonlyInput]="true"
+          placeholder="Filter by date"
+          (onSelect)="onDateChange()"
+          (onClearClick)="onDateChange()"
+          [showButtonBar]="true"
+          [iconDisplay]="'input'"
+          [showIcon]="true"
+        >
+          <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
+            <i class="pi pi-calendar cursor-pointer" (click)="clickCallBack($event)"></i>
+          </ng-template>
+        </p-datepicker>
+        @if (liveRate() !== null) {
+          <div class="ml-auto flex items-center gap-1.5 text-sm text-muted">
+            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span>
+            <span>$1 = ₦{{ liveRate()! | number: '1.0-0' }}</span>
+          </div>
+        }
+      </div>
+
+      <!-- ============================================================
+           Hero row — Today's Revenue | Net Profit | Sales Today
            ============================================================ -->
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
 
         <!-- Today's Revenue — emerald hero card -->
-        <div class="flex flex-col justify-between rounded-2xl bg-emerald-600 p-6 text-white shadow-sm">
+        <div class="flex flex-col justify-between rounded-2xl bg-emerald-600 p-6 text-white shadow-sm" data-testid="hero-revenue-card">
           <div>
             <p class="text-sm font-medium text-emerald-100">{{ isToday() ? "Today's Revenue" : 'Period Revenue' }}</p>
             @if (kpiLoading()) {
@@ -58,22 +97,19 @@ import { AuthService } from '../../../core/services/auth.service';
           </p>
         </div>
 
-        <!-- Profit Margin (%) -->
+        <!-- Net Profit -->
         <div class="flex flex-col justify-between rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
           <div>
-            <p class="text-sm font-medium text-muted">Profit Margin (%)</p>
-            @if (loading()) {
+            <p class="text-sm font-medium text-muted">Net Profit</p>
+            @if (kpiLoading()) {
               <div class="mt-2 h-10 w-24 animate-pulse rounded bg-gray-100"></div>
             } @else {
               <p class="mt-2 text-4xl font-bold tracking-tight text-gray-900">
-                {{ data().profitMargin.blended_margin | number: '1.1-1' }}%
+                ₦{{ kpi()?.net ?? '0.00' | number: '1.0-0' }}
               </p>
             }
           </div>
-          <p class="mt-4 flex items-center gap-1.5 text-sm font-medium" [class]="marginGapColor()">
-            <i class="text-xs" [class]="data().profitMargin.margin_gap >= 0 ? 'pi pi-arrow-up' : 'pi pi-arrow-down'"></i>
-            {{ data().profitMargin.margin_gap >= 0 ? 'On target' : ((data().profitMargin.margin_gap | number: '1.1-1') + '% vs target') }}
-          </p>
+          <p class="mt-4 text-sm text-muted">after all costs</p>
         </div>
 
         <!-- Sales Today -->
@@ -151,46 +187,7 @@ import { AuthService } from '../../../core/services/auth.service';
       </div>
 
       <!-- ============================================================
-           Filters (kept for the KPI cards row below)
-           ============================================================ -->
-      <div class="flex flex-wrap items-center gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
-        <span class="text-xs font-medium text-muted">Filter period:</span>
-        <p-select
-          [options]="locationOptions()"
-          [(ngModel)]="selectedLocationId"
-          optionLabel="label"
-          optionValue="value"
-          placeholder="All locations"
-          [showClear]="true"
-          styleClass="w-48"
-          (onChange)="onLocationChange()"
-          data-testid="location-dropdown"
-        />
-        <p-datepicker
-          [(ngModel)]="dateRange"
-          selectionMode="range"
-          [readonlyInput]="true"
-          placeholder="Filter by date"
-          (onSelect)="onDateChange()"
-          (onClearClick)="onDateChange()"
-          [showButtonBar]="true"
-          [iconDisplay]="'input'"
-          [showIcon]="true"
-        >
-          <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
-            <i class="pi pi-calendar cursor-pointer" (click)="clickCallBack($event)"></i>
-          </ng-template>
-        </p-datepicker>
-        @if (liveRate() !== null) {
-          <div class="ml-auto flex items-center gap-1.5 text-sm text-muted">
-            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"></span>
-            <span>$1 = ₦{{ liveRate()! | number: '1.0-0' }}</span>
-          </div>
-        }
-      </div>
-
-      <!-- ============================================================
-           KPI Cards — 8 business metrics grouped into 3 sections
+           KPI Cards — 7 business metrics grouped into 3 sections
            ============================================================ -->
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 
@@ -199,8 +196,7 @@ import { AuthService } from '../../../core/services/auth.service';
           <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Money In</p>
           <hr class="mt-1 border-gray-100">
         </div>
-        <app-kpi-card label="Total Sales"        iconClass="pi pi-chart-bar"    colorScheme="blue"   [value]="kpi()?.total_sales          ?? '0.00'" [loading]="kpiLoading()" tooltipText="All completed sales in the selected period" />
-        <app-kpi-card label="Net Profit"         iconClass="pi pi-trending-up"  colorScheme="green"  [value]="kpi()?.net                  ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales Revenue − Cost of Goods Sold − Expenses" />
+        <app-kpi-card label="Net Profit"         iconClass="pi pi-trending-up"  colorScheme="green"  [value]="kpi()?.net                  ?? '0.00'" [loading]="kpiLoading()" tooltipText="Your actual profit after deducting what you paid for goods and operating costs" />
         <app-kpi-card label="Unpaid Sales"       iconClass="pi pi-clock"        colorScheme="amber"  [value]="kpi()?.invoice_due           ?? '0.00'" [loading]="kpiLoading()" tooltipText="Sales where payment hasn't been received yet" />
 
         <!-- Money Out -->
@@ -344,144 +340,123 @@ import { AuthService } from '../../../core/services/auth.service';
         </div>
 
         <!-- ============================================================
-             Row 2: FX Exposure | Global Exposure
+             Row 2: Currency & Import Risks (merged FX + Global Exposure)
              ============================================================ -->
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-
-          <!-- FX Exposure Widget -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="mb-4 flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-sky-50">
-                  <i class="pi pi-arrow-right-arrow-left text-lg text-sky-600"></i>
-                </div>
-                <div>
-                  <p class="font-semibold text-slate-800">Currency Risk</p>
-                  <p class="text-xs text-slate-400">How your foreign currency orders are protected</p>
-                </div>
-              </div>
-              <a routerLink="/fx" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                Manage <i class="pi pi-arrow-right text-[10px]"></i>
-              </a>
-            </div>
-
-            @if (fxExposure().length === 0) {
-              <div class="rounded-xl bg-slate-50 p-5 text-center">
-                <i class="pi pi-info-circle mb-2 text-2xl text-slate-400"></i>
-                <p class="font-medium text-slate-600">No FX exposure tracked yet</p>
-                <p class="mt-1 text-xs text-slate-400">
-                  FX exposure is recorded when purchase orders are created with a USD/EUR component.<br>
-                  30% is locked at deposit rate; 70% floats until delivery.
-                </p>
-                <a routerLink="/orders" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline">
-                  Create a purchase order <i class="pi pi-arrow-right text-[10px]"></i>
-                </a>
-              </div>
-            } @else {
-              <div class="space-y-3">
-                @for (entry of fxExposure(); track entry.pair) {
-                  <div class="rounded-xl border border-gray-100 p-4">
-                    <div class="mb-3 flex items-center justify-between">
-                      <span class="rounded-full bg-sky-100 px-3 py-0.5 text-xs font-bold text-sky-700">{{ entry.pair }}</span>
-                      <span class="text-xs" [class]="entry.unrealized_pnl >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'">
-                        {{ entry.unrealized_pnl >= 0 ? '+' : '' }}{{ entry.unrealized_pnl | number: '1.0-0' }} P&amp;L
-                      </span>
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                      <div>
-                        <p class="text-xs text-slate-400">Locked ({{ (entry.locked_pct * 100) | number: '1.0-0' }}%)</p>
-                        <p class="font-bold text-slate-800">{{ entry.locked_amount | number: '1.0-0' }}</p>
-                        <p class="text-[10px] text-slate-400">at {{ entry.weighted_locked_rate | number: '1.2-2' }}</p>
-                      </div>
-                      <div>
-                        <p class="text-xs text-slate-400">Floating ({{ (entry.floating_pct * 100) | number: '1.0-0' }}%)</p>
-                        <p class="font-bold text-slate-800">{{ entry.floating_amount | number: '1.0-0' }}</p>
-                        <p class="text-[10px] text-slate-400">market {{ entry.current_market_rate | number: '1.2-2' }}</p>
-                      </div>
-                    </div>
-                    <!-- Locked vs floating bar -->
-                    <div class="mt-3 flex h-2 w-full overflow-hidden rounded-full">
-                      <div class="bg-blue-500" [style.width.%]="entry.locked_pct * 100"></div>
-                      <div class="bg-amber-400" [style.width.%]="entry.floating_pct * 100"></div>
-                    </div>
-                    <div class="mt-1 flex justify-between text-[10px] text-slate-400">
-                      <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500"></span> Locked</span>
-                      <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"></span> Floating</span>
-                    </div>
-                  </div>
-                }
-              </div>
-            }
-          </div>
-
-          <!-- Global Exposure Widget -->
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div class="mb-4 flex items-center gap-3">
-              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-50">
-                <i class="pi pi-globe text-lg text-indigo-600"></i>
+        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="mb-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-sky-50">
+                <i class="pi pi-arrow-right-arrow-left text-lg text-sky-600"></i>
               </div>
               <div>
-                <p class="font-semibold text-slate-800">Foreign Currency Risk</p>
-                <p class="text-xs text-slate-400">Money you owe across different currencies</p>
+                <p class="font-semibold text-slate-800">Currency & Import Risks</p>
+                <p class="text-xs text-slate-400">Your foreign currency exposure and obligations</p>
               </div>
             </div>
-
-            @let ge = globalExposure();
-            @if (ge) {
-              <!-- Total headline -->
-              <div class="mb-4 rounded-xl bg-indigo-50 p-4">
-                <p class="text-xs font-semibold uppercase tracking-wider text-indigo-400">Total Amount Owed (₦)</p>
-                <p class="mt-1 text-2xl font-bold text-indigo-700">₦{{ ge.total_global_exposure_ngn | number: '1.0-0' }}</p>
-                <div class="mt-2 flex items-center gap-2">
-                  <span class="text-xs text-indigo-500">Risk Level:</span>
-                  <span class="text-xs font-bold" [class]="ge.debt_to_trade_ratio > 1.5 ? 'text-red-600' : ge.debt_to_trade_ratio > 0.8 ? 'text-amber-600' : 'text-green-600'">
-                    {{ ge.debt_to_trade_ratio | number: '1.2-2' }}
-                    @if (ge.debt_to_trade_ratio <= 0.8) { (Healthy) }
-                    @else if (ge.debt_to_trade_ratio <= 1.5) { (Moderate) }
-                    @else { (High) }
-                  </span>
-                </div>
-              </div>
-
-              <!-- Breakdown -->
-              <div class="space-y-3">
-                <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
-                  <div class="flex items-center gap-2">
-                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-green-50 text-xs font-bold text-green-700">$</span>
-                    <div>
-                      <p class="text-sm font-medium text-slate-700">USD Order Obligations</p>
-                      <p class="text-xs text-slate-400">Balance owed on open purchase orders</p>
-                    </div>
-                  </div>
-                  <span class="text-sm font-bold text-slate-800">\${{ ge.open_order_usd_obligations | number: '1.0-0' }}</span>
-                </div>
-
-                <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
-                  <div class="flex items-center gap-2">
-                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-xs font-bold text-blue-700">€</span>
-                    <div>
-                      <p class="text-sm font-medium text-slate-700">EUR Loan Balance</p>
-                      <p class="text-xs text-slate-400">Outstanding loan obligations in EUR</p>
-                    </div>
-                  </div>
-                  <span class="text-sm font-bold text-slate-800">€{{ ge.eur_loan_balance_eur | number: '1.0-0' }}</span>
-                </div>
-              </div>
-
-              <!-- FX Rates used -->
-              <div class="mt-4 flex flex-wrap gap-3 border-t border-gray-100 pt-3">
-                <span class="text-xs text-slate-400">$1 = ₦{{ ge.ngn_usd_rate | number: '1.0-0' }}</span>
-                @if (ge.eur_usd_rate_available) {
-                  <span class="text-xs text-slate-400">€1 = \${{ ge.eur_usd_rate | number: '1.3-3' }}</span>
-                  <span class="text-xs text-slate-400">€1 = ₦{{ ge.eur_ngn_derived_rate | number: '1.0-0' }}</span>
-                } @else {
-                  <span class="text-xs text-amber-500">EUR/USD rate unavailable</span>
-                }
-              </div>
-            } @else {
-              <div class="h-32 rounded-xl skeleton"></div>
-            }
+            <a routerLink="/fx" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
+              Manage <i class="pi pi-arrow-right text-[10px]"></i>
+            </a>
           </div>
+
+          <!-- Section 1: Open Order Exposure -->
+          <p class="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Open Order Exposure</p>
+          @if (fxExposure().length === 0) {
+            <div class="rounded-xl bg-slate-50 p-4 text-center">
+              <i class="pi pi-info-circle mb-2 text-xl text-slate-400"></i>
+              <p class="text-sm font-medium text-slate-600">No FX exposure tracked yet</p>
+              <p class="mt-1 text-xs text-slate-400">Recorded when purchase orders include a USD/EUR component.</p>
+              <a routerLink="/orders" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline">
+                Create a purchase order <i class="pi pi-arrow-right text-[10px]"></i>
+              </a>
+            </div>
+          } @else {
+            <div class="space-y-3">
+              @for (entry of fxExposure(); track entry.pair) {
+                <div class="rounded-xl border border-gray-100 p-4">
+                  <div class="mb-3 flex items-center justify-between">
+                    <span class="rounded-full bg-sky-100 px-3 py-0.5 text-xs font-bold text-sky-700">{{ entry.pair }}</span>
+                    <span class="text-xs" [class]="entry.unrealized_pnl >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'">
+                      {{ entry.unrealized_pnl >= 0 ? '+' : '' }}{{ entry.unrealized_pnl | number: '1.0-0' }} P&amp;L
+                    </span>
+                  </div>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <p class="text-xs text-slate-400">Locked ({{ (entry.locked_pct * 100) | number: '1.0-0' }}%)</p>
+                      <p class="font-bold text-slate-800">{{ entry.locked_amount | number: '1.0-0' }}</p>
+                      <p class="text-[10px] text-slate-400">at {{ entry.weighted_locked_rate | number: '1.2-2' }}</p>
+                    </div>
+                    <div>
+                      <p class="text-xs text-slate-400">Floating ({{ (entry.floating_pct * 100) | number: '1.0-0' }}%)</p>
+                      <p class="font-bold text-slate-800">{{ entry.floating_amount | number: '1.0-0' }}</p>
+                      <p class="text-[10px] text-slate-400">market {{ entry.current_market_rate | number: '1.2-2' }}</p>
+                    </div>
+                  </div>
+                  <div class="mt-3 flex h-2 w-full overflow-hidden rounded-full">
+                    <div class="bg-blue-500" [style.width.%]="entry.locked_pct * 100"></div>
+                    <div class="bg-amber-400" [style.width.%]="entry.floating_pct * 100"></div>
+                  </div>
+                  <div class="mt-1 flex justify-between text-[10px] text-slate-400">
+                    <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500"></span> Locked</span>
+                    <span class="flex items-center gap-1"><span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"></span> Floating</span>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+
+          <hr class="my-4 border-gray-100">
+
+          <!-- Section 2: Total Obligations -->
+          <p class="mb-3 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Total Obligations</p>
+          @let ge = globalExposure();
+          @if (ge) {
+            <div class="mb-4 rounded-xl bg-indigo-50 p-4">
+              <p class="text-xs font-semibold uppercase tracking-wider text-indigo-400">Total Amount Owed (₦)</p>
+              <p class="mt-1 text-2xl font-bold text-indigo-700">₦{{ ge.total_global_exposure_ngn | number: '1.0-0' }}</p>
+              <div class="mt-2 flex items-center gap-2">
+                <span class="text-xs text-indigo-500">Risk Level:</span>
+                <span class="text-xs font-bold" [class]="ge.debt_to_trade_ratio > 1.5 ? 'text-red-600' : ge.debt_to_trade_ratio > 0.8 ? 'text-amber-600' : 'text-green-600'">
+                  {{ ge.debt_to_trade_ratio | number: '1.2-2' }}
+                  @if (ge.debt_to_trade_ratio <= 0.8) { (Healthy) }
+                  @else if (ge.debt_to_trade_ratio <= 1.5) { (Moderate) }
+                  @else { (High) }
+                </span>
+              </div>
+            </div>
+            <div class="space-y-3">
+              <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
+                <div class="flex items-center gap-2">
+                  <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-green-50 text-xs font-bold text-green-700">$</span>
+                  <div>
+                    <p class="text-sm font-medium text-slate-700">USD Order Obligations</p>
+                    <p class="text-xs text-slate-400">Balance owed on open purchase orders</p>
+                  </div>
+                </div>
+                <span class="text-sm font-bold text-slate-800">\${{ ge.open_order_usd_obligations | number: '1.0-0' }}</span>
+              </div>
+              <div class="flex items-center justify-between rounded-lg border border-gray-100 p-3">
+                <div class="flex items-center gap-2">
+                  <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-xs font-bold text-blue-700">€</span>
+                  <div>
+                    <p class="text-sm font-medium text-slate-700">EUR Loan Balance</p>
+                    <p class="text-xs text-slate-400">Outstanding loan obligations in EUR</p>
+                  </div>
+                </div>
+                <span class="text-sm font-bold text-slate-800">€{{ ge.eur_loan_balance_eur | number: '1.0-0' }}</span>
+              </div>
+            </div>
+            <div class="mt-4 flex flex-wrap gap-3 border-t border-gray-100 pt-3">
+              <span class="text-xs text-slate-400">$1 = ₦{{ ge.ngn_usd_rate | number: '1.0-0' }}</span>
+              @if (ge.eur_usd_rate_available) {
+                <span class="text-xs text-slate-400">€1 = \${{ ge.eur_usd_rate | number: '1.3-3' }}</span>
+                <span class="text-xs text-slate-400">€1 = ₦{{ ge.eur_ngn_derived_rate | number: '1.0-0' }}</span>
+              } @else {
+                <span class="text-xs text-amber-500">EUR/USD rate unavailable</span>
+              }
+            </div>
+          } @else {
+            <div class="h-32 rounded-xl skeleton"></div>
+          }
         </div>
 
         <!-- ============================================================
@@ -521,21 +496,7 @@ import { AuthService } from '../../../core/services/auth.service';
                 </span>
               </div>
 
-              <!-- Threshold guide -->
-              <div class="mt-4 space-y-1.5">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="flex items-center gap-1 text-green-600"><span class="h-1.5 w-1.5 rounded-full bg-green-500"></span> Target</span>
-                  <span class="font-medium text-slate-600">&lt; {{ lg.amber_threshold_pct }}%</span>
-                </div>
-                <div class="flex items-center justify-between text-xs">
-                  <span class="flex items-center gap-1 text-amber-600"><span class="h-1.5 w-1.5 rounded-full bg-amber-400"></span> Caution</span>
-                  <span class="font-medium text-slate-600">{{ lg.amber_threshold_pct }}–{{ lg.red_threshold_pct }}%</span>
-                </div>
-                <div class="flex items-center justify-between text-xs">
-                  <span class="flex items-center gap-1 text-red-600"><span class="h-1.5 w-1.5 rounded-full bg-red-500"></span> High</span>
-                  <span class="font-medium text-slate-600">&gt; {{ lg.red_threshold_pct }}%</span>
-                </div>
-              </div>
+              <p class="mt-3 text-xs text-slate-400">Target: below {{ lg.amber_threshold_pct }}% of order value</p>
             } @else {
               <div class="space-y-2">
                 <div class="h-10 w-24 rounded skeleton"></div>

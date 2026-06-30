@@ -18,20 +18,38 @@ test.beforeEach(async ({ page }) => {
     .waitFor({ timeout: 20000 }).catch(() => {});
 });
 
-test.describe('Dashboard simplified labels (Task 145)', () => {
-  test('hero card shows "Profit Margin (%)" not "Gross Margin"', async ({ page }) => {
-    await expect(page.getByText('Profit Margin (%)').first()).toBeVisible();
-    await expect(page.getByText('Gross Margin')).toHaveCount(0);
+test.describe('Dashboard unified layout — Tasks 148-151', () => {
+  test('filter bar appears before hero cards in DOM order (Task 148)', async ({ page }) => {
+    const filterBar = page.locator('[data-testid="dashboard-filter-bar"]');
+    const heroCard = page.locator('[data-testid="hero-revenue-card"]');
+    await expect(filterBar).toBeVisible();
+    await expect(heroCard).toBeVisible();
+    const filterBox = await filterBar.boundingBox();
+    const heroBox = await heroCard.boundingBox();
+    expect(filterBox!.y).toBeLessThan(heroBox!.y);
   });
 
-  test('FX widget header shows "Currency Risk" not "FX Exposure"', async ({ page }) => {
-    await expect(page.getByText('Currency Risk').first()).toBeVisible();
-    await expect(page.getByText('FX Exposure')).toHaveCount(0);
+  test('hero row shows Net Profit not Profit Margin (%) (Task 149)', async ({ page }) => {
+    await expect(page.getByText('Net Profit').first()).toBeVisible();
+    await expect(page.getByText('Profit Margin (%)')).toHaveCount(0);
   });
 
-  test('Global Exposure widget header shows "Foreign Currency Risk"', async ({ page }) => {
-    await expect(page.getByText('Foreign Currency Risk').first()).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText('Global Exposure')).toHaveCount(0);
+  test('Total Sales KPI card removed from Money In group (Task 149)', async ({ page }) => {
+    const totalSalesCards = page.locator('[data-testid="kpi-card"]').filter({ hasText: 'Total Sales' });
+    await expect(totalSalesCards).toHaveCount(0);
+  });
+
+  test('merged Currency & Import Risks widget visible (Task 150)', async ({ page }) => {
+    await expect(page.getByText('Currency & Import Risks').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Open Order Exposure').first()).toBeVisible();
+    await expect(page.getByText('Total Obligations').first()).toBeVisible();
+  });
+
+  test('Shipping Costs card has no threshold table rows (Task 151)', async ({ page }) => {
+    await expect(page.getByText('Shipping Costs').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('90-day rolling average').first()).toBeVisible();
+    await expect(page.getByText('Caution')).toHaveCount(0);
+    await expect(page.getByText('Above limit')).toHaveCount(0);
   });
 });
 
@@ -65,9 +83,8 @@ test.describe('Dashboard widget cards', () => {
     await expect(page.getByText('Profit Score (DSCR)').first()).toBeVisible();
   });
 
-  test('displays the Currency Risk card with empty state when no records', async ({ page }) => {
-    await expect(page.getByText('Currency Risk').first()).toBeVisible();
-    // The card always renders — either exposure rows or the empty-state message
+  test('displays the Currency & Import Risks card', async ({ page }) => {
+    await expect(page.getByText('Currency & Import Risks').first()).toBeVisible({ timeout: 15_000 });
     const hasExposure = await page.getByText('No FX exposure tracked yet').isVisible().catch(() => false);
     const hasRows = await page.locator('.rounded-xl.border.border-gray-100').first().isVisible().catch(() => false);
     expect(hasExposure || hasRows).toBe(true);
