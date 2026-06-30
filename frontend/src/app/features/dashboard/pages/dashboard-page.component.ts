@@ -58,10 +58,10 @@ import { AuthService } from '../../../core/services/auth.service';
           </p>
         </div>
 
-        <!-- Gross Margin -->
+        <!-- Profit Margin (%) -->
         <div class="flex flex-col justify-between rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
           <div>
-            <p class="text-sm font-medium text-muted">Gross Margin</p>
+            <p class="text-sm font-medium text-muted">Profit Margin (%)</p>
             @if (loading()) {
               <div class="mt-2 h-10 w-24 animate-pulse rounded bg-gray-100"></div>
             } @else {
@@ -338,8 +338,8 @@ import { AuthService } from '../../../core/services/auth.service';
                   <i class="pi pi-arrow-right-arrow-left text-lg text-sky-600"></i>
                 </div>
                 <div>
-                  <p class="font-semibold text-slate-800">FX Exposure</p>
-                  <p class="text-xs text-slate-400">Locked vs floating currency risk on open orders</p>
+                  <p class="font-semibold text-slate-800">Currency Risk</p>
+                  <p class="text-xs text-slate-400">How your foreign currency orders are protected</p>
                 </div>
               </div>
               <a routerLink="/fx" class="text-xs font-semibold text-blue-600 hover:text-blue-700">
@@ -403,8 +403,8 @@ import { AuthService } from '../../../core/services/auth.service';
                 <i class="pi pi-globe text-lg text-indigo-600"></i>
               </div>
               <div>
-                <p class="font-semibold text-slate-800">Global Exposure</p>
-                <p class="text-xs text-slate-400">Total financial obligations across all currencies</p>
+                <p class="font-semibold text-slate-800">Foreign Currency Risk</p>
+                <p class="text-xs text-slate-400">Money you owe across different currencies</p>
               </div>
             </div>
 
@@ -412,10 +412,10 @@ import { AuthService } from '../../../core/services/auth.service';
             @if (ge) {
               <!-- Total headline -->
               <div class="mb-4 rounded-xl bg-indigo-50 p-4">
-                <p class="text-xs font-semibold uppercase tracking-wider text-indigo-400">Total Exposure (NGN)</p>
+                <p class="text-xs font-semibold uppercase tracking-wider text-indigo-400">Total Amount Owed (₦)</p>
                 <p class="mt-1 text-2xl font-bold text-indigo-700">₦{{ ge.total_global_exposure_ngn | number: '1.0-0' }}</p>
                 <div class="mt-2 flex items-center gap-2">
-                  <span class="text-xs text-indigo-500">Debt/Trade Ratio:</span>
+                  <span class="text-xs text-indigo-500">Risk Level:</span>
                   <span class="text-xs font-bold" [class]="ge.debt_to_trade_ratio > 1.5 ? 'text-red-600' : ge.debt_to_trade_ratio > 0.8 ? 'text-amber-600' : 'text-green-600'">
                     {{ ge.debt_to_trade_ratio | number: '1.2-2' }}
                     @if (ge.debt_to_trade_ratio <= 0.8) { (Healthy) }
