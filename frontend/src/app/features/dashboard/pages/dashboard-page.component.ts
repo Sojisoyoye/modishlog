@@ -38,7 +38,7 @@ import { AuthService } from '../../../core/services/auth.service';
       <!-- ============================================================
            Global filters — affect all data on this page
            ============================================================ -->
-      <div class="flex flex-wrap items-center gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm" data-testid="dashboard-filter-bar">
+      <div class="flex flex-col gap-2 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:gap-3" data-testid="dashboard-filter-bar">
         <span class="text-xs font-medium text-muted">Filter period:</span>
         <p-select
           [options]="locationOptions()"
@@ -47,7 +47,7 @@ import { AuthService } from '../../../core/services/auth.service';
           optionValue="value"
           placeholder="All locations"
           [showClear]="true"
-          styleClass="w-48"
+          styleClass="w-full sm:w-48"
           (onChange)="onLocationChange()"
           data-testid="location-dropdown"
         />
@@ -61,6 +61,7 @@ import { AuthService } from '../../../core/services/auth.service';
           [showButtonBar]="true"
           [iconDisplay]="'input'"
           [showIcon]="true"
+          styleClass="w-full sm:w-auto"
         >
           <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
             <i class="pi pi-calendar cursor-pointer" (click)="clickCallBack($event)"></i>
