@@ -2,7 +2,6 @@ import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } 
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe, CurrencyPipe } from '@angular/common';
 import { UIChart } from 'primeng/chart';
-import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import {
   CashflowService,
   CashflowMonth,
@@ -13,7 +12,7 @@ import {
 @Component({
   selector: 'app-cashflow-page',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, CurrencyPipe, UIChart, StatusBadgeComponent],
+  imports: [FormsModule, DecimalPipe, CurrencyPipe, UIChart],
   template: `
     <div>
       <div class="mb-6">
@@ -27,16 +26,16 @@ import {
           <div class="rounded-xl border bg-white p-5 shadow-sm" [class]="liquidityBorder()">
             <div class="mb-2 flex items-center gap-2">
               <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-                <i class="pi pi-clock text-sm text-secondary"></i>
+                <i class="pi pi-clock text-sm text-blue-700"></i>
               </div>
               <p class="text-sm font-medium text-muted">Cash Runway</p>
             </div>
             <p class="text-3xl font-bold text-text">{{ runwayMonths() }} months</p>
           </div>
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <div class="mb-2 flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-green-50">
-                <i class="pi pi-chart-line text-sm text-success"></i>
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                <i class="pi pi-chart-line text-sm text-emerald-700"></i>
               </div>
               <p class="text-sm font-medium text-muted">DSCR</p>
             </div>
@@ -44,15 +43,26 @@ import {
               {{ liquidity().dscr | number: '1.2-2' }}
             </p>
           </div>
-          <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
-                  <i class="pi pi-shield text-sm text-warning"></i>
+                  <i class="pi pi-shield text-sm text-amber-700"></i>
                 </div>
                 <p class="text-sm font-medium text-muted">Risk Rating</p>
               </div>
-              <app-status-badge [label]="liquidity().risk_rating" [status]="riskStatus()" />
+              <span
+                class="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                [class]="
+                  riskStatus() === 'success'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : riskStatus() === 'warning'
+                      ? 'bg-amber-100 text-amber-800'
+                      : riskStatus() === 'danger'
+                        ? 'bg-red-100 text-red-800'
+                        : 'bg-gray-100 text-gray-700'
+                "
+              >{{ liquidity().risk_rating }}</span>
             </div>
           </div>
 
@@ -62,12 +72,18 @@ import {
               @for (alert of liquidity().alerts; track alert.message) {
                 <div
                   role="alert"
-                  class="rounded-lg border-l-4 bg-white p-3 text-sm shadow-sm"
-                  [class]="alert.severity === 'HIGH' ? 'border-l-danger' : 'border-l-warning'"
+                  class="rounded-lg border-l-4 p-4 text-sm"
+                  [class]="
+                    alert.severity === 'HIGH'
+                      ? 'border-l-red-500 bg-red-50'
+                      : alert.severity === 'MEDIUM'
+                        ? 'border-l-amber-500 bg-amber-50'
+                        : 'border-l-emerald-500 bg-emerald-50'
+                  "
                 >
                   <i
                     class="pi pi-exclamation-triangle mr-1 text-xs"
-                    [class]="alert.severity === 'HIGH' ? 'text-danger' : 'text-warning'"
+                    [class]="alert.severity === 'HIGH' ? 'text-red-600' : alert.severity === 'MEDIUM' ? 'text-amber-600' : 'text-emerald-700'"
                   ></i>
                   {{ alert.message }}
                 </div>
@@ -77,10 +93,10 @@ import {
         </div>
 
         <!-- Projection Chart -->
-        <div class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm lg:col-span-2">
+        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm lg:col-span-2">
           <div class="mb-5 flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50">
-              <i class="pi pi-chart-bar text-sm text-indigo-600"></i>
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+              <i class="pi pi-chart-bar text-sm text-emerald-700"></i>
             </div>
             <h3 class="text-base font-semibold text-text">6-Month Projection</h3>
           </div>
@@ -100,10 +116,10 @@ import {
       </div>
 
       <!-- Projection Table -->
-      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
-          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
-            <i class="pi pi-table text-sm text-secondary"></i>
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+            <i class="pi pi-table text-sm text-emerald-700"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Month-by-Month</h3>
         </div>
@@ -169,10 +185,10 @@ import {
       </div>
 
       <!-- Scenario Simulator -->
-      <div class="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
         <div class="mb-5 flex items-center gap-2">
-          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
-            <i class="pi pi-sliders-h text-sm text-purple-600"></i>
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+            <i class="pi pi-sliders-h text-sm text-emerald-700"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Scenario Simulator</h3>
         </div>
@@ -183,7 +199,7 @@ import {
               id="cf-fx-shock"
               type="number"
               [(ngModel)]="fxShock"
-              class="w-28 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-28 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
               step="5"
             />
           </div>
@@ -193,51 +209,51 @@ import {
               id="cf-demand-drop"
               type="number"
               [(ngModel)]="demandDrop"
-              class="w-28 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              class="w-28 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
               step="5"
             />
           </div>
-          <div class="flex gap-2">
+          <div class="flex flex-wrap gap-2">
             <button
               (click)="fxShock = 10; demandDrop = 0; runScenario()"
-              class="rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
+              class="min-h-[44px] rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
             >
               FX +10%
             </button>
             <button
               (click)="fxShock = 20; demandDrop = 0; runScenario()"
-              class="rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
+              class="min-h-[44px] rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
             >
               FX +20%
             </button>
             <button
               (click)="fxShock = 0; demandDrop = 10; runScenario()"
-              class="rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
+              class="min-h-[44px] rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
             >
               Demand -10%
             </button>
             <button
               (click)="fxShock = 0; demandDrop = 20; runScenario()"
-              class="rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
+              class="min-h-[44px] rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
             >
               Demand -20%
             </button>
             <button
               (click)="fxShock = 20; demandDrop = 20; runScenario()"
-              class="rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
+              class="min-h-[44px] rounded-lg border border-gray-300 px-3 py-2.5 text-xs font-medium transition-colors hover:bg-gray-50"
             >
               Combined Stress
             </button>
           </div>
           <button
             (click)="runScenario()"
-            class="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
+            class="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md"
           >
             <i class="pi pi-play text-sm"></i> Simulate
           </button>
         </div>
         @if (scenarioResult()) {
-          <div class="mt-5 rounded-xl border border-gray-200 bg-gray-50 p-5">
+          <div class="mt-5 rounded-xl border border-gray-100 bg-gray-50 p-5">
             <p class="text-sm font-bold text-text">{{ scenarioResult()!.label }}</p>
             <div class="mt-3 grid grid-cols-3 gap-6 text-sm">
               <div>
@@ -263,7 +279,7 @@ import {
                   >
                     Likely impacted
                     <span class="ml-1 rounded-full px-2 py-0.5 text-xs font-medium"
-                      [class]="scenarioResult()!.risk_rating === 'HIGH' ? 'bg-red-100 text-red-700' : scenarioResult()!.risk_rating === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'"
+                      [class]="scenarioResult()!.risk_rating === 'HIGH' ? 'bg-red-100 text-red-700' : scenarioResult()!.risk_rating === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
                     >{{ scenarioResult()!.risk_rating }}</span>
                   </p>
                 </div>
