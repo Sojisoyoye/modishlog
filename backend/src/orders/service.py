@@ -351,10 +351,10 @@ async def update_order(
             for item in order.line_items:
                 if item.unit_cost_ngn is not None:
                     item.unit_cost = (item.unit_cost_ngn / new_rate).quantize(
-                        Decimal("0.000001")
+                        Decimal("0.000001"), rounding=ROUND_HALF_UP
                     )
                     item.line_total = (item.unit_cost * item.quantity).quantize(
-                        Decimal("0.000001")
+                        Decimal("0.000001"), rounding=ROUND_HALF_UP
                     )
                     any_recomputed = True
                 new_total += item.line_total
@@ -363,6 +363,8 @@ async def update_order(
 
     # Replace line items if provided
     if line_items_data is not None:
+        if not line_items_data:
+            raise OrderLineItemError(order_id, [])
         # Validate products
         for item_data in line_items_data:
             result = await db.execute(

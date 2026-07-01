@@ -100,13 +100,21 @@ def _to_usd(ngn_amount: Decimal, rate: Decimal) -> Decimal:
     return (ngn_amount / rate).quantize(_SIX, rounding=ROUND_HALF_UP)
 
 
-async def run(dry_run: bool) -> None:
+async def run(dry_run: bool, rate: Decimal | None = None) -> None:
     engine = create_async_engine(os.environ["DATABASE_URL"])
     Session = async_sessionmaker(engine, expire_on_commit=False)
 
     async with Session() as session:
-        usdngn_rate, fetched_at, cached = await get_live_usdngn_rate(session)
-        log.info("fx_rate_obtained", rate=str(usdngn_rate), cached=cached)
+        if rate is not None:
+            usdngn_rate = rate
+            log.info("fx_rate_from_cli", rate=str(usdngn_rate))
+        else:
+            try:
+                usdngn_rate, fetched_at, cached = await get_live_usdngn_rate(session)
+                log.info("fx_rate_obtained", rate=str(usdngn_rate), cached=cached)
+            except Exception:
+                usdngn_rate = Decimal("1600")
+                log.warning("fx_rate_fallback", rate=str(usdngn_rate), reason="FX fetch failed")
 
         result = await session.execute(
             select(PurchaseOrder).where(PurchaseOrder.currency == "NGN")
@@ -172,5 +180,6 @@ async def run(dry_run: bool) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Patch NGN purchase orders → USD")
     parser.add_argument("--dry-run", action="store_true", help="Preview without writing")
+    parser.add_argument("--rate", type=Decimal, default=None, help="Manual USD/NGN rate override")
     args = parser.parse_args()
-    asyncio.run(run(args.dry_run))
+    asyncio.run(run(args.dry_run, rate=args.rate))

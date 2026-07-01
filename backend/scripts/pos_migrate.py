@@ -21,7 +21,7 @@ import sys
 import threading
 import uuid
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from http.cookiejar import CookieJar
 from typing import Any
 from urllib.parse import urlencode
@@ -906,7 +906,11 @@ async def step_migrate(session: AsyncSession) -> None:
 
     # Fetch live USD/NGN rate so POS amounts (in NGN) are stored as USD
     from src.fx.service import get_live_usdngn_rate
-    usdngn_rate, _, _ = await get_live_usdngn_rate(session)
+    try:
+        usdngn_rate, _, _ = await get_live_usdngn_rate(session)
+    except Exception:
+        usdngn_rate = Decimal("1600")
+        log.warning("pos_usdngn_rate_fallback", rate=str(usdngn_rate), reason="FX fetch failed")
     log.info("pos_usdngn_rate", rate=str(usdngn_rate))
 
     orders_created = 0
@@ -955,7 +959,7 @@ async def step_migrate(session: AsyncSession) -> None:
         if not purchase_lines:
             log.warning("pos_purchase_no_lines", purchase_id=purchase_id, ref_no=ref_no)
 
-        total_usd = (final_total / usdngn_rate).quantize(Decimal("0.000001"))
+        total_usd = (final_total / usdngn_rate).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
         po = PurchaseOrder(
             id=uuid.uuid4(),
             order_number=ref_no,
@@ -981,8 +985,8 @@ async def step_migrate(session: AsyncSession) -> None:
             unit_cost = line["unit_cost"]
             line_total = line["line_total"]
 
-            unit_cost_usd = (unit_cost / usdngn_rate).quantize(Decimal("0.000001"))
-            line_total_usd = (line_total / usdngn_rate).quantize(Decimal("0.000001"))
+            unit_cost_usd = (unit_cost / usdngn_rate).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+            line_total_usd = (line_total / usdngn_rate).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
             oli = OrderLineItem(
                 id=uuid.uuid4(),
                 order_id=po.id,
