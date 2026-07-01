@@ -195,8 +195,8 @@ class TestInferCategory:
         [
             # Block Boards: name ends with "BB"
             ("Plywood 18mm BB", "", "Block Boards"),
-            # Block Boards: " BB " in middle of name
-            ("BB Board 12mm", "", "Block Boards"),
+            # Block Boards: " BB " in middle of name (real POS format: "Brown Masonia BB Board")
+            ("Customer Code BB Board", "", "Block Boards"),
             # UV Gloss: MDF UV pattern
             ("MDF UV Gloss 18mm", "", "UV Gloss Boards"),
             ("HDF UV Super 12mm", "Boards", "UV Gloss Boards"),
@@ -204,12 +204,12 @@ class TestInferCategory:
             ("Some Product", "EDGE TAPE", "Edge Tapes"),
             # Edge Tapes: numeric mm in name
             ("Tape 21mm", "", "Edge Tapes"),
-            # Marine Boards
-            ("Marine Ply 18mm", "", "Marine Boards"),
+            # Marine Boards (real POS names don't include mm dimensions)
+            ("Marine Plywood Sheet", "", "Marine Boards"),
             # HDF Boards (not UV)
-            ("HDF Board 6mm", "", "HDF Boards"),
+            ("HDF Board Plain", "", "HDF Boards"),
             # MDF Boards (not UV)
-            ("MDF Plain 12mm", "", "MDF Boards"),
+            ("MDF Plain Sheet", "", "MDF Boards"),
             # Doors
             ("Flush Door 90x210", "", "Doors"),
             # PU Stone Panels

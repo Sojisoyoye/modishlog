@@ -634,9 +634,10 @@ async def step_migrate(session: AsyncSession) -> None:
 
 def _parse_date(raw: str) -> date | None:
     """Try common POS date formats."""
-    for fmt in ("%d-%m-%Y %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d-%m-%Y"):
+    raw = raw.strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%d-%m-%Y %H:%M", "%Y-%m-%d", "%d-%m-%Y"):
         try:
-            return datetime.strptime(raw[:len(fmt)], fmt).date()
+            return datetime.strptime(raw, fmt).date()
         except (ValueError, TypeError):
             continue
     return None
