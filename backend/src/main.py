@@ -117,6 +117,12 @@ from src.dashboard.router import router as dashboard_router  # noqa: E402
 
 app.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"])
 
+from src.expenses.router import categories_router as expense_categories_router  # noqa: E402
+from src.expenses.router import expenses_router  # noqa: E402
+
+app.include_router(expense_categories_router, prefix="/api/v1/expense-categories", tags=["expenses"])
+app.include_router(expenses_router, prefix="/api/v1/expenses", tags=["expenses"])
+
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:

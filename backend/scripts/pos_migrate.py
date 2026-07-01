@@ -96,6 +96,7 @@ from src.pricing.models import (
     ProductMixTarget,
 )
 from src.products.models import PriceHistory, Product, ProductCategory
+from src.expenses.models import Expense, ExpenseCategory
 from src.sales.models import Sale, SaleAuditEntry, SaleBulkUploadJob, SaleChannel, SaleStatus, SellReturn
 from src.settings.models import UserApiKey, UserPreferences
 from src.stockcount.models import StockCount, StockCountItem
@@ -546,6 +547,9 @@ WIPE_ORDER = [
     # ── Stock counts ─────────────────────────────────────────────────────────
     StockCountItem,         # → order_line_items, stock_counts, products
     StockCount,             # → users
+    # ── Expenses ─────────────────────────────────────────────────────────────
+    Expense,                # → expense_categories, business_locations, users
+    ExpenseCategory,        # → users
     # ── Sales ────────────────────────────────────────────────────────────────
     SaleAuditEntry,         # → sales, users
     SellReturn,             # → sales, users

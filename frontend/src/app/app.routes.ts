@@ -63,6 +63,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'expenses',
+        loadComponent: () =>
+          import('./features/expenses/pages/expenses-page/expenses-page.component').then(
+            (m) => m.ExpensesPageComponent,
+          ),
+      },
+      {
         path: 'orders/:id',
         loadComponent: () =>
           import('./features/orders/pages/order-detail-page.component').then(
