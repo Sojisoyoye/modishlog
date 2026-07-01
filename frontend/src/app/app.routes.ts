@@ -145,6 +145,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'settings/users',
+        loadComponent: () =>
+          import('./features/settings/pages/users-page.component').then(
+            (m) => m.UsersPageComponent,
+          ),
+      },
+      {
         path: 'reports',
         loadComponent: () =>
           import('./features/reports/pages/reports-index.component').then(

@@ -31,3 +31,7 @@ class InvalidRefreshTokenError(Exception):
 
 class UserNotFoundError(Exception):
     """Raised when a requested user account does not exist."""
+
+
+class CannotModifySelfError(Exception):
+    """Raised when an admin attempts a destructive action on their own account."""

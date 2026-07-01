@@ -131,6 +131,7 @@ export class SidebarComponent {
     {
       label: 'SETTINGS',
       items: [
+        { label: 'Users', route: '/settings/users', icon: 'pi-user-edit' },
         { label: 'Invoice Schemes', route: '/settings/invoice-schemes', icon: 'pi-file-edit' },
         { label: 'Locations', route: '/settings/locations', icon: 'pi-map-marker' },
         { label: 'Settings', route: '/settings', icon: 'pi-cog' },

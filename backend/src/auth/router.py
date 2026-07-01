@@ -1,6 +1,8 @@
 """Auth API routes -- thin layer, all logic in service.py."""
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +11,7 @@ from src.core.config import settings
 from src.auth.dependencies import get_current_active_user, require_admin
 from src.auth.exceptions import (
     AccountLockedError,
+    CannotModifySelfError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     InvalidResetTokenError,
@@ -16,8 +19,9 @@ from src.auth.exceptions import (
     UserNotFoundError,
     WeakPasswordError,
 )
-from src.auth.models import User
+from src.auth.models import User, UserRole
 from src.auth.schemas import (
+    AdminResetPasswordResponse,
     ForgotPasswordRequest,
     LogoutRequest,
     MessageResponse,
@@ -25,20 +29,29 @@ from src.auth.schemas import (
     ResetPasswordRequest,
     TokenResponse,
     UnlockUserRequest,
+    UserInvite,
+    UserListResponse,
     UserLogin,
     UserProfile,
     UserRegister,
+    UserUpdate,
 )
 from src.auth.service import (
+    activate_user,
+    admin_reset_user_password,
     authenticate_user,
     build_token,
     create_refresh_token,
     create_user,
+    deactivate_user,
     generate_password_reset_token,
+    get_user_by_id,
+    list_users,
     refresh_access_token,
     reset_password,
     revoke_refresh_token,
     unlock_user,
+    update_user,
 )
 from src.core.database import get_db
 
@@ -176,3 +189,130 @@ async def admin_unlock_user(
 async def get_me(current_user: User = Depends(get_current_active_user)):
     """Return the authenticated user's profile."""
     return current_user
+
+
+# ---------------------------------------------------------------------------
+# Admin user management endpoints
+# Static routes (/admin/users, /admin/users/invite) BEFORE parameterized
+# ---------------------------------------------------------------------------
+
+
+@router.get("/admin/users", response_model=UserListResponse)
+async def admin_list_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """List all users with pagination and optional search. Admin only."""
+    items, total = await list_users(db, page=page, page_size=page_size, search=search)
+    return UserListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.post(
+    "/admin/users/invite", response_model=UserProfile, status_code=status.HTTP_201_CREATED
+)
+async def admin_invite_user(
+    body: UserInvite,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Create a new user account (admin invite). Admin only."""
+    try:
+        user = await create_user(db, body.email, body.password, body.full_name)
+        if body.role and body.role != "sales_manager":
+            try:
+                user.role = UserRole(body.role)
+                await db.flush()
+            except ValueError:
+                pass
+    except WeakPasswordError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except UserAlreadyExistsError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    return user
+
+
+@router.get("/admin/users/{user_id}", response_model=UserProfile)
+async def admin_get_user(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Get a single user by ID. Admin only."""
+    try:
+        user = await get_user_by_id(db, user_id)
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return user
+
+
+@router.patch("/admin/users/{user_id}", response_model=UserProfile)
+async def admin_update_user(
+    user_id: uuid.UUID,
+    body: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Update a user's full_name, role, or is_active status. Admin only."""
+    data = body.model_dump(exclude_none=True)
+    try:
+        user = await update_user(db, user_id, data, admin.id)
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except CannotModifySelfError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return user
+
+
+@router.post("/admin/users/{user_id}/deactivate", response_model=MessageResponse)
+async def admin_deactivate_user(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Deactivate a user account and revoke their tokens. Admin only."""
+    try:
+        await deactivate_user(db, user_id, admin.id)
+    except CannotModifySelfError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return MessageResponse(message="User deactivated successfully.")
+
+
+@router.post("/admin/users/{user_id}/activate", response_model=MessageResponse)
+async def admin_activate_user(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Reactivate a deactivated user account. Admin only."""
+    try:
+        await activate_user(db, user_id)
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return MessageResponse(message="User activated successfully.")
+
+
+@router.post("/admin/users/{user_id}/reset-password", response_model=AdminResetPasswordResponse)
+async def admin_reset_password(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Generate a password-reset token for a user (admin-initiated). Admin only."""
+    try:
+        raw_token = await admin_reset_user_password(db, user_id)
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return AdminResetPasswordResponse(
+        message="Password reset token generated. Share the token with the user.",
+        token=raw_token or "",
+    )
