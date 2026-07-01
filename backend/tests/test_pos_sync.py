@@ -226,6 +226,7 @@ class TestPOSSyncServicePurchases:
 
         service = POSSyncService(db=db, pos_client=pos_client)
         service._watermark_cache = {"purchases_max_id": watermark_value}
+        service._get_system_user_id = AsyncMock(return_value=uuid.uuid4())
         return service, db, pos_client
 
     @pytest.mark.asyncio

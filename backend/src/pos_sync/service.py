@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -29,6 +29,8 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.models import User
+from src.orders.models import OrderPaymentStatus, OrderStatus, PurchaseOrder
 from src.pos_sync.models import SyncState
 from src.products.models import Product
 from src.sales.models import Sale, SaleChannel, SaleStatus
@@ -44,7 +46,6 @@ class SyncResult:
     inserted: int = 0
     skipped: int = 0
     new_watermark: int = 0
-    errors: list[str] = field(default_factory=list)
 
 
 class POSSyncService:
@@ -97,7 +98,8 @@ class POSSyncService:
                 )
                 raise
 
-        await self._save_watermark(_SELLS_WATERMARK_KEY, result.new_watermark)
+        if result.new_watermark != watermark:
+            await self._save_watermark(_SELLS_WATERMARK_KEY, result.new_watermark)
         await logger.ainfo(
             "pos_sells_synced",
             inserted=result.inserted,
@@ -117,6 +119,9 @@ class POSSyncService:
 
         result = SyncResult(new_watermark=watermark)
 
+        # Hoist expensive lookup once per batch, not once per purchase
+        system_user_id = await self._get_system_user_id()
+
         for purchase in new_purchases:
             pos_id = str(self._pos_int_id(purchase))
             if await self._purchase_pos_id_exists(pos_id):
@@ -124,7 +129,7 @@ class POSSyncService:
                 result.new_watermark = max(result.new_watermark, int(pos_id))
                 continue
             try:
-                await self._insert_purchase(purchase, pos_id)
+                await self._insert_purchase(purchase, pos_id, system_user_id=system_user_id)
                 result.inserted += 1
                 result.new_watermark = max(result.new_watermark, int(pos_id))
             except Exception as exc:
@@ -133,7 +138,8 @@ class POSSyncService:
                 )
                 raise
 
-        await self._save_watermark(_PURCHASES_WATERMARK_KEY, result.new_watermark)
+        if result.new_watermark != watermark:
+            await self._save_watermark(_PURCHASES_WATERMARK_KEY, result.new_watermark)
         await logger.ainfo(
             "pos_purchases_synced",
             inserted=result.inserted,
@@ -177,8 +183,6 @@ class POSSyncService:
         return result.scalar_one_or_none() is not None
 
     async def _purchase_pos_id_exists(self, pos_id: str) -> bool:
-        from src.orders.models import PurchaseOrder
-
         result = await self._db.execute(
             select(PurchaseOrder.id).where(PurchaseOrder.pos_id == pos_id).limit(1)
         )
@@ -244,10 +248,10 @@ class POSSyncService:
         await self._db.flush()
         return rows
 
-    async def _insert_purchase(self, purchase: dict, pos_id: str) -> None:
+    async def _insert_purchase(
+        self, purchase: dict, pos_id: str, *, system_user_id: uuid.UUID
+    ) -> None:
         """Insert one POS purchase as a PurchaseOrder record."""
-        from src.orders.models import OrderPaymentStatus, OrderStatus, PurchaseOrder
-
         order_date = self._parse_date(purchase.get("transaction_date") or "")
         total = Decimal(str(purchase.get("final_total") or "0"))
         contact = purchase.get("contact") or {}
@@ -257,8 +261,6 @@ class POSSyncService:
             else "Unknown"
         )
         ref_no: str = purchase.get("ref_no") or f"POS-{pos_id}"
-
-        system_user_id = await self._get_system_user_id()
 
         po = PurchaseOrder(
             id=uuid.uuid4(),
@@ -301,8 +303,6 @@ class POSSyncService:
         return {name.lower().strip(): pid for pid, name in result.all()}
 
     async def _get_system_user_id(self) -> uuid.UUID:
-        from src.auth.models import User
-
         result = await self._db.execute(select(User.id).limit(1))
         row = result.scalar_one_or_none()
         return row if row else uuid.uuid4()
