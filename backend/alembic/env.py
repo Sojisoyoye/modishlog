@@ -53,6 +53,7 @@ from src.pricing.models import (  # noqa: F401
     ProductMixTarget,
     CrossSubsidyAnalysis,
 )
+from src.expenses.models import Expense, ExpenseCategory  # noqa: F401
 from src.ai_engine.models import (  # noqa: F401
     AIRecommendation,
     USDStrategyConfig,
