@@ -103,6 +103,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'customers',
+        loadComponent: () =>
+          import('./features/customers/pages/customers-page/customers-page.component').then(
+            (m) => m.CustomersPageComponent,
+          ),
+      },
+      {
         path: 'settings',
         loadComponent: () =>
           import('./features/settings/pages/settings-page.component').then(
