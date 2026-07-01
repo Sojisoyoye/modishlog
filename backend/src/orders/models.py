@@ -196,6 +196,9 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
         default=None,
         index=True,
     )
+    pos_id: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default=None, index=True
+    )
 
     line_items: Mapped[list["OrderLineItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"

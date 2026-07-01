@@ -1,5 +1,6 @@
 """ModishLog FastAPI application entry point."""
 
+import asyncio
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -16,11 +17,54 @@ from src.core.logging import setup_logging
 logger = structlog.get_logger()
 
 
+async def _pos_sync_loop(interval_seconds: int = 600) -> None:
+    """Background task: run incremental POS sync every N seconds."""
+    pos_user = os.environ.get("POS_USERNAME")
+    pos_pass = os.environ.get("POS_PASSWORD")
+    if not pos_user or not pos_pass:
+        logger.info("pos_sync_disabled", reason="POS_USERNAME/POS_PASSWORD not set")
+        return
+
+    from scripts.pos_migrate import POSClient
+    from src.core.database import async_session_factory
+    from src.pos_sync.service import POSSyncService
+
+    await asyncio.sleep(30)  # give the app time to finish starting
+    while True:
+        try:
+            client = POSClient()
+            client.login()
+            async with async_session_factory() as db:
+                service = POSSyncService(db=db, pos_client=client)
+                result = await service.run_incremental_sync()
+                await db.commit()
+                await logger.ainfo(
+                    "pos_sync_cycle_complete",
+                    **{
+                        k: {
+                            "inserted": v.inserted,
+                            "skipped": v.skipped,
+                            "watermark": v.new_watermark,
+                        }
+                        for k, v in result.items()
+                    },
+                )
+        except Exception:
+            await logger.aexception("pos_sync_cycle_failed")
+        await asyncio.sleep(interval_seconds)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown events."""
     setup_logging()
+    task = asyncio.create_task(_pos_sync_loop())
     yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(
@@ -120,7 +164,9 @@ app.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboar
 from src.expenses.router import categories_router as expense_categories_router  # noqa: E402
 from src.expenses.router import expenses_router  # noqa: E402
 
-app.include_router(expense_categories_router, prefix="/api/v1/expense-categories", tags=["expenses"])
+app.include_router(
+    expense_categories_router, prefix="/api/v1/expense-categories", tags=["expenses"]
+)
 app.include_router(expenses_router, prefix="/api/v1/expenses", tags=["expenses"])
 
 
