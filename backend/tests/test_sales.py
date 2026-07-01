@@ -1165,6 +1165,61 @@ class TestSaleTransactions:
         assert total == 5
 
     @pytest.mark.asyncio
+    async def test_list_transactions_issues_exactly_three_queries_for_full_page(self):
+        """list_transactions must run exactly 3 DB queries regardless of page size:
+        1. COUNT(DISTINCT transaction_id)
+        2. Paginated GROUP BY to get the ordered transaction_id page
+        3. Single bulk IN query to fetch all Sale rows for those transaction_ids
+
+        A page of 25 transactions must NOT result in 1+25 individual queries.
+        """
+        from src.sales.service import list_transactions
+
+        PAGE = 25
+        txn_ids = [uuid.uuid4() for _ in range(PAGE)]
+
+        # Build 2 Sale rows per transaction (50 rows total) to confirm grouping works
+        all_sales = []
+        for tid in txn_ids:
+            all_sales.append(_make_sale(transaction_id=tid, total_amount=Decimal("100")))
+            all_sales.append(_make_sale(transaction_id=tid, total_amount=Decimal("200")))
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                # Query 1: COUNT(DISTINCT transaction_id)
+                result.scalar.return_value = PAGE
+            elif call_count == 2:
+                # Query 2: paginated GROUP BY returning txn_id page
+                result.all.return_value = [(tid,) for tid in txn_ids]
+            elif call_count == 3:
+                # Query 3: single IN bulk fetch — all rows for the page
+                scalars_mock = MagicMock()
+                scalars_mock.all.return_value = all_sales
+                result.scalars.return_value = scalars_mock
+            else:
+                # Any 4th+ query means the N+1 bug has regressed
+                raise AssertionError(
+                    f"list_transactions issued query #{call_count} — expected exactly 3"
+                )
+            return result
+
+        db.execute = mock_execute
+
+        transactions, total = await list_transactions(db, page_size=PAGE)
+
+        assert call_count == 3, f"Expected 3 DB queries, got {call_count}"
+        assert total == PAGE
+        assert len(transactions) == PAGE
+        # Each transaction groups 2 items → combined total 300
+        assert transactions[0].total_amount == Decimal("300")
+
+    @pytest.mark.asyncio
     async def test_create_sale_stores_transaction_id(self):
         """create_sale stores transaction_id on the Sale when provided."""
         product = _make_product(id=uuid.uuid4())
