@@ -904,6 +904,11 @@ async def step_migrate(session: AsyncSession) -> None:
     pos_purchases: list[dict] = _pos(client.fetch_purchases, timeout=120)
     log.info("pos_purchases_fetched", count=len(pos_purchases))
 
+    # Fetch live USD/NGN rate so POS amounts (in NGN) are stored as USD
+    from src.fx.service import get_live_usdngn_rate
+    usdngn_rate, _, _ = await get_live_usdngn_rate(session)
+    log.info("pos_usdngn_rate", rate=str(usdngn_rate))
+
     orders_created = 0
     purchase_lines_created = 0
 
@@ -950,14 +955,16 @@ async def step_migrate(session: AsyncSession) -> None:
         if not purchase_lines:
             log.warning("pos_purchase_no_lines", purchase_id=purchase_id, ref_no=ref_no)
 
+        total_usd = (final_total / usdngn_rate).quantize(Decimal("0.000001"))
         po = PurchaseOrder(
             id=uuid.uuid4(),
             order_number=ref_no,
             supplier_id=supplier_id,
             supplier_name=supplier_name,
             status=OrderStatus.DELIVERED if is_received else OrderStatus.ORDERED,
-            total_amount=final_total,
-            currency="NGN",
+            total_amount=total_usd,
+            currency="USD",
+            fx_rate_at_creation=usdngn_rate,
             order_date=order_date,
             actual_delivery_date=order_date if is_received else None,
             payment_status=OrderPaymentStatus.PAID if is_paid else OrderPaymentStatus.UNPAID,
@@ -974,14 +981,16 @@ async def step_migrate(session: AsyncSession) -> None:
             unit_cost = line["unit_cost"]
             line_total = line["line_total"]
 
+            unit_cost_usd = (unit_cost / usdngn_rate).quantize(Decimal("0.000001"))
+            line_total_usd = (line_total / usdngn_rate).quantize(Decimal("0.000001"))
             oli = OrderLineItem(
                 id=uuid.uuid4(),
                 order_id=po.id,
                 product_id=product_id,
                 quantity=quantity,
-                unit_cost=unit_cost,
+                unit_cost=unit_cost_usd,
                 unit_cost_ngn=unit_cost,
-                line_total=line_total,
+                line_total=line_total_usd,
             )
             session.add(oli)
 
