@@ -55,7 +55,10 @@ async def export_profit_loss_csv(
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=profit_loss_report.csv"},
+        headers={
+            "Content-Disposition": "attachment; filename=profit_loss_report.csv",
+            "Cache-Control": "no-store, private",
+        },
     )
 
 
@@ -160,7 +163,10 @@ async def export_purchase_sale_csv(
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=purchase_sale_report.csv"},
+        headers={
+            "Content-Disposition": "attachment; filename=purchase_sale_report.csv",
+            "Cache-Control": "no-store, private",
+        },
     )
 
 

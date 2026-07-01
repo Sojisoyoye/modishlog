@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
@@ -184,8 +184,12 @@ async def get_profit_loss_report(
             )
         )
         .where(Sale.status == SaleStatus.COMPLETED)
-        .where(Sale.payment_status.isnot(None))
-        .where(Sale.payment_status != "paid")
+        .where(
+            or_(
+                Sale.payment_status.is_(None),
+                Sale.payment_status != "paid",
+            )
+        )
     )
     if start_date:
         sales_due_query = sales_due_query.where(Sale.sale_date >= start_date)
@@ -194,7 +198,7 @@ async def get_profit_loss_report(
     sales_due_result = await db.execute(sales_due_query)
     sales_due = sales_due_result.scalar() or Decimal("0")
 
-    gross_profit = total_sales - total_purchase
+    gross_profit = total_sales - total_sales_returns - total_purchase
     net_profit = gross_profit - total_operating_costs
 
     return ProfitLossReport(

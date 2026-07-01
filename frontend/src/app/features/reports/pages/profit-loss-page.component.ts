@@ -183,6 +183,7 @@ export class ProfitLossPageComponent implements OnInit {
     { label: 'Total Purchases', key: 'total_purchase_excl_tax' },
     { label: 'Purchase Returns', key: 'purchase_returns_total' },
     { label: 'Total Sales', key: 'total_sales' },
+    { label: 'Sales Returns', key: 'total_sales_returns' },
     { label: 'Gross Profit', key: 'gross_profit', highlight: 'profit' },
     { label: 'Operating Costs', key: 'total_operating_costs' },
     { label: 'Opening Stock Value', key: 'opening_stock_value' },
