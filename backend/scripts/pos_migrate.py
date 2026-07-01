@@ -14,9 +14,11 @@ Usage (inside docker compose exec backend):
 
 import argparse
 import asyncio
+import math
 import os
 import re
 import sys
+import threading
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -78,6 +80,8 @@ from src.locations.models import BusinessLocation
 from src.orders.models import (
     OrderLineItem,
     OrderPayment,
+    OrderPaymentStatus,
+    OrderStatus,
     OrderStatusHistory,
     PurchaseOrder,
     PurchaseReturn,
@@ -92,7 +96,7 @@ from src.pricing.models import (
     ProductMixTarget,
 )
 from src.products.models import PriceHistory, Product, ProductCategory
-from src.sales.models import Sale, SaleAuditEntry, SaleBulkUploadJob, SellReturn
+from src.sales.models import Sale, SaleAuditEntry, SaleBulkUploadJob, SaleChannel, SaleStatus, SellReturn
 from src.settings.models import UserApiKey, UserPreferences
 from src.stockcount.models import StockCount, StockCountItem
 from src.suppliers.models import Supplier, SupplierProduct
@@ -141,7 +145,7 @@ class POSClient:
 
     def _get(self, path: str, headers: dict[str, str] | None = None) -> str:
         req = Request(f"{POS_URL}{path}", headers=headers or {})
-        with self._opener.open(req) as resp:
+        with self._opener.open(req, timeout=20) as resp:
             return resp.read().decode("utf-8", errors="replace")
 
     def _post(self, path: str, data: dict[str, str], headers: dict[str, str] | None = None) -> tuple[int, str]:
@@ -202,6 +206,26 @@ class POSClient:
             log.warning("pos_purchases_fetch_failed", error=str(exc))
             return []
 
+    def fetch_sell_detail_html(self, sell_id: str | int) -> str:
+        """Fetch sell receipt as raw HTML (blocking; caller wraps with asyncio.wait_for)."""
+        try:
+            html = self._get(f"/sells/{sell_id}")
+            if html and 'action="/login"' in html and '_token' in html:
+                log.info("pos_session_expired_reauth", sell_id=sell_id)
+                self.login()
+                html = self._get(f"/sells/{sell_id}")
+            return html
+        except Exception as exc:
+            log.warning("pos_sell_html_failed", sell_id=sell_id, error=str(exc))
+            return ""
+
+    def fetch_purchase_detail(self, purchase_id: str | int) -> dict:
+        try:
+            return self._json_get(f"/purchases/{purchase_id}")
+        except Exception as exc:
+            log.warning("pos_purchase_detail_fetch_failed", purchase_id=purchase_id, error=str(exc))
+            return {}
+
     def fetch_contacts(self, contact_type: str = "supplier") -> list[dict]:
         try:
             data = self._json_get(f"/contacts?type={contact_type}&per_page=500")
@@ -212,6 +236,118 @@ class POSClient:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _parse_sell_date_from_html(html: str) -> date | None:
+    """Extract first date from UltimatePOS receipt HTML."""
+    for pattern in (
+        r"(\d{2}/\d{2}/\d{4})",   # 07/01/2026
+        r"(\d{4}-\d{2}-\d{2})",   # 2026-01-07
+        r"(\d{2}-\d{2}-\d{4})",   # 07-01-2026
+    ):
+        m = re.search(pattern, html)
+        if m:
+            raw = m.group(1)
+            for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+                try:
+                    return datetime.strptime(raw, fmt).date()
+                except ValueError:
+                    continue
+    return None
+
+
+def _parse_sell_lines_from_html(
+    html: str,
+    pos_id_to_product: dict[str, uuid.UUID],
+    name_to_product: dict[str, uuid.UUID],
+) -> list[dict]:
+    """
+    Extract sell line items from a UltimatePOS receipt HTML page.
+
+    UltimatePOS receipt table columns (8 <td>s per data row):
+      [0] #  [1] Product name + pos_product_id  [2] Quantity  [3] Unit Price
+      [4] Discount  [5] Tax  [6] Price inc. tax  [7] Subtotal
+
+    Product cell: "Product Name\\n\\n273939\\n" — the pos product ID is the trailing number.
+    Quantity: <span data-is_quantity="true">N.N</span>
+    Currency values: <span data-currency_symbol="true">NNNN.NNNN</span>
+
+    Returns list of dicts: product_id, quantity, unit_price, line_total.
+    """
+    lines = []
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL | re.IGNORECASE)
+    for row in rows:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL | re.IGNORECASE)
+        if len(cells) < 4:
+            continue
+
+        # ── Product cell (index 1) ─────────────────────────────────────────
+        product_cell_text = _strip_html(cells[1]).strip()
+        # POS product_id is an integer on its own line after the product name
+        pos_id_m = re.search(r"\s+(\d{4,})\s*$", product_cell_text)
+        product_id: uuid.UUID | None = None
+        if pos_id_m:
+            product_id = pos_id_to_product.get(pos_id_m.group(1))
+        if not product_id:
+            # Name-based fallback: strip the trailing number and normalise
+            name_part = product_cell_text if not pos_id_m else product_cell_text[: pos_id_m.start()]
+            norm = re.sub(r"\s+", " ", name_part.lower().strip())
+            product_id = name_to_product.get(norm)
+        if not product_id:
+            continue
+
+        # ── Quantity cell (index 2) ────────────────────────────────────────
+        qty_m = re.search(
+            r'data-is_quantity="true"[^>]*>([^<]+)</span>', cells[2], re.IGNORECASE
+        )
+        if qty_m:
+            qty_float = float(qty_m.group(1).strip())
+        else:
+            raw_qty = re.search(r"([\d.]+)", _strip_html(cells[2]))
+            qty_float = float(raw_qty.group(1)) if raw_qty else 0.0
+        qty = max(1, math.ceil(qty_float)) if qty_float > 0 else 0
+        if qty <= 0:
+            continue
+
+        # ── Unit price cell (index 3) ──────────────────────────────────────
+        up_m = re.search(
+            r'data-currency_symbol="true"[^>]*>([^<]+)</span>', cells[3], re.IGNORECASE
+        )
+        unit_price = _parse_price(up_m.group(1).strip()) if up_m else Decimal("0")
+
+        # ── Subtotal cell (last cell — always index 7, but accept shorter) ─
+        last_cell = cells[7] if len(cells) > 7 else cells[-1]
+        st_m = re.search(
+            r'data-currency_symbol="true"[^>]*>([^<]+)</span>', last_cell, re.IGNORECASE
+        )
+        line_total = (
+            _parse_price(st_m.group(1).strip()) if st_m else unit_price * Decimal(str(qty))
+        )
+
+        lines.append({
+            "product_id": product_id,
+            "quantity": qty,
+            "unit_price": unit_price,
+            "line_total": line_total or unit_price * Decimal(str(qty)),
+        })
+
+    return lines
+
+
+def _extract_pos_id(item: dict, path_prefix: str) -> str | None:
+    """Extract numeric ID from a DataTables row (direct id, DT_RowAttr href, or DT_RowId)."""
+    if direct_id := item.get("id"):
+        return str(direct_id)
+    dt_attr = item.get("DT_RowAttr") or {}
+    href = dt_attr.get("data-href", "")
+    m = re.search(rf"/{re.escape(path_prefix)}/(\d+)", href)
+    if m:
+        return m.group(1)
+    row_id = str(item.get("DT_RowId", ""))
+    m2 = re.match(r"row_(\d+)", row_id)
+    if m2:
+        return m2.group(1)
+    return None
 
 
 def _strip_html(html: str) -> str:
@@ -452,11 +588,39 @@ async def step_migrate(session: AsyncSession) -> None:
     log.info("categories_created", count=len(cat_map))
 
     # ── 3d. Fetch POS products and insert ────────────────────────────────────
+    # asyncio.wait_for + to_thread in Python 3.11 doesn't truly timeout blocking
+    # C-extension code (SSL handshake) because wait_for waits for thread
+    # cancellation. Use threading.Event.wait(timeout=N) which is guaranteed to
+    # return after N seconds regardless of what the background thread is doing.
+    def _pos(func, *args, timeout: int = 60):
+        """Run a blocking POS HTTP call with a hard daemon-thread wall-clock timeout."""
+        result_holder: list = [None]
+        exc_holder: list = [None]
+        done = threading.Event()
+
+        def _worker():
+            try:
+                result_holder[0] = func(*args)
+            except Exception as exc:
+                exc_holder[0] = exc
+            finally:
+                done.set()
+
+        threading.Thread(target=_worker, daemon=True).start()
+        if not done.wait(timeout=timeout):
+            raise TimeoutError(f"POS call {func.__name__} timed out after {timeout}s")
+        if exc_holder[0]:
+            raise exc_holder[0]
+        return result_holder[0]
+
     log.info("pos_fetch_products_start")
     client = POSClient()
-    client.login()
+    try:
+        _pos(client.login, timeout=300)  # allow up to 5 min for first SSL handshake
+    except TimeoutError:
+        raise RuntimeError("POS login timed out — is the server reachable?")
 
-    pos_products = client.fetch_products()
+    pos_products: list[dict] = _pos(client.fetch_products, timeout=120)
     active_products = [p for p in pos_products if not p.get("is_inactive") and not p.get("not_for_selling")]
     log.info("pos_products_active", count=len(active_products))
 
@@ -548,7 +712,7 @@ async def step_migrate(session: AsyncSession) -> None:
     log.info("inventory_levels_created", count=len(product_map))
 
     # ── 3f. Suppliers ────────────────────────────────────────────────────────
-    pos_suppliers = client.fetch_contacts("supplier")
+    pos_suppliers: list[dict] = _pos(client.fetch_contacts, "supplier", timeout=120)
     supplier_map: dict[str, uuid.UUID] = {}  # POS contact_id → modishlog supplier_id
 
     for contact in pos_suppliers:
@@ -583,16 +747,219 @@ async def step_migrate(session: AsyncSession) -> None:
     await session.flush()
     log.info("suppliers_inserted", count=len(supplier_map))
 
-    # ── 3g. Sales — skipped: POS /sells returns invoice totals only, not
-    #    per-product line items. Importing header-level sales would pin every
-    #    transaction to an arbitrary product, producing misleading analytics.
-    #    TODO: implement a per-line-item fetch once the POS API endpoint is mapped.
-    pos_sell_count = len(client.fetch_sells())
-    log.warning(
-        "sales_import_skipped",
-        reason="no per-line-item product mapping available",
-        pos_sell_rows=pos_sell_count,
-    )
+    # ── 3g. Sales ────────────────────────────────────────────────────────────
+    # Build lookup maps for product matching during sell-line parsing
+    pos_id_to_product: dict[str, uuid.UUID] = {}
+    name_to_product: dict[str, uuid.UUID] = {}
+    for sku, pos_data in sku_to_pos.items():
+        pos_id = pos_data.get("pos_id")
+        if pos_id is not None:
+            pos_id_to_product[str(pos_id)] = product_map[sku]
+        name_norm = re.sub(r"\s+", " ", pos_data["name"].lower().strip())
+        name_to_product[name_norm] = product_map[sku]
+
+    pos_sells: list[dict] = _pos(client.fetch_sells, timeout=120)
+    log.info("pos_sells_fetched", count=len(pos_sells))
+
+    sales_created = 0
+    sells_with_lines = 0
+    for idx, sell_header in enumerate(pos_sells):
+        sell_id = _extract_pos_id(sell_header, "sells")
+        if not sell_id:
+            log.warning("pos_sell_id_missing", row=sell_header)
+            continue
+
+        # Date comes from the list header (transaction_date field)
+        date_raw = str(sell_header.get("transaction_date") or "")
+        sale_date = _parse_date(date_raw) or today
+
+        try:
+            html = _pos(client.fetch_sell_detail_html, sell_id, timeout=30)
+        except TimeoutError:
+            log.warning("pos_sell_total_timeout", sell_id=sell_id)
+            html = ""
+        except Exception as exc:
+            log.warning("pos_sell_html_failed", sell_id=sell_id, error=str(exc))
+            html = ""
+        if not html.strip():
+            log.warning("pos_sell_html_empty", sell_id=sell_id)
+            continue
+
+        sell_lines = _parse_sell_lines_from_html(html, pos_id_to_product, name_to_product)
+        if not sell_lines:
+            log.warning("pos_sell_no_lines_parsed", sell_id=sell_id)
+            continue
+
+        sells_with_lines += 1
+        transaction_uuid = uuid.uuid4()  # shared across line items of this sell
+
+        for line in sell_lines:
+            product_id = line["product_id"]
+            quantity = line["quantity"]
+            unit_price = line["unit_price"]
+            line_total = line["line_total"]
+
+            sale_id = uuid.uuid4()
+            sale = Sale(
+                id=sale_id,
+                product_id=product_id,
+                quantity=quantity,
+                unit_price=unit_price,
+                total_amount=line_total,
+                currency="NGN",
+                sale_date=sale_date,
+                channel=SaleChannel.RETAIL,
+                status=SaleStatus.COMPLETED,
+                transaction_id=transaction_uuid,
+                recorded_by=admin_id,
+                location_id=location.id,
+                notes="Imported from POS",
+            )
+            session.add(sale)
+
+            mv = StockMovement(
+                id=uuid.uuid4(),
+                product_id=product_id,
+                movement_type=MovementType.SALE_DEPLETION,
+                quantity_change=-quantity,
+                quantity_before=0,
+                quantity_after=0,
+                reference_id=sale_id,
+                reference_type="sale",
+                reason="POS migration — historical sale",
+                performed_by=admin_id,
+            )
+            session.add(mv)
+            sales_created += 1
+
+        if (idx + 1) % 50 == 0:
+            await session.flush()
+            log.info(
+                "sales_progress",
+                processed=idx + 1,
+                total=len(pos_sells),
+                sells_with_lines=sells_with_lines,
+                sales_created=sales_created,
+            )
+
+    await session.flush()
+    log.info("sales_inserted", count=sales_created, sells_parsed=sells_with_lines)
+
+    # ── 3h. Purchases ────────────────────────────────────────────────────────
+    pos_purchases: list[dict] = _pos(client.fetch_purchases, timeout=120)
+    log.info("pos_purchases_fetched", count=len(pos_purchases))
+
+    orders_created = 0
+    purchase_lines_created = 0
+
+    for purchase_header in pos_purchases:
+        purchase_id = _extract_pos_id(purchase_header, "purchases")
+        if not purchase_id:
+            log.warning("pos_purchase_id_missing", row=purchase_header)
+            continue
+
+        try:
+            detail: dict = _pos(client.fetch_purchase_detail, purchase_id, timeout=60)
+        except TimeoutError:
+            log.warning("pos_purchase_total_timeout", purchase_id=purchase_id)
+            continue
+        except Exception as exc:
+            log.warning("pos_purchase_detail_failed", purchase_id=purchase_id, error=str(exc))
+            continue
+        if not detail:
+            continue
+
+        purchase_data = detail.get("purchase") or detail
+        purchase_lines = purchase_data.get("purchase_lines") or detail.get("purchase_lines") or []
+
+        transaction_date_raw = str(
+            purchase_data.get("transaction_date") or detail.get("transaction_date") or ""
+        )
+        order_date = _parse_date(transaction_date_raw) or today
+        ref_no = str(
+            purchase_data.get("ref_no") or purchase_data.get("invoice_no") or f"POS-PO-{purchase_id}"
+        )
+
+        pos_contact_id = str(purchase_data.get("contact_id") or "")
+        supplier_id = supplier_map.get(pos_contact_id)
+        supplier_name = "Unknown Supplier"
+        for contact in pos_suppliers:
+            if str(contact.get("id", "")) == pos_contact_id:
+                supplier_name = _strip_html(str(contact.get("name") or "Unknown Supplier"))
+                break
+
+        final_total = _parse_price(str(purchase_data.get("final_total") or "0"))
+
+        po = PurchaseOrder(
+            id=uuid.uuid4(),
+            order_number=ref_no,
+            supplier_id=supplier_id,
+            supplier_name=supplier_name,
+            status=OrderStatus.DELIVERED,
+            total_amount=final_total,
+            currency="NGN",
+            order_date=order_date,
+            actual_delivery_date=order_date,
+            payment_status=OrderPaymentStatus.PAID,
+            created_by=admin_id,
+            location_id=location.id,
+            notes="Imported from POS",
+        )
+        session.add(po)
+        await session.flush()  # need po.id for line items + stock movements
+
+        for line in purchase_lines:
+            pos_product_id = str(line.get("product_id", ""))
+            product_id = pos_id_to_product.get(pos_product_id)
+            if not product_id:
+                log.warning(
+                    "pos_purchase_line_product_not_found",
+                    purchase_id=purchase_id,
+                    pos_product_id=pos_product_id,
+                )
+                continue
+
+            quantity = int(float(line.get("quantity") or 1))
+            unit_cost = _parse_price(
+                str(line.get("purchase_price") or line.get("unit_cost") or "0")
+            )
+            line_total = _parse_price(str(line.get("line_total") or "0")) or (
+                unit_cost * Decimal(str(quantity))
+            )
+            if quantity <= 0:
+                continue
+
+            oli = OrderLineItem(
+                id=uuid.uuid4(),
+                order_id=po.id,
+                product_id=product_id,
+                quantity=quantity,
+                unit_cost=unit_cost,
+                unit_cost_ngn=unit_cost,
+                line_total=line_total,
+            )
+            session.add(oli)
+
+            mv = StockMovement(
+                id=uuid.uuid4(),
+                product_id=product_id,
+                movement_type=MovementType.ORDER_RECEIVED,
+                quantity_change=quantity,
+                quantity_before=0,
+                quantity_after=0,
+                reference_id=po.id,
+                reference_type="purchase_order",
+                reason="POS migration — historical purchase",
+                performed_by=admin_id,
+            )
+            session.add(mv)
+            purchase_lines_created += 1
+
+        orders_created += 1
+        log.info("purchase_migrated", ref_no=ref_no, lines=purchase_lines_created)
+
+    await session.flush()
+    log.info("purchases_inserted", orders=orders_created, line_items=purchase_lines_created)
 
     # ── Final commit ─────────────────────────────────────────────────────────
     await session.commit()
@@ -601,7 +968,8 @@ async def step_migrate(session: AsyncSession) -> None:
         "migration_complete",
         products=len(product_map),
         suppliers=len(supplier_map),
-        sales=0,
+        sales=sales_created,
+        purchase_orders=orders_created,
         admin_email=ADMIN_EMAIL,
     )
 
