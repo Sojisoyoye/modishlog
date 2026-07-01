@@ -51,6 +51,20 @@ async def resolve_default_date_range(
     return date(effective_today.year - 1, month, day), effective_today
 
 
+async def _sum_sell_returns(
+    db: AsyncSession,
+    start_date: date | None,
+    end_date: date | None,
+) -> Decimal:
+    q = select(func.sum(SellReturn.total_amount))
+    if start_date:
+        q = q.where(SellReturn.return_date >= start_date)
+    if end_date:
+        q = q.where(SellReturn.return_date <= end_date)
+    result = await db.execute(q)
+    return result.scalar() or Decimal("0")
+
+
 async def get_profit_loss_report(
     db: AsyncSession,
     start_date: date | None = None,
@@ -129,13 +143,7 @@ async def get_profit_loss_report(
     purchase_returns_total = returns_result.scalar() or Decimal("0")
 
     # -- Sell returns in period --
-    sell_returns_query = select(func.sum(SellReturn.total_amount))
-    if start_date:
-        sell_returns_query = sell_returns_query.where(SellReturn.return_date >= start_date)
-    if end_date:
-        sell_returns_query = sell_returns_query.where(SellReturn.return_date <= end_date)
-    sell_returns_result = await db.execute(sell_returns_query)
-    total_sales_returns = sell_returns_result.scalar() or Decimal("0")
+    total_sales_returns = await _sum_sell_returns(db, start_date, end_date)
 
     # -- Purchase due: sum of outstanding balances on UNPAID/PARTIAL orders --
     paid_subq = (
@@ -150,7 +158,7 @@ async def get_profit_loss_report(
         select(
             func.sum(
                 PurchaseOrder.total_amount
-                - func.coalesce(paid_subq.c.total_paid, Decimal("0"))
+                - func.coalesce(paid_subq.c.total_paid, 0)
             )
         )
         .outerjoin(paid_subq, paid_subq.c.order_id == PurchaseOrder.id)
@@ -172,10 +180,11 @@ async def get_profit_loss_report(
         select(
             func.sum(
                 Sale.total_amount
-                - func.coalesce(Sale.payment_amount, Decimal("0"))
+                - func.coalesce(Sale.payment_amount, 0)
             )
         )
         .where(Sale.status == SaleStatus.COMPLETED)
+        .where(Sale.payment_status.isnot(None))
         .where(Sale.payment_status != "paid")
     )
     if start_date:
@@ -343,13 +352,7 @@ async def get_purchase_sale_report(
     total_sales = sales_result.scalar() or Decimal("0")
 
     # -- Sell returns in period --
-    sell_returns_query = select(func.sum(SellReturn.total_amount))
-    if start_date:
-        sell_returns_query = sell_returns_query.where(SellReturn.return_date >= start_date)
-    if end_date:
-        sell_returns_query = sell_returns_query.where(SellReturn.return_date <= end_date)
-    sell_returns_result = await db.execute(sell_returns_query)
-    total_sales_returns = sell_returns_result.scalar() or Decimal("0")
+    total_sales_returns = await _sum_sell_returns(db, start_date, end_date)
 
     net_position = total_sales - total_purchase
 
