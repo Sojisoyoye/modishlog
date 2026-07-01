@@ -20,6 +20,7 @@ from src.sales.exceptions import (
     SaleAlreadyVoidedError,
     SaleNotFoundError,
     SalePermissionError,
+    SaleValidationError,
     SellReturnNotFoundError,
 )
 from src.sales.models import (
@@ -896,6 +897,10 @@ async def create_sell_return(
     sale = result.scalar_one_or_none()
     if sale is None:
         raise SaleNotFoundError(sale_id)
+    if sale.status != SaleStatus.COMPLETED:
+        raise SaleValidationError(
+            "sale_id", str(sale_id), "can only return a completed sale"
+        )
 
     now = datetime.now(timezone.utc)
     sell_return = SellReturn(
@@ -912,22 +917,26 @@ async def create_sell_return(
     sell_return.updated_at = now
     db.add(sell_return)
     await db.flush()
-    logger.info("sell_return_created", sale_id=str(sale_id), amount=str(data.total_amount))
+    await logger.ainfo("sell_return_created", sale_id=str(sale_id), amount=str(data.total_amount))
     return sell_return
 
 
 async def list_sell_returns(
     db: AsyncSession,
     sale_id: uuid.UUID | None = None,
+    created_by: uuid.UUID | None = None,
     page: int = 1,
     page_size: int = 25,
 ) -> tuple[list[SellReturn], int]:
-    """List sell returns, optionally filtered by sale."""
+    """List sell returns, optionally filtered by sale and/or creator."""
     count_q = select(func.count(SellReturn.id))
     list_q = select(SellReturn).order_by(SellReturn.return_date.desc())
     if sale_id is not None:
         count_q = count_q.where(SellReturn.sale_id == sale_id)
         list_q = list_q.where(SellReturn.sale_id == sale_id)
+    if created_by is not None:
+        count_q = count_q.where(SellReturn.created_by == created_by)
+        list_q = list_q.where(SellReturn.created_by == created_by)
 
     total_result = await db.execute(count_q)
     total = total_result.scalar() or 0

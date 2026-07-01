@@ -385,10 +385,13 @@ async def list_all_sell_returns_endpoint(
     page: int = 1,
     page_size: int = 25,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> SellReturnListResponse:
     """List all sell returns, optionally filtered by sale_id."""
-    items, total = await list_sell_returns(db, sale_id=sale_id, page=page, page_size=page_size)
+    created_by = None if current_user.role == UserRole.ADMIN else current_user.id
+    items, total = await list_sell_returns(
+        db, sale_id=sale_id, created_by=created_by, page=page, page_size=page_size
+    )
     return SellReturnListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -421,6 +424,8 @@ async def create_sell_return_endpoint(
         return await create_sell_return(db, sale_id=sale_id, data=body, user_id=current_user.id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except SaleValidationError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
 
 @router.get("/{sale_id}/returns", response_model=SellReturnListResponse)
@@ -429,9 +434,14 @@ async def list_sell_returns_by_sale_endpoint(
     page: int = 1,
     page_size: int = 25,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
 ) -> SellReturnListResponse:
     """List all sell returns for a specific sale."""
+    try:
+        sale = await get_sale(db, sale_id)
+    except SaleNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(sale.recorded_by, current_user)
     items, total = await list_sell_returns(db, sale_id=sale_id, page=page, page_size=page_size)
     return SellReturnListResponse(items=items, total=total, page=page, page_size=page_size)
 

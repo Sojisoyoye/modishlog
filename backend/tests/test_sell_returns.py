@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from src.auth.service import build_token
 from src.core.security import get_password_hash
 import src.suppliers.models  # noqa: F401
 from src.sales.models import Sale, SaleChannel, SaleStatus
@@ -161,6 +160,22 @@ class TestCreateSellReturnService:
                 user_id=uuid.uuid4(),
             )
 
+    @pytest.mark.asyncio
+    async def test_create_sell_return_voided_sale_rejected(self):
+        from src.sales.exceptions import SaleValidationError
+        from src.sales.service import create_sell_return
+
+        voided_sale = _make_sale(status=SaleStatus.VOIDED)
+        db = _mock_db_scalar(scalar_result=voided_sale)
+
+        with pytest.raises(SaleValidationError):
+            await create_sell_return(
+                db,
+                sale_id=voided_sale.id,
+                data=_make_sell_return_create(),
+                user_id=uuid.uuid4(),
+            )
+
 
 class TestListSellReturnsService:
     @pytest.mark.asyncio
@@ -283,9 +298,11 @@ class TestSellReturnsEndpoints:
     def test_list_sell_returns_by_sale(self):
         user = self._override_auth()
         sale_id = uuid.uuid4()
+        sale = _make_sale(id=sale_id, recorded_by=user.id)
         sr1 = _make_sell_return(sale_id=sale_id, created_by=user.id)
         sr2 = _make_sell_return(sale_id=sale_id, created_by=user.id)
-        db = _mock_db_sequence([2, [sr1, sr2]])
+        # get_sale fires first, then count, then list
+        db = _mock_db_sequence([sale, 2, [sr1, sr2]])
         self._override_db(db)
 
         with TestClient(self.app) as client:
