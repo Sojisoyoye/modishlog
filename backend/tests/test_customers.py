@@ -249,3 +249,280 @@ class TestPayTermTypeValidation:
         """Arbitrary strings like 'weekly' are rejected by the enum validator."""
         with pytest.raises(ValidationError):
             CustomerCreate(name="Test", pay_term_type="weekly")
+
+
+# ---------------------------------------------------------------------------
+# deactivate_customer (soft-delete)
+# ---------------------------------------------------------------------------
+
+
+class TestDeactivateCustomer:
+    @pytest.mark.asyncio
+    async def test_deactivate_customer_sets_is_active_false(self):
+        """deactivate_customer() sets is_active=False when no linked sales."""
+        from src.customers.service import deactivate_customer
+
+        customer = _make_customer(is_active=True)
+
+        get_mock = MagicMock()
+        get_mock.scalar_one_or_none.return_value = customer
+
+        count_mock = MagicMock()
+        count_mock.scalar.return_value = 0
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[get_mock, count_mock])
+
+        result = await deactivate_customer(db, customer.id)
+        assert result.is_active is False
+        db.flush.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_deactivate_customer_with_sales_raises(self):
+        """deactivate_customer() raises CustomerHasLinkedSalesError when sales exist."""
+        from src.customers.exceptions import CustomerHasLinkedSalesError
+        from src.customers.service import deactivate_customer
+
+        customer = _make_customer(is_active=True)
+
+        get_mock = MagicMock()
+        get_mock.scalar_one_or_none.return_value = customer
+
+        count_mock = MagicMock()
+        count_mock.scalar.return_value = 3  # 3 linked sales
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[get_mock, count_mock])
+
+        with pytest.raises(CustomerHasLinkedSalesError):
+            await deactivate_customer(db, customer.id)
+
+    @pytest.mark.asyncio
+    async def test_deactivate_customer_not_found_raises(self):
+        """deactivate_customer() raises CustomerNotFoundError when customer missing."""
+        from src.customers.service import deactivate_customer
+
+        db = _mock_db_with_execute(scalar_result=None)
+        with pytest.raises(CustomerNotFoundError):
+            await deactivate_customer(db, uuid.uuid4())
+
+
+# ---------------------------------------------------------------------------
+# get_customer_sales
+# ---------------------------------------------------------------------------
+
+
+class TestGetCustomerSales:
+    @pytest.mark.asyncio
+    async def test_customer_sales_returns_paginated_list(self):
+        """get_customer_sales() returns (items, total) for the customer."""
+        from src.customers.service import get_customer_sales
+        from src.sales.models import Sale, SaleChannel, SaleStatus
+
+        sale = Sale(
+            id=uuid.uuid4(),
+            product_id=uuid.uuid4(),
+            quantity=2,
+            unit_price=Decimal("1000"),
+            total_amount=Decimal("2000"),
+            currency="NGN",
+            sale_date=datetime.now(timezone.utc).date(),
+            channel=SaleChannel.RETAIL,
+            status=SaleStatus.COMPLETED,
+            recorded_by=uuid.uuid4(),
+            customer_id=uuid.uuid4(),
+        )
+        sale.created_at = datetime.now(timezone.utc)
+        sale.updated_at = datetime.now(timezone.utc)
+
+        count_mock = MagicMock()
+        count_mock.scalar.return_value = 1
+
+        items_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [sale]
+        items_mock.scalars.return_value = scalars_mock
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[count_mock, items_mock])
+
+        result, total = await get_customer_sales(db, uuid.uuid4())
+        assert total == 1
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_customer_sales_empty_returns_zero(self):
+        """get_customer_sales() returns empty list and 0 when no sales."""
+        from src.customers.service import get_customer_sales
+
+        count_mock = MagicMock()
+        count_mock.scalar.return_value = 0
+
+        items_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        items_mock.scalars.return_value = scalars_mock
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[count_mock, items_mock])
+
+        result, total = await get_customer_sales(db, uuid.uuid4())
+        assert total == 0
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_customer_ledger
+# ---------------------------------------------------------------------------
+
+
+class TestGetCustomerLedger:
+    @pytest.mark.asyncio
+    async def test_customer_ledger_includes_opening_balance(self):
+        """Ledger starts with an opening-balance entry when opening_balance > 0."""
+        from src.customers.service import get_customer_ledger
+
+        customer = _make_customer(opening_balance=Decimal("5000"))
+
+        get_mock = MagicMock()
+        get_mock.scalar_one_or_none.return_value = customer
+
+        sales_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        sales_mock.scalars.return_value = scalars_mock
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[get_mock, sales_mock])
+
+        entries = await get_customer_ledger(db, customer.id)
+        assert len(entries) == 1
+        assert entries[0].description == "Opening balance"
+        assert entries[0].balance == Decimal("5000")
+
+    @pytest.mark.asyncio
+    async def test_customer_ledger_sale_creates_debit_entry(self):
+        """Each sale adds a debit entry and advances the running balance."""
+        from src.customers.service import get_customer_ledger
+        from src.sales.models import Sale, SaleChannel, SaleStatus
+
+        customer = _make_customer(opening_balance=Decimal("0"))
+
+        sale = Sale(
+            id=uuid.uuid4(),
+            product_id=uuid.uuid4(),
+            quantity=1,
+            unit_price=Decimal("3000"),
+            total_amount=Decimal("3000"),
+            currency="NGN",
+            sale_date=datetime.now(timezone.utc).date(),
+            channel=SaleChannel.RETAIL,
+            status=SaleStatus.COMPLETED,
+            recorded_by=uuid.uuid4(),
+        )
+        sale.created_at = datetime.now(timezone.utc)
+        sale.updated_at = datetime.now(timezone.utc)
+
+        get_mock = MagicMock()
+        get_mock.scalar_one_or_none.return_value = customer
+
+        sales_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [sale]
+        sales_mock.scalars.return_value = scalars_mock
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[get_mock, sales_mock])
+
+        entries = await get_customer_ledger(db, customer.id)
+        # No opening balance entry (0), one sale entry
+        assert len(entries) == 1
+        assert entries[0].debit == Decimal("3000")
+        assert entries[0].balance == Decimal("3000")
+
+
+# ---------------------------------------------------------------------------
+# get_customer_activities
+# ---------------------------------------------------------------------------
+
+
+class TestGetCustomerActivities:
+    @pytest.mark.asyncio
+    async def test_customer_activities_returns_sale_events(self):
+        """Activities list includes a 'sale' event per linked sale."""
+        from src.customers.service import get_customer_activities
+        from src.sales.models import Sale, SaleChannel, SaleStatus
+
+        sale = Sale(
+            id=uuid.uuid4(),
+            product_id=uuid.uuid4(),
+            quantity=1,
+            unit_price=Decimal("1500"),
+            total_amount=Decimal("1500"),
+            currency="NGN",
+            sale_date=datetime.now(timezone.utc).date(),
+            channel=SaleChannel.RETAIL,
+            status=SaleStatus.COMPLETED,
+            recorded_by=uuid.uuid4(),
+        )
+        sale.created_at = datetime.now(timezone.utc)
+        sale.updated_at = datetime.now(timezone.utc)
+
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [sale]
+        result_mock.scalars.return_value = scalars_mock
+
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=result_mock)
+
+        activities = await get_customer_activities(db, uuid.uuid4())
+        assert len(activities) == 1
+        assert activities[0].event_type == "sale"
+        assert activities[0].amount == Decimal("1500")
+
+    @pytest.mark.asyncio
+    async def test_customer_activities_empty_when_no_sales(self):
+        """Activities returns empty list when customer has no sales."""
+        from src.customers.service import get_customer_activities
+
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        result_mock.scalars.return_value = scalars_mock
+
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=result_mock)
+
+        activities = await get_customer_activities(db, uuid.uuid4())
+        assert activities == []
+
+
+# ---------------------------------------------------------------------------
+# export_customers_csv
+# ---------------------------------------------------------------------------
+
+
+class TestExportCustomersCsv:
+    @pytest.mark.asyncio
+    async def test_export_csv_contains_headers_and_row(self):
+        """export_customers_csv() returns CSV text with header + one data row."""
+        from src.customers.service import export_customers_csv
+
+        customer = _make_customer(name="Ade Store", email="ade@store.ng", city="Lagos")
+
+        count_mock = MagicMock()
+        count_mock.scalar.return_value = 1
+
+        items_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [customer]
+        items_mock.scalars.return_value = scalars_mock
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[count_mock, items_mock])
+
+        csv_text = await export_customers_csv(db)
+        assert "name" in csv_text
+        assert "Ade Store" in csv_text
+        assert "Lagos" in csv_text

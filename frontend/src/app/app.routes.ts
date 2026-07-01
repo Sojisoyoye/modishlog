@@ -110,18 +110,21 @@ export const routes: Routes = [
           ),
       },
       {
-        path: 'suppliers',
+        path: 'contacts',
         loadComponent: () =>
-          import('./features/suppliers/pages/suppliers-page.component').then(
-            (m) => m.SuppliersPageComponent,
+          import('./features/contacts/pages/contacts-page.component').then(
+            (m) => m.ContactsPageComponent,
           ),
       },
       {
+        path: 'suppliers',
+        redirectTo: '/contacts',
+        pathMatch: 'full',
+      },
+      {
         path: 'customers',
-        loadComponent: () =>
-          import('./features/customers/pages/customers-page/customers-page.component').then(
-            (m) => m.CustomersPageComponent,
-          ),
+        redirectTo: '/contacts?tab=customers',
+        pathMatch: 'full',
       },
       {
         path: 'settings',

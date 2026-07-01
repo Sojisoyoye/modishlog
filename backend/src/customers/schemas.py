@@ -85,3 +85,19 @@ class CustomerRead(BaseModel):
 class CustomerListResponse(BaseModel):
     items: list[CustomerRead]
     total: int
+
+
+class CustomerLedgerEntry(BaseModel):
+    date: datetime
+    description: str
+    debit: Decimal
+    credit: Decimal
+    balance: Decimal
+
+
+class CustomerActivityEntry(BaseModel):
+    timestamp: datetime
+    event_type: str
+    description: str
+    amount: Decimal | None = None
+    reference: str | None = None

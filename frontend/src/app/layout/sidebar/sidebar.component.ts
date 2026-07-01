@@ -109,8 +109,7 @@ export class SidebarComponent {
         { label: 'Orders', route: '/orders', icon: 'pi-truck' },
         { label: 'Returns', route: '/returns', icon: 'pi-replay' },
         { label: 'Expenses', route: '/expenses', icon: 'pi-wallet' },
-        { label: 'Suppliers', route: '/suppliers', icon: 'pi-users' },
-        { label: 'Customers', route: '/customers', icon: 'pi-user' },
+        { label: 'Contacts', route: '/contacts', icon: 'pi-address-book' },
       ],
     },
     {
