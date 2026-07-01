@@ -1,8 +1,9 @@
 """Customers domain SQLAlchemy models."""
 
 import uuid
+from decimal import Decimal
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -17,8 +18,40 @@ class Customer(UUIDMixin, TimestampMixin, Base):
     contact_number: Mapped[str | None] = mapped_column(
         String(50), nullable=True, default=None
     )
+    alternate_number: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default=None
+    )
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
     address: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    country: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, default=None
+    )
+    zip_code: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, default=None
+    )
+    tax_number: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, default=None
+    )
+    pay_term_number: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=None
+    )
+    pay_term_type: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, default=None
+    )
+    opening_balance: Mapped[Decimal] = mapped_column(
+        Numeric(18, 6), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    credit_limit: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6), nullable=True, default=None
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    customer_group: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, default=None
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
 

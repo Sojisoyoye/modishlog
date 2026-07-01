@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,16 +10,40 @@ from pydantic import BaseModel, ConfigDict, Field
 class CustomerCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     contact_number: str | None = Field(None, max_length=50)
+    alternate_number: str | None = Field(None, max_length=50)
     email: str | None = Field(None, max_length=255)
     address: str | None = None
+    city: str | None = Field(None, max_length=100)
+    state: str | None = Field(None, max_length=100)
+    country: str | None = Field(None, max_length=100)
+    zip_code: str | None = Field(None, max_length=20)
+    tax_number: str | None = Field(None, max_length=100)
+    pay_term_number: int | None = None
+    pay_term_type: str | None = Field(None, max_length=20)
+    opening_balance: Decimal = Decimal("0")
+    credit_limit: Decimal | None = None
+    is_active: bool = True
+    customer_group: str | None = Field(None, max_length=100)
     notes: str | None = None
 
 
 class CustomerUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     contact_number: str | None = Field(None, max_length=50)
+    alternate_number: str | None = Field(None, max_length=50)
     email: str | None = Field(None, max_length=255)
     address: str | None = None
+    city: str | None = Field(None, max_length=100)
+    state: str | None = Field(None, max_length=100)
+    country: str | None = Field(None, max_length=100)
+    zip_code: str | None = Field(None, max_length=20)
+    tax_number: str | None = Field(None, max_length=100)
+    pay_term_number: int | None = None
+    pay_term_type: str | None = Field(None, max_length=20)
+    opening_balance: Decimal | None = None
+    credit_limit: Decimal | None = None
+    is_active: bool | None = None
+    customer_group: str | None = Field(None, max_length=100)
     notes: str | None = None
 
 
@@ -28,8 +53,20 @@ class CustomerRead(BaseModel):
     id: uuid.UUID
     name: str
     contact_number: str | None = None
+    alternate_number: str | None = None
     email: str | None = None
     address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    zip_code: str | None = None
+    tax_number: str | None = None
+    pay_term_number: int | None = None
+    pay_term_type: str | None = None
+    opening_balance: Decimal = Decimal("0")
+    credit_limit: Decimal | None = None
+    is_active: bool = True
+    customer_group: str | None = None
     notes: str | None = None
     created_by: uuid.UUID
     created_at: datetime

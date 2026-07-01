@@ -39,14 +39,15 @@ async def create_customer_endpoint(
 @router.get("", response_model=CustomerListResponse)
 async def list_customers_endpoint(
     search: str | None = None,
+    is_active: bool | None = None,
     page: int = 1,
     page_size: int = 50,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """List customers, optionally filtered by name search."""
+    """List customers, optionally filtered by name search and active status."""
     items, total = await list_customers(
-        db, search=search, page=page, page_size=page_size
+        db, search=search, is_active=is_active, page=page, page_size=page_size
     )
     return CustomerListResponse(items=items, total=total)
 

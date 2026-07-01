@@ -22,8 +22,20 @@ async def create_customer(
     customer = Customer(
         name=data.name,
         contact_number=data.contact_number,
+        alternate_number=data.alternate_number,
         email=data.email,
         address=data.address,
+        city=data.city,
+        state=data.state,
+        country=data.country,
+        zip_code=data.zip_code,
+        tax_number=data.tax_number,
+        pay_term_number=data.pay_term_number,
+        pay_term_type=data.pay_term_type,
+        opening_balance=data.opening_balance,
+        credit_limit=data.credit_limit,
+        is_active=data.is_active,
+        customer_group=data.customer_group,
         notes=data.notes,
         created_by=user_id,
     )
@@ -39,10 +51,11 @@ async def list_customers(
     db: AsyncSession,
     *,
     search: str | None = None,
+    is_active: bool | None = None,
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[Customer], int]:
-    """List customers with optional name search."""
+    """List customers with optional name search and active filter."""
     query = select(Customer)
     count_query = select(func.count()).select_from(Customer)
 
@@ -50,6 +63,10 @@ async def list_customers(
         like = f"%{search}%"
         query = query.where(Customer.name.ilike(like))
         count_query = count_query.where(Customer.name.ilike(like))
+
+    if is_active is not None:
+        query = query.where(Customer.is_active == is_active)
+        count_query = count_query.where(Customer.is_active == is_active)
 
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
