@@ -219,12 +219,18 @@ class POSClient:
             log.warning("pos_sell_html_failed", sell_id=sell_id, error=str(exc))
             return ""
 
-    def fetch_purchase_detail(self, purchase_id: str | int) -> dict:
+    def fetch_purchase_print_html(self, purchase_id: str | int) -> str:
+        """Fetch purchase detail as HTML via the print/modal endpoint."""
         try:
-            return self._json_get(f"/purchases/{purchase_id}")
+            raw = self._get(f"/purchases/print/{purchase_id}")
+            if not raw.strip():
+                return ""
+            # Response is JSON: {"success":1,"receipt":{"html_content":"..."}}
+            data = json.loads(raw)
+            return data.get("receipt", {}).get("html_content", "")
         except Exception as exc:
             log.warning("pos_purchase_detail_fetch_failed", purchase_id=purchase_id, error=str(exc))
-            return {}
+            return ""
 
     def fetch_contacts(self, contact_type: str = "supplier") -> list[dict]:
         try:
@@ -329,6 +335,55 @@ def _parse_sell_lines_from_html(
             "quantity": qty,
             "unit_price": unit_price,
             "line_total": line_total or unit_price * Decimal(str(qty)),
+        })
+
+    return lines
+
+
+def _parse_purchase_lines_from_html(
+    html: str,
+    sku_to_product: dict[str, uuid.UUID],
+) -> list[dict]:
+    """
+    Extract purchase line items from a UltimatePOS purchase print HTML.
+
+    The print endpoint returns JSON {"receipt": {"html_content": "..."}}.
+    Table columns: [#, Product Name, SKU, Quantity, Unit Cost, Discount %, ...]
+    SKU is in col[2], quantity in col[3] (contains data-is_quantity span),
+    unit cost in col[4].
+    """
+    lines = []
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL | re.IGNORECASE)
+    for row in rows:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL | re.IGNORECASE)
+        if len(cells) < 5:
+            continue
+
+        # col[2] = SKU
+        sku = _strip_html(cells[2]).strip()
+        product_id = sku_to_product.get(sku)
+        if not product_id:
+            continue
+
+        # col[3] = quantity (may contain "84  roll(s)" text + span)
+        qty_m = re.search(r'data-is_quantity="true"[^>]*>([^<]+)', cells[3], re.IGNORECASE)
+        if qty_m:
+            qty_raw = qty_m.group(1).strip()
+        else:
+            qty_raw = re.search(r"[\d.]+", _strip_html(cells[3]))
+            qty_raw = qty_raw.group(0) if qty_raw else "0"
+        qty = max(1, int(float(qty_raw))) if float(qty_raw or 0) > 0 else 0
+        if qty <= 0:
+            continue
+
+        # col[4] = unit cost (plain number like "8026.0000")
+        unit_cost = _parse_price(_strip_html(cells[4]).strip())
+
+        lines.append({
+            "product_id": product_id,
+            "quantity": qty,
+            "unit_cost": unit_cost,
+            "line_total": unit_cost * Decimal(str(qty)),
         })
 
     return lines
@@ -852,55 +907,60 @@ async def step_migrate(session: AsyncSession) -> None:
     orders_created = 0
     purchase_lines_created = 0
 
+    # Build SKU → product_id map for purchase line matching
+    sku_to_product_id: dict[str, uuid.UUID] = {
+        sku: pid for sku, pid in product_map.items()
+    }
+
     for purchase_header in pos_purchases:
         purchase_id = _extract_pos_id(purchase_header, "purchases")
         if not purchase_id:
             log.warning("pos_purchase_id_missing", row=purchase_header)
             continue
 
+        # Header fields come from the list row (already fetched)
+        ref_no = str(purchase_header.get("ref_no") or f"POS-PO-{purchase_id}")
+        order_date = _parse_date(str(purchase_header.get("transaction_date") or "")) or today
+        final_total = _parse_price(_strip_html(str(purchase_header.get("final_total") or "0")))
+        supplier_name = _strip_html(str(purchase_header.get("name") or "Unknown Supplier")).strip()
+        supplier_id = next(
+            (sid for cid, sid in supplier_map.items()
+             if any(str(c.get("id", "")) == cid and _strip_html(str(c.get("name", ""))) == supplier_name
+                    for c in pos_suppliers)),
+            None,
+        )
+
+        # Determine payment/order status from HTML-wrapped list fields
+        status_html = str(purchase_header.get("status") or "")
+        is_received = "received" in status_html.lower()
+        pay_html = str(purchase_header.get("payment_status") or "")
+        is_paid = "paid" in pay_html.lower() and "due" not in pay_html.lower()
+
+        # Fetch line items from print HTML
         try:
-            detail: dict = _pos(client.fetch_purchase_detail, purchase_id, timeout=60)
+            print_html = _pos(client.fetch_purchase_print_html, purchase_id, timeout=60)
         except TimeoutError:
             log.warning("pos_purchase_total_timeout", purchase_id=purchase_id)
-            continue
+            print_html = ""
         except Exception as exc:
             log.warning("pos_purchase_detail_failed", purchase_id=purchase_id, error=str(exc))
-            continue
-        if not detail:
-            continue
+            print_html = ""
 
-        purchase_data = detail.get("purchase") or detail
-        purchase_lines = purchase_data.get("purchase_lines") or detail.get("purchase_lines") or []
-
-        transaction_date_raw = str(
-            purchase_data.get("transaction_date") or detail.get("transaction_date") or ""
-        )
-        order_date = _parse_date(transaction_date_raw) or today
-        ref_no = str(
-            purchase_data.get("ref_no") or purchase_data.get("invoice_no") or f"POS-PO-{purchase_id}"
-        )
-
-        pos_contact_id = str(purchase_data.get("contact_id") or "")
-        supplier_id = supplier_map.get(pos_contact_id)
-        supplier_name = "Unknown Supplier"
-        for contact in pos_suppliers:
-            if str(contact.get("id", "")) == pos_contact_id:
-                supplier_name = _strip_html(str(contact.get("name") or "Unknown Supplier"))
-                break
-
-        final_total = _parse_price(str(purchase_data.get("final_total") or "0"))
+        purchase_lines = _parse_purchase_lines_from_html(print_html, sku_to_product_id)
+        if not purchase_lines:
+            log.warning("pos_purchase_no_lines", purchase_id=purchase_id, ref_no=ref_no)
 
         po = PurchaseOrder(
             id=uuid.uuid4(),
             order_number=ref_no,
             supplier_id=supplier_id,
             supplier_name=supplier_name,
-            status=OrderStatus.DELIVERED,
+            status=OrderStatus.DELIVERED if is_received else OrderStatus.ORDERED,
             total_amount=final_total,
             currency="NGN",
             order_date=order_date,
-            actual_delivery_date=order_date,
-            payment_status=OrderPaymentStatus.PAID,
+            actual_delivery_date=order_date if is_received else None,
+            payment_status=OrderPaymentStatus.PAID if is_paid else OrderPaymentStatus.UNPAID,
             created_by=admin_id,
             location_id=location.id,
             notes="Imported from POS",
@@ -909,25 +969,10 @@ async def step_migrate(session: AsyncSession) -> None:
         await session.flush()  # need po.id for line items + stock movements
 
         for line in purchase_lines:
-            pos_product_id = str(line.get("product_id", ""))
-            product_id = pos_id_to_product.get(pos_product_id)
-            if not product_id:
-                log.warning(
-                    "pos_purchase_line_product_not_found",
-                    purchase_id=purchase_id,
-                    pos_product_id=pos_product_id,
-                )
-                continue
-
-            quantity = int(float(line.get("quantity") or 1))
-            unit_cost = _parse_price(
-                str(line.get("purchase_price") or line.get("unit_cost") or "0")
-            )
-            line_total = _parse_price(str(line.get("line_total") or "0")) or (
-                unit_cost * Decimal(str(quantity))
-            )
-            if quantity <= 0:
-                continue
+            product_id = line["product_id"]
+            quantity = line["quantity"]
+            unit_cost = line["unit_cost"]
+            line_total = line["line_total"]
 
             oli = OrderLineItem(
                 id=uuid.uuid4(),
