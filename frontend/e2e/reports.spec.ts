@@ -139,9 +139,8 @@ test.describe('Stock report generation', () => {
 test.describe('Date range preset buttons', () => {
   test('P&L page shows all 6 preset buttons', async ({ page }) => {
     await page.goto('/reports/profit-loss');
-    for (const label of ['This Week', 'This Month', 'Last 30 Days', 'This Quarter', 'YTD', 'Last Year']) {
-      await expect(page.getByRole('button', { name: label })).toBeVisible();
-    }
+    const labels = ['This Week', 'This Month', 'Last 30 Days', 'This Quarter', 'YTD', 'Last Year'];
+    await Promise.all(labels.map((l) => expect(page.getByRole('button', { name: l })).toBeVisible()));
   });
 
   test('clicking Last Year preset updates date inputs to correct year range', async ({ page }) => {
@@ -167,8 +166,10 @@ test.describe('Date range preset buttons', () => {
     await btn.click();
     await expect(btn).toHaveClass(/bg-emerald-600/);
 
-    // Editing the start date input should deactivate the preset
+    // Editing the start date input should deactivate the preset.
+    // Tab away after fill so ngModelChange fires and Angular CD re-renders the OnPush component.
     await page.locator('#pl-start-date').fill('2025-01-01');
+    await page.keyboard.press('Tab');
     await expect(btn).not.toHaveClass(/bg-emerald-600/);
   });
 
@@ -181,9 +182,8 @@ test.describe('Date range preset buttons', () => {
 
   test('Purchase & Sale page shows all 6 preset buttons', async ({ page }) => {
     await page.goto('/reports/purchase-sale');
-    for (const label of ['This Week', 'This Month', 'Last 30 Days', 'This Quarter', 'YTD', 'Last Year']) {
-      await expect(page.getByRole('button', { name: label })).toBeVisible();
-    }
+    const labels = ['This Week', 'This Month', 'Last 30 Days', 'This Quarter', 'YTD', 'Last Year'];
+    await Promise.all(labels.map((l) => expect(page.getByRole('button', { name: l })).toBeVisible()));
   });
 
   test('clicking Last Year preset on Purchase & Sale page updates date inputs', async ({ page }) => {
