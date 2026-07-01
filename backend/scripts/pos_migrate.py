@@ -20,7 +20,7 @@ import re
 import sys
 import threading
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from http.cookiejar import CookieJar
 from typing import Any
@@ -100,7 +100,7 @@ from src.expenses.models import Expense, ExpenseCategory
 from src.sales.models import Sale, SaleAuditEntry, SaleBulkUploadJob, SaleChannel, SaleStatus, SellReturn
 from src.settings.models import UserApiKey, UserPreferences
 from src.stockcount.models import StockCount, StockCountItem
-from src.suppliers.models import Supplier, SupplierProduct
+from src.suppliers.models import PayTermType, Supplier, SupplierProduct
 
 log = structlog.get_logger()
 
@@ -240,6 +240,49 @@ class POSClient:
         except Exception as exc:
             log.warning("pos_contacts_fetch_failed", type=contact_type, error=str(exc))
             return []
+
+    def fetch_sell_returns(self) -> list[dict]:
+        try:
+            data = self._json_get("/sell-returns?per_page=2000")
+            return data.get("data", [])
+        except Exception as exc:
+            log.warning("pos_sell_returns_fetch_failed", error=str(exc))
+            return []
+
+    def fetch_purchase_returns(self) -> list[dict]:
+        try:
+            data = self._json_get("/purchase-returns?per_page=2000")
+            return data.get("data", [])
+        except Exception as exc:
+            log.warning("pos_purchase_returns_fetch_failed", error=str(exc))
+            return []
+
+    def fetch_stock_adjustments(self) -> list[dict]:
+        try:
+            data = self._json_get("/stock-adjustments?per_page=2000")
+            return data.get("data", [])
+        except Exception as exc:
+            log.warning("pos_stock_adjustments_fetch_failed", error=str(exc))
+            return []
+
+    def fetch_expense_categories(self) -> list[dict]:
+        try:
+            data = self._json_get("/expense-categories?per_page=200")
+            return data.get("data", [])
+        except Exception as exc:
+            log.warning("pos_expense_categories_fetch_failed", error=str(exc))
+            return []
+
+    def fetch_expenses(self) -> list[dict]:
+        try:
+            data = self._json_get("/expenses?per_page=2000")
+            return data.get("data", [])
+        except Exception as exc:
+            log.warning("pos_expenses_fetch_failed", error=str(exc))
+            return []
+
+    def fetch_customers(self) -> list[dict]:
+        return self.fetch_contacts("customer")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -421,7 +464,7 @@ def _parse_price(raw: str) -> Decimal:
 
 
 def _parse_qty(raw: str) -> int:
-    m = re.match(r"^([\d.]+)", str(raw))
+    m = re.match(r"^(-?[\d.]+)", str(raw))
     return int(float(m.group(1))) if m else 0
 
 
@@ -498,12 +541,36 @@ def step_verify() -> None:
     suppliers = client.fetch_contacts("supplier")
     log.info("pos_suppliers_fetched", count=len(suppliers))
 
+    customers = client.fetch_customers()
+    log.info("pos_customers_fetched", count=len(customers))
+
+    sell_returns = client.fetch_sell_returns()
+    log.info("pos_sell_returns_fetched", count=len(sell_returns))
+
+    purchase_returns = client.fetch_purchase_returns()
+    log.info("pos_purchase_returns_fetched", count=len(purchase_returns))
+
+    stock_adjustments = client.fetch_stock_adjustments()
+    log.info("pos_stock_adjustments_fetched", count=len(stock_adjustments))
+
+    expense_categories = client.fetch_expense_categories()
+    log.info("pos_expense_categories_fetched", count=len(expense_categories))
+
+    expenses = client.fetch_expenses()
+    log.info("pos_expenses_fetched", count=len(expenses))
+
     log.info(
         "pos_verify_complete",
         products=len(products),
         sells=len(sells),
         purchases=len(purchases),
         suppliers=len(suppliers),
+        customers=len(customers),
+        sell_returns=len(sell_returns),
+        purchase_returns=len(purchase_returns),
+        stock_adjustments=len(stock_adjustments),
+        expense_categories=len(expense_categories),
+        expenses=len(expenses),
     )
 
 
@@ -720,10 +787,15 @@ async def step_migrate(session: AsyncSession) -> None:
             selling_price=selling_price,
             currency="NGN",
             is_active=True,
+            description=str(p.get("product_description") or "").strip() or None,
+            image_url=str(p.get("image") or "").strip() or None,
+            barcode=str(p.get("barcode") or "").strip() or None,
+            unit=str(p.get("unit") or "").strip() or None,
         )
         session.add(product)
+        alert_qty = _parse_qty(str(p.get("alert_quantity", "10"))) or 10
         product_map[sku] = product_id
-        sku_to_pos[sku] = {"stock": stock, "pos_id": p.get("id"), "name": name}
+        sku_to_pos[sku] = {"stock": stock, "pos_id": p.get("id"), "name": name, "alert_qty": alert_qty}
 
         # Price history entry
         ph = PriceHistory(
@@ -750,7 +822,7 @@ async def step_migrate(session: AsyncSession) -> None:
             product_id=product_id,
             quantity_on_hand=stock,
             quantity_reserved=0,
-            low_stock_threshold=10,
+            low_stock_threshold=sku_to_pos[sku]["alert_qty"],
         )
         session.add(inv)
 
@@ -758,7 +830,7 @@ async def step_migrate(session: AsyncSession) -> None:
             mv = StockMovement(
                 id=uuid.uuid4(),
                 product_id=product_id,
-                movement_type=MovementType.MANUAL_ADD,
+                movement_type=MovementType.OPENING_STOCK,
                 quantity_change=stock,
                 quantity_before=0,
                 quantity_after=stock,
@@ -787,16 +859,32 @@ async def step_migrate(session: AsyncSession) -> None:
         if not sup_name or sup_name == "Unknown":
             continue
 
+        raw_pay_term = str(contact.get("pay_term_type", "") or "").lower()
+        sup_pay_term_type = (
+            PayTermType.MONTHS if raw_pay_term == "months"
+            else PayTermType.DAYS if raw_pay_term == "days"
+            else None
+        )
+        pay_term_number_raw = contact.get("pay_term_number")
+        sup_pay_term_number = int(float(pay_term_number_raw)) if pay_term_number_raw is not None else None
+
         sup_id = uuid.uuid4()
         supplier = Supplier(
             id=sup_id,
             name=sup_name,
             email=email,
             mobile=mobile,
+            alternate_number=contact.get("alternate_number") or None,
             city=city,
             state=state,
             country=country,
             address_line_1=address,
+            address_line_2=contact.get("address_line_2") or None,
+            zip_code=contact.get("zip_code") or None,
+            pay_term_number=sup_pay_term_number,
+            pay_term_type=sup_pay_term_type,
+            opening_balance=_parse_price(str(contact.get("opening_balance") or "0")),
+            tax_number=contact.get("tax_number") or None,
             is_active=True,
             created_by=admin_id,
         )
@@ -805,6 +893,60 @@ async def step_migrate(session: AsyncSession) -> None:
 
     await session.flush()
     log.info("suppliers_inserted", count=len(supplier_map))
+
+    # ── 3f-2. Customers ──────────────────────────────────────────────────────
+    pos_customers: list[dict] = _pos(client.fetch_customers, timeout=120)
+    customer_map: dict[str, uuid.UUID] = {}  # POS contact_id → modishlog customer_id
+    customer_name_map: dict[str, uuid.UUID] = {}  # normalized_name → customer_id
+
+    for contact in pos_customers:
+        contact_id = str(contact.get("id", ""))
+        cust_name = _strip_html(str(contact.get("name") or "Unknown"))
+        if not cust_name or cust_name == "Unknown":
+            continue
+
+        raw_pay_term = str(contact.get("pay_term_type", "") or "").lower()
+        cust_pay_term_type = (
+            PayTermType.MONTHS if raw_pay_term == "months"
+            else PayTermType.DAYS if raw_pay_term == "days"
+            else None
+        )
+        cust_pay_term_raw = contact.get("pay_term_number")
+        cust_pay_term_number = int(float(cust_pay_term_raw)) if cust_pay_term_raw is not None else None
+
+        credit_limit_raw = contact.get("credit_limit")
+        credit_limit_val = _parse_price(str(credit_limit_raw)) if credit_limit_raw is not None else None
+        cust_id = uuid.uuid4()
+        customer = Customer(
+            id=cust_id,
+            name=cust_name,
+            email=contact.get("email") or None,
+            contact_number=contact.get("mobile") or contact.get("contact_no") or None,
+            alternate_number=contact.get("alternate_number") or None,
+            address=contact.get("address_line_1") or contact.get("landmark") or None,
+            city=contact.get("city") or None,
+            state=contact.get("state") or None,
+            country=contact.get("country") or "Nigeria",
+            zip_code=contact.get("zip_code") or None,
+            tax_number=contact.get("tax_number") or None,
+            pay_term_number=cust_pay_term_number,
+            pay_term_type=cust_pay_term_type,
+            opening_balance=_parse_price(str(contact.get("opening_balance") or "0")),
+            credit_limit=credit_limit_val,
+            is_active=True,
+            customer_group=contact.get("customer_group") or None,
+            created_by=admin_id,
+        )
+        session.add(customer)
+        customer_map[contact_id] = cust_id
+        norm_name = re.sub(r"\s+", " ", cust_name.lower().strip())
+        if norm_name in customer_name_map:
+            log.warning("pos_customer_name_collision", name=cust_name, keeping_first=True)
+        else:
+            customer_name_map[norm_name] = cust_id
+
+    await session.flush()
+    log.info("customers_inserted", count=len(customer_map))
 
     # ── 3g. Sales ────────────────────────────────────────────────────────────
     # Build lookup maps for product matching during sell-line parsing
@@ -822,11 +964,15 @@ async def step_migrate(session: AsyncSession) -> None:
 
     sales_created = 0
     sells_with_lines = 0
+    invoice_no_to_sale_id: dict[str, uuid.UUID] = {}
+    pos_sell_id_to_sale_id: dict[str, uuid.UUID] = {}
     for idx, sell_header in enumerate(pos_sells):
         sell_id = _extract_pos_id(sell_header, "sells")
         if not sell_id:
             log.warning("pos_sell_id_missing", row=sell_header)
             continue
+
+        invoice_no = str(sell_header.get("invoice_no") or sell_header.get("invoice_number") or "")
 
         # Date comes from the list header (transaction_date field)
         date_raw = str(sell_header.get("transaction_date") or "")
@@ -852,6 +998,8 @@ async def step_migrate(session: AsyncSession) -> None:
         sells_with_lines += 1
         transaction_uuid = uuid.uuid4()  # shared across line items of this sell
 
+        cust_name_raw = _strip_html(str(sell_header.get("name") or "")).strip()
+        cust_norm = re.sub(r"\s+", " ", cust_name_raw.lower().strip())
         for line in sell_lines:
             product_id = line["product_id"]
             quantity = line["quantity"]
@@ -870,11 +1018,22 @@ async def step_migrate(session: AsyncSession) -> None:
                 channel=SaleChannel.RETAIL,
                 status=SaleStatus.COMPLETED,
                 transaction_id=transaction_uuid,
+                invoice_number=invoice_no or None,
+                tax_amount=_parse_price(str(sell_header.get("tax_amount") or "0")) or None,
+                customer_name=cust_name_raw or None,
+                customer_id=customer_name_map.get(cust_norm),
+                payment_method=str(sell_header.get("payment_type") or "").strip() or None,
+                payment_status=_strip_html(str(sell_header.get("payment_status") or "")).strip().lower() or None,
+                payment_amount=_parse_price(str(sell_header.get("total_paid") or "0")) or None,
                 recorded_by=admin_id,
                 location_id=location.id,
                 notes="Imported from POS",
             )
             session.add(sale)
+            if invoice_no and invoice_no not in invoice_no_to_sale_id:
+                invoice_no_to_sale_id[invoice_no] = sale_id
+            if sell_id and sell_id not in pos_sell_id_to_sale_id:
+                pos_sell_id_to_sale_id[sell_id] = sale_id
 
             mv = StockMovement(
                 id=uuid.uuid4(),
@@ -919,6 +1078,8 @@ async def step_migrate(session: AsyncSession) -> None:
 
     orders_created = 0
     purchase_lines_created = 0
+    ref_no_to_po_id: dict[str, uuid.UUID] = {}
+    pos_purchase_id_to_po_id: dict[str, uuid.UUID] = {}
 
     # Build SKU → product_id map for purchase line matching
     sku_to_product_id: dict[str, uuid.UUID] = {
@@ -982,6 +1143,8 @@ async def step_migrate(session: AsyncSession) -> None:
         )
         session.add(po)
         await session.flush()  # need po.id for line items + stock movements
+        ref_no_to_po_id[ref_no] = po.id
+        pos_purchase_id_to_po_id[purchase_id] = po.id
 
         for line in purchase_lines:
             product_id = line["product_id"]
@@ -1017,11 +1180,220 @@ async def step_migrate(session: AsyncSession) -> None:
             session.add(mv)
             purchase_lines_created += 1
 
+        if is_received:
+            for line in purchase_lines:
+                unit_cost_usd_batch = (line["unit_cost"] / usdngn_rate).quantize(
+                    Decimal("0.000001"), rounding=ROUND_HALF_UP
+                )
+                batch = InventoryBatch(
+                    id=uuid.uuid4(),
+                    product_id=line["product_id"],
+                    order_id=po.id,
+                    quantity_received=line["quantity"],
+                    quantity_remaining=line["quantity"],
+                    unit_cost_usd=unit_cost_usd_batch,
+                    fx_rate_at_arrival=usdngn_rate,
+                    landed_cost_per_unit=unit_cost_usd_batch,
+                    received_at=po.actual_delivery_date or po.order_date or today,
+                    created_at=datetime.now(timezone.utc),
+                )
+                session.add(batch)
+
         orders_created += 1
         log.info("purchase_migrated", ref_no=ref_no, lines=purchase_lines_created)
 
     await session.flush()
     log.info("purchases_inserted", orders=orders_created, line_items=purchase_lines_created)
+
+    # ── 3i. Sell returns ─────────────────────────────────────────────────────
+    pos_sell_returns: list[dict] = _pos(client.fetch_sell_returns, timeout=120)
+    sell_returns_created = 0
+    for sr in pos_sell_returns:
+        sr_invoice_no = str(sr.get("invoice_no") or sr.get("invoice_number") or "")
+        sr_pos_sell_id = str(sr.get("parent_sell_id") or sr.get("invoice_id") or "")
+        sr_sale_id = (
+            invoice_no_to_sale_id.get(sr_invoice_no)
+            or pos_sell_id_to_sale_id.get(sr_pos_sell_id)
+        )
+        if not sr_sale_id:
+            log.warning(
+                "pos_sell_return_no_matching_sale",
+                invoice_no=sr_invoice_no,
+                pos_sell_id=sr_pos_sell_id,
+            )
+            continue
+
+        sr_date_raw = str(sr.get("transaction_date") or sr.get("return_date") or "")
+        sr_return_date = _parse_date(sr_date_raw) or today
+
+        sr_total = _parse_price(_strip_html(str(sr.get("final_total") or "0")))
+        sr_paid = _parse_price(_strip_html(str(sr.get("total_amount_paid") or "0")))
+        _sr_pos_id = _extract_pos_id(sr, "sell-returns")
+        sr_ref = str(sr.get("ref_no") or "").strip() or (f"SR-{_sr_pos_id}" if _sr_pos_id else None)
+
+        sell_return = SellReturn(
+            id=uuid.uuid4(),
+            sale_id=sr_sale_id,
+            return_date=sr_return_date,
+            total_amount=sr_total,
+            amount_paid=sr_paid,
+            ref_no=sr_ref,
+            notes="Imported from POS",
+            created_by=admin_id,
+        )
+        session.add(sell_return)
+        sell_returns_created += 1
+
+    await session.flush()
+    log.info("sell_returns_inserted", count=sell_returns_created)
+
+    # ── 3j. Purchase returns ──────────────────────────────────────────────────
+    pos_purchase_returns: list[dict] = _pos(client.fetch_purchase_returns, timeout=120)
+    purchase_returns_created = 0
+    for pr in pos_purchase_returns:
+        pr_ref = str(pr.get("ref_no") or "").strip() or None
+        pr_pos_purchase_id = str(pr.get("purchase_id") or "")
+        pr_po_id = (
+            pos_purchase_id_to_po_id.get(pr_pos_purchase_id)
+            or ref_no_to_po_id.get(pr_ref or "")
+        )
+        if not pr_po_id:
+            log.warning(
+                "pos_purchase_return_no_matching_po",
+                ref_no=pr_ref,
+                pos_purchase_id=pr_pos_purchase_id,
+            )
+            continue
+
+        pr_date_raw = str(pr.get("transaction_date") or "")
+        pr_return_date = _parse_date(pr_date_raw) or today
+
+        pr_total_ngn = _parse_price(_strip_html(str(pr.get("final_total") or "0")))
+        pr_total_usd = (pr_total_ngn / usdngn_rate).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        pr_paid_ngn = _parse_price(_strip_html(str(pr.get("total_amount_paid") or "0")))
+        pr_paid_usd = (pr_paid_ngn / usdngn_rate).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+        purchase_return = PurchaseReturn(
+            id=uuid.uuid4(),
+            original_order_id=pr_po_id,
+            ref_no=pr_ref or None,
+            return_date=pr_return_date,
+            total_amount=pr_total_usd,
+            amount_paid=pr_paid_usd,
+            notes="Imported from POS",
+            created_by=admin_id,
+        )
+        session.add(purchase_return)
+        purchase_returns_created += 1
+
+    await session.flush()
+    log.info("purchase_returns_inserted", count=purchase_returns_created)
+
+    # ── 3k. Stock adjustments ────────────────────────────────────────────────
+    pos_adjustments: list[dict] = _pos(client.fetch_stock_adjustments, timeout=120)
+    adjustments_created = 0
+    for adj in pos_adjustments:
+        adj_id = _extract_pos_id(adj, "stock-adjustments")
+        adj_type_raw = str(adj.get("type") or "").lower()
+        adj_movement_type = (
+            MovementType.OPENING_STOCK if adj_type_raw == "opening"
+            else MovementType.STOCK_ADJUSTMENT
+        )
+        adj_lines = adj.get("stock_adjustment_lines") or []
+        if not adj_lines:
+            pos_prod_id = str(adj.get("product_id") or "")
+            qty = _parse_qty(str(adj.get("quantity") or "0"))
+            prod_id = pos_id_to_product.get(pos_prod_id)
+            if prod_id and qty != 0:
+                session.add(StockMovement(
+                    id=uuid.uuid4(),
+                    product_id=prod_id,
+                    movement_type=adj_movement_type,
+                    quantity_change=qty,
+                    quantity_before=0,
+                    quantity_after=0,
+                    reason=f"POS migration — stock adjustment {adj_id}",
+                    performed_by=admin_id,
+                ))
+                adjustments_created += 1
+        else:
+            for adj_line in adj_lines:
+                pos_prod_id = str(adj_line.get("product_id") or "")
+                qty = _parse_qty(str(adj_line.get("quantity") or adj_line.get("adjusted_qty") or "0"))
+                prod_id = pos_id_to_product.get(pos_prod_id)
+                if not prod_id or qty == 0:
+                    continue
+                session.add(StockMovement(
+                    id=uuid.uuid4(),
+                    product_id=prod_id,
+                    movement_type=adj_movement_type,
+                    quantity_change=qty,
+                    quantity_before=0,
+                    quantity_after=0,
+                    reason=f"POS migration — stock adjustment {adj_id}",
+                    performed_by=admin_id,
+                ))
+                adjustments_created += 1
+
+    await session.flush()
+    log.info("stock_adjustments_inserted", count=adjustments_created)
+
+    # ── 3l. Expenses ──────────────────────────────────────────────────────────
+    pos_expense_cats: list[dict] = _pos(client.fetch_expense_categories, timeout=60)
+    expense_cat_map: dict[str, uuid.UUID] = {}
+    seen_cat_names: dict[str, uuid.UUID] = {}  # normalized name → uuid (dedup guard)
+
+    for ec in pos_expense_cats:
+        ec_pos_id = str(ec.get("id", ""))
+        ec_name = _strip_html(str(ec.get("name") or "Unknown")).strip()
+        if not ec_name or ec_name == "Unknown":
+            continue
+        if ec_name in seen_cat_names:
+            log.warning("pos_expense_category_duplicate_name", name=ec_name, reusing_existing=True)
+            expense_cat_map[ec_pos_id] = seen_cat_names[ec_name]
+            continue
+        ec_uuid = uuid.uuid4()
+        session.add(ExpenseCategory(
+            id=ec_uuid,
+            name=ec_name,
+            description=str(ec.get("description") or "").strip() or None,
+            created_by=admin_id,
+        ))
+        expense_cat_map[ec_pos_id] = ec_uuid
+        seen_cat_names[ec_name] = ec_uuid
+
+    await session.flush()
+    log.info("expense_categories_inserted", count=len(expense_cat_map))
+
+    pos_expenses: list[dict] = _pos(client.fetch_expenses, timeout=120)
+    expenses_created = 0
+    for exp in pos_expenses:
+        exp_cat_pos_id = str(exp.get("expense_category_id") or "")
+        exp_cat_uuid = expense_cat_map.get(exp_cat_pos_id)
+
+        exp_amount_ngn = _parse_price(_strip_html(str(exp.get("amount") or exp.get("final_total") or "0")))
+        exp_amount_usd = (exp_amount_ngn / usdngn_rate).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+        exp_date_raw = str(exp.get("expense_date") or exp.get("transaction_date") or "")
+        exp_date = _parse_date(exp_date_raw) or today
+
+        session.add(Expense(
+            id=uuid.uuid4(),
+            category_id=exp_cat_uuid,
+            ref_no=str(exp.get("ref_no") or "").strip() or None,
+            amount_ngn=exp_amount_ngn,
+            fx_rate=usdngn_rate,
+            amount_usd=exp_amount_usd,
+            expense_date=exp_date,
+            payment_method=str(exp.get("payment_method") or "").strip() or None,
+            note=_strip_html(str(exp.get("note") or exp.get("additional_notes") or "")).strip() or None,
+            location_id=location.id,
+            created_by=admin_id,
+        ))
+        expenses_created += 1
+
+    await session.flush()
+    log.info("expenses_inserted", count=expenses_created)
 
     # ── Final commit ─────────────────────────────────────────────────────────
     await session.commit()
@@ -1030,8 +1402,14 @@ async def step_migrate(session: AsyncSession) -> None:
         "migration_complete",
         products=len(product_map),
         suppliers=len(supplier_map),
+        customers=len(customer_map),
         sales=sales_created,
         purchase_orders=orders_created,
+        sell_returns=sell_returns_created,
+        purchase_returns=purchase_returns_created,
+        stock_adjustments=adjustments_created,
+        expense_categories=len(expense_cat_map),
+        expenses=expenses_created,
         admin_email=ADMIN_EMAIL,
     )
 

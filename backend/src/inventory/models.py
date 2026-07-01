@@ -30,6 +30,8 @@ class MovementType(str, enum.Enum):
     MANUAL_REMOVE = "manual_remove"
     ORDER_RECEIVED = "order_received"
     DAMAGED = "damaged"
+    STOCK_ADJUSTMENT = "stock_adjustment"
+    OPENING_STOCK = "opening_stock"
 
 
 class AlertStatus(str, enum.Enum):
