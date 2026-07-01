@@ -23,7 +23,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 from sqlalchemy import select
@@ -32,9 +32,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.pos_sync.models import SyncState
 from src.products.models import Product
 from src.sales.models import Sale, SaleChannel, SaleStatus
-
-if TYPE_CHECKING:
-    pass
 
 logger = structlog.get_logger()
 
@@ -78,6 +75,10 @@ class POSSyncService:
 
         result = SyncResult(new_watermark=watermark)
 
+        # Hoist expensive lookups once per batch, not once per sell
+        name_map = await self._build_product_name_map()
+        system_user_id = await self._get_system_user_id()
+
         for sell in new_sells:
             pos_id = str(self._pos_int_id(sell))
             if await self._sale_pos_id_exists(pos_id):
@@ -85,8 +86,10 @@ class POSSyncService:
                 result.new_watermark = max(result.new_watermark, int(pos_id))
                 continue
             try:
-                await self._insert_sell(sell, pos_id)
-                result.inserted += 1
+                rows_inserted = await self._insert_sell(
+                    sell, pos_id, name_map=name_map, system_user_id=system_user_id
+                )
+                result.inserted += rows_inserted
                 result.new_watermark = max(result.new_watermark, int(pos_id))
             except Exception as exc:
                 await logger.awarning(
@@ -185,16 +188,22 @@ class POSSyncService:
     # Insert helpers
     # ------------------------------------------------------------------
 
-    async def _insert_sell(self, sell: dict, pos_id: str) -> None:
-        """Insert one POS sell as one Sale record per line item."""
+    async def _insert_sell(
+        self,
+        sell: dict,
+        pos_id: str,
+        *,
+        name_map: dict[str, uuid.UUID],
+        system_user_id: uuid.UUID,
+    ) -> int:
+        """Insert one POS sell as one Sale record per line item.
+
+        Returns the number of Sale rows actually inserted (0 if no lines
+        matched a known product).
+        """
         sell_date = self._parse_date(sell.get("transaction_date") or "")
         lines: list[dict] = sell.get("sell_lines") or []
-
-        # Build a product-name → Product.id map for this batch
-        name_map = await self._build_product_name_map()
-
-        # Determine system user for recorded_by
-        system_user_id = await self._get_system_user_id()
+        rows = 0
 
         for line in lines:
             product_name: str = ""
@@ -230,8 +239,10 @@ class POSSyncService:
                 payment_status=sell.get("payment_status"),
             )
             self._db.add(sale)
+            rows += 1
 
         await self._db.flush()
+        return rows
 
     async def _insert_purchase(self, purchase: dict, pos_id: str) -> None:
         """Insert one POS purchase as a PurchaseOrder record."""

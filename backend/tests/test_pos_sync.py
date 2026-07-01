@@ -101,6 +101,9 @@ class TestPOSSyncServiceSells:
         service = POSSyncService(db=db, pos_client=pos_client)
         # Pre-seed the watermark via a side-effect on the DB query
         service._watermark_cache = {"sells_max_id": watermark_value}
+        # Hoist helpers are called once per batch — mock them at the service level
+        service._build_product_name_map = AsyncMock(return_value={})
+        service._get_system_user_id = AsyncMock(return_value=uuid.uuid4())
         return service, db, pos_client
 
     @pytest.mark.asyncio
@@ -111,9 +114,9 @@ class TestPOSSyncServiceSells:
         sells = [_make_pos_sell(101), _make_pos_sell(102)]
         service, db, pos_client = self._make_service(sells, watermark_value=100)
 
-        # Simulate no existing records for those pos_ids
+        # _insert_sell now returns the number of Sale rows inserted
         service._sale_pos_id_exists = AsyncMock(return_value=False)
-        service._insert_sell = AsyncMock()
+        service._insert_sell = AsyncMock(return_value=1)
         service._save_watermark = AsyncMock()
 
         result = await service.sync_sells()
@@ -133,7 +136,7 @@ class TestPOSSyncServiceSells:
         service, db, pos_client = self._make_service(sells, watermark_value=100)
 
         service._sale_pos_id_exists = AsyncMock(return_value=False)
-        service._insert_sell = AsyncMock()
+        service._insert_sell = AsyncMock(return_value=1)
         service._save_watermark = AsyncMock()
 
         result = await service.sync_sells()
@@ -152,7 +155,7 @@ class TestPOSSyncServiceSells:
 
         # Simulate record already in DB
         service._sale_pos_id_exists = AsyncMock(return_value=True)
-        service._insert_sell = AsyncMock()
+        service._insert_sell = AsyncMock(return_value=1)
         service._save_watermark = AsyncMock()
 
         result = await service.sync_sells()
@@ -170,7 +173,7 @@ class TestPOSSyncServiceSells:
         service, db, pos_client = self._make_service(sells, watermark_value=100)
 
         service._sale_pos_id_exists = AsyncMock(return_value=False)
-        service._insert_sell = AsyncMock()
+        service._insert_sell = AsyncMock(return_value=1)
         service._save_watermark = AsyncMock()
 
         result = await service.sync_sells()
@@ -201,7 +204,7 @@ class TestPOSSyncServiceSells:
 
         service, db, pos_client = self._make_service([], watermark_value=100)
         service._sale_pos_id_exists = AsyncMock(return_value=False)
-        service._insert_sell = AsyncMock()
+        service._insert_sell = AsyncMock(return_value=0)
         service._save_watermark = AsyncMock()
 
         result = await service.sync_sells()
@@ -277,9 +280,11 @@ class TestRunIncrementalSync:
 
         service = POSSyncService(db=db, pos_client=pos_client)
         service._watermark_cache = {"sells_max_id": 0, "purchases_max_id": 0}
+        service._build_product_name_map = AsyncMock(return_value={})
+        service._get_system_user_id = AsyncMock(return_value=uuid.uuid4())
         service._sale_pos_id_exists = AsyncMock(return_value=False)
         service._purchase_pos_id_exists = AsyncMock(return_value=False)
-        service._insert_sell = AsyncMock()
+        service._insert_sell = AsyncMock(return_value=0)
         service._insert_purchase = AsyncMock()
         service._save_watermark = AsyncMock()
 

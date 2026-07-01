@@ -19,11 +19,6 @@ logger = structlog.get_logger()
 
 async def _pos_sync_loop(interval_seconds: int = 600) -> None:
     """Background task: run incremental POS sync every N seconds."""
-    import os
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-    from src.core.config import settings
-
     pos_user = os.environ.get("POS_USERNAME")
     pos_pass = os.environ.get("POS_PASSWORD")
     if not pos_user or not pos_pass:
@@ -31,17 +26,15 @@ async def _pos_sync_loop(interval_seconds: int = 600) -> None:
         return
 
     from scripts.pos_migrate import POSClient
+    from src.core.database import async_session_factory
     from src.pos_sync.service import POSSyncService
-
-    engine = create_async_engine(settings.DATABASE_URL)
-    Session = async_sessionmaker(engine, expire_on_commit=False)
 
     await asyncio.sleep(30)  # give the app time to finish starting
     while True:
         try:
             client = POSClient()
             client.login()
-            async with Session() as db:
+            async with async_session_factory() as db:
                 service = POSSyncService(db=db, pos_client=client)
                 result = await service.run_incremental_sync()
                 await db.commit()
