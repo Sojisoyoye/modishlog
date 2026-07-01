@@ -113,7 +113,7 @@ class TestCreateCustomer:
         assert customer.zip_code == "200001"
         assert customer.tax_number == "TIN-9876"
         assert customer.pay_term_number == 30
-        assert customer.pay_term_type == "days"
+        assert customer.pay_term_type == PayTermType.DAYS
         assert customer.opening_balance == Decimal("15000.00")
         assert customer.credit_limit == Decimal("500000.00")
         assert customer.is_active is True
