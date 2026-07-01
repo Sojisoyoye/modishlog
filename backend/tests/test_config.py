@@ -184,18 +184,22 @@ class TestCorsOriginsWildcardGuard:
 class TestDatabaseURLNoHardcodedCredentials:
     def test_default_database_url_has_no_plaintext_password(self):
         """Default DATABASE_URL must not embed a real password (no ':password@' pattern)."""
+        import os
         import re
         from pydantic import ValidationError
 
+        env_backup = os.environ.pop("DATABASE_URL", None)
         try:
-            s = Settings()
-            # If it succeeds, the default URL must not have credentials
-            assert not re.search(
-                r":modishlog_dev@", s.DATABASE_URL
-            ), "Default DATABASE_URL must not contain the hardcoded password 'modishlog_dev'"
-        except ValidationError:
-            # If Settings() raises because DATABASE_URL has no default, that's also acceptable
-            pass
+            try:
+                s = Settings()
+                assert not re.search(
+                    r":modishlog_dev@", s.DATABASE_URL
+                ), "Default DATABASE_URL must not contain the hardcoded password 'modishlog_dev'"
+            except ValidationError:
+                pass
+        finally:
+            if env_backup is not None:
+                os.environ["DATABASE_URL"] = env_backup
 
     def test_database_url_required_or_no_plaintext_default(self):
         """Instantiating Settings without DATABASE_URL env var must either work (no default

@@ -7,6 +7,12 @@ export default defineConfig({
   retries: 0,
   timeout: 30_000,
   reporter: [['list']],
+
+  // Runs before/after the entire suite — resets the isolated test DB so that
+  // E2E runs NEVER touch the dev DB holding the migrated POS dataset.
+  globalSetup: './e2e/global-setup.ts',
+  globalTeardown: './e2e/global-teardown.ts',
+
   use: {
     baseURL: 'http://localhost:4200',
     locale: 'en-US',
