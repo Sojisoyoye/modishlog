@@ -18,7 +18,7 @@ import os
 import re
 import sys
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal
 from http.cookiejar import CookieJar
 from typing import Any
@@ -32,9 +32,11 @@ from urllib.request import (
 # Allow importing src.* when run as a script
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import json
+
 import structlog
 from passlib.context import CryptContext
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.ai_engine.models import (
@@ -90,18 +92,27 @@ from src.pricing.models import (
     ProductMixTarget,
 )
 from src.products.models import PriceHistory, Product, ProductCategory
-from src.sales.models import Sale, SaleAuditEntry, SaleBulkUploadJob, SaleChannel, SaleStatus, SellReturn
+from src.sales.models import Sale, SaleAuditEntry, SaleBulkUploadJob, SellReturn
 from src.settings.models import UserApiKey, UserPreferences
 from src.stockcount.models import StockCount, StockCountItem
 from src.suppliers.models import Supplier, SupplierProduct
 
 log = structlog.get_logger()
 
+
+def _require_env(name: str) -> str:
+    raise RuntimeError(
+        f"Required environment variable {name!r} is not set. "
+        f"Set it before running this script, e.g.:\n"
+        f"  export {name}=<value>"
+    )
+
+
 # ── POS connection config ────────────────────────────────────────────────────
 
 POS_URL = os.environ.get("POS_URL", "https://pos.virtualrx.com.ng")
-POS_USER = os.environ.get("POS_USERNAME", "soji")
-POS_PASS = os.environ.get("POS_PASSWORD", "M0di$h$tandard331")
+POS_USER: str | None = os.environ.get("POS_USERNAME")
+POS_PASS: str | None = os.environ.get("POS_PASSWORD")
 
 # ── Local DB (set by Docker Compose) ────────────────────────────────────────
 
@@ -158,6 +169,8 @@ class POSClient:
         return m.group(1)
 
     def login(self) -> None:
+        if not POS_USER or not POS_PASS:
+            _require_env("POS_USERNAME" if not POS_USER else "POS_PASSWORD")
         csrf = self._csrf("/login")
         status, body = self._post("/login", {"_token": csrf, "username": POS_USER, "password": POS_PASS})
         if "home" not in body and status not in (200, 302):
@@ -165,7 +178,6 @@ class POSClient:
         log.info("pos_login_ok", url=POS_URL, user=POS_USER)
 
     def _json_get(self, path: str) -> Any:
-        import json
         html = self._get(path, {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"})
         return json.loads(html)
 
@@ -208,7 +220,12 @@ def _strip_html(html: str) -> str:
 
 def _parse_price(raw: str) -> Decimal:
     digits = re.sub(r"[^\d.]", "", _strip_html(raw))
-    return Decimal(digits) if digits else Decimal("0")
+    if not digits:
+        return Decimal("0")
+    try:
+        return Decimal(digits)
+    except Exception:
+        return Decimal("0")
 
 
 def _parse_qty(raw: str) -> int:
@@ -289,11 +306,13 @@ def step_verify() -> None:
     suppliers = client.fetch_contacts("supplier")
     log.info("pos_suppliers_fetched", count=len(suppliers))
 
-    print(f"\n✅ POS connection verified")
-    print(f"   Products  : {len(products)}")
-    print(f"   Sells     : {len(sells)}")
-    print(f"   Purchases : {len(purchases)}")
-    print(f"   Suppliers : {len(suppliers)}\n")
+    log.info(
+        "pos_verify_complete",
+        products=len(products),
+        sells=len(sells),
+        purchases=len(purchases),
+        suppliers=len(suppliers),
+    )
 
 
 # ── Step 2: WIPE ─────────────────────────────────────────────────────────────
@@ -383,7 +402,6 @@ async def step_wipe(session: AsyncSession) -> None:
             log.info("table_cleared", table=model.__tablename__, rows=result.rowcount)
     await session.commit()
     log.info("db_wipe_complete")
-    print("✅ Local database wiped — schema intact\n")
 
 
 # ── Step 3: MIGRATE ──────────────────────────────────────────────────────────
@@ -391,7 +409,6 @@ async def step_wipe(session: AsyncSession) -> None:
 
 async def step_migrate(session: AsyncSession) -> None:
     log.info("migration_start")
-    now = datetime.now(timezone.utc)
     today = date.today()
 
     # ── 3a. Admin user ───────────────────────────────────────────────────────
@@ -456,7 +473,6 @@ async def step_migrate(session: AsyncSession) -> None:
         name = _strip_html(raw_name)
         sku = str(p.get("sku", "")).strip()
         pos_category = str(p.get("category", ""))
-        unit = str(p.get("unit", ""))
 
         selling_price_raw = str(p.get("selling_price", "0"))
         max_price_raw = str(p.get("max_price", "0"))
@@ -571,65 +587,27 @@ async def step_migrate(session: AsyncSession) -> None:
     await session.flush()
     log.info("suppliers_inserted", count=len(supplier_map))
 
-    # ── 3g. Sales (best-effort from POS sells) ───────────────────────────────
-    pos_sells = client.fetch_sells()
-    sales_created = 0
-
-    for sell in pos_sells:
-        # UltimatePOS sell row: may have product_id, total_amount, transaction_date
-        # The DataTables response wraps data in HTML — we extract what we can.
-        try:
-            total_raw = sell.get("total_amount") or sell.get("final_total") or "0"
-            total = _parse_price(str(total_raw))
-            if total <= 0:
-                continue
-
-            # Parse date — POS uses DD-MM-YYYY or YYYY-MM-DD
-            date_raw = sell.get("transaction_date") or sell.get("created_at") or ""
-            sale_date = _parse_date(str(date_raw)) or today
-
-            sale = Sale(
-                id=uuid.uuid4(),
-                product_id=next(iter(product_map.values())),  # placeholder product
-                quantity=1,
-                unit_price=total,
-                total_amount=total,
-                currency="NGN",
-                sale_date=sale_date,
-                channel=SaleChannel.RETAIL,
-                status=SaleStatus.COMPLETED,
-                payment_method=str(sell.get("pay_term_type") or "cash").lower() or "cash",
-                payment_status="paid",
-                payment_amount=total,
-                payment_date=sale_date,
-                notes=f"Imported from POS ref: {sell.get('invoice_no') or sell.get('ref_no') or ''}",
-                recorded_by=admin_id,
-                location_id=location.id,
-            )
-            session.add(sale)
-            sales_created += 1
-
-            # Flush in batches to avoid memory pressure
-            if sales_created % 100 == 0:
-                await session.flush()
-                log.info("sales_batch_flushed", count=sales_created)
-
-        except Exception as exc:
-            log.warning("sale_row_skipped", error=str(exc))
-            continue
-
-    await session.flush()
-    log.info("sales_inserted", count=sales_created)
+    # ── 3g. Sales — skipped: POS /sells returns invoice totals only, not
+    #    per-product line items. Importing header-level sales would pin every
+    #    transaction to an arbitrary product, producing misleading analytics.
+    #    TODO: implement a per-line-item fetch once the POS API endpoint is mapped.
+    pos_sell_count = len(client.fetch_sells())
+    log.warning(
+        "sales_import_skipped",
+        reason="no per-line-item product mapping available",
+        pos_sell_rows=pos_sell_count,
+    )
 
     # ── Final commit ─────────────────────────────────────────────────────────
     await session.commit()
 
-    print(f"✅ Migration complete")
-    print(f"   Products  : {len(product_map)}")
-    print(f"   Suppliers : {len(supplier_map)}")
-    print(f"   Sales     : {sales_created}")
-    print(f"\n   Admin login: {ADMIN_EMAIL} / {ADMIN_PASSWORD}")
-    print(f"   ⚠️  Change the admin password on first login!\n")
+    log.info(
+        "migration_complete",
+        products=len(product_map),
+        suppliers=len(supplier_map),
+        sales=0,
+        admin_email=ADMIN_EMAIL,
+    )
 
 
 def _parse_date(raw: str) -> date | None:

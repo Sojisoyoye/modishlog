@@ -1,4 +1,4 @@
-# E2E override — points backend at the isolated test DB (db_test).
+# E2E override — adds an isolated test DB and points the backend at it.
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d
 #   ng e2e
@@ -7,6 +7,20 @@
 # The main dev DB (postgres_data volume) is NEVER touched by E2E runs.
 
 services:
+  db_test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: modishlog_test
+      POSTGRES_USER: modishlog
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-modishlog_dev}
+    ports: ['5435:5432']
+    # tmpfs — no volume; test data is intentionally discarded on container stop
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U modishlog']
+      interval: 5s
+      retries: 5
+
   backend:
     depends_on:
       db_test:

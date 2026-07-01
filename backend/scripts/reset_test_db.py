@@ -2,26 +2,32 @@
 """
 Reset the E2E test database to a clean state with minimal fixtures.
 
-Called by Playwright globalSetup before each test suite run.
-Runs migrations fresh then seeds a single test user.
+Called by Playwright globalSetup before each test suite run:
+  1. Runs Alembic migrations to head (creates schema on fresh tmpfs DB)
+  2. Wipes all rows via ORM delete() in FK-safe order
+  3. Seeds the single E2E test user
 
 Usage (inside docker compose exec backend):
-  ENVIRONMENT=test DATABASE_URL=... python scripts/reset_test_db.py
+  DATABASE_URL=postgresql+asyncpg://modishlog:modishlog_dev@db_test/modishlog_test \
+    python scripts/reset_test_db.py
 """
 
 import asyncio
+import logging
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import structlog
+from alembic import command
+from alembic.config import Config
 from passlib.context import CryptContext
-from sqlalchemy import text
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from pos_migrate import WIPE_ORDER
 from src.auth.models import User, UserRole
 
 log = structlog.get_logger()
@@ -36,36 +42,28 @@ E2E_USER_PASSWORD = "E2eTest!1234"
 
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+_ALEMBIC_INI = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
 
-async def reset() -> None:
-    import logging
 
-    structlog.configure(
-        processors=[
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="%H:%M:%S"),
-            structlog.dev.ConsoleRenderer(),
-        ],
-        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
-        logger_factory=structlog.PrintLoggerFactory(),
-    )
+def _run_migrations() -> None:
+    """Apply all Alembic migrations to head on the test DB."""
+    cfg = Config(_ALEMBIC_INI)
+    # Override the URL so Alembic targets the test DB, not whatever is in alembic.ini
+    sync_url = DATABASE_URL.replace("+asyncpg", "")
+    cfg.set_main_option("sqlalchemy.url", sync_url)
+    command.upgrade(cfg, "head")
+    log.info("alembic_migrations_applied", db=DATABASE_URL)
 
+
+async def _wipe_and_seed() -> None:
     engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-    async with engine.begin() as conn:
-        # Wipe all data using CASCADE on each table to avoid FK ordering
-        await conn.execute(text("SET session_replication_role = replica"))
-        await conn.execute(text(
-            "DO $$ DECLARE r RECORD; BEGIN "
-            "FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
-            "AND tablename != 'alembic_version' "
-            "LOOP EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) || ' CASCADE'; "
-            "END LOOP; END $$;"
-        ))
-        await conn.execute(text("SET session_replication_role = DEFAULT"))
-
     async with factory() as session:
+        for model in WIPE_ORDER:
+            await session.execute(delete(model))
+        log.info("test_db_wiped")
+
         user = User(
             id=uuid.uuid4(),
             email=E2E_USER_EMAIL,
@@ -79,7 +77,21 @@ async def reset() -> None:
 
     await engine.dispose()
     log.info("test_db_reset_complete", user=E2E_USER_EMAIL)
-    print(f"✅ Test DB reset — E2E user: {E2E_USER_EMAIL}")
+
+
+async def reset() -> None:
+    structlog.configure(
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="%H:%M:%S"),
+            structlog.dev.ConsoleRenderer(),
+        ],
+        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+        logger_factory=structlog.PrintLoggerFactory(),
+    )
+
+    _run_migrations()
+    await _wipe_and_seed()
 
 
 if __name__ == "__main__":
