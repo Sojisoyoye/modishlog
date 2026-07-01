@@ -2,7 +2,6 @@ import csv
 import io
 import uuid
 from datetime import date
-from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession

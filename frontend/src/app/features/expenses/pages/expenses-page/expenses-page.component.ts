@@ -57,7 +57,7 @@ import { CategoryManagerComponent } from '../../components/category-manager/cate
         <p class="mt-1 text-2xl font-bold text-text">{{ total() }}</p>
       </div>
       <div class="rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
-        <p class="text-xs font-semibold uppercase tracking-wider text-muted">Total (USD)</p>
+        <p class="text-xs font-semibold uppercase tracking-wider text-muted">Page Total (USD)</p>
         <p class="mt-1 text-2xl font-bold text-emerald-600">
           \${{ totalUsd() | number: '1.2-2' }}
         </p>
@@ -273,6 +273,7 @@ export class ExpensesPageComponent implements OnInit {
   }
 
   deleteExpense(e: ExpenseRead): void {
+    if (!window.confirm('Delete this expense? This cannot be undone.')) return;
     this.expensesService.deleteExpense(e.id).subscribe({
       next: () => {
         this.expenses.update((list) => list.filter((x) => x.id !== e.id));

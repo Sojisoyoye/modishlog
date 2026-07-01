@@ -50,6 +50,7 @@ export interface ExpenseUpdate {
   expense_date?: string;
   payment_method?: string | null;
   note?: string | null;
+  location_id?: string | null;
 }
 
 export interface ExpenseListResponse {

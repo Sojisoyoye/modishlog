@@ -5,7 +5,7 @@ import {
   signal,
   input,
   output,
-  OnInit,
+  effect,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MessageService } from 'primeng/api';
@@ -78,7 +78,7 @@ import { ExpenseCategory } from '../../models/expense.model';
     </p-dialog>
   `,
 })
-export class CategoryManagerComponent implements OnInit {
+export class CategoryManagerComponent {
   private readonly expensesService = inject(ExpensesService);
   private readonly messageService = inject(MessageService);
 
@@ -90,8 +90,15 @@ export class CategoryManagerComponent implements OnInit {
   saving = signal(false);
   newName = '';
 
-  ngOnInit(): void {
-    this.load();
+  private loaded = false;
+
+  constructor() {
+    effect(() => {
+      if (this.visible() && !this.loaded) {
+        this.loaded = true;
+        this.load();
+      }
+    });
   }
 
   private load(): void {
