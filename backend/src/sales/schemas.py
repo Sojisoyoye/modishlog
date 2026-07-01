@@ -251,3 +251,50 @@ class SaleTransactionListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ---------------------------------------------------------------------------
+# Sell Return schemas
+# ---------------------------------------------------------------------------
+
+
+class SellReturnCreate(BaseModel):
+    return_date: date
+    total_amount: Decimal = Field(..., gt=0)
+    amount_paid: Decimal = Field(Decimal("0"), ge=0)
+    ref_no: str | None = None
+    notes: str | None = None
+
+    @field_validator("return_date")
+    @classmethod
+    def return_date_not_future(cls, v: date) -> date:
+        if v > date.today():
+            raise ValueError("return_date cannot be in the future")
+        return v
+
+    @field_validator("amount_paid")
+    @classmethod
+    def amount_paid_le_total(cls, v: Decimal, info: object) -> Decimal:
+        total = getattr(info, "data", {}).get("total_amount")
+        if total is not None and v > total:
+            raise ValueError("amount_paid cannot exceed total_amount")
+        return v
+
+
+class SellReturnRead(BaseModel):
+    id: uuid.UUID
+    sale_id: uuid.UUID
+    ref_no: str | None
+    return_date: date
+    total_amount: Decimal
+    amount_paid: Decimal
+    notes: str | None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SellReturnListResponse(BaseModel):
+    items: list[SellReturnRead]
+    total: int
+    page: int
+    page_size: int
