@@ -12,7 +12,8 @@ import { AuthService } from '../../core/services/auth.service';
       <div class="flex items-center gap-3">
         <button
           (click)="toggleMenu.emit()"
-          class="min-h-[44px] min-w-[44px] rounded-lg p-2 text-muted transition-colors hover:bg-gray-100 hover:text-text"
+          data-testid="topbar-menu-toggle"
+          class="hidden min-h-[44px] min-w-[44px] rounded-lg p-2 text-muted transition-colors hover:bg-gray-100 hover:text-text md:flex md:items-center md:justify-center"
         >
           <i [class]="'pi text-lg ' + (sidebarCollapsed() ? 'pi-bars' : 'pi-times')"></i>
         </button>
