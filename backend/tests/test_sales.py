@@ -1195,7 +1195,10 @@ class TestSaleTransactions:
                 # Query 1: COUNT(DISTINCT transaction_id)
                 result.scalar.return_value = PAGE
             elif call_count == 2:
-                # Query 2: paginated GROUP BY returning txn_id page
+                # Query 2: paginated GROUP BY returning txn_id page.
+                # The mock returns all PAGE ids unconditionally; in production
+                # page_size drives the LIMIT clause — that's SQL correctness, not
+                # what this test is measuring.
                 result.all.return_value = [(tid,) for tid in txn_ids]
             elif call_count == 3:
                 # Query 3: single IN bulk fetch — all rows for the page
@@ -1213,7 +1216,9 @@ class TestSaleTransactions:
 
         transactions, total = await list_transactions(db, page_size=PAGE)
 
-        assert call_count == 3, f"Expected 3 DB queries, got {call_count}"
+        # call_count guard: the else-branch above raises on query 4+, so reaching
+        # here already proves ≤ 3 queries. The explicit check documents the contract.
+        assert call_count == 3
         assert total == PAGE
         assert len(transactions) == PAGE
         # Each transaction groups 2 items → combined total 300
