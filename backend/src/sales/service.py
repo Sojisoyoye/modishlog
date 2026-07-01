@@ -20,6 +20,7 @@ from src.sales.exceptions import (
     SaleAlreadyVoidedError,
     SaleNotFoundError,
     SalePermissionError,
+    SellReturnNotFoundError,
 )
 from src.sales.models import (
     Sale,
@@ -27,6 +28,7 @@ from src.sales.models import (
     SaleBulkUploadJob,
     SaleChannel,
     SaleStatus,
+    SellReturn,
     UploadJobStatus,
 )
 from src.sales.schemas import (
@@ -38,6 +40,7 @@ from src.sales.schemas import (
     SaleTransactionRead,
     SaleTransactionUpdate,
     SaleUpdate,
+    SellReturnCreate,
 )
 from src.inventory.models import InventoryBatch
 
@@ -875,3 +878,74 @@ async def get_transaction(
     if not items:
         raise SaleNotFoundError(transaction_id)
     return _build_transaction_read(transaction_id, items)
+
+
+# ---------------------------------------------------------------------------
+# Sell Return service functions
+# ---------------------------------------------------------------------------
+
+
+async def create_sell_return(
+    db: AsyncSession,
+    sale_id: uuid.UUID,
+    data: SellReturnCreate,
+    user_id: uuid.UUID,
+) -> SellReturn:
+    """Create a sell return record against an existing completed sale."""
+    result = await db.execute(select(Sale).where(Sale.id == sale_id))
+    sale = result.scalar_one_or_none()
+    if sale is None:
+        raise SaleNotFoundError(sale_id)
+
+    now = datetime.now(timezone.utc)
+    sell_return = SellReturn(
+        id=uuid.uuid4(),
+        sale_id=sale_id,
+        return_date=data.return_date,
+        total_amount=data.total_amount,
+        amount_paid=data.amount_paid,
+        ref_no=data.ref_no,
+        notes=data.notes,
+        created_by=user_id,
+    )
+    sell_return.created_at = now
+    sell_return.updated_at = now
+    db.add(sell_return)
+    await db.flush()
+    logger.info("sell_return_created", sale_id=str(sale_id), amount=str(data.total_amount))
+    return sell_return
+
+
+async def list_sell_returns(
+    db: AsyncSession,
+    sale_id: uuid.UUID | None = None,
+    page: int = 1,
+    page_size: int = 25,
+) -> tuple[list[SellReturn], int]:
+    """List sell returns, optionally filtered by sale."""
+    count_q = select(func.count(SellReturn.id))
+    list_q = select(SellReturn).order_by(SellReturn.return_date.desc())
+    if sale_id is not None:
+        count_q = count_q.where(SellReturn.sale_id == sale_id)
+        list_q = list_q.where(SellReturn.sale_id == sale_id)
+
+    total_result = await db.execute(count_q)
+    total = total_result.scalar() or 0
+
+    offset = (page - 1) * page_size
+    list_q = list_q.offset(offset).limit(page_size)
+    items_result = await db.execute(list_q)
+    items = list(items_result.scalars().all())
+    return items, total
+
+
+async def get_sell_return(
+    db: AsyncSession,
+    return_id: uuid.UUID,
+) -> SellReturn:
+    """Fetch a single sell return by ID."""
+    result = await db.execute(select(SellReturn).where(SellReturn.id == return_id))
+    sr = result.scalar_one_or_none()
+    if sr is None:
+        raise SellReturnNotFoundError(return_id)
+    return sr

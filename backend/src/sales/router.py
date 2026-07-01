@@ -26,6 +26,7 @@ from src.sales.exceptions import (
     SaleNotFoundError,
     SalePermissionError,
     SaleValidationError,
+    SellReturnNotFoundError,
 )
 from src.sales.schemas import (
     AuditEntryRead,
@@ -43,16 +44,22 @@ from src.sales.schemas import (
     SaleTransactionRead,
     SaleTransactionUpdate,
     SaleUpdate,
+    SellReturnCreate,
+    SellReturnListResponse,
+    SellReturnRead,
 )
 from src.sales.service import (
     create_sale,
+    create_sell_return,
     get_sale,
     get_sale_audit_trail,
     get_sales_history,
     get_sales_summary,
+    get_sell_return,
     get_transaction,
     get_upload_status,
     list_sales,
+    list_sell_returns,
     list_transactions,
     process_bulk_upload,
     quick_quote,
@@ -365,6 +372,68 @@ async def export_sales_csv_endpoint(
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=sales_export.csv"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Sell Returns — static routes BEFORE /{sale_id}
+# ---------------------------------------------------------------------------
+
+
+@router.get("/returns/sells", response_model=SellReturnListResponse)
+async def list_all_sell_returns_endpoint(
+    sale_id: uuid.UUID | None = None,
+    page: int = 1,
+    page_size: int = 25,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> SellReturnListResponse:
+    """List all sell returns, optionally filtered by sale_id."""
+    items, total = await list_sell_returns(db, sale_id=sale_id, page=page, page_size=page_size)
+    return SellReturnListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/returns/sells/{return_id}", response_model=SellReturnRead)
+async def get_sell_return_endpoint(
+    return_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> SellReturnRead:
+    """Get a single sell return by ID."""
+    try:
+        return await get_sell_return(db, return_id=return_id)
+    except SellReturnNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post(
+    "/{sale_id}/returns",
+    response_model=SellReturnRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_sell_return_endpoint(
+    sale_id: uuid.UUID,
+    body: SellReturnCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> SellReturnRead:
+    """Create a sell return against an existing sale."""
+    try:
+        return await create_sell_return(db, sale_id=sale_id, data=body, user_id=current_user.id)
+    except SaleNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/{sale_id}/returns", response_model=SellReturnListResponse)
+async def list_sell_returns_by_sale_endpoint(
+    sale_id: uuid.UUID,
+    page: int = 1,
+    page_size: int = 25,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> SellReturnListResponse:
+    """List all sell returns for a specific sale."""
+    items, total = await list_sell_returns(db, sale_id=sale_id, page=page, page_size=page_size)
+    return SellReturnListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/{sale_id}", response_model=SaleRead)

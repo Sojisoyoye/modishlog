@@ -251,3 +251,35 @@ class SaleTransactionListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ---------------------------------------------------------------------------
+# Sell Return schemas
+# ---------------------------------------------------------------------------
+
+
+class SellReturnCreate(BaseModel):
+    return_date: date
+    total_amount: Decimal
+    amount_paid: Decimal = Decimal("0")
+    ref_no: str | None = None
+    notes: str | None = None
+
+
+class SellReturnRead(BaseModel):
+    id: uuid.UUID
+    sale_id: uuid.UUID
+    ref_no: str | None
+    return_date: date
+    total_amount: Decimal
+    amount_paid: Decimal
+    notes: str | None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SellReturnListResponse(BaseModel):
+    items: list[SellReturnRead]
+    total: int
+    page: int
+    page_size: int

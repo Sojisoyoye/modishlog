@@ -52,3 +52,11 @@ class SaleValidationError(Exception):
         self.value = value
         self.reason = reason
         super().__init__(f"Validation error on '{field}': {reason}")
+
+
+class SellReturnNotFoundError(Exception):
+    """Raised when a sell return lookup by ID yields no result."""
+
+    def __init__(self, return_id: uuid.UUID) -> None:
+        self.return_id = return_id
+        super().__init__(f"Sell return {return_id} not found")

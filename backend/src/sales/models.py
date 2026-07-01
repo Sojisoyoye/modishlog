@@ -159,6 +159,7 @@ class SellReturn(UUIDMixin, TimestampMixin, Base):
     amount_paid: Mapped[Decimal] = mapped_column(
         Numeric(18, 6), default=Decimal("0"), server_default="0"
     )
+    ref_no: Mapped[str | None] = mapped_column(String(100), default=None, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
 
