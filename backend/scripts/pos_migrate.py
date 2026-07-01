@@ -464,7 +464,7 @@ def _parse_price(raw: str) -> Decimal:
 
 
 def _parse_qty(raw: str) -> int:
-    m = re.match(r"^([\d.]+)", str(raw))
+    m = re.match(r"^(-?[\d.]+)", str(raw))
     return int(float(m.group(1))) if m else 0
 
 
@@ -830,7 +830,7 @@ async def step_migrate(session: AsyncSession) -> None:
             mv = StockMovement(
                 id=uuid.uuid4(),
                 product_id=product_id,
-                movement_type=MovementType.MANUAL_ADD,
+                movement_type=MovementType.OPENING_STOCK,
                 quantity_change=stock,
                 quantity_before=0,
                 quantity_after=stock,
@@ -866,7 +866,7 @@ async def step_migrate(session: AsyncSession) -> None:
             else None
         )
         pay_term_number_raw = contact.get("pay_term_number")
-        sup_pay_term_number = int(float(pay_term_number_raw)) if pay_term_number_raw else None
+        sup_pay_term_number = int(float(pay_term_number_raw)) if pay_term_number_raw is not None else None
 
         sup_id = uuid.uuid4()
         supplier = Supplier(
@@ -912,9 +912,10 @@ async def step_migrate(session: AsyncSession) -> None:
             else None
         )
         cust_pay_term_raw = contact.get("pay_term_number")
-        cust_pay_term_number = int(float(cust_pay_term_raw)) if cust_pay_term_raw else None
+        cust_pay_term_number = int(float(cust_pay_term_raw)) if cust_pay_term_raw is not None else None
 
-        credit_raw = _parse_price(str(contact.get("credit_limit") or "0"))
+        credit_limit_raw = contact.get("credit_limit")
+        credit_limit_val = _parse_price(str(credit_limit_raw)) if credit_limit_raw is not None else None
         cust_id = uuid.uuid4()
         customer = Customer(
             id=cust_id,
@@ -931,7 +932,7 @@ async def step_migrate(session: AsyncSession) -> None:
             pay_term_number=cust_pay_term_number,
             pay_term_type=cust_pay_term_type,
             opening_balance=_parse_price(str(contact.get("opening_balance") or "0")),
-            credit_limit=credit_raw if credit_raw else None,
+            credit_limit=credit_limit_val,
             is_active=True,
             customer_group=contact.get("customer_group") or None,
             created_by=admin_id,
@@ -939,7 +940,10 @@ async def step_migrate(session: AsyncSession) -> None:
         session.add(customer)
         customer_map[contact_id] = cust_id
         norm_name = re.sub(r"\s+", " ", cust_name.lower().strip())
-        customer_name_map[norm_name] = cust_id
+        if norm_name in customer_name_map:
+            log.warning("pos_customer_name_collision", name=cust_name, keeping_first=True)
+        else:
+            customer_name_map[norm_name] = cust_id
 
     await session.flush()
     log.info("customers_inserted", count=len(customer_map))
@@ -961,6 +965,7 @@ async def step_migrate(session: AsyncSession) -> None:
     sales_created = 0
     sells_with_lines = 0
     invoice_no_to_sale_id: dict[str, uuid.UUID] = {}
+    pos_sell_id_to_sale_id: dict[str, uuid.UUID] = {}
     for idx, sell_header in enumerate(pos_sells):
         sell_id = _extract_pos_id(sell_header, "sells")
         if not sell_id:
@@ -1018,7 +1023,7 @@ async def step_migrate(session: AsyncSession) -> None:
                 customer_name=cust_name_raw or None,
                 customer_id=customer_name_map.get(cust_norm),
                 payment_method=str(sell_header.get("payment_type") or "").strip() or None,
-                payment_status=_strip_html(str(sell_header.get("payment_status") or "")).strip() or None,
+                payment_status=_strip_html(str(sell_header.get("payment_status") or "")).strip().lower() or None,
                 payment_amount=_parse_price(str(sell_header.get("total_paid") or "0")) or None,
                 recorded_by=admin_id,
                 location_id=location.id,
@@ -1027,6 +1032,8 @@ async def step_migrate(session: AsyncSession) -> None:
             session.add(sale)
             if invoice_no and invoice_no not in invoice_no_to_sale_id:
                 invoice_no_to_sale_id[invoice_no] = sale_id
+            if sell_id and sell_id not in pos_sell_id_to_sale_id:
+                pos_sell_id_to_sale_id[sell_id] = sale_id
 
             mv = StockMovement(
                 id=uuid.uuid4(),
@@ -1072,6 +1079,7 @@ async def step_migrate(session: AsyncSession) -> None:
     orders_created = 0
     purchase_lines_created = 0
     ref_no_to_po_id: dict[str, uuid.UUID] = {}
+    pos_purchase_id_to_po_id: dict[str, uuid.UUID] = {}
 
     # Build SKU → product_id map for purchase line matching
     sku_to_product_id: dict[str, uuid.UUID] = {
@@ -1136,6 +1144,7 @@ async def step_migrate(session: AsyncSession) -> None:
         session.add(po)
         await session.flush()  # need po.id for line items + stock movements
         ref_no_to_po_id[ref_no] = po.id
+        pos_purchase_id_to_po_id[purchase_id] = po.id
 
         for line in purchase_lines:
             product_id = line["product_id"]
@@ -1201,9 +1210,17 @@ async def step_migrate(session: AsyncSession) -> None:
     sell_returns_created = 0
     for sr in pos_sell_returns:
         sr_invoice_no = str(sr.get("invoice_no") or sr.get("invoice_number") or "")
-        sr_sale_id = invoice_no_to_sale_id.get(sr_invoice_no)
+        sr_pos_sell_id = str(sr.get("parent_sell_id") or sr.get("invoice_id") or "")
+        sr_sale_id = (
+            invoice_no_to_sale_id.get(sr_invoice_no)
+            or pos_sell_id_to_sale_id.get(sr_pos_sell_id)
+        )
         if not sr_sale_id:
-            log.warning("pos_sell_return_no_matching_sale", invoice_no=sr_invoice_no)
+            log.warning(
+                "pos_sell_return_no_matching_sale",
+                invoice_no=sr_invoice_no,
+                pos_sell_id=sr_pos_sell_id,
+            )
             continue
 
         sr_date_raw = str(sr.get("transaction_date") or sr.get("return_date") or "")
@@ -1211,7 +1228,8 @@ async def step_migrate(session: AsyncSession) -> None:
 
         sr_total = _parse_price(_strip_html(str(sr.get("final_total") or "0")))
         sr_paid = _parse_price(_strip_html(str(sr.get("total_amount_paid") or "0")))
-        sr_ref = str(sr.get("ref_no") or f"SR-{_extract_pos_id(sr, 'sell-returns') or ''}").strip() or None
+        _sr_pos_id = _extract_pos_id(sr, "sell-returns")
+        sr_ref = str(sr.get("ref_no") or "").strip() or (f"SR-{_sr_pos_id}" if _sr_pos_id else None)
 
         sell_return = SellReturn(
             id=uuid.uuid4(),
@@ -1233,10 +1251,18 @@ async def step_migrate(session: AsyncSession) -> None:
     pos_purchase_returns: list[dict] = _pos(client.fetch_purchase_returns, timeout=120)
     purchase_returns_created = 0
     for pr in pos_purchase_returns:
-        pr_ref = str(pr.get("ref_no") or f"PR-{_extract_pos_id(pr, 'purchase-returns') or ''}").strip()
-        pr_po_id = ref_no_to_po_id.get(pr_ref)
+        pr_ref = str(pr.get("ref_no") or "").strip() or None
+        pr_pos_purchase_id = str(pr.get("purchase_id") or "")
+        pr_po_id = (
+            pos_purchase_id_to_po_id.get(pr_pos_purchase_id)
+            or ref_no_to_po_id.get(pr_ref or "")
+        )
         if not pr_po_id:
-            log.warning("pos_purchase_return_no_matching_po", ref_no=pr_ref)
+            log.warning(
+                "pos_purchase_return_no_matching_po",
+                ref_no=pr_ref,
+                pos_purchase_id=pr_pos_purchase_id,
+            )
             continue
 
         pr_date_raw = str(pr.get("transaction_date") or "")
@@ -1315,11 +1341,16 @@ async def step_migrate(session: AsyncSession) -> None:
     # ── 3l. Expenses ──────────────────────────────────────────────────────────
     pos_expense_cats: list[dict] = _pos(client.fetch_expense_categories, timeout=60)
     expense_cat_map: dict[str, uuid.UUID] = {}
+    seen_cat_names: dict[str, uuid.UUID] = {}  # normalized name → uuid (dedup guard)
 
     for ec in pos_expense_cats:
         ec_pos_id = str(ec.get("id", ""))
         ec_name = _strip_html(str(ec.get("name") or "Unknown")).strip()
         if not ec_name or ec_name == "Unknown":
+            continue
+        if ec_name in seen_cat_names:
+            log.warning("pos_expense_category_duplicate_name", name=ec_name, reusing_existing=True)
+            expense_cat_map[ec_pos_id] = seen_cat_names[ec_name]
             continue
         ec_uuid = uuid.uuid4()
         session.add(ExpenseCategory(
@@ -1329,6 +1360,7 @@ async def step_migrate(session: AsyncSession) -> None:
             created_by=admin_id,
         ))
         expense_cat_map[ec_pos_id] = ec_uuid
+        seen_cat_names[ec_name] = ec_uuid
 
     await session.flush()
     log.info("expense_categories_inserted", count=len(expense_cat_map))
