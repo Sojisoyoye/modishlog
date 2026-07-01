@@ -1,4 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit, computed } from '@angular/core';
+import { forkJoin } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -1494,9 +1495,33 @@ export class ProductsPageComponent implements OnInit {
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
   ngOnInit(): void {
-    this.loadProducts();
-    this.loadCategories();
-    this.loadStock();
+    this.pageLoading.set(true);
+    forkJoin({
+      products: this.productsService.getAll(),
+      categories: this.productsService.getCategories(),
+      stock: this.inventoryService.getCurrent(1, 10_000),
+    }).subscribe({
+      next: ({ products, categories, stock }) => {
+        this.products.set(products);
+
+        this.categoryTree.set(categories);
+        this.categories.set(this._flattenCategories(categories));
+
+        const sm = new Map<string, number>();
+        const tm = new Map<string, number>();
+        stock.items.forEach((item) => {
+          sm.set(item.product_id, item.current_stock);
+          tm.set(item.product_id, item.low_stock_threshold);
+        });
+        this.stockMap.set(sm);
+        this.thresholdMap.set(tm);
+
+        this.pageLoading.set(false);
+      },
+      error: () => { this.pageLoading.set(false); },
+    });
+    // FX rate is optional UI enhancement — fire independently so it doesn't
+    // block the main forkJoin or delay the skeleton from clearing.
     this.fxService.getLatest().subscribe({
       next: (rate) => this.currentFxRate.set(rate.rate),
       error: () => { /* FX rate unavailable — min price hint will be hidden for foreign currencies */ },
@@ -1504,10 +1529,11 @@ export class ProductsPageComponent implements OnInit {
   }
 
   private loadProducts(): void {
-    this.pageLoading.set(true);
     this.productsService.getAll().subscribe({
-      next: (p) => { this.products.set(p); this.pageLoading.set(false); },
-      error: () => { this.pageLoading.set(false); },
+      next: (p) => { this.products.set(p); },
+      error: () => {
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to refresh products' });
+      },
     });
   }
 
@@ -1515,17 +1541,18 @@ export class ProductsPageComponent implements OnInit {
     this.productsService.getCategories().subscribe({
       next: (tree) => {
         this.categoryTree.set(tree);
-        // Build flat list so existing lookups by ID (categoryName, etc.) still work
-        const flat: Category[] = [];
-        for (const cat of tree) {
-          flat.push(cat);
-          for (const child of (cat.children ?? [])) {
-            flat.push(child);
-          }
-        }
-        this.categories.set(flat);
+        this.categories.set(this._flattenCategories(tree));
       },
     });
+  }
+
+  private _flattenCategories(tree: Category[]): Category[] {
+    const flat: Category[] = [];
+    for (const cat of tree) {
+      flat.push(cat);
+      for (const child of (cat.children ?? [])) flat.push(child);
+    }
+    return flat;
   }
 
   private loadStock(): void {

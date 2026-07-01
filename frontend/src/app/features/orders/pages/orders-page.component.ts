@@ -1,5 +1,6 @@
 import { Component, ChangeDetectionStrategy, DestroyRef, inject, signal, computed, OnInit } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { forkJoin } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { Router } from '@angular/router';
@@ -904,9 +905,20 @@ export class OrdersPageComponent implements OnInit {
   };
 
   ngOnInit(): void {
+    // loadOrders manages its own pageLoading signal and is called on filter changes —
+    // fire it independently so it can be reloaded without affecting the other calls.
     this.loadOrders();
-    this.loadStatusCounts();
-    this.productsService.getAll().subscribe({ next: (p) => this.products.set(p) });
+    // Status counts and product list are independent of pagination; fire in parallel.
+    forkJoin({
+      counts: this.ordersService.getStatusCounts(),
+      products: this.productsService.getAll(),
+    }).subscribe({
+      next: ({ counts, products }) => {
+        this.statusCounts.set(counts);
+        this.products.set(products);
+      },
+      error: () => {},
+    });
   }
 
   private loadStatusCounts(): void {
