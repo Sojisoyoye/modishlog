@@ -9,7 +9,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 import src.suppliers.models  # noqa: F401 — registers Supplier mapper for PurchaseOrder relationship
-from src.auth.service import build_token
 from src.core.security import get_password_hash
 
 VALID_PASSWORD = "Str0ng!Pass#99"
@@ -64,12 +63,6 @@ def _make_purchase_return(**overrides):
     pr.created_at = datetime.now(timezone.utc)
     pr.updated_at = datetime.now(timezone.utc)
     return pr
-
-
-def _auth_headers(user=None):
-    u = user or _make_user()
-    token = build_token(u)
-    return {"Authorization": f"Bearer {token}"}
 
 
 # ---------------------------------------------------------------------------
@@ -268,8 +261,6 @@ class TestPurchaseReturnEndpoints:
 
     def test_get_purchase_return_not_found(self):
         """GET /orders/returns/purchases/{bad_id} returns 404."""
-        from src.orders.exceptions import PurchaseReturnNotFoundError
-
         db = _mock_db()
         result_mock = MagicMock()
         result_mock.scalar_one_or_none.return_value = None

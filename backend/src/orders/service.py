@@ -1535,7 +1535,7 @@ async def list_purchase_returns(
     total = count_result.scalar() or 0
 
     items_result = await db.execute(
-        base_q.order_by(PurchaseReturn.return_date.desc())
+        base_q.order_by(PurchaseReturn.return_date.desc(), PurchaseReturn.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
