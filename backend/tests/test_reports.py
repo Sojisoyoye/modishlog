@@ -149,7 +149,7 @@ class TestProfitLossReport:
         from src.reports.service import get_profit_loss_report
 
         db = _mock_db()
-        # Sequence: total_purchase, total_sales, operating_costs, stock_value, purchase_returns
+        # Sequence: purchase, sales, opex, stock, purchase_returns, sell_returns, purchase_due, sales_due
         _mock_execute_sequence(
             db,
             [
@@ -158,6 +158,9 @@ class TestProfitLossReport:
                 [],  # operating costs (empty)
                 None,  # stock value (no batches)
                 None,  # purchase_returns (no rows)
+                None,  # sell_returns (no rows)
+                None,  # purchase_due (no unpaid orders)
+                None,  # sales_due (no unpaid sales)
             ],
         )
 
@@ -189,6 +192,9 @@ class TestProfitLossReport:
                 opex,  # operating_costs list
                 Decimal("500000.000000"),  # stock_value
                 Decimal("5000.000000"),  # purchase_returns
+                None,  # sell_returns (none in this test)
+                None,  # purchase_due (no unpaid orders)
+                None,  # sales_due (no unpaid sales)
             ],
         )
 
@@ -219,6 +225,9 @@ class TestProfitLossReport:
                 [],  # operating_costs (empty)
                 Decimal("0"),  # stock_value
                 Decimal("0"),  # purchase_returns
+                None,  # sell_returns
+                None,  # purchase_due
+                None,  # sales_due
             ],
         )
 
@@ -249,6 +258,9 @@ class TestProfitLossReport:
                 opex,  # opex (200k/month)
                 Decimal("1000000.000000"),  # stock
                 Decimal("0"),  # purchase_returns
+                None,  # sell_returns
+                None,  # purchase_due
+                None,  # sales_due
             ],
         )
 
@@ -405,6 +417,7 @@ class TestPurchaseSaleReport:
                 Decimal("500000.000000"),  # total_purchase
                 Decimal("10000.000000"),  # total_purchase_returns
                 Decimal("750000.000000"),  # total_sales
+                None,  # sell_returns (none in this test)
             ],
         )
 
@@ -426,10 +439,11 @@ class TestPurchaseSaleReport:
         _mock_execute_sequence(
             db,
             [
-                None,
-                None,
-                None,
-            ],  # total_purchase, purchase_returns, total_sales all None
+                None,  # total_purchase
+                None,  # purchase_returns
+                None,  # total_sales
+                None,  # sell_returns
+            ],
         )
 
         result = await get_purchase_sale_report(db)
@@ -452,6 +466,7 @@ class TestPurchaseSaleReport:
                 Decimal("100000.000000"),  # total_purchase
                 Decimal("0"),  # purchase_returns
                 Decimal("150000.000000"),  # total_sales
+                None,  # sell_returns
             ],
         )
 
@@ -478,12 +493,113 @@ class TestPurchaseSaleReport:
                 Decimal("800000.000000"),  # purchases
                 Decimal("0"),  # purchase_returns
                 Decimal("600000.000000"),  # sales
+                None,  # sell_returns
             ],
         )
 
         result = await get_purchase_sale_report(db)
 
         assert result.net_position == Decimal("-200000.000000")
+
+    @pytest.mark.asyncio
+    async def test_purchase_sale_report_includes_sell_returns(self):
+        """total_sales_returns reflects real SellReturn totals, not hardcoded zero."""
+        from src.reports.service import get_purchase_sale_report
+
+        db = _mock_db()
+        _mock_execute_sequence(
+            db,
+            [
+                Decimal("500000.000000"),  # total_purchase
+                Decimal("0"),  # purchase_returns
+                Decimal("700000.000000"),  # total_sales
+                Decimal("25000.000000"),  # sell_returns — non-zero
+            ],
+        )
+
+        result = await get_purchase_sale_report(db)
+
+        assert result.total_sales_returns == Decimal("25000.000000")
+        assert result.total_sales == Decimal("700000.000000")
+
+
+# ---------------------------------------------------------------------------
+# Profit & Loss — new field tests (TDD)
+# ---------------------------------------------------------------------------
+
+
+class TestProfitLossNewFields:
+    @pytest.mark.asyncio
+    async def test_profit_loss_purchase_due_not_zero(self):
+        """purchase_due reflects real unpaid/partial order balances."""
+        from src.reports.service import get_profit_loss_report
+
+        db = _mock_db()
+        _mock_execute_sequence(
+            db,
+            [
+                Decimal("300000.000000"),  # total_purchase
+                Decimal("400000.000000"),  # total_sales
+                [],  # opex
+                Decimal("0"),  # stock
+                Decimal("0"),  # purchase_returns
+                None,  # sell_returns
+                Decimal("75000.000000"),  # purchase_due — non-zero
+                None,  # sales_due
+            ],
+        )
+
+        result = await get_profit_loss_report(db)
+
+        assert result.purchase_due == Decimal("75000.000000")
+
+    @pytest.mark.asyncio
+    async def test_profit_loss_sales_due_not_zero(self):
+        """sales_due reflects real unpaid/partial sale balances."""
+        from src.reports.service import get_profit_loss_report
+
+        db = _mock_db()
+        _mock_execute_sequence(
+            db,
+            [
+                Decimal("200000.000000"),  # total_purchase
+                Decimal("350000.000000"),  # total_sales
+                [],  # opex
+                Decimal("0"),  # stock
+                Decimal("0"),  # purchase_returns
+                None,  # sell_returns
+                None,  # purchase_due
+                Decimal("40000.000000"),  # sales_due — non-zero
+            ],
+        )
+
+        result = await get_profit_loss_report(db)
+
+        assert result.sales_due == Decimal("40000.000000")
+
+    @pytest.mark.asyncio
+    async def test_profit_loss_includes_sales_returns(self):
+        """total_sales_returns in P&L reflects real SellReturn totals."""
+        from src.reports.service import get_profit_loss_report
+
+        db = _mock_db()
+        _mock_execute_sequence(
+            db,
+            [
+                Decimal("200000.000000"),  # total_purchase
+                Decimal("350000.000000"),  # total_sales
+                [],  # opex
+                Decimal("0"),  # stock
+                Decimal("0"),  # purchase_returns
+                Decimal("15000.000000"),  # sell_returns — non-zero
+                None,  # purchase_due
+                None,  # sales_due
+            ],
+        )
+
+        result = await get_profit_loss_report(db)
+
+        assert result.total_sales_returns == Decimal("15000.000000")
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +660,9 @@ class TestReportsEndpoints:
                 opex,  # operating_costs
                 Decimal("500000.000000"),  # stock_value
                 Decimal("0"),  # purchase_returns
+                None,  # sell_returns
+                None,  # purchase_due
+                None,  # sales_due
             ],
         )
         self._override_db(db)
@@ -566,6 +685,9 @@ class TestReportsEndpoints:
                 [],  # operating_costs
                 Decimal("0"),  # stock_value
                 Decimal("0"),  # purchase_returns
+                None,  # sell_returns
+                None,  # purchase_due
+                None,  # sales_due
             ],
         )
         self._override_db(db)
@@ -616,6 +738,7 @@ class TestReportsEndpoints:
                 Decimal("500000.000000"),  # total_purchase
                 Decimal("0"),  # purchase_returns
                 Decimal("750000.000000"),  # total_sales
+                None,  # sell_returns
             ],
         )
         self._override_db(db)
@@ -636,6 +759,7 @@ class TestReportsEndpoints:
                 Decimal("100000.000000"),  # total_purchase
                 Decimal("0"),  # purchase_returns
                 Decimal("150000.000000"),  # total_sales
+                None,  # sell_returns
             ],
         )
         self._override_db(db)
@@ -676,6 +800,9 @@ class TestReportsEndpoints:
                 opex,
                 Decimal("300000.000000"),
                 Decimal("0"),
+                None,  # sell_returns
+                None,  # purchase_due
+                None,  # sales_due
             ],
         )
         self._override_db(db)
@@ -698,6 +825,7 @@ class TestReportsEndpoints:
                 Decimal("500000.000000"),
                 Decimal("0"),
                 Decimal("750000.000000"),
+                None,  # sell_returns
             ],
         )
         self._override_db(db)
