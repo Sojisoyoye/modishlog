@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
@@ -81,3 +82,49 @@ class UnlockUserRequest(BaseModel):
     """Admin unlock-account request."""
 
     email: EmailStr
+
+
+class UserListItem(BaseModel):
+    """Single user record in the admin list."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: str
+    full_name: str
+    role: str
+    is_active: bool
+    created_at: datetime
+
+
+class UserListResponse(BaseModel):
+    """Paginated list of users."""
+
+    items: list[UserListItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class UserInvite(BaseModel):
+    """Admin invite-user request."""
+
+    email: EmailStr
+    full_name: str
+    role: Literal["admin", "sales_manager"] = "sales_manager"
+    password: str
+
+
+class UserUpdate(BaseModel):
+    """Admin update-user request — all fields optional."""
+
+    full_name: str | None = None
+    role: Literal["admin", "sales_manager"] | None = None
+    is_active: bool | None = None
+
+
+class AdminResetPasswordResponse(BaseModel):
+    """Response after admin-initiated password reset."""
+
+    message: str
+    token: str

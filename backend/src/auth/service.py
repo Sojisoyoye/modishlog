@@ -3,14 +3,16 @@
 import hashlib
 import re
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.exceptions import (
     AccountLockedError,
+    CannotModifySelfError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     InvalidResetTokenError,
@@ -47,6 +49,7 @@ async def create_user(
     email: str,
     password: str,
     full_name: str,
+    role: UserRole = UserRole.SALES_MANAGER,
 ) -> User:
     """Register a new user account."""
     validate_password(password)
@@ -60,7 +63,7 @@ async def create_user(
         hashed_password=get_password_hash(password),
         full_name=full_name,
         is_active=True,
-        role=UserRole.SALES_MANAGER,
+        role=role,
         failed_login_attempts=0,
     )
     db.add(user)
@@ -288,3 +291,115 @@ async def revoke_refresh_token(db: AsyncSession, raw_token: str | None) -> None:
     token_obj.revoked_at = datetime.now(timezone.utc)
     await db.flush()
     await logger.ainfo("refresh_token_revoked", user_id=str(token_obj.user_id))
+
+
+# ---------------------------------------------------------------------------
+# Admin user management
+# ---------------------------------------------------------------------------
+
+
+async def list_users(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 20,
+    search: str | None = None,
+) -> tuple[list[User], int]:
+    """Return a paginated list of users with optional search."""
+    query = select(User)
+    if search:
+        term = f"%{search}%"
+        query = query.where(
+            or_(User.email.ilike(term), User.full_name.ilike(term))
+        )
+
+    count_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = count_result.scalar_one()
+
+    query = query.order_by(User.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(query)
+    return result.scalars().all(), total
+
+
+async def get_user_by_id(db: AsyncSession, user_id: uuid.UUID) -> User:
+    """Fetch a single user by ID; raise UserNotFoundError if absent."""
+    user = await db.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError(f"User {user_id} not found")
+    return user
+
+
+async def update_user(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    data: dict,
+    requesting_user_id: uuid.UUID,
+) -> User:
+    """Update full_name, role, or is_active for a user.
+
+    Raises CannotModifySelfError if the admin attempts to deactivate or
+    demote their own account.
+    """
+    user = await db.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError(f"User {user_id} not found")
+
+    if user_id == requesting_user_id:
+        if data.get("is_active") is False:
+            raise CannotModifySelfError("Cannot deactivate your own account")
+        if "role" in data and data["role"] != user.role:
+            raise CannotModifySelfError("Cannot change your own role")
+
+    if "full_name" in data and data["full_name"] is not None:
+        user.full_name = data["full_name"]
+    if "role" in data and data["role"] is not None:
+        user.role = UserRole(data["role"]) if isinstance(data["role"], str) else data["role"]
+    if "is_active" in data and data["is_active"] is not None:
+        user.is_active = data["is_active"]
+
+    await db.flush()
+    await logger.ainfo("user_updated", user_id=str(user_id), fields=list(data.keys()))
+    return user
+
+
+async def deactivate_user(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    requesting_user_id: uuid.UUID,
+) -> None:
+    """Set is_active=False and delete all refresh tokens for the user."""
+    if user_id == requesting_user_id:
+        raise CannotModifySelfError("Cannot deactivate your own account")
+
+    user = await db.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError(f"User {user_id} not found")
+
+    user.is_active = False
+    await db.execute(delete(RefreshToken).where(RefreshToken.user_id == user_id))
+    await db.flush()
+    await logger.ainfo("user_deactivated", user_id=str(user_id))
+
+
+async def activate_user(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Set is_active=True for a user."""
+    user = await db.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError(f"User {user_id} not found")
+
+    user.is_active = True
+    await db.flush()
+    await logger.ainfo("user_activated", user_id=str(user_id))
+
+
+async def admin_reset_user_password(db: AsyncSession, user_id: uuid.UUID) -> str | None:
+    """Generate a password-reset token for a user (admin-initiated).
+
+    Returns the raw reset token string, or None on unexpected lookup failure.
+    """
+    user = await db.get(User, user_id)
+    if user is None:
+        raise UserNotFoundError(f"User {user_id} not found")
+
+    raw_token = await generate_password_reset_token(db, user.email)
+    await logger.ainfo("admin_password_reset_initiated", user_id=str(user_id))
+    return raw_token
