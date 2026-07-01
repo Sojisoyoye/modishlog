@@ -163,4 +163,7 @@ async def get_customer_activities_endpoint(
     current_user: User = Depends(get_current_active_user),
 ):
     """Recent activity feed for a customer."""
-    return await get_customer_activities(db, customer_id, limit=limit)
+    try:
+        return await get_customer_activities(db, customer_id, limit=limit)
+    except CustomerNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

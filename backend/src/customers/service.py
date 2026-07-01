@@ -143,7 +143,7 @@ async def get_customer_sales(
     customer_id: uuid.UUID,
     page: int = 1,
     page_size: int = 25,
-) -> tuple[list, int]:
+) -> tuple[list["Sale"], int]:
     """Paginated list of sales for a customer."""
     from src.sales.models import Sale
 
@@ -217,8 +217,13 @@ async def get_customer_activities(
     customer_id: uuid.UUID,
     limit: int = 20,
 ) -> list[CustomerActivityEntry]:
-    """Recent activity feed for a customer — sales events."""
+    """Recent activity feed for a customer — sales events.
+
+    Raises CustomerNotFoundError if the customer does not exist.
+    """
     from src.sales.models import Sale
+
+    await get_customer(db, customer_id)
 
     result = await db.execute(
         select(Sale)

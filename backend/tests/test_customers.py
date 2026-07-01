@@ -453,6 +453,7 @@ class TestGetCustomerActivities:
         from src.customers.service import get_customer_activities
         from src.sales.models import Sale, SaleChannel, SaleStatus
 
+        customer = _make_customer()
         sale = Sale(
             id=uuid.uuid4(),
             product_id=uuid.uuid4(),
@@ -468,15 +469,18 @@ class TestGetCustomerActivities:
         sale.created_at = datetime.now(timezone.utc)
         sale.updated_at = datetime.now(timezone.utc)
 
-        result_mock = MagicMock()
+        get_mock = MagicMock()
+        get_mock.scalar_one_or_none.return_value = customer
+
+        sales_mock = MagicMock()
         scalars_mock = MagicMock()
         scalars_mock.all.return_value = [sale]
-        result_mock.scalars.return_value = scalars_mock
+        sales_mock.scalars.return_value = scalars_mock
 
         db = _mock_db()
-        db.execute = AsyncMock(return_value=result_mock)
+        db.execute = AsyncMock(side_effect=[get_mock, sales_mock])
 
-        activities = await get_customer_activities(db, uuid.uuid4())
+        activities = await get_customer_activities(db, customer.id)
         assert len(activities) == 1
         assert activities[0].event_type == "sale"
         assert activities[0].amount == Decimal("1500")
@@ -486,16 +490,30 @@ class TestGetCustomerActivities:
         """Activities returns empty list when customer has no sales."""
         from src.customers.service import get_customer_activities
 
-        result_mock = MagicMock()
+        customer = _make_customer()
+
+        get_mock = MagicMock()
+        get_mock.scalar_one_or_none.return_value = customer
+
+        sales_mock = MagicMock()
         scalars_mock = MagicMock()
         scalars_mock.all.return_value = []
-        result_mock.scalars.return_value = scalars_mock
+        sales_mock.scalars.return_value = scalars_mock
 
         db = _mock_db()
-        db.execute = AsyncMock(return_value=result_mock)
+        db.execute = AsyncMock(side_effect=[get_mock, sales_mock])
 
-        activities = await get_customer_activities(db, uuid.uuid4())
+        activities = await get_customer_activities(db, customer.id)
         assert activities == []
+
+    @pytest.mark.asyncio
+    async def test_customer_activities_not_found_raises(self):
+        """get_customer_activities() raises CustomerNotFoundError when customer missing."""
+        from src.customers.service import get_customer_activities
+
+        db = _mock_db_with_execute(scalar_result=None)
+        with pytest.raises(CustomerNotFoundError):
+            await get_customer_activities(db, uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------

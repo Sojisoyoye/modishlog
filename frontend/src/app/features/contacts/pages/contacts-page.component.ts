@@ -1,10 +1,12 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  DestroyRef,
   signal,
   OnInit,
   inject,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { SuppliersPageComponent } from '../../suppliers/pages/suppliers-page.component';
 import { CustomersPageComponent } from '../../customers/pages/customers-page/customers-page.component';
@@ -23,7 +25,7 @@ type ContactTab = 'suppliers' | 'customers';
         <i class="pi pi-address-book text-lg"></i>
       </div>
       <div>
-        <h2 class="text-2xl font-bold text-text" role="heading">Contacts</h2>
+        <h2 class="text-2xl font-bold text-text">Contacts</h2>
         <p class="mt-0.5 text-sm text-muted">Manage your suppliers and customers</p>
       </div>
     </div>
@@ -65,11 +67,12 @@ type ContactTab = 'suppliers' | 'customers';
 export class ContactsPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
 
   activeTab = signal<ContactTab>('suppliers');
 
   ngOnInit(): void {
-    this.route.queryParams.subscribe((params) => {
+    this.route.queryParams.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       const tab = params['tab'] as ContactTab;
       if (tab === 'customers' || tab === 'suppliers') {
         this.activeTab.set(tab);
