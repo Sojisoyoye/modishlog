@@ -54,6 +54,7 @@ from src.pricing.models import (  # noqa: F401
     CrossSubsidyAnalysis,
 )
 from src.expenses.models import Expense, ExpenseCategory  # noqa: F401
+from src.pos_sync.models import SyncState  # noqa: F401
 from src.ai_engine.models import (  # noqa: F401
     AIRecommendation,
     USDStrategyConfig,

@@ -103,6 +103,9 @@ class Sale(UUIDMixin, TimestampMixin, Base):
         default=None,
         index=True,
     )
+    pos_id: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default=None, index=True
+    )
 
     def __repr__(self) -> str:
         return f"<Sale(id={self.id}, product_id={self.product_id}, total={self.total_amount})>"
