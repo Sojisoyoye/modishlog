@@ -20,6 +20,7 @@ from src.orders.exceptions import (
     OrderNotFoundError,
     OverpaymentError,
     PaymentNotFoundError,
+    PurchaseReturnNotFoundError,
 )
 from src.orders.models import (
     DiscountType,
@@ -1515,3 +1516,42 @@ async def parse_products_from_file(
         )
 
     return ParseProductsResult(items=items, errors=errors)
+
+
+async def list_purchase_returns(
+    db: AsyncSession,
+    order_id: uuid.UUID | None = None,
+    page: int = 1,
+    page_size: int = 25,
+) -> tuple[list[PurchaseReturn], int]:
+    """Return a paginated list of purchase returns, optionally filtered by order."""
+    base_q = select(PurchaseReturn)
+    if order_id:
+        base_q = base_q.where(PurchaseReturn.original_order_id == order_id)
+
+    count_result = await db.execute(
+        select(func.count()).select_from(base_q.subquery())
+    )
+    total = count_result.scalar() or 0
+
+    items_result = await db.execute(
+        base_q.order_by(PurchaseReturn.return_date.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    items = items_result.scalars().all()
+    return list(items), total
+
+
+async def get_purchase_return(
+    db: AsyncSession,
+    return_id: uuid.UUID,
+) -> PurchaseReturn:
+    """Fetch a single purchase return by ID, raise PurchaseReturnNotFoundError if missing."""
+    result = await db.execute(
+        select(PurchaseReturn).where(PurchaseReturn.id == return_id)
+    )
+    pr = result.scalar_one_or_none()
+    if pr is None:
+        raise PurchaseReturnNotFoundError(return_id)
+    return pr

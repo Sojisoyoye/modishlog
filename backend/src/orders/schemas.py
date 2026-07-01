@@ -260,6 +260,15 @@ class PurchaseReturnRead(BaseModel):
     created_at: datetime
 
 
+class PurchaseReturnListResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[PurchaseReturnRead]
+    total: int
+    page: int
+    page_size: int
+
+
 class OrdersSummary(BaseModel):
     total_orders: int
     total_value: Decimal
