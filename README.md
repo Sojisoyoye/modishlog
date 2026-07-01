@@ -154,6 +154,33 @@ npx ng serve --port 4200
 4. Add products via the Products page
 5. Record sales, create orders, track FX rates
 
+### Seeding from the live POS (optional)
+
+The `pos_migrate.py` script pulls all products, suppliers, sales, and purchase orders from the live UltimatePOS instance and populates the local DB. **This wipes all existing local data first.**
+
+```bash
+# Export POS credentials (never commit these)
+export POS_USERNAME=your-pos-username
+export POS_PASSWORD=your-pos-password
+
+# 1. Check connectivity and record counts
+docker compose exec backend python scripts/pos_migrate.py --step=verify
+
+# 2. Wipe local data + import everything
+docker compose exec backend python scripts/pos_migrate.py --step=all
+
+# Individual steps (if you only want one part)
+docker compose exec backend python scripts/pos_migrate.py --step=wipe     # clear all local data
+docker compose exec backend python scripts/pos_migrate.py --step=migrate  # import without wiping
+```
+
+The migration fetches the live USD/NGN rate at import time, converts all NGN purchase amounts to USD, and stores `fx_rate_at_creation` on each purchase order. If you have already imported and need to correct the currency on existing purchase orders without re-running the full migration:
+
+```bash
+docker compose exec backend python scripts/patch_po_ngn_to_usd.py --dry-run  # preview
+docker compose exec backend python scripts/patch_po_ngn_to_usd.py             # apply
+```
+
 ---
 
 ## Staging Deployment
@@ -241,19 +268,26 @@ Interactive API docs are available at:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `postgresql+asyncpg://modishlog:modishlog_dev@localhost:5434/modishlog` | PostgreSQL connection string. Accepts `postgres://` / `postgresql://` — the app normalises to `postgresql+asyncpg://` and strips libpq params automatically. |
+| `DATABASE_URL` | `postgresql+asyncpg://modishlog:modishlog_dev@db:5432/modishlog` | PostgreSQL connection string. Accepts `postgres://` / `postgresql://` — the app normalises to `postgresql+asyncpg://` and strips libpq params automatically. |
 | `DATABASE_SSL` | *(auto-derived)* | Set to `true` to force SSL on the DB connection. Auto-set when the raw `DATABASE_URL` contains `sslmode=require` or `verify-*`. Required for Neon PostgreSQL in staging/production. |
-| `SECRET_KEY` | `dev-secret-change-in-production` | JWT signing key |
-| `ALGORITHM` | `HS256` | JWT signing algorithm |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `1440` | JWT token lifetime in minutes |
-| `UPLOAD_DIR` | `/uploads` | Directory for uploaded product images |
-| `ENVIRONMENT` | `development` | Runtime environment (`development` / `staging` / `production`) |
-| `LOG_LEVEL` | `info` | Logging level |
-| `FX_API_KEY` | *(empty)* | Optional paid-tier key for ExchangeRate-API (free tier works without it) |
-| `FX_LIVE_API_URL` | `https://open.er-api.com/v6/latest/USD` | Live USD/NGN rate source (free, no key required) |
-| `FX_CACHE_TTL_HOURS` | `4` | How long to cache the live FX rate before re-fetching |
-| `CORS_ORIGINS` | `["http://localhost:4200"]` | Allowed CORS origins (JSON array or comma-separated string) |
-| `ANTHROPIC_API_KEY` | *(empty)* | Anthropic API key for AI features |
+| `SECRET_KEY` | *(required — no default)* | JWT signing key. Generate with `openssl rand -hex 32`. Server refuses to start without a strong key (≥ 32 chars). |
+| `ALGORITHM` | `HS256` | JWT signing algorithm. Only HS256/384/512 accepted — prevents algorithm-confusion attacks. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | JWT access token lifetime in minutes. |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Refresh token lifetime in days. Silently re-issues an access token on expiry without a re-login. |
+| `CORS_ORIGINS` | `["http://localhost:4200"]` | Allowed CORS origins (JSON array or comma-separated string). Wildcard `*` is rejected at startup. |
+| `UPLOAD_DIR` | `/app/uploads` | Directory for uploaded product images. Writable by `appuser` in Docker. |
+| `ENVIRONMENT` | `development` | Runtime environment (`development` / `staging` / `production`). |
+| `LOG_LEVEL` | `info` | Logging level (`debug` / `info` / `warning` / `error`). |
+| `FX_API_KEY` | *(empty)* | Optional paid-tier key for ExchangeRate-API. Free tier at `FX_LIVE_API_URL` works without it. |
+| `FX_API_URL` | `https://api.example.com/fx` | Reserved for a future paid FX data provider. |
+| `FX_LIVE_API_URL` | `https://open.er-api.com/v6/latest/USD` | Live USD/NGN rate source (free, no key required). |
+| `FX_CACHE_TTL_HOURS` | `4` | How long to cache the live FX rate in the DB before re-fetching from the external API. |
+| `ANTHROPIC_API_KEY` | *(empty)* | Anthropic API key for AI Recommendations, Price Suggestions, and Quick Quote. Get one at [console.anthropic.com](https://console.anthropic.com). |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Override to route Anthropic API calls through a proxy (e.g. cliproxy). Leave as default for direct access. |
+| `POS_USERNAME` | *(empty)* | UltimatePOS login username. Only required when running `pos_migrate.py` — not used by the app at runtime. |
+| `POS_PASSWORD` | *(empty)* | UltimatePOS login password. Only required when running `pos_migrate.py` — not used by the app at runtime. |
+
+See `.env.example` for a fully annotated template and `.env.staging.example` for the staging/CI variable list.
 
 ---
 
@@ -263,15 +297,17 @@ Interactive API docs are available at:
 ```bash
 cd backend
 UPLOAD_DIR=/tmp/modishlog_uploads .venv/bin/pytest tests/ -v
+# Or inside Docker:
+docker compose exec backend pytest tests/
 ```
-722 tests covering all services, endpoints, and business logic.
+849 tests covering all services, endpoints, and business logic.
 
 ### Frontend E2E (Playwright)
 ```bash
 cd frontend
 npx playwright test --reporter=list
 ```
-312 E2E tests across auth, dashboard, products, sales, orders, FX, cashflow, and more.
+E2E tests across auth, dashboard, products, sales, orders, FX, cashflow, and more.
 
 ### Frontend Build
 ```bash

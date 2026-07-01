@@ -44,8 +44,16 @@
 | `VERCEL_TOKEN` | Vercel API token |
 | `VERCEL_ORG_ID` | Vercel org ID |
 | `VERCEL_PROJECT_ID` | Vercel project ID |
+| `ANTHROPIC_API_KEY` | Anthropic API key for AI Recommendations and Price Suggestions |
+| `ANTHROPIC_BASE_URL` | Anthropic base URL — `https://api.anthropic.com` (direct) or proxy URL |
+| `POS_USERNAME` | UltimatePOS login — export before running `pos_migrate.py` on the server |
+| `POS_PASSWORD` | UltimatePOS password — export before running `pos_migrate.py` on the server |
 
 Set these under: GitHub repo → Settings → Secrets and variables → Actions.
+
+> **POS migration on staging:** To seed the staging database from the live POS, SSH into the
+> Hetzner server, `export POS_USERNAME=... POS_PASSWORD=...`, then run:
+> `docker compose exec backend python scripts/pos_migrate.py --step=all`
 
 ---
 
