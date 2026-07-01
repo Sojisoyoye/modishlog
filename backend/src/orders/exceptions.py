@@ -84,3 +84,11 @@ class OrderLineItemError(Exception):
         super().__init__(
             f"Invalid product IDs in order: {[str(pid) for pid in invalid_product_ids]}"
         )
+
+
+class PurchaseReturnNotFoundError(Exception):
+    """Raised when a purchase return lookup by ID yields no result."""
+
+    def __init__(self, return_id: uuid.UUID) -> None:
+        self.return_id = return_id
+        super().__init__(f"Purchase return {return_id} not found")

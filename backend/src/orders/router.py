@@ -6,7 +6,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from src.orders.exceptions import (
     OrderNotFoundError,
     OverpaymentError,
     PaymentNotFoundError,
+    PurchaseReturnNotFoundError,
 )
 from fastapi import File, UploadFile
 
@@ -43,6 +44,7 @@ from src.orders.schemas import (
     PaymentRead,
     PaymentSummary,
     PurchaseReturnCreate,
+    PurchaseReturnListResponse,
     PurchaseReturnRead,
     StatusHistoryRead,
     StatusTransition,
@@ -61,11 +63,13 @@ from src.orders.service import (
     get_overdue_orders,
     get_paid_totals_for_orders,
     get_payment_summary,
+    get_purchase_return,
     get_status_history,
     import_orders_from_file,
     list_orders,
-    parse_products_from_file,
     list_payments,
+    list_purchase_returns,
+    parse_products_from_file,
     record_payment,
     transition_status,
     update_order,
@@ -311,6 +315,51 @@ async def create_purchase_return_endpoint(
         return await create_purchase_return(db, body, current_user.id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+# Static routes BEFORE parameterised /{order_id} routes
+@router.get("/returns/purchases", response_model=PurchaseReturnListResponse)
+async def list_all_purchase_returns_endpoint(
+    order_id: uuid.UUID | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> PurchaseReturnListResponse:
+    """List all purchase returns, optionally filtered by order."""
+    items, total = await list_purchase_returns(
+        db, order_id=order_id, page=page, page_size=page_size
+    )
+    return PurchaseReturnListResponse(
+        items=items, total=total, page=page, page_size=page_size
+    )
+
+
+@router.get("/returns/purchases/{return_id}", response_model=PurchaseReturnRead)
+async def get_purchase_return_endpoint(
+    return_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> PurchaseReturnRead:
+    """Fetch a single purchase return by ID."""
+    try:
+        return await get_purchase_return(db, return_id)
+    except PurchaseReturnNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/{order_id}/returns", response_model=PurchaseReturnListResponse)
+async def list_order_purchase_returns_endpoint(
+    order_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+) -> PurchaseReturnListResponse:
+    """List purchase returns for a specific order."""
+    items, total = await list_purchase_returns(
+        db, order_id=order_id, page=page, page_size=page_size
+    )
+    return PurchaseReturnListResponse(
+        items=items, total=total, page=page, page_size=page_size
+    )
 
 
 @router.get("/{order_id}/lots", response_model=list[LotRead])
