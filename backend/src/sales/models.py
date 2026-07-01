@@ -93,6 +93,8 @@ class Sale(UUIDMixin, TimestampMixin, Base):
         Numeric(18, 2), nullable=True, default=None
     )
     payment_date: Mapped[date | None] = mapped_column(Date, nullable=True, default=None)
+    invoice_number: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None, index=True)
+    tax_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True, default=None)
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     location_id: Mapped[uuid.UUID | None] = mapped_column(
