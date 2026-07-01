@@ -319,77 +319,73 @@ def step_verify() -> None:
 
 # Tables deleted leaf-first so FK constraints are not violated.
 # Users are wiped last and recreated in migrate step.
+# Topological delete order derived from pg_constraint FK graph.
+# Every child table appears before the parent table(s) it references.
 WIPE_ORDER = [
-    # AI / recommendations
-    AIRecommendation,
-    ReorderSuggestion,
-    ReorderConfig,
-    USDPurchaseSchedule,
-    USDStrategyConfig,
-    # Pricing
+    # ── AI ──────────────────────────────────────────────────────────────────
+    USDPurchaseSchedule,    # → usd_strategy_configs
+    ReorderSuggestion,      # → purchase_orders, products
+    AIRecommendation,       # → users
+    ReorderConfig,          # → users
+    USDStrategyConfig,      # → users
+    # ── Pricing ─────────────────────────────────────────────────────────────
     CrossSubsidyAnalysis,
-    DemandElasticity,
-    PriceSuggestion,
-    PricingRecommendation,
-    PricingScenario,
-    MarginTarget,
-    ProductMixTarget,
-    # Cashflow
-    CashflowProjection,
+    DemandElasticity,       # → products
+    PriceSuggestion,        # → products
+    PricingRecommendation,  # → products, users
+    PricingScenario,        # → products, users
+    MarginTarget,           # → products, product_categories, users
+    ProductMixTarget,       # → product_categories
+    # ── Cashflow ─────────────────────────────────────────────────────────────
+    StressScenario,         # → cashflow_projections, users
+    TriageRecord,
     DSCRRecord,
-    LoanPaymentSchedule,
+    LoanPaymentSchedule,    # → loan_obligations
     LoanObligation,
     OperatingCost,
     ProjectionAssumptions,
-    StressScenario,
-    TriageRecord,
-    # FX
+    CashflowProjection,     # → users
+    # ── FX ──────────────────────────────────────────────────────────────────
     FXAlert,
     FXExposure,
     FXExposureConfig,
     FXForecast,
     FXRate,
     FXSimulationRun,
-    # Stock counts
-    StockCountItem,
-    StockCount,
-    # Sales
-    SaleAuditEntry,
-    SaleBulkUploadJob,
-    SellReturn,
-    Sale,
-    # Orders
-    OrderPayment,
-    OrderStatusHistory,
-    OrderLineItem,
-    PurchaseReturn,
-    PurchaseOrder,
-    # Inventory
-    LowStockAlert,
-    StockMovement,
-    InventoryBatch,
-    InventoryLevel,
-    # Products
-    PriceHistory,
-    SupplierProduct,
-    # Customers
-    Customer,
-    # Suppliers
-    Supplier,
-    # Products (after supplier_products removed)
-    Product,
-    ProductCategory,
-    # Business locations
-    BusinessLocation,
-    # Invoice schemes
+    # ── Stock counts ─────────────────────────────────────────────────────────
+    StockCountItem,         # → order_line_items, stock_counts, products
+    StockCount,             # → users
+    # ── Sales ────────────────────────────────────────────────────────────────
+    SaleAuditEntry,         # → sales, users
+    SellReturn,             # → sales, users
+    SaleBulkUploadJob,      # → users
+    Sale,                   # → products, customers, business_locations, users
+    # ── Orders + inventory (all reference purchase_orders) ───────────────────
+    OrderPayment,           # → purchase_orders, users
+    OrderStatusHistory,     # → purchase_orders, users
+    InventoryBatch,         # → purchase_orders, products
+    OrderLineItem,          # → purchase_orders, products
+    PurchaseReturn,         # → purchase_orders, users
+    PurchaseOrder,          # → business_locations, suppliers, users
+    # ── Inventory ────────────────────────────────────────────────────────────
+    LowStockAlert,          # → products
+    StockMovement,          # → products, users
+    InventoryLevel,         # → products
+    # ── Product relations ────────────────────────────────────────────────────
+    PriceHistory,           # → products, users
+    SupplierProduct,        # → products, suppliers
+    # ── Entities ─────────────────────────────────────────────────────────────
+    Customer,               # → users
+    Supplier,               # → users
+    Product,                # → product_categories
+    ProductCategory,        # self-ref; safe once products are gone
+    BusinessLocation,       # → users; referenced by sales/orders already deleted
+    # ── Settings / auth ──────────────────────────────────────────────────────
     InvoiceScheme,
-    # Settings
     UserApiKey,
     UserPreferences,
-    # Auth tokens
     PasswordResetToken,
     RefreshToken,
-    # Users last
     User,
 ]
 
