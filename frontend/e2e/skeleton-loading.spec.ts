@@ -31,7 +31,8 @@ test('products page: skeleton resolves and table is visible', async ({ page }) =
   await page.goto('/products');
   await expect(page.locator('table').first()).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 10000 });
-  await expect(page.getByRole('columnheader', { name: /product/i }).first()).toBeVisible();
+  // "Actions" is the only unconditional <th> — all other columns are gated by visibleCols()
+  await expect(page.getByRole('columnheader', { name: 'Actions' }).first()).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -41,7 +42,8 @@ test('orders page: skeleton resolves and table is visible', async ({ page }) => 
   await page.goto('/orders');
   await expect(page.locator('table').first()).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 10000 });
-  await expect(page.getByRole('columnheader', { name: /order/i }).first()).toBeVisible();
+  // "Order #" is the first unconditional column header in the orders table
+  await expect(page.getByRole('columnheader', { name: 'Order #' }).first()).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -51,5 +53,6 @@ test('inventory page: skeleton resolves and table is visible', async ({ page }) 
   await page.goto('/inventory');
   await expect(page.locator('table').first()).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 10000 });
-  await expect(page.getByRole('columnheader', { name: /product/i }).first()).toBeVisible();
+  // "Stock" is a stable, unconditional header unique to the inventory table
+  await expect(page.getByRole('columnheader', { name: 'Stock' }).first()).toBeVisible();
 });
