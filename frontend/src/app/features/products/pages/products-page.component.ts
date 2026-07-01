@@ -1505,12 +1505,7 @@ export class ProductsPageComponent implements OnInit {
         this.products.set(products);
 
         this.categoryTree.set(categories);
-        const flat: Category[] = [];
-        for (const cat of categories) {
-          flat.push(cat);
-          for (const child of (cat.children ?? [])) flat.push(child);
-        }
-        this.categories.set(flat);
+        this.categories.set(this._flattenCategories(categories));
 
         const sm = new Map<string, number>();
         const tm = new Map<string, number>();
@@ -1536,7 +1531,9 @@ export class ProductsPageComponent implements OnInit {
   private loadProducts(): void {
     this.productsService.getAll().subscribe({
       next: (p) => { this.products.set(p); },
-      error: () => {},
+      error: () => {
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to refresh products' });
+      },
     });
   }
 
@@ -1544,17 +1541,18 @@ export class ProductsPageComponent implements OnInit {
     this.productsService.getCategories().subscribe({
       next: (tree) => {
         this.categoryTree.set(tree);
-        // Build flat list so existing lookups by ID (categoryName, etc.) still work
-        const flat: Category[] = [];
-        for (const cat of tree) {
-          flat.push(cat);
-          for (const child of (cat.children ?? [])) {
-            flat.push(child);
-          }
-        }
-        this.categories.set(flat);
+        this.categories.set(this._flattenCategories(tree));
       },
     });
+  }
+
+  private _flattenCategories(tree: Category[]): Category[] {
+    const flat: Category[] = [];
+    for (const cat of tree) {
+      flat.push(cat);
+      for (const child of (cat.children ?? [])) flat.push(child);
+    }
+    return flat;
   }
 
   private loadStock(): void {
