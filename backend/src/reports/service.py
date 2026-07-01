@@ -3,6 +3,7 @@
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Literal
 
 import structlog
 from sqlalchemy import func, or_, select
@@ -13,10 +14,14 @@ from src.inventory.models import InventoryBatch, InventoryLevel
 from src.orders.models import OrderPayment, OrderPaymentStatus, PurchaseOrder, PurchaseReturn
 from src.products.models import Product, ProductCategory
 from src.reports.schemas import (
+    ProductSalesReport,
+    ProductSalesRow,
     ProfitLossReport,
     PurchaseSaleReport,
     StockReport,
     StockReportItem,
+    TrendingProductRow,
+    TrendingProductsReport,
 )
 from src.sales.models import Sale, SaleStatus, SellReturn
 from src.settings.service import get_fiscal_year_start
@@ -55,8 +60,13 @@ async def _sum_sell_returns(
     db: AsyncSession,
     start_date: date | None,
     end_date: date | None,
+    location_id: uuid.UUID | None = None,
 ) -> Decimal:
     q = select(func.sum(SellReturn.total_amount))
+    if location_id:
+        q = q.join(Sale, Sale.id == SellReturn.sale_id).where(
+            Sale.location_id == location_id
+        )
     if start_date:
         q = q.where(SellReturn.return_date >= start_date)
     if end_date:
@@ -69,6 +79,7 @@ async def get_profit_loss_report(
     db: AsyncSession,
     start_date: date | None = None,
     end_date: date | None = None,
+    location_id: uuid.UUID | None = None,
 ) -> ProfitLossReport:
     """Calculate profit and loss report for an optional date range.
 
@@ -90,6 +101,8 @@ async def get_profit_loss_report(
         purchase_query = purchase_query.where(PurchaseOrder.created_at >= start_date)
     if end_date:
         purchase_query = purchase_query.where(PurchaseOrder.created_at <= end_date)
+    if location_id:
+        purchase_query = purchase_query.where(PurchaseOrder.location_id == location_id)
     purchase_result = await db.execute(purchase_query)
     total_purchase = purchase_result.scalar() or Decimal("0")
 
@@ -101,6 +114,8 @@ async def get_profit_loss_report(
         sales_query = sales_query.where(Sale.sale_date >= start_date)
     if end_date:
         sales_query = sales_query.where(Sale.sale_date <= end_date)
+    if location_id:
+        sales_query = sales_query.where(Sale.location_id == location_id)
     sales_result = await db.execute(sales_query)
     total_sales = sales_result.scalar() or Decimal("0")
 
@@ -135,6 +150,10 @@ async def get_profit_loss_report(
 
     # -- Purchase returns in period --
     returns_query = select(func.sum(PurchaseReturn.total_amount))
+    if location_id:
+        returns_query = returns_query.join(
+            PurchaseOrder, PurchaseOrder.id == PurchaseReturn.original_order_id
+        ).where(PurchaseOrder.location_id == location_id)
     if start_date:
         returns_query = returns_query.where(PurchaseReturn.return_date >= start_date)
     if end_date:
@@ -143,7 +162,7 @@ async def get_profit_loss_report(
     purchase_returns_total = returns_result.scalar() or Decimal("0")
 
     # -- Sell returns in period --
-    total_sales_returns = await _sum_sell_returns(db, start_date, end_date)
+    total_sales_returns = await _sum_sell_returns(db, start_date, end_date, location_id)
 
     # -- Purchase due: sum of outstanding balances on UNPAID/PARTIAL orders --
     paid_subq = (
@@ -172,6 +191,8 @@ async def get_profit_loss_report(
         purchase_due_query = purchase_due_query.where(PurchaseOrder.created_at >= start_date)
     if end_date:
         purchase_due_query = purchase_due_query.where(PurchaseOrder.created_at <= end_date)
+    if location_id:
+        purchase_due_query = purchase_due_query.where(PurchaseOrder.location_id == location_id)
     purchase_due_result = await db.execute(purchase_due_query)
     purchase_due = purchase_due_result.scalar() or Decimal("0")
 
@@ -195,6 +216,8 @@ async def get_profit_loss_report(
         sales_due_query = sales_due_query.where(Sale.sale_date >= start_date)
     if end_date:
         sales_due_query = sales_due_query.where(Sale.sale_date <= end_date)
+    if location_id:
+        sales_due_query = sales_due_query.where(Sale.location_id == location_id)
     sales_due_result = await db.execute(sales_due_query)
     sales_due = sales_due_result.scalar() or Decimal("0")
 
@@ -219,6 +242,7 @@ async def get_profit_loss_report(
 async def get_stock_report(
     db: AsyncSession,
     category_id: str | None = None,
+    location_id: uuid.UUID | None = None,
 ) -> StockReport:
     """Generate a stock report showing inventory levels and valuations.
 
@@ -233,15 +257,13 @@ async def get_stock_report(
 
     # Build the query: products JOIN inventory_levels LEFT JOIN sales aggregate
     # Using a subquery for total_sold per product
-    sold_subq = (
-        select(
-            Sale.product_id,
-            func.sum(Sale.quantity).label("total_sold"),
-        )
-        .where(Sale.status == SaleStatus.COMPLETED)
-        .group_by(Sale.product_id)
-        .subquery()
-    )
+    sold_subq_base = select(
+        Sale.product_id,
+        func.sum(Sale.quantity).label("total_sold"),
+    ).where(Sale.status == SaleStatus.COMPLETED)
+    if location_id:
+        sold_subq_base = sold_subq_base.where(Sale.location_id == location_id)
+    sold_subq = sold_subq_base.group_by(Sale.product_id).subquery()
 
     query = (
         select(
@@ -307,6 +329,7 @@ async def get_purchase_sale_report(
     db: AsyncSession,
     start_date: date | None = None,
     end_date: date | None = None,
+    location_id: uuid.UUID | None = None,
 ) -> PurchaseSaleReport:
     """Generate a purchase and sale summary report.
 
@@ -328,6 +351,8 @@ async def get_purchase_sale_report(
         purchase_query = purchase_query.where(PurchaseOrder.created_at >= start_date)
     if end_date:
         purchase_query = purchase_query.where(PurchaseOrder.created_at <= end_date)
+    if location_id:
+        purchase_query = purchase_query.where(PurchaseOrder.location_id == location_id)
     purchase_result = await db.execute(purchase_query)
     total_purchase = purchase_result.scalar() or Decimal("0")
 
@@ -352,6 +377,8 @@ async def get_purchase_sale_report(
         sales_query = sales_query.where(Sale.sale_date >= start_date)
     if end_date:
         sales_query = sales_query.where(Sale.sale_date <= end_date)
+    if location_id:
+        sales_query = sales_query.where(Sale.location_id == location_id)
     sales_result = await db.execute(sales_query)
     total_sales = sales_result.scalar() or Decimal("0")
 
@@ -366,4 +393,182 @@ async def get_purchase_sale_report(
         total_sales=total_sales,
         total_sales_returns=total_sales_returns,
         net_position=net_position,
+    )
+
+
+async def get_product_sales_report(
+    db: AsyncSession,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    category_id: uuid.UUID | None = None,
+    location_id: uuid.UUID | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> ProductSalesReport:
+    """Group completed sales by product for the given period."""
+    logger.info(
+        "generating product_sales_report",
+        start_date=start_date,
+        end_date=end_date,
+        page=page,
+    )
+
+    # Returns subquery: count of sell_returns per product (via sale join)
+    returns_subq = (
+        select(
+            Sale.product_id.label("product_id"),
+            func.count(SellReturn.id).label("return_quantity"),
+        )
+        .join(SellReturn, SellReturn.sale_id == Sale.id)
+        .group_by(Sale.product_id)
+        .subquery()
+    )
+
+    base_q = (
+        select(
+            Product.id.label("product_id"),
+            Product.sku.label("sku"),
+            Product.name.label("product_name"),
+            ProductCategory.name.label("category"),
+            func.sum(Sale.quantity).label("quantity_sold"),
+            func.sum(Sale.total_amount).label("total_revenue"),
+            func.coalesce(
+                func.sum(Sale.total_amount) / func.nullif(func.sum(Sale.quantity), 0),
+                Decimal("0"),
+            ).label("avg_unit_price"),
+            func.coalesce(returns_subq.c.return_quantity, 0).label("return_quantity"),
+        )
+        .join(Sale, Sale.product_id == Product.id)
+        .join(ProductCategory, ProductCategory.id == Product.category_id)
+        .outerjoin(returns_subq, returns_subq.c.product_id == Product.id)
+        .where(Sale.status == SaleStatus.COMPLETED)
+        .group_by(
+            Product.id,
+            Product.sku,
+            Product.name,
+            ProductCategory.name,
+        )
+    )
+
+    if start_date:
+        base_q = base_q.where(Sale.sale_date >= start_date)
+    if end_date:
+        base_q = base_q.where(Sale.sale_date <= end_date)
+    if category_id:
+        base_q = base_q.where(Product.category_id == category_id)
+    if location_id:
+        base_q = base_q.where(Sale.location_id == location_id)
+
+    # Total count and global revenue (both wrap base_q as subquery)
+    count_subq = base_q.subquery()
+    count_result = await db.execute(
+        select(func.count()).select_from(count_subq)
+    )
+    total = count_result.scalar() or 0
+
+    # Global revenue across ALL matching products (not just this page)
+    revenue_subq = base_q.subquery()
+    revenue_result = await db.execute(
+        select(func.sum(revenue_subq.c.total_revenue)).select_from(revenue_subq)
+    )
+    total_revenue = revenue_result.scalar() or Decimal("0")
+
+    # Paginate
+    paginated_q = base_q.offset((page - 1) * page_size).limit(page_size)
+    rows_result = await db.execute(paginated_q)
+    rows_data = rows_result.all()
+
+    rows: list[ProductSalesRow] = []
+    for r in rows_data:
+        qty_sold = r.quantity_sold or 0
+        ret_qty = r.return_quantity or 0
+        rows.append(
+            ProductSalesRow(
+                product_id=r.product_id,
+                sku=r.sku,
+                product_name=r.product_name,
+                category=r.category,
+                quantity_sold=qty_sold,
+                total_revenue=r.total_revenue or Decimal("0"),
+                avg_unit_price=r.avg_unit_price or Decimal("0"),
+                return_quantity=ret_qty,
+                net_quantity=qty_sold - ret_qty,
+            )
+        )
+
+    return ProductSalesReport(
+        rows=rows,
+        total_revenue=total_revenue,
+        period_start=start_date,
+        period_end=end_date,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+async def get_trending_products(
+    db: AsyncSession,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    limit: int = 10,
+    sort_by: Literal["revenue", "quantity"] = "revenue",
+) -> TrendingProductsReport:
+    """Return top-N products sorted by revenue or quantity."""
+    logger.info(
+        "generating trending_products",
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        sort_by=sort_by,
+    )
+
+    order_col = (
+        func.sum(Sale.total_amount).desc()
+        if sort_by == "revenue"
+        else func.sum(Sale.quantity).desc()
+    )
+
+    q = (
+        select(
+            Product.id.label("product_id"),
+            Product.sku.label("sku"),
+            Product.name.label("product_name"),
+            ProductCategory.name.label("category"),
+            func.sum(Sale.quantity).label("quantity_sold"),
+            func.sum(Sale.total_amount).label("total_revenue"),
+        )
+        .join(Sale, Sale.product_id == Product.id)
+        .join(ProductCategory, ProductCategory.id == Product.category_id)
+        .where(Sale.status == SaleStatus.COMPLETED)
+        .group_by(Product.id, Product.sku, Product.name, ProductCategory.name)
+    )
+
+    if start_date:
+        q = q.where(Sale.sale_date >= start_date)
+    if end_date:
+        q = q.where(Sale.sale_date <= end_date)
+
+    q = q.order_by(order_col).limit(limit)
+
+    result = await db.execute(q)
+    rows_data = result.all()
+
+    rows = [
+        TrendingProductRow(
+            rank=i + 1,
+            product_id=r.product_id,
+            product_name=r.product_name,
+            sku=r.sku,
+            category=r.category,
+            quantity_sold=r.quantity_sold or 0,
+            total_revenue=r.total_revenue or Decimal("0"),
+        )
+        for i, r in enumerate(rows_data)
+    ]
+
+    return TrendingProductsReport(
+        rows=rows,
+        period_start=start_date,
+        period_end=end_date,
     )
