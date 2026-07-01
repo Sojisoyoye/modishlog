@@ -59,8 +59,8 @@ import { SellReturnFormModalComponent } from '../sell-return-form-modal/sell-ret
                   <td class="px-4 py-3 font-mono text-xs text-gray-700">{{ r.ref_no ?? '—' }}</td>
                   <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ r.sale_id.slice(0, 8) }}…</td>
                   <td class="px-4 py-3 text-gray-700">{{ r.return_date | date: 'mediumDate' }}</td>
-                  <td class="px-4 py-3 text-right font-medium">{{ Number(r.total_amount) | number: '1.2-2' }}</td>
-                  <td class="px-4 py-3 text-right">{{ Number(r.amount_paid) | number: '1.2-2' }}</td>
+                  <td class="px-4 py-3 text-right font-medium">{{ +r.total_amount | number: '1.2-2' }}</td>
+                  <td class="px-4 py-3 text-right">{{ +r.amount_paid | number: '1.2-2' }}</td>
                   <td class="px-4 py-3 text-muted">{{ r.notes ?? '—' }}</td>
                 </tr>
               } @empty {
@@ -107,8 +107,6 @@ import { SellReturnFormModalComponent } from '../sell-return-form-modal/sell-ret
 })
 export class SellReturnsTabComponent implements OnInit {
   private readonly returnsService = inject(ReturnsService);
-
-  protected readonly Number = Number;
 
   returns = signal<SellReturn[]>([]);
   loading = signal(false);

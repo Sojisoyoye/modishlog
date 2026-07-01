@@ -51,7 +51,7 @@ import { PurchaseReturn } from '../../models/return.model';
                   <td class="px-4 py-3 font-mono text-xs text-gray-700">{{ r.ref_no ?? '—' }}</td>
                   <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ r.original_order_id.slice(0, 8) }}…</td>
                   <td class="px-4 py-3 text-gray-700">{{ r.return_date | date: 'mediumDate' }}</td>
-                  <td class="px-4 py-3 text-right font-medium">{{ Number(r.total_amount) | number: '1.2-2' }}</td>
+                  <td class="px-4 py-3 text-right font-medium">{{ +r.total_amount | number: '1.2-2' }}</td>
                   <td class="px-4 py-3 text-muted">{{ r.notes ?? '—' }}</td>
                 </tr>
               } @empty {
@@ -92,8 +92,6 @@ import { PurchaseReturn } from '../../models/return.model';
 })
 export class PurchaseReturnsTabComponent implements OnInit {
   private readonly returnsService = inject(ReturnsService);
-
-  protected readonly Number = Number;
 
   returns = signal<PurchaseReturn[]>([]);
   loading = signal(false);

@@ -44,7 +44,7 @@ import { Sale, SellReturn } from '../../models/return.model';
               [(ngModel)]="saleSearch"
               name="sale_search"
               (ngModelChange)="filterSales($event)"
-              placeholder="Search by date or customer…"
+              placeholder="Search by date, customer or ID…"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
             />
             @if (loadingSales()) {
@@ -52,7 +52,7 @@ import { Sale, SellReturn } from '../../models/return.model';
             }
           </div>
 
-          @if (filteredSales().length > 0 && !form.sale_id) {
+          @if (filteredSales().length > 0 && !selectedSaleId()) {
             <ul class="mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-md">
               @for (s of filteredSales(); track s.id) {
                 <li>
@@ -74,7 +74,7 @@ import { Sale, SellReturn } from '../../models/return.model';
             </ul>
           }
 
-          @if (form.sale_id) {
+          @if (selectedSaleId()) {
             <div class="mt-1 flex items-center justify-between rounded-lg bg-primary/5 px-3 py-2 text-sm">
               <span class="text-primary font-medium">
                 <i class="pi pi-check-circle mr-1"></i>
@@ -162,7 +162,7 @@ import { Sale, SellReturn } from '../../models/return.model';
           </button>
           <button
             type="submit"
-            [disabled]="saving() || !f.valid || !form.sale_id"
+            [disabled]="saving() || !f.valid || !selectedSaleId()"
             class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50 min-h-[40px]"
           >
             {{ saving() ? 'Saving…' : 'Save Return' }}
@@ -186,9 +186,9 @@ export class SellReturnFormModalComponent {
   filteredSales = signal<Sale[]>([]);
   saleSearch = '';
   selectedSale = signal<Sale | null>(null);
+  selectedSaleId = signal('');
 
   form = {
-    sale_id: '',
     return_date: new Date().toISOString().slice(0, 10),
     total_amount: '',
     amount_paid: '0',
@@ -228,6 +228,7 @@ export class SellReturnFormModalComponent {
     this.filteredSales.set(
       this.allSales().filter(
         (s) =>
+          s.id.toLowerCase().includes(q) ||
           s.sale_date.includes(q) ||
           (s.customer_name?.toLowerCase().includes(q) ?? false),
       ),
@@ -235,14 +236,14 @@ export class SellReturnFormModalComponent {
   }
 
   selectSale(s: Sale): void {
-    this.form.sale_id = s.id;
+    this.selectedSaleId.set(s.id);
     this.selectedSale.set(s);
     this.saleSearch = '';
     this.filteredSales.set([]);
   }
 
   clearSale(): void {
-    this.form.sale_id = '';
+    this.selectedSaleId.set('');
     this.selectedSale.set(null);
     this.filteredSales.set(this.allSales());
     this.saleSearch = '';
@@ -258,10 +259,10 @@ export class SellReturnFormModalComponent {
   }
 
   submit(): void {
-    if (!this.form.sale_id || !this.form.return_date || !this.form.total_amount) return;
+    if (!this.selectedSaleId() || !this.form.return_date || !this.form.total_amount) return;
     this.saving.set(true);
     this.returnsService
-      .createSellReturn(this.form.sale_id, {
+      .createSellReturn(this.selectedSaleId(), {
         return_date: this.form.return_date,
         total_amount: this.form.total_amount,
         amount_paid: this.form.amount_paid || '0',
@@ -287,13 +288,13 @@ export class SellReturnFormModalComponent {
 
   private resetForm(): void {
     this.form = {
-      sale_id: '',
       return_date: new Date().toISOString().slice(0, 10),
       total_amount: '',
       amount_paid: '0',
       ref_no: '',
       notes: '',
     };
+    this.selectedSaleId.set('');
     this.selectedSale.set(null);
     this.saleSearch = '';
     this.filteredSales.set([]);

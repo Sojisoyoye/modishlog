@@ -36,10 +36,9 @@ test('create sell return', async ({ page }) => {
   await page.getByRole('button', { name: 'Log Return' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
 
-  // Wait for sales to load in the dropdown
-  await page.getByPlaceholder('Search by date or customer…').waitFor({ timeout: 5000 });
-  await page.getByPlaceholder('Search by date or customer…').fill(sale.id.slice(0, 8));
-  // If the sale was just created it should appear; otherwise select any available sale
+  // Wait for sales to load then search by the new sale's ID prefix
+  await page.getByPlaceholder('Search by date, customer or ID…').waitFor({ timeout: 5000 });
+  await page.getByPlaceholder('Search by date, customer or ID…').fill(sale.id.slice(0, 8));
   const listItems = page.locator('ul li button');
   await listItems.first().waitFor({ timeout: 5000 });
   await listItems.first().click();
