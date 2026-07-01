@@ -6,6 +6,7 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from src.customers.exceptions import CustomerNotFoundError
 from src.customers.models import Customer
@@ -219,16 +220,14 @@ class TestUpdateCustomer:
         assert updated.state == "FCT"
         db.flush.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_update_customer_null_opening_balance_rejected(self):
-        """Explicit null for opening_balance raises ValueError at schema validation."""
-        with pytest.raises(Exception):
+    def test_update_customer_null_opening_balance_rejected(self):
+        """Explicit null for opening_balance raises ValidationError at schema validation."""
+        with pytest.raises(ValidationError):
             CustomerUpdate(**{"opening_balance": None})
 
-    @pytest.mark.asyncio
-    async def test_update_customer_null_is_active_rejected(self):
-        """Explicit null for is_active raises ValueError at schema validation."""
-        with pytest.raises(Exception):
+    def test_update_customer_null_is_active_rejected(self):
+        """Explicit null for is_active raises ValidationError at schema validation."""
+        with pytest.raises(ValidationError):
             CustomerUpdate(**{"is_active": None})
 
 
@@ -248,5 +247,5 @@ class TestPayTermTypeValidation:
 
     def test_create_customer_invalid_pay_term_type_rejected(self):
         """Arbitrary strings like 'weekly' are rejected by the enum validator."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             CustomerCreate(name="Test", pay_term_type="weekly")

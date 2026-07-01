@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.suppliers.models import PayTermType
 
@@ -48,14 +48,12 @@ class CustomerUpdate(BaseModel):
     customer_group: str | None = Field(None, max_length=100)
     notes: str | None = None
 
-    @model_validator(mode="before")
+    @field_validator("opening_balance", "is_active", mode="before")
     @classmethod
-    def _reject_null_for_not_null_fields(cls, data: object) -> object:
-        if isinstance(data, dict):
-            for field in ("opening_balance", "is_active"):
-                if field in data and data[field] is None:
-                    raise ValueError(f"{field} cannot be set to null")
-        return data
+    def _reject_explicit_null(cls, v: object) -> object:
+        if v is None:
+            raise ValueError("cannot be set to null")
+        return v
 
 
 class CustomerRead(BaseModel):
