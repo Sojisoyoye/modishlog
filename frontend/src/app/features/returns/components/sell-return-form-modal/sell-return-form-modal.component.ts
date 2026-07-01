@@ -5,18 +5,20 @@ import {
   signal,
   output,
   input,
+  effect,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
 import { Dialog } from 'primeng/dialog';
 import { Toast } from 'primeng/toast';
 import { ReturnsService } from '../../services/returns.service';
-import { SellReturn } from '../../models/return.model';
+import { Sale, SellReturn } from '../../models/return.model';
 
 @Component({
   selector: 'app-sell-return-form-modal',
   standalone: true,
-  imports: [FormsModule, Dialog, Toast],
+  imports: [FormsModule, DatePipe, DecimalPipe, Dialog, Toast],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -26,23 +28,69 @@ import { SellReturn } from '../../models/return.model';
       [visible]="visible()"
       (visibleChange)="onVisibleChange($event)"
       [modal]="true"
-      [style]="{ width: '480px' }"
+      [style]="{ width: '520px' }"
       [draggable]="false"
     >
       <form (ngSubmit)="submit()" #f="ngForm" class="flex flex-col gap-4 py-2">
+
+        <!-- Sale search -->
         <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700">Sale ID <span class="text-red-500">*</span></label>
-          <input
-            type="text"
-            name="sale_id"
-            [(ngModel)]="form.sale_id"
-            required
-            placeholder="Paste sale UUID"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-          />
+          <label class="mb-1 block text-sm font-medium text-gray-700">
+            Sale <span class="text-red-500">*</span>
+          </label>
+          <div class="relative">
+            <input
+              type="text"
+              [(ngModel)]="saleSearch"
+              name="sale_search"
+              (ngModelChange)="filterSales($event)"
+              placeholder="Search by date or customer…"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+            @if (loadingSales()) {
+              <i class="pi pi-spinner pi-spin absolute right-3 top-2.5 text-sm text-muted"></i>
+            }
+          </div>
+
+          @if (filteredSales().length > 0 && !form.sale_id) {
+            <ul class="mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-md">
+              @for (s of filteredSales(); track s.id) {
+                <li>
+                  <button
+                    type="button"
+                    (click)="selectSale(s)"
+                    class="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50"
+                  >
+                    <span class="font-medium text-gray-800">
+                      {{ s.sale_date | date: 'mediumDate' }}
+                      @if (s.customer_name) { — {{ s.customer_name }} }
+                    </span>
+                    <span class="ml-4 shrink-0 font-mono text-xs text-muted">
+                      ₦{{ +s.total_amount | number: '1.0-0' }}
+                    </span>
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+
+          @if (form.sale_id) {
+            <div class="mt-1 flex items-center justify-between rounded-lg bg-primary/5 px-3 py-2 text-sm">
+              <span class="text-primary font-medium">
+                <i class="pi pi-check-circle mr-1"></i>
+                {{ selectedSaleLabel() }}
+              </span>
+              <button type="button" (click)="clearSale()" class="text-muted hover:text-red-500 text-xs">
+                Change
+              </button>
+            </div>
+          }
         </div>
+
         <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700">Return Date <span class="text-red-500">*</span></label>
+          <label class="mb-1 block text-sm font-medium text-gray-700">
+            Return Date <span class="text-red-500">*</span>
+          </label>
           <input
             type="date"
             name="return_date"
@@ -51,9 +99,12 @@ import { SellReturn } from '../../models/return.model';
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
           />
         </div>
+
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">Total Amount <span class="text-red-500">*</span></label>
+            <label class="mb-1 block text-sm font-medium text-gray-700">
+              Total Amount <span class="text-red-500">*</span>
+            </label>
             <input
               type="number"
               name="total_amount"
@@ -78,6 +129,7 @@ import { SellReturn } from '../../models/return.model';
             />
           </div>
         </div>
+
         <div>
           <label class="mb-1 block text-sm font-medium text-gray-700">Ref No</label>
           <input
@@ -88,6 +140,7 @@ import { SellReturn } from '../../models/return.model';
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
           />
         </div>
+
         <div>
           <label class="mb-1 block text-sm font-medium text-gray-700">Notes</label>
           <textarea
@@ -98,6 +151,7 @@ import { SellReturn } from '../../models/return.model';
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
           ></textarea>
         </div>
+
         <div class="flex justify-end gap-2 pt-2">
           <button
             type="button"
@@ -108,7 +162,7 @@ import { SellReturn } from '../../models/return.model';
           </button>
           <button
             type="submit"
-            [disabled]="saving() || !f.valid"
+            [disabled]="saving() || !f.valid || !form.sale_id"
             class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50 min-h-[40px]"
           >
             {{ saving() ? 'Saving…' : 'Save Return' }}
@@ -127,6 +181,11 @@ export class SellReturnFormModalComponent {
   closed = output<void>();
 
   saving = signal(false);
+  loadingSales = signal(false);
+  allSales = signal<Sale[]>([]);
+  filteredSales = signal<Sale[]>([]);
+  saleSearch = '';
+  selectedSale = signal<Sale | null>(null);
 
   form = {
     sale_id: '',
@@ -136,6 +195,58 @@ export class SellReturnFormModalComponent {
     ref_no: '',
     notes: '',
   };
+
+  constructor() {
+    effect(() => {
+      if (this.visible()) {
+        this.loadSales();
+      }
+    });
+  }
+
+  selectedSaleLabel(): string {
+    const s = this.selectedSale();
+    if (!s) return '';
+    const label = `${s.sale_date}${s.customer_name ? ' — ' + s.customer_name : ''}`;
+    return label;
+  }
+
+  private loadSales(): void {
+    this.loadingSales.set(true);
+    this.returnsService.getRecentSales(50).subscribe({
+      next: (res) => {
+        this.allSales.set(res.items);
+        this.filteredSales.set(res.items);
+        this.loadingSales.set(false);
+      },
+      error: () => this.loadingSales.set(false),
+    });
+  }
+
+  filterSales(query: string): void {
+    const q = query.toLowerCase();
+    this.filteredSales.set(
+      this.allSales().filter(
+        (s) =>
+          s.sale_date.includes(q) ||
+          (s.customer_name?.toLowerCase().includes(q) ?? false),
+      ),
+    );
+  }
+
+  selectSale(s: Sale): void {
+    this.form.sale_id = s.id;
+    this.selectedSale.set(s);
+    this.saleSearch = '';
+    this.filteredSales.set([]);
+  }
+
+  clearSale(): void {
+    this.form.sale_id = '';
+    this.selectedSale.set(null);
+    this.filteredSales.set(this.allSales());
+    this.saleSearch = '';
+  }
 
   onVisibleChange(v: boolean): void {
     if (!v) this.close();
@@ -165,7 +276,11 @@ export class SellReturnFormModalComponent {
         },
         error: () => {
           this.saving.set(false);
-          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to save return' });
+          this.messageService.add({
+            severity: 'error',
+            summary: 'Error',
+            detail: 'Failed to save return',
+          });
         },
       });
   }
@@ -179,5 +294,8 @@ export class SellReturnFormModalComponent {
       ref_no: '',
       notes: '',
     };
+    this.selectedSale.set(null);
+    this.saleSearch = '';
+    this.filteredSales.set([]);
   }
 }

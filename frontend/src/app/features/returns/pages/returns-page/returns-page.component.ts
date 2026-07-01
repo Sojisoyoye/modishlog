@@ -46,12 +46,13 @@ type ActiveTab = 'sell' | 'purchase';
         </button>
       </div>
 
-      <!-- Tab content -->
-      @if (activeTab() === 'sell') {
+      <!-- Keep both mounted; toggle visibility to avoid refetch on tab switch -->
+      <div [class.hidden]="activeTab() !== 'sell'">
         <app-sell-returns-tab />
-      } @else {
+      </div>
+      <div [class.hidden]="activeTab() !== 'purchase'">
         <app-purchase-returns-tab />
-      }
+      </div>
     </div>
   `,
 })

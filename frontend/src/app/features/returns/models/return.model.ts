@@ -1,3 +1,18 @@
+export interface Sale {
+  id: string;
+  sale_date: string;
+  total_amount: string;
+  customer_name: string | null;
+  product_id: string;
+}
+
+export interface SaleListResponse {
+  items: Sale[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export interface SellReturn {
   id: string;
   sale_id: string;

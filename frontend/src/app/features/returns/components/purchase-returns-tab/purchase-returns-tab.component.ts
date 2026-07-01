@@ -19,6 +19,14 @@ import { PurchaseReturn } from '../../models/return.model';
       <p class="text-sm text-muted">{{ total() }} purchase return{{ total() !== 1 ? 's' : '' }}</p>
     </div>
 
+    @if (loadError()) {
+      <div class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <i class="pi pi-exclamation-circle"></i>
+        Failed to load purchase returns.
+        <button (click)="load()" class="ml-auto underline hover:no-underline">Retry</button>
+      </div>
+    }
+
     <div class="rounded-xl border border-gray-100 bg-white shadow-sm">
       <div class="overflow-x-auto">
         @if (loading()) {
@@ -43,7 +51,7 @@ import { PurchaseReturn } from '../../models/return.model';
                   <td class="px-4 py-3 font-mono text-xs text-gray-700">{{ r.ref_no ?? '—' }}</td>
                   <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ r.original_order_id.slice(0, 8) }}…</td>
                   <td class="px-4 py-3 text-gray-700">{{ r.return_date | date: 'mediumDate' }}</td>
-                  <td class="px-4 py-3 text-right font-medium">{{ +r.total_amount | number: '1.2-2' }}</td>
+                  <td class="px-4 py-3 text-right font-medium">{{ Number(r.total_amount) | number: '1.2-2' }}</td>
                   <td class="px-4 py-3 text-muted">{{ r.notes ?? '—' }}</td>
                 </tr>
               } @empty {
@@ -85,8 +93,11 @@ import { PurchaseReturn } from '../../models/return.model';
 export class PurchaseReturnsTabComponent implements OnInit {
   private readonly returnsService = inject(ReturnsService);
 
+  protected readonly Number = Number;
+
   returns = signal<PurchaseReturn[]>([]);
   loading = signal(false);
+  loadError = signal(false);
   total = signal(0);
   page = signal(1);
 
@@ -102,6 +113,7 @@ export class PurchaseReturnsTabComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
+    this.loadError.set(false);
     this.returnsService
       .getPurchaseReturns({ page: String(this.page()), page_size: String(this.pageSize) })
       .subscribe({
@@ -110,7 +122,10 @@ export class PurchaseReturnsTabComponent implements OnInit {
           this.total.set(res.total);
           this.loading.set(false);
         },
-        error: () => this.loading.set(false),
+        error: () => {
+          this.loading.set(false);
+          this.loadError.set(true);
+        },
       });
   }
 
