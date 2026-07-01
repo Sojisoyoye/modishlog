@@ -1105,6 +1105,34 @@ class TestLocationFilter:
         )
         assert result.total_purchase == Decimal("100000.000000")
 
+    @pytest.mark.asyncio
+    async def test_profit_loss_location_filter_scopes_sell_returns(self):
+        """sell_returns in P&L are scoped to location_id (joined via Sale)."""
+        from src.reports.service import get_profit_loss_report
+
+        db = _mock_db()
+        _mock_execute_sequence(
+            db,
+            [
+                Decimal("0"),   # total_purchase (location-scoped)
+                Decimal("50000.000000"),  # total_sales (location-scoped)
+                [],             # operating_costs
+                Decimal("0"),   # stock_value
+                Decimal("0"),   # purchase_returns
+                Decimal("5000.000000"),  # sell_returns (location-scoped)
+                None,           # purchase_due
+                None,           # sales_due
+            ],
+        )
+        location_id = uuid.uuid4()
+        result = await get_profit_loss_report(
+            db,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 6, 30),
+            location_id=location_id,
+        )
+        assert result.total_sales_returns == Decimal("5000.000000")
+
 
 # ---------------------------------------------------------------------------
 # Per-product sales report tests
@@ -1132,10 +1160,13 @@ class TestProductSalesReport:
         count_mock = MagicMock()
         count_mock.scalar.return_value = 1
 
+        revenue_mock = MagicMock()
+        revenue_mock.scalar.return_value = Decimal("150000.000000")
+
         rows_mock = MagicMock()
         rows_mock.all.return_value = [row]
 
-        db.execute = AsyncMock(side_effect=[count_mock, rows_mock])
+        db.execute = AsyncMock(side_effect=[count_mock, revenue_mock, rows_mock])
 
         result = await get_product_sales_report(
             db,
@@ -1148,6 +1179,7 @@ class TestProductSalesReport:
         assert result.rows[0].product_name == "Widget"
         assert result.rows[0].quantity_sold == 10
         assert result.rows[0].net_quantity == 9  # 10 - 1
+        assert result.total_revenue == Decimal("150000.000000")
 
     @pytest.mark.asyncio
     async def test_product_sales_report_margin_calculation(self):
@@ -1167,9 +1199,11 @@ class TestProductSalesReport:
 
         count_mock = MagicMock()
         count_mock.scalar.return_value = 1
+        revenue_mock = MagicMock()
+        revenue_mock.scalar.return_value = Decimal("75000.000000")
         rows_mock = MagicMock()
         rows_mock.all.return_value = [row]
-        db.execute = AsyncMock(side_effect=[count_mock, rows_mock])
+        db.execute = AsyncMock(side_effect=[count_mock, revenue_mock, rows_mock])
 
         result = await get_product_sales_report(db)
 
@@ -1184,9 +1218,11 @@ class TestProductSalesReport:
         db = _mock_db()
         count_mock = MagicMock()
         count_mock.scalar.return_value = 0
+        revenue_mock = MagicMock()
+        revenue_mock.scalar.return_value = None  # no revenue when empty
         rows_mock = MagicMock()
         rows_mock.all.return_value = []
-        db.execute = AsyncMock(side_effect=[count_mock, rows_mock])
+        db.execute = AsyncMock(side_effect=[count_mock, revenue_mock, rows_mock])
 
         result = await get_product_sales_report(db)
 
@@ -1203,9 +1239,11 @@ class TestProductSalesReport:
         db = _mock_db()
         count_mock = MagicMock()
         count_mock.scalar.return_value = 0
+        revenue_mock = MagicMock()
+        revenue_mock.scalar.return_value = None
         rows_mock = MagicMock()
         rows_mock.all.return_value = []
-        db.execute = AsyncMock(side_effect=[count_mock, rows_mock])
+        db.execute = AsyncMock(side_effect=[count_mock, revenue_mock, rows_mock])
 
         async def _fake_db():
             yield db
@@ -1233,9 +1271,11 @@ class TestProductSalesReport:
         db = _mock_db()
         count_mock = MagicMock()
         count_mock.scalar.return_value = 0
+        revenue_mock = MagicMock()
+        revenue_mock.scalar.return_value = None
         rows_mock = MagicMock()
         rows_mock.all.return_value = []
-        db.execute = AsyncMock(side_effect=[count_mock, rows_mock])
+        db.execute = AsyncMock(side_effect=[count_mock, revenue_mock, rows_mock])
 
         async def _fake_db():
             yield db

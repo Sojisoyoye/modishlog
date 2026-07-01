@@ -3,6 +3,7 @@
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
+from typing import Literal
 
 import structlog
 from sqlalchemy import func, or_, select
@@ -59,8 +60,13 @@ async def _sum_sell_returns(
     db: AsyncSession,
     start_date: date | None,
     end_date: date | None,
+    location_id: uuid.UUID | None = None,
 ) -> Decimal:
     q = select(func.sum(SellReturn.total_amount))
+    if location_id:
+        q = q.join(Sale, Sale.id == SellReturn.sale_id).where(
+            Sale.location_id == location_id
+        )
     if start_date:
         q = q.where(SellReturn.return_date >= start_date)
     if end_date:
@@ -144,6 +150,10 @@ async def get_profit_loss_report(
 
     # -- Purchase returns in period --
     returns_query = select(func.sum(PurchaseReturn.total_amount))
+    if location_id:
+        returns_query = returns_query.join(
+            PurchaseOrder, PurchaseOrder.id == PurchaseReturn.original_order_id
+        ).where(PurchaseOrder.location_id == location_id)
     if start_date:
         returns_query = returns_query.where(PurchaseReturn.return_date >= start_date)
     if end_date:
@@ -152,7 +162,7 @@ async def get_profit_loss_report(
     purchase_returns_total = returns_result.scalar() or Decimal("0")
 
     # -- Sell returns in period --
-    total_sales_returns = await _sum_sell_returns(db, start_date, end_date)
+    total_sales_returns = await _sum_sell_returns(db, start_date, end_date, location_id)
 
     # -- Purchase due: sum of outstanding balances on UNPAID/PARTIAL orders --
     paid_subq = (
@@ -437,7 +447,6 @@ async def get_product_sales_report(
             Product.sku,
             Product.name,
             ProductCategory.name,
-            returns_subq.c.return_quantity,
         )
     )
 
@@ -450,12 +459,19 @@ async def get_product_sales_report(
     if location_id:
         base_q = base_q.where(Sale.location_id == location_id)
 
-    # Total count (wrap base as subquery for COUNT)
+    # Total count and global revenue (both wrap base_q as subquery)
     count_subq = base_q.subquery()
     count_result = await db.execute(
         select(func.count()).select_from(count_subq)
     )
     total = count_result.scalar() or 0
+
+    # Global revenue across ALL matching products (not just this page)
+    revenue_subq = base_q.subquery()
+    revenue_result = await db.execute(
+        select(func.sum(revenue_subq.c.total_revenue)).select_from(revenue_subq)
+    )
+    total_revenue = revenue_result.scalar() or Decimal("0")
 
     # Paginate
     paginated_q = base_q.offset((page - 1) * page_size).limit(page_size)
@@ -463,12 +479,9 @@ async def get_product_sales_report(
     rows_data = rows_result.all()
 
     rows: list[ProductSalesRow] = []
-    total_revenue = Decimal("0")
     for r in rows_data:
         qty_sold = r.quantity_sold or 0
         ret_qty = r.return_quantity or 0
-        rev = r.total_revenue or Decimal("0")
-        total_revenue += rev
         rows.append(
             ProductSalesRow(
                 product_id=r.product_id,
@@ -476,7 +489,7 @@ async def get_product_sales_report(
                 product_name=r.product_name,
                 category=r.category,
                 quantity_sold=qty_sold,
-                total_revenue=rev,
+                total_revenue=r.total_revenue or Decimal("0"),
                 avg_unit_price=r.avg_unit_price or Decimal("0"),
                 return_quantity=ret_qty,
                 net_quantity=qty_sold - ret_qty,
@@ -499,7 +512,7 @@ async def get_trending_products(
     start_date: date | None = None,
     end_date: date | None = None,
     limit: int = 10,
-    sort_by: str = "revenue",
+    sort_by: Literal["revenue", "quantity"] = "revenue",
 ) -> TrendingProductsReport:
     """Return top-N products sorted by revenue or quantity."""
     logger.info(
@@ -529,14 +542,14 @@ async def get_trending_products(
         .join(ProductCategory, ProductCategory.id == Product.category_id)
         .where(Sale.status == SaleStatus.COMPLETED)
         .group_by(Product.id, Product.sku, Product.name, ProductCategory.name)
-        .order_by(order_col)
-        .limit(limit)
     )
 
     if start_date:
         q = q.where(Sale.sale_date >= start_date)
     if end_date:
         q = q.where(Sale.sale_date <= end_date)
+
+    q = q.order_by(order_col).limit(limit)
 
     result = await db.execute(q)
     rows_data = result.all()

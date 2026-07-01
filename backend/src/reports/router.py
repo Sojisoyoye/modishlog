@@ -5,7 +5,9 @@ import io
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -215,8 +217,8 @@ async def product_sales_endpoint(
     end_date: date | None = None,
     category_id: uuid.UUID | None = None,
     location_id: uuid.UUID | None = None,
-    page: int = 1,
-    page_size: int = 20,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ) -> ProductSalesReport:
@@ -236,8 +238,8 @@ async def product_sales_endpoint(
 async def trending_products_endpoint(
     start_date: date | None = None,
     end_date: date | None = None,
-    limit: int = 10,
-    sort_by: str = "revenue",
+    limit: int = Query(10, ge=1, le=100),
+    sort_by: Literal["revenue", "quantity"] = "revenue",
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ) -> TrendingProductsReport:

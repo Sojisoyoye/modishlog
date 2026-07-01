@@ -1,12 +1,12 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit, DestroyRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { catchError, of } from 'rxjs';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
-import { ReportsService, ProductSalesReport, ProductSalesRow } from '../../../core/services/reports.service';
+import { ReportsService, ProductSalesReport } from '../../../core/services/reports.service';
 import { SettingsService } from '../../../core/services/settings.service';
 import { computeDefaultDateRange } from '../../../core/utils/fiscal-year.utils';
 import { DATE_PRESETS, DatePreset } from '../../../core/utils/date-presets.utils';
@@ -14,7 +14,7 @@ import { DATE_PRESETS, DatePreset } from '../../../core/utils/date-presets.utils
 @Component({
   selector: 'app-product-sales-page',
   standalone: true,
-  imports: [FormsModule, ReactiveFormsModule, DecimalPipe, Toast, RouterLink],
+  imports: [FormsModule, DecimalPipe, Toast, RouterLink],
   providers: [MessageService],
   template: `
     <p-toast />
