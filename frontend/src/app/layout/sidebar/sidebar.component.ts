@@ -18,11 +18,11 @@ interface NavGroup {
   imports: [RouterLink, RouterLinkActive],
   template: `
     <aside
-      class="fixed inset-y-0 left-0 z-40 flex flex-col border-r border-gray-200 bg-white transition-all duration-200 lg:static lg:h-full lg:translate-x-0"
+      class="fixed inset-y-0 left-0 z-40 flex flex-col border-r border-gray-200 bg-white transition-all duration-200 md:static md:h-full md:translate-x-0"
       [class.w-64]="!collapsed()"
       [class.w-16]="collapsed()"
       [class.translate-x-0]="mobileOpen()"
-      [class.-translate-x-full]="!mobileOpen() && !collapsed()"
+      [class.-translate-x-full]="!mobileOpen()"
     >
       <!-- Brand -->
       <div class="flex h-16 shrink-0 items-center gap-2 border-b border-gray-200 px-4">
