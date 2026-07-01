@@ -187,3 +187,20 @@ test('pagination controls are visible when inventory has items', async ({ page }
 
   await expect(page.getByText(/Showing \d+/)).toBeVisible({ timeout: 10_000 });
 });
+
+test('inventory page fetches with page_size=200', async ({ page }) => {
+  let inventoryUrl = '';
+  page.on('request', (req) => {
+    if (req.url().includes('/inventory') && req.method() === 'GET' &&
+        !req.url().includes('/inventory/') &&
+        !req.url().includes('/movements')) {
+      inventoryUrl = req.url();
+    }
+  });
+
+  await page.goto('/inventory');
+  await page.waitForLoadState('networkidle');
+
+  expect(inventoryUrl).toContain('page_size=200');
+  expect(inventoryUrl).toContain('page=1');
+});

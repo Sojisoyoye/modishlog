@@ -12,8 +12,7 @@ import {
 } from '../../../core/services/inventory.service';
 import { ProductsService } from '../../../core/services/products.service';
 
-// TODO: migrate to server-side search+pagination when inventory grows beyond this cap
-const MAX_INVENTORY_LOAD = 10_000;
+const SERVER_PAGE_SIZE = 200;
 
 @Component({
   selector: 'app-inventory-page',
@@ -439,7 +438,7 @@ export class InventoryPageComponent implements OnInit {
     this.pageLoading.set(true);
     forkJoin({
       products: this.productsService.getAll(),
-      inventory: this.inventoryService.getCurrent(1, MAX_INVENTORY_LOAD),
+      inventory: this.inventoryService.getCurrent(1, SERVER_PAGE_SIZE),
       movements: this.inventoryService.getMovements(),
     }).subscribe({
       next: ({ products, inventory, movements }) => {
