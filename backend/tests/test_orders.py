@@ -737,6 +737,55 @@ class TestUpdateOrder:
         assert new_item.units_remaining is None
 
     @pytest.mark.asyncio
+    async def test_update_fx_rate_recomputes_usd_total_from_ngn(self):
+        """Updating fx_rate_at_creation alone recomputes unit_cost and total_amount
+        from unit_cost_ngn / new_rate for each line item that has unit_cost_ngn."""
+        item = _make_line_item(
+            unit_cost=Decimal("500.000000"),   # 750000 / 1500
+            unit_cost_ngn=Decimal("750000.000000"),
+            line_total=Decimal("5000.000000"),  # 500 * 10
+            quantity=10,
+        )
+        order = _make_order(
+            status=OrderStatus.ORDERED,
+            fx_rate_at_creation=Decimal("1500.000000"),
+            total_amount=Decimal("5000.000000"),
+            line_items=[item],
+        )
+        db = _mock_db_with_execute(scalar_result=order)
+
+        data = OrderUpdate(fx_rate_at_creation=Decimal("1200.000000"))
+        result = await update_order(db, order.id, data, uuid.uuid4())
+
+        # 750000 NGN / 1200 = 625 USD per unit × 10 = 6250 USD total
+        assert result.line_items[0].unit_cost == Decimal("625.000000")
+        assert result.line_items[0].line_total == Decimal("6250.000000")
+        assert result.total_amount == Decimal("6250.000000")
+
+    @pytest.mark.asyncio
+    async def test_update_fx_rate_no_recompute_without_unit_cost_ngn(self):
+        """Updating fx_rate_at_creation does not change total_amount when
+        line items have no unit_cost_ngn (USD-native orders)."""
+        item = _make_line_item(
+            unit_cost=Decimal("500.000000"),
+            line_total=Decimal("5000.000000"),
+            quantity=10,
+        )
+        item.unit_cost_ngn = None
+        order = _make_order(
+            status=OrderStatus.ORDERED,
+            fx_rate_at_creation=Decimal("1500.000000"),
+            total_amount=Decimal("5000.000000"),
+            line_items=[item],
+        )
+        db = _mock_db_with_execute(scalar_result=order)
+
+        data = OrderUpdate(fx_rate_at_creation=Decimal("1200.000000"))
+        result = await update_order(db, order.id, data, uuid.uuid4())
+
+        assert result.total_amount == Decimal("5000.000000")
+
+    @pytest.mark.asyncio
     async def test_create_order_stores_sell_price_ngn(self):
         """sell_price_ngn on OrderLineItemCreate is stored in the line item."""
         product_id = uuid.uuid4()

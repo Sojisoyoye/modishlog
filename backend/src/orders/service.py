@@ -339,6 +339,28 @@ async def update_order(
     for field, value in update_fields.items():
         setattr(order, field, value)
 
+    # When fx_rate_at_creation is explicitly updated without resubmitting line
+    # items, recompute USD unit_cost / line_total from unit_cost_ngn / new_rate.
+    # This keeps total_amount accurate when the user corrects an FX rate on a
+    # NGN-denominated order (e.g. post-POS-import correction).
+    if "fx_rate_at_creation" in update_fields and line_items_data is None:
+        new_rate = order.fx_rate_at_creation
+        if new_rate and new_rate > 0:
+            new_total = Decimal("0")
+            any_recomputed = False
+            for item in order.line_items:
+                if item.unit_cost_ngn is not None:
+                    item.unit_cost = (item.unit_cost_ngn / new_rate).quantize(
+                        Decimal("0.000001")
+                    )
+                    item.line_total = (item.unit_cost * item.quantity).quantize(
+                        Decimal("0.000001")
+                    )
+                    any_recomputed = True
+                new_total += item.line_total
+            if any_recomputed:
+                order.total_amount = new_total
+
     # Replace line items if provided
     if line_items_data is not None:
         # Validate products
