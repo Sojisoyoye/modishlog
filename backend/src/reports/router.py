@@ -24,6 +24,44 @@ from src.reports.service import (
 router = APIRouter()
 
 
+# Static route BEFORE the base /profit-loss endpoint
+@router.get("/profit-loss/export-csv")
+async def export_profit_loss_csv(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> StreamingResponse:
+    """Download the Profit & Loss report as a CSV file."""
+    if start_date is None and end_date is None:
+        start_date, end_date = await resolve_default_date_range(db, current_user.id)
+    report = await get_profit_loss_report(db, start_date=start_date, end_date=end_date)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["field", "value"])
+    writer.writerow(["total_purchase_excl_tax", str(report.total_purchase_excl_tax)])
+    writer.writerow(["purchase_returns_total", str(report.purchase_returns_total)])
+    writer.writerow(["total_sales", str(report.total_sales)])
+    writer.writerow(["total_sales_returns", str(report.total_sales_returns)])
+    writer.writerow(["gross_profit", str(report.gross_profit)])
+    writer.writerow(["total_operating_costs", str(report.total_operating_costs)])
+    writer.writerow(["net_profit", str(report.net_profit)])
+    writer.writerow(["opening_stock_value", str(report.opening_stock_value)])
+    writer.writerow(["closing_stock_value", str(report.closing_stock_value)])
+    writer.writerow(["purchase_due", str(report.purchase_due)])
+    writer.writerow(["sales_due", str(report.sales_due)])
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=profit_loss_report.csv",
+            "Cache-Control": "no-store, private",
+        },
+    )
+
+
 @router.get("/profit-loss", response_model=ProfitLossReport)
 async def profit_loss_endpoint(
     start_date: date | None = None,
@@ -97,6 +135,38 @@ async def stock_report_endpoint(
     """Return the current stock report."""
     return await get_stock_report(
         db, category_id=str(category_id) if category_id else None
+    )
+
+
+# Static route BEFORE the base /purchase-sale endpoint
+@router.get("/purchase-sale/export-csv")
+async def export_purchase_sale_csv(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> StreamingResponse:
+    """Download the Purchase & Sale report as a CSV file."""
+    if start_date is None and end_date is None:
+        start_date, end_date = await resolve_default_date_range(db, current_user.id)
+    report = await get_purchase_sale_report(db, start_date=start_date, end_date=end_date)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["field", "value"])
+    writer.writerow(["total_purchase", str(report.total_purchase)])
+    writer.writerow(["total_purchase_returns", str(report.total_purchase_returns)])
+    writer.writerow(["total_sales", str(report.total_sales)])
+    writer.writerow(["total_sales_returns", str(report.total_sales_returns)])
+    writer.writerow(["net_position", str(report.net_position)])
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=purchase_sale_report.csv",
+            "Cache-Control": "no-store, private",
+        },
     )
 
 

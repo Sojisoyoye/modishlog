@@ -23,8 +23,9 @@ class ProfitLossReport(BaseModel):
         Decimal  # sum(batches.quantity_remaining * batches.landed_cost_per_unit)
     )
     closing_stock_value: Decimal  # same at query time (current)
-    purchase_due: Decimal  # 0 for now (placeholder)
-    sales_due: Decimal  # 0 for now (placeholder)
+    total_sales_returns: Decimal  # sum of SellReturn.total_amount in period
+    purchase_due: Decimal  # sum of unpaid/partial order balances
+    sales_due: Decimal  # sum of (total_amount - payment_amount) for credit/partial sales
 
 
 class StockReportItem(BaseModel):

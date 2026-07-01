@@ -13,6 +13,7 @@ export interface ProfitLossReport {
   net_profit: number;
   opening_stock_value: number;
   closing_stock_value: number;
+  total_sales_returns: number;
   purchase_due: number;
   sales_due: number;
 }
@@ -72,5 +73,23 @@ export class ReportsService {
     return this.http.get(`${environment.apiBaseUrl}/reports/stock/export-csv`, {
       responseType: 'blob',
     });
+  }
+
+  exportProfitLossCsv(startDate?: string, endDate?: string): Observable<Blob> {
+    const params: Record<string, string> = {};
+    if (startDate) params['start_date'] = startDate;
+    if (endDate) params['end_date'] = endDate;
+    const query = new URLSearchParams(params).toString();
+    const url = `${environment.apiBaseUrl}/reports/profit-loss/export-csv${query ? '?' + query : ''}`;
+    return this.http.get(url, { responseType: 'blob' });
+  }
+
+  exportPurchaseSaleCsv(startDate?: string, endDate?: string): Observable<Blob> {
+    const params: Record<string, string> = {};
+    if (startDate) params['start_date'] = startDate;
+    if (endDate) params['end_date'] = endDate;
+    const query = new URLSearchParams(params).toString();
+    const url = `${environment.apiBaseUrl}/reports/purchase-sale/export-csv${query ? '?' + query : ''}`;
+    return this.http.get(url, { responseType: 'blob' });
   }
 }

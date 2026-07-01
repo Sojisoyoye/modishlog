@@ -5,12 +5,12 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
 from src.inventory.models import InventoryBatch, InventoryLevel
-from src.orders.models import PurchaseOrder, PurchaseReturn
+from src.orders.models import OrderPayment, OrderPaymentStatus, PurchaseOrder, PurchaseReturn
 from src.products.models import Product, ProductCategory
 from src.reports.schemas import (
     ProfitLossReport,
@@ -18,7 +18,7 @@ from src.reports.schemas import (
     StockReport,
     StockReportItem,
 )
-from src.sales.models import Sale, SaleStatus
+from src.sales.models import Sale, SaleStatus, SellReturn
 from src.settings.service import get_fiscal_year_start
 
 logger = structlog.get_logger()
@@ -49,6 +49,20 @@ async def resolve_default_date_range(
     if fys_this_year <= effective_today:
         return fys_this_year, effective_today
     return date(effective_today.year - 1, month, day), effective_today
+
+
+async def _sum_sell_returns(
+    db: AsyncSession,
+    start_date: date | None,
+    end_date: date | None,
+) -> Decimal:
+    q = select(func.sum(SellReturn.total_amount))
+    if start_date:
+        q = q.where(SellReturn.return_date >= start_date)
+    if end_date:
+        q = q.where(SellReturn.return_date <= end_date)
+    result = await db.execute(q)
+    return result.scalar() or Decimal("0")
 
 
 async def get_profit_loss_report(
@@ -128,7 +142,63 @@ async def get_profit_loss_report(
     returns_result = await db.execute(returns_query)
     purchase_returns_total = returns_result.scalar() or Decimal("0")
 
-    gross_profit = total_sales - total_purchase
+    # -- Sell returns in period --
+    total_sales_returns = await _sum_sell_returns(db, start_date, end_date)
+
+    # -- Purchase due: sum of outstanding balances on UNPAID/PARTIAL orders --
+    paid_subq = (
+        select(
+            OrderPayment.order_id,
+            func.sum(OrderPayment.amount).label("total_paid"),
+        )
+        .group_by(OrderPayment.order_id)
+        .subquery()
+    )
+    purchase_due_query = (
+        select(
+            func.sum(
+                PurchaseOrder.total_amount
+                - func.coalesce(paid_subq.c.total_paid, 0)
+            )
+        )
+        .outerjoin(paid_subq, paid_subq.c.order_id == PurchaseOrder.id)
+        .where(
+            PurchaseOrder.payment_status.in_(
+                [OrderPaymentStatus.UNPAID, OrderPaymentStatus.PARTIAL]
+            )
+        )
+    )
+    if start_date:
+        purchase_due_query = purchase_due_query.where(PurchaseOrder.created_at >= start_date)
+    if end_date:
+        purchase_due_query = purchase_due_query.where(PurchaseOrder.created_at <= end_date)
+    purchase_due_result = await db.execute(purchase_due_query)
+    purchase_due = purchase_due_result.scalar() or Decimal("0")
+
+    # -- Sales due: sum of outstanding balances on credit/partial sales --
+    sales_due_query = (
+        select(
+            func.sum(
+                Sale.total_amount
+                - func.coalesce(Sale.payment_amount, 0)
+            )
+        )
+        .where(Sale.status == SaleStatus.COMPLETED)
+        .where(
+            or_(
+                Sale.payment_status.is_(None),
+                Sale.payment_status != "paid",
+            )
+        )
+    )
+    if start_date:
+        sales_due_query = sales_due_query.where(Sale.sale_date >= start_date)
+    if end_date:
+        sales_due_query = sales_due_query.where(Sale.sale_date <= end_date)
+    sales_due_result = await db.execute(sales_due_query)
+    sales_due = sales_due_result.scalar() or Decimal("0")
+
+    gross_profit = total_sales - total_sales_returns - total_purchase
     net_profit = gross_profit - total_operating_costs
 
     return ProfitLossReport(
@@ -140,8 +210,9 @@ async def get_profit_loss_report(
         net_profit=net_profit,
         opening_stock_value=stock_value,
         closing_stock_value=stock_value,
-        purchase_due=Decimal("0"),
-        sales_due=Decimal("0"),
+        total_sales_returns=total_sales_returns,
+        purchase_due=purchase_due,
+        sales_due=sales_due,
     )
 
 
@@ -284,12 +355,15 @@ async def get_purchase_sale_report(
     sales_result = await db.execute(sales_query)
     total_sales = sales_result.scalar() or Decimal("0")
 
+    # -- Sell returns in period --
+    total_sales_returns = await _sum_sell_returns(db, start_date, end_date)
+
     net_position = total_sales - total_purchase
 
     return PurchaseSaleReport(
         total_purchase=total_purchase,
         total_purchase_returns=total_purchase_returns,
         total_sales=total_sales,
-        total_sales_returns=Decimal("0"),
+        total_sales_returns=total_sales_returns,
         net_position=net_position,
     )
