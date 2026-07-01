@@ -1,0 +1,144 @@
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  signal,
+  OnInit,
+} from '@angular/core';
+import { DecimalPipe, DatePipe } from '@angular/common';
+import { ReturnsService } from '../../services/returns.service';
+import { SellReturn } from '../../models/return.model';
+import { SellReturnFormModalComponent } from '../sell-return-form-modal/sell-return-form-modal.component';
+
+@Component({
+  selector: 'app-sell-returns-tab',
+  standalone: true,
+  imports: [DecimalPipe, DatePipe, SellReturnFormModalComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div class="flex items-center justify-between mb-4">
+      <p class="text-sm text-muted">{{ total() }} sell return{{ total() !== 1 ? 's' : '' }}</p>
+      <button
+        (click)="showModal.set(true)"
+        class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 min-h-[40px]"
+      >
+        <i class="pi pi-plus text-sm"></i> Log Return
+      </button>
+    </div>
+
+    <div class="rounded-xl border border-gray-100 bg-white shadow-sm">
+      <div class="overflow-x-auto">
+        @if (loading()) {
+          <div class="flex items-center justify-center py-16">
+            <i class="pi pi-spinner pi-spin text-2xl text-muted"></i>
+          </div>
+        } @else {
+          <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <caption class="sr-only">Sell returns list</caption>
+            <thead>
+              <tr class="bg-gray-50">
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Ref No</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Sale ID</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Return Date</th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Total</th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Paid</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Notes</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              @for (r of returns(); track r.id) {
+                <tr class="transition-colors hover:bg-gray-50">
+                  <td class="px-4 py-3 font-mono text-xs text-gray-700">{{ r.ref_no ?? '—' }}</td>
+                  <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ r.sale_id.slice(0, 8) }}…</td>
+                  <td class="px-4 py-3 text-gray-700">{{ r.return_date | date: 'mediumDate' }}</td>
+                  <td class="px-4 py-3 text-right font-medium">{{ +r.total_amount | number: '1.2-2' }}</td>
+                  <td class="px-4 py-3 text-right">{{ +r.amount_paid | number: '1.2-2' }}</td>
+                  <td class="px-4 py-3 text-muted">{{ r.notes ?? '—' }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="6" class="py-12 text-center text-sm text-muted">No sell returns found.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
+
+      <!-- Pagination -->
+      @if (total() > pageSize) {
+        <div class="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+          <p class="text-sm text-muted">
+            Showing {{ (page() - 1) * pageSize + 1 }}–{{ pageEnd() }} of {{ total() }}
+          </p>
+          <div class="flex gap-1">
+            <button
+              (click)="changePage(page() - 1)"
+              [disabled]="page() === 1"
+              class="rounded px-3 py-1.5 text-sm text-muted hover:bg-gray-100 disabled:opacity-40"
+            >
+              <i class="pi pi-chevron-left"></i>
+            </button>
+            <button
+              (click)="changePage(page() + 1)"
+              [disabled]="page() * pageSize >= total()"
+              class="rounded px-3 py-1.5 text-sm text-muted hover:bg-gray-100 disabled:opacity-40"
+            >
+              <i class="pi pi-chevron-right"></i>
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+
+    <app-sell-return-form-modal
+      [visible]="showModal()"
+      (saved)="onSaved($event)"
+      (closed)="showModal.set(false)"
+    />
+  `,
+})
+export class SellReturnsTabComponent implements OnInit {
+  private readonly returnsService = inject(ReturnsService);
+
+  returns = signal<SellReturn[]>([]);
+  loading = signal(false);
+  total = signal(0);
+  page = signal(1);
+  showModal = signal(false);
+
+  readonly pageSize = 25;
+
+  pageEnd(): number {
+    return Math.min(this.page() * this.pageSize, this.total());
+  }
+
+  ngOnInit(): void {
+    this.load();
+  }
+
+  load(): void {
+    this.loading.set(true);
+    this.returnsService
+      .getSellReturns({ page: String(this.page()), page_size: String(this.pageSize) })
+      .subscribe({
+        next: (res) => {
+          this.returns.set(res.items);
+          this.total.set(res.total);
+          this.loading.set(false);
+        },
+        error: () => this.loading.set(false),
+      });
+  }
+
+  changePage(p: number): void {
+    this.page.set(p);
+    this.load();
+  }
+
+  onSaved(r: SellReturn): void {
+    this.showModal.set(false);
+    this.returns.update((list) => [r, ...list]);
+    this.total.update((t) => t + 1);
+  }
+}

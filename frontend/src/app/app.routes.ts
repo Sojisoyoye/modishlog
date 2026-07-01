@@ -56,6 +56,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'returns',
+        loadComponent: () =>
+          import('./features/returns/pages/returns-page/returns-page.component').then(
+            (m) => m.ReturnsPageComponent,
+          ),
+      },
+      {
         path: 'orders/:id',
         loadComponent: () =>
           import('./features/orders/pages/order-detail-page.component').then(
