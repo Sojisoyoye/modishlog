@@ -50,15 +50,29 @@ test('edit customer', async ({ page }) => {
 });
 
 test('filter by active status', async ({ page }) => {
-  // Get count with All filter (default)
-  await page.waitForSelector('table', { timeout: 10000 });
-  const allCount = await page.locator('tbody tr').count();
+  // Create a customer (starts active), then deactivate it
+  const name = `Filter Customer ${Date.now()}`;
+  await page.getByRole('button', { name: 'Add Customer' }).click();
+  await page.getByPlaceholder('Customer name').fill(name);
+  await page.getByRole('button', { name: 'Save Customer' }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
 
-  // Switch to Inactive filter
+  // Search so it's visible
+  await page.getByPlaceholder('Search customers...').fill(name);
+  await page.waitForTimeout(400);
+  await expect(page.getByRole('cell', { name, exact: true })).toBeVisible({ timeout: 5000 });
+
+  // Toggle it inactive via the power button (title = "Deactivate")
+  await page.getByRole('button', { name: 'Deactivate' }).click();
+  await page.waitForTimeout(400);
+
+  // Active filter: customer should NOT appear
+  await page.getByRole('button', { name: 'Active' }).click();
+  await page.waitForTimeout(400);
+  await expect(page.getByRole('cell', { name, exact: true })).not.toBeVisible();
+
+  // Inactive filter: customer MUST appear
   await page.getByRole('button', { name: 'Inactive' }).click();
   await page.waitForTimeout(400);
-  const inactiveCount = await page.locator('tbody tr').count();
-
-  // The two counts should differ (or both be 0 — just assert filter fired without error)
-  expect(inactiveCount).toBeLessThanOrEqual(allCount);
+  await expect(page.getByRole('cell', { name, exact: true })).toBeVisible({ timeout: 5000 });
 });

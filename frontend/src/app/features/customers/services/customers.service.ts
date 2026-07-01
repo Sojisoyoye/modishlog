@@ -46,9 +46,7 @@ export interface CustomerCreate {
   notes?: string | null;
 }
 
-export interface CustomerUpdate extends Partial<CustomerCreate> {
-  is_active?: boolean;
-}
+export type CustomerUpdate = Partial<CustomerCreate>;
 
 export interface CustomerListResponse {
   items: Customer[];

@@ -391,6 +391,7 @@ export class CustomersPageComponent implements OnInit {
 
   searchTerm = '';
   showForm = false;
+  private searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
   form: CustomerCreate = this.emptyForm();
 
@@ -425,7 +426,8 @@ export class CustomersPageComponent implements OnInit {
   }
 
   onSearch(): void {
-    this.loadCustomers();
+    if (this.searchTimeout) clearTimeout(this.searchTimeout);
+    this.searchTimeout = setTimeout(() => this.loadCustomers(), 300);
   }
 
   setActiveFilter(value: ActiveFilter): void {
