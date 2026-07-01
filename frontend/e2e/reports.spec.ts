@@ -136,6 +136,72 @@ test.describe('Stock report generation', () => {
   });
 });
 
+test.describe('Date range preset buttons', () => {
+  test('P&L page shows all 6 preset buttons', async ({ page }) => {
+    await page.goto('/reports/profit-loss');
+    for (const label of ['This Week', 'This Month', 'Last 30 Days', 'This Quarter', 'YTD', 'Last Year']) {
+      await expect(page.getByRole('button', { name: label })).toBeVisible();
+    }
+  });
+
+  test('clicking Last Year preset updates date inputs to correct year range', async ({ page }) => {
+    await page.goto('/reports/profit-loss');
+    await page.getByRole('button', { name: 'Last Year' }).click();
+
+    const lastYear = (new Date().getFullYear() - 1).toString();
+    await expect(page.locator('#pl-start-date')).toHaveValue(`${lastYear}-01-01`);
+    await expect(page.locator('#pl-end-date')).toHaveValue(`${lastYear}-12-31`);
+  });
+
+  test('active preset button is highlighted after click', async ({ page }) => {
+    await page.goto('/reports/profit-loss');
+    const btn = page.getByRole('button', { name: 'This Month' });
+    await btn.click();
+    // Active preset gets emerald fill; check that the button has the active CSS
+    await expect(btn).toHaveClass(/bg-emerald-600/);
+  });
+
+  test('manually editing a date clears the active preset highlight', async ({ page }) => {
+    await page.goto('/reports/profit-loss');
+    const btn = page.getByRole('button', { name: 'This Month' });
+    await btn.click();
+    await expect(btn).toHaveClass(/bg-emerald-600/);
+
+    // Editing the start date input should deactivate the preset
+    await page.locator('#pl-start-date').fill('2025-01-01');
+    await expect(btn).not.toHaveClass(/bg-emerald-600/);
+  });
+
+  test('clicking preset triggers report generation on P&L page', async ({ page }) => {
+    await page.goto('/reports/profit-loss');
+    await page.getByRole('button', { name: 'YTD' }).click();
+    // Report card must appear (spinner disappears, Net Profit heading shows)
+    await expect(page.getByText('Net Profit', { exact: true })).toBeVisible({ timeout: 15000 });
+  });
+
+  test('Purchase & Sale page shows all 6 preset buttons', async ({ page }) => {
+    await page.goto('/reports/purchase-sale');
+    for (const label of ['This Week', 'This Month', 'Last 30 Days', 'This Quarter', 'YTD', 'Last Year']) {
+      await expect(page.getByRole('button', { name: label })).toBeVisible();
+    }
+  });
+
+  test('clicking Last Year preset on Purchase & Sale page updates date inputs', async ({ page }) => {
+    await page.goto('/reports/purchase-sale');
+    await page.getByRole('button', { name: 'Last Year' }).click();
+
+    const lastYear = (new Date().getFullYear() - 1).toString();
+    await expect(page.locator('#ps-start-date')).toHaveValue(`${lastYear}-01-01`);
+    await expect(page.locator('#ps-end-date')).toHaveValue(`${lastYear}-12-31`);
+  });
+
+  test('clicking preset triggers report generation on Purchase & Sale page', async ({ page }) => {
+    await page.goto('/reports/purchase-sale');
+    await page.getByRole('button', { name: 'YTD' }).click();
+    await expect(page.getByText('Net Position', { exact: true })).toBeVisible({ timeout: 15000 });
+  });
+});
+
 test.describe('Reports auto-load on page open', () => {
   test.beforeAll(async () => {
     const product = await ensureProduct('Auto-load Test Product');
