@@ -1,0 +1,16 @@
+# E2E override — points backend at the isolated test DB (db_test).
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d
+#   ng e2e
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml down
+#
+# The main dev DB (postgres_data volume) is NEVER touched by E2E runs.
+
+services:
+  backend:
+    depends_on:
+      db_test:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://modishlog:${POSTGRES_PASSWORD:-modishlog_dev}@db_test/modishlog_test
+      ENVIRONMENT: test
