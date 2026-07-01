@@ -108,6 +108,7 @@ export class SidebarComponent {
         { label: 'Stock Counts', route: '/stock-counts', icon: 'pi-clipboard' },
         { label: 'Orders', route: '/orders', icon: 'pi-truck' },
         { label: 'Suppliers', route: '/suppliers', icon: 'pi-users' },
+        { label: 'Customers', route: '/customers', icon: 'pi-user' },
       ],
     },
     {
