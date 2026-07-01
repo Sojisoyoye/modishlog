@@ -934,3 +934,461 @@ class TestResolveDefaultDateRange:
 
         assert date_from == date(2026, 6, 29)
         assert date_to == date(2026, 6, 29)
+
+
+# ---------------------------------------------------------------------------
+# Location filter tests
+# ---------------------------------------------------------------------------
+
+
+class TestLocationFilter:
+    @pytest.mark.asyncio
+    async def test_profit_loss_location_filter_passes_to_service(self):
+        """GET /reports/profit-loss?location_id=... forwards location_id to service."""
+        from src.main import app
+        from src.auth.dependencies import get_current_active_user
+        from src.core.database import get_db
+
+        db = _mock_db()
+        _mock_execute_sequence(
+            db,
+            [
+                Decimal("100000.000000"),  # total_purchase
+                Decimal("150000.000000"),  # total_sales
+                [],  # operating_costs
+                Decimal("0"),  # stock_value
+                Decimal("0"),  # purchase_returns
+                None,  # sell_returns
+                None,  # purchase_due
+                None,  # sales_due
+            ],
+        )
+
+        async def _fake_db():
+            yield db
+
+        app.dependency_overrides[get_db] = _fake_db
+        app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        location_id = str(uuid.uuid4())
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/reports/profit-loss",
+                    params={
+                        "start_date": "2026-01-01",
+                        "end_date": "2026-06-30",
+                        "location_id": location_id,
+                    },
+                )
+            assert resp.status_code == 200
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_current_active_user, None)
+
+    @pytest.mark.asyncio
+    async def test_purchase_sale_location_filter_accepted(self):
+        """GET /reports/purchase-sale?location_id=... returns 200."""
+        from src.main import app
+        from src.auth.dependencies import get_current_active_user
+        from src.core.database import get_db
+
+        db = _mock_db()
+        _mock_execute_sequence(
+            db,
+            [
+                Decimal("200000.000000"),  # total_purchase
+                Decimal("0"),  # purchase_returns
+                Decimal("300000.000000"),  # total_sales
+                None,  # sell_returns
+            ],
+        )
+
+        async def _fake_db():
+            yield db
+
+        app.dependency_overrides[get_db] = _fake_db
+        app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        location_id = str(uuid.uuid4())
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/reports/purchase-sale",
+                    params={
+                        "start_date": "2026-01-01",
+                        "end_date": "2026-06-30",
+                        "location_id": location_id,
+                    },
+                )
+            assert resp.status_code == 200
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_current_active_user, None)
+
+    @pytest.mark.asyncio
+    async def test_stock_location_filter_accepted(self):
+        """GET /reports/stock?location_id=... returns 200."""
+        from src.main import app
+        from src.auth.dependencies import get_current_active_user
+        from src.core.database import get_db
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        result_mock.all.return_value = []
+        db.execute = AsyncMock(return_value=result_mock)
+
+        async def _fake_db():
+            yield db
+
+        app.dependency_overrides[get_db] = _fake_db
+        app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        location_id = str(uuid.uuid4())
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/reports/stock",
+                    params={"location_id": location_id},
+                )
+            assert resp.status_code == 200
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_current_active_user, None)
+
+    @pytest.mark.asyncio
+    async def test_profit_loss_location_filter_service(self):
+        """Service get_profit_loss_report accepts location_id without error."""
+        from src.reports.service import get_profit_loss_report
+
+        db = _mock_db()
+        _mock_execute_sequence(
+            db,
+            [
+                Decimal("100000.000000"),  # total_purchase
+                Decimal("200000.000000"),  # total_sales
+                [],  # operating_costs
+                Decimal("0"),  # stock_value
+                Decimal("0"),  # purchase_returns
+                None,  # sell_returns
+                None,  # purchase_due
+                None,  # sales_due
+            ],
+        )
+        location_id = uuid.uuid4()
+        result = await get_profit_loss_report(
+            db,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 6, 30),
+            location_id=location_id,
+        )
+        assert result.total_sales == Decimal("200000.000000")
+
+    @pytest.mark.asyncio
+    async def test_purchase_sale_location_filter_service(self):
+        """Service get_purchase_sale_report accepts location_id without error."""
+        from src.reports.service import get_purchase_sale_report
+
+        db = _mock_db()
+        _mock_execute_sequence(
+            db,
+            [
+                Decimal("100000.000000"),  # total_purchase
+                Decimal("0"),  # purchase_returns
+                Decimal("150000.000000"),  # total_sales
+                None,  # sell_returns
+            ],
+        )
+        location_id = uuid.uuid4()
+        result = await get_purchase_sale_report(
+            db,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 6, 30),
+            location_id=location_id,
+        )
+        assert result.total_purchase == Decimal("100000.000000")
+
+
+# ---------------------------------------------------------------------------
+# Per-product sales report tests
+# ---------------------------------------------------------------------------
+
+
+class TestProductSalesReport:
+    @pytest.mark.asyncio
+    async def test_product_sales_report_groups_by_product(self):
+        """get_product_sales_report returns a row per product."""
+        from src.reports.service import get_product_sales_report
+
+        db = _mock_db()
+        pid = uuid.uuid4()
+        row = MagicMock()
+        row.product_id = pid
+        row.sku = "PRD-001"
+        row.product_name = "Widget"
+        row.category = "Electronics"
+        row.quantity_sold = 10
+        row.total_revenue = Decimal("150000.000000")
+        row.avg_unit_price = Decimal("15000.000000")
+        row.return_quantity = 1
+
+        count_mock = MagicMock()
+        count_mock.scalar.return_value = 1
+
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = [row]
+
+        db.execute = AsyncMock(side_effect=[count_mock, rows_mock])
+
+        result = await get_product_sales_report(
+            db,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 6, 30),
+        )
+
+        assert result.total == 1
+        assert len(result.rows) == 1
+        assert result.rows[0].product_name == "Widget"
+        assert result.rows[0].quantity_sold == 10
+        assert result.rows[0].net_quantity == 9  # 10 - 1
+
+    @pytest.mark.asyncio
+    async def test_product_sales_report_margin_calculation(self):
+        """Rows have correct net_quantity = quantity_sold - return_quantity."""
+        from src.reports.service import get_product_sales_report
+
+        db = _mock_db()
+        row = MagicMock()
+        row.product_id = uuid.uuid4()
+        row.sku = "PRD-002"
+        row.product_name = "Gadget"
+        row.category = "Tech"
+        row.quantity_sold = 5
+        row.total_revenue = Decimal("75000.000000")
+        row.avg_unit_price = Decimal("15000.000000")
+        row.return_quantity = 2
+
+        count_mock = MagicMock()
+        count_mock.scalar.return_value = 1
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = [row]
+        db.execute = AsyncMock(side_effect=[count_mock, rows_mock])
+
+        result = await get_product_sales_report(db)
+
+        assert result.rows[0].net_quantity == 3  # 5 - 2
+        assert result.total_revenue == Decimal("75000.000000")
+
+    @pytest.mark.asyncio
+    async def test_product_sales_report_empty(self):
+        """get_product_sales_report returns empty rows for no sales."""
+        from src.reports.service import get_product_sales_report
+
+        db = _mock_db()
+        count_mock = MagicMock()
+        count_mock.scalar.return_value = 0
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = []
+        db.execute = AsyncMock(side_effect=[count_mock, rows_mock])
+
+        result = await get_product_sales_report(db)
+
+        assert result.total == 0
+        assert result.rows == []
+        assert result.total_revenue == Decimal("0")
+
+    def test_product_sales_endpoint_ok(self):
+        """GET /reports/product-sales returns 200."""
+        from src.main import app
+        from src.auth.dependencies import get_current_active_user
+        from src.core.database import get_db
+
+        db = _mock_db()
+        count_mock = MagicMock()
+        count_mock.scalar.return_value = 0
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = []
+        db.execute = AsyncMock(side_effect=[count_mock, rows_mock])
+
+        async def _fake_db():
+            yield db
+
+        app.dependency_overrides[get_db] = _fake_db
+        app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        try:
+            with TestClient(app) as client:
+                resp = client.get("/api/v1/reports/product-sales")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert "rows" in body
+            assert "total" in body
+            assert "total_revenue" in body
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_current_active_user, None)
+
+    def test_product_sales_endpoint_with_filters(self):
+        """GET /reports/product-sales?start_date=...&category_id=... returns 200."""
+        from src.main import app
+        from src.auth.dependencies import get_current_active_user
+        from src.core.database import get_db
+
+        db = _mock_db()
+        count_mock = MagicMock()
+        count_mock.scalar.return_value = 0
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = []
+        db.execute = AsyncMock(side_effect=[count_mock, rows_mock])
+
+        async def _fake_db():
+            yield db
+
+        app.dependency_overrides[get_db] = _fake_db
+        app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/reports/product-sales",
+                    params={
+                        "start_date": "2026-01-01",
+                        "end_date": "2026-06-30",
+                        "page": 1,
+                        "page_size": 10,
+                    },
+                )
+            assert resp.status_code == 200
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_current_active_user, None)
+
+
+# ---------------------------------------------------------------------------
+# Trending products tests
+# ---------------------------------------------------------------------------
+
+
+class TestTrendingProducts:
+    @pytest.mark.asyncio
+    async def test_trending_products_sorted_by_revenue(self):
+        """get_trending_products returns rows sorted by revenue descending."""
+        from src.reports.service import get_trending_products
+
+        db = _mock_db()
+        row1 = MagicMock()
+        row1.product_id = uuid.uuid4()
+        row1.sku = "PRD-A"
+        row1.product_name = "TopSeller"
+        row1.category = "Category A"
+        row1.quantity_sold = 50
+        row1.total_revenue = Decimal("1000000.000000")
+
+        row2 = MagicMock()
+        row2.product_id = uuid.uuid4()
+        row2.sku = "PRD-B"
+        row2.product_name = "SecondSeller"
+        row2.category = "Category B"
+        row2.quantity_sold = 30
+        row2.total_revenue = Decimal("500000.000000")
+
+        result_mock = MagicMock()
+        result_mock.all.return_value = [row1, row2]
+        db.execute = AsyncMock(return_value=result_mock)
+
+        result = await get_trending_products(db, limit=10, sort_by="revenue")
+
+        assert len(result.rows) == 2
+        assert result.rows[0].rank == 1
+        assert result.rows[0].product_name == "TopSeller"
+        assert result.rows[1].rank == 2
+
+    @pytest.mark.asyncio
+    async def test_trending_products_sorted_by_quantity(self):
+        """get_trending_products with sort_by=quantity returns correct rows."""
+        from src.reports.service import get_trending_products
+
+        db = _mock_db()
+        row = MagicMock()
+        row.product_id = uuid.uuid4()
+        row.sku = "PRD-Q"
+        row.product_name = "HighVolume"
+        row.category = "Cat"
+        row.quantity_sold = 200
+        row.total_revenue = Decimal("200000.000000")
+
+        result_mock = MagicMock()
+        result_mock.all.return_value = [row]
+        db.execute = AsyncMock(return_value=result_mock)
+
+        result = await get_trending_products(db, sort_by="quantity")
+
+        assert len(result.rows) == 1
+        assert result.rows[0].quantity_sold == 200
+
+    @pytest.mark.asyncio
+    async def test_trending_products_empty(self):
+        """get_trending_products returns empty list for no sales."""
+        from src.reports.service import get_trending_products
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        result_mock.all.return_value = []
+        db.execute = AsyncMock(return_value=result_mock)
+
+        result = await get_trending_products(db)
+
+        assert result.rows == []
+
+    def test_trending_products_endpoint_ok(self):
+        """GET /reports/trending-products returns 200."""
+        from src.main import app
+        from src.auth.dependencies import get_current_active_user
+        from src.core.database import get_db
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        result_mock.all.return_value = []
+        db.execute = AsyncMock(return_value=result_mock)
+
+        async def _fake_db():
+            yield db
+
+        app.dependency_overrides[get_db] = _fake_db
+        app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        try:
+            with TestClient(app) as client:
+                resp = client.get("/api/v1/reports/trending-products")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert "rows" in body
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_current_active_user, None)
+
+    def test_trending_products_endpoint_with_params(self):
+        """GET /reports/trending-products?limit=5&sort_by=quantity returns 200."""
+        from src.main import app
+        from src.auth.dependencies import get_current_active_user
+        from src.core.database import get_db
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        result_mock.all.return_value = []
+        db.execute = AsyncMock(return_value=result_mock)
+
+        async def _fake_db():
+            yield db
+
+        app.dependency_overrides[get_db] = _fake_db
+        app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/reports/trending-products",
+                    params={
+                        "start_date": "2026-01-01",
+                        "end_date": "2026-06-30",
+                        "limit": 5,
+                        "sort_by": "quantity",
+                    },
+                )
+            assert resp.status_code == 200
+        finally:
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_current_active_user, None)

@@ -1,6 +1,7 @@
 """Reports domain Pydantic schemas."""
 
 import uuid
+from datetime import date
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
@@ -68,3 +69,57 @@ class PurchaseSaleReport(BaseModel):
     total_sales: Decimal  # sum of sales.total_amount (status=COMPLETED)
     total_sales_returns: Decimal  # 0 placeholder
     net_position: Decimal  # total_sales - total_purchase
+
+
+class ProductSalesRow(BaseModel):
+    """One product row in the per-product sales report."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    product_id: uuid.UUID
+    sku: str
+    product_name: str
+    category: str | None
+    quantity_sold: int
+    total_revenue: Decimal
+    avg_unit_price: Decimal
+    return_quantity: int
+    net_quantity: int  # quantity_sold - return_quantity
+
+
+class ProductSalesReport(BaseModel):
+    """Paginated per-product sales report."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    rows: list[ProductSalesRow]
+    total_revenue: Decimal
+    period_start: date | None
+    period_end: date | None
+    total: int
+    page: int
+    page_size: int
+
+
+class TrendingProductRow(BaseModel):
+    """One product row in the trending products report."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    rank: int
+    product_id: uuid.UUID
+    product_name: str
+    sku: str
+    category: str | None
+    quantity_sold: int
+    total_revenue: Decimal
+
+
+class TrendingProductsReport(BaseModel):
+    """Top-N trending products for a period."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    rows: list[TrendingProductRow]
+    period_start: date | None
+    period_end: date | None

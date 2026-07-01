@@ -13,11 +13,19 @@ from src.auth.dependencies import get_current_active_user
 from src.auth.models import User
 from src.core.csv_utils import csv_safe
 from src.core.database import get_db
-from src.reports.schemas import ProfitLossReport, PurchaseSaleReport, StockReport
+from src.reports.schemas import (
+    ProductSalesReport,
+    ProfitLossReport,
+    PurchaseSaleReport,
+    StockReport,
+    TrendingProductsReport,
+)
 from src.reports.service import (
+    get_product_sales_report,
     get_profit_loss_report,
     get_purchase_sale_report,
     get_stock_report,
+    get_trending_products,
     resolve_default_date_range,
 )
 
@@ -29,13 +37,16 @@ router = APIRouter()
 async def export_profit_loss_csv(
     start_date: date | None = None,
     end_date: date | None = None,
+    location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> StreamingResponse:
     """Download the Profit & Loss report as a CSV file."""
     if start_date is None and end_date is None:
         start_date, end_date = await resolve_default_date_range(db, current_user.id)
-    report = await get_profit_loss_report(db, start_date=start_date, end_date=end_date)
+    report = await get_profit_loss_report(
+        db, start_date=start_date, end_date=end_date, location_id=location_id
+    )
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -66,25 +77,31 @@ async def export_profit_loss_csv(
 async def profit_loss_endpoint(
     start_date: date | None = None,
     end_date: date | None = None,
+    location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> ProfitLossReport:
     """Return profit and loss report for an optional date range."""
     if start_date is None and end_date is None:
         start_date, end_date = await resolve_default_date_range(db, current_user.id)
-    return await get_profit_loss_report(db, start_date=start_date, end_date=end_date)
+    return await get_profit_loss_report(
+        db, start_date=start_date, end_date=end_date, location_id=location_id
+    )
 
 
 # Static route BEFORE parameterized routes
 @router.get("/stock/export-csv")
 async def export_stock_csv(
     category_id: uuid.UUID | None = None,
+    location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ) -> StreamingResponse:
     """Download the stock report as a CSV file."""
     report = await get_stock_report(
-        db, category_id=str(category_id) if category_id else None
+        db,
+        category_id=str(category_id) if category_id else None,
+        location_id=location_id,
     )
 
     output = io.StringIO()
@@ -129,12 +146,15 @@ async def export_stock_csv(
 @router.get("/stock", response_model=StockReport)
 async def stock_report_endpoint(
     category_id: uuid.UUID | None = None,
+    location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ) -> StockReport:
     """Return the current stock report."""
     return await get_stock_report(
-        db, category_id=str(category_id) if category_id else None
+        db,
+        category_id=str(category_id) if category_id else None,
+        location_id=location_id,
     )
 
 
@@ -143,13 +163,16 @@ async def stock_report_endpoint(
 async def export_purchase_sale_csv(
     start_date: date | None = None,
     end_date: date | None = None,
+    location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> StreamingResponse:
     """Download the Purchase & Sale report as a CSV file."""
     if start_date is None and end_date is None:
         start_date, end_date = await resolve_default_date_range(db, current_user.id)
-    report = await get_purchase_sale_report(db, start_date=start_date, end_date=end_date)
+    report = await get_purchase_sale_report(
+        db, start_date=start_date, end_date=end_date, location_id=location_id
+    )
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -174,10 +197,55 @@ async def export_purchase_sale_csv(
 async def purchase_sale_endpoint(
     start_date: date | None = None,
     end_date: date | None = None,
+    location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> PurchaseSaleReport:
     """Return purchase and sale summary for an optional date range."""
     if start_date is None and end_date is None:
         start_date, end_date = await resolve_default_date_range(db, current_user.id)
-    return await get_purchase_sale_report(db, start_date=start_date, end_date=end_date)
+    return await get_purchase_sale_report(
+        db, start_date=start_date, end_date=end_date, location_id=location_id
+    )
+
+
+@router.get("/product-sales", response_model=ProductSalesReport)
+async def product_sales_endpoint(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    category_id: uuid.UUID | None = None,
+    location_id: uuid.UUID | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> ProductSalesReport:
+    """Return per-product sales report grouped by product."""
+    return await get_product_sales_report(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        category_id=category_id,
+        location_id=location_id,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/trending-products", response_model=TrendingProductsReport)
+async def trending_products_endpoint(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    limit: int = 10,
+    sort_by: str = "revenue",
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+) -> TrendingProductsReport:
+    """Return top-N trending products sorted by revenue or quantity."""
+    return await get_trending_products(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        sort_by=sort_by,
+    )

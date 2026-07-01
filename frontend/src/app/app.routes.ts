@@ -159,6 +159,20 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'reports/product-sales',
+        loadComponent: () =>
+          import('./features/reports/pages/product-sales-page.component').then(
+            (m) => m.ProductSalesPageComponent,
+          ),
+      },
+      {
+        path: 'reports/trending-products',
+        loadComponent: () =>
+          import('./features/reports/pages/trending-products-page.component').then(
+            (m) => m.TrendingProductsPageComponent,
+          ),
+      },
+      {
         path: 'stock-counts',
         loadComponent: () =>
           import('./features/stockcount/pages/stock-count-list-page.component').then(

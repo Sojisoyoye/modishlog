@@ -65,5 +65,19 @@ export class ReportsIndexComponent {
       icon: 'pi-arrows-h',
       color: 'bg-purple-50 text-purple-700',
     },
+    {
+      title: 'Product Sales',
+      description: 'Sales breakdown by product with returns and net quantities',
+      route: '/reports/product-sales',
+      icon: 'pi-table',
+      color: 'bg-orange-50 text-orange-700',
+    },
+    {
+      title: 'Trending Products',
+      description: 'Top-selling products ranked by revenue or quantity',
+      route: '/reports/trending-products',
+      icon: 'pi-chart-bar',
+      color: 'bg-pink-50 text-pink-700',
+    },
   ];
 }

@@ -46,6 +46,44 @@ export interface PurchaseSaleReport {
   net_position: number;
 }
 
+export interface ProductSalesRow {
+  product_id: string;
+  sku: string;
+  product_name: string;
+  category: string | null;
+  quantity_sold: number;
+  total_revenue: number;
+  avg_unit_price: number;
+  return_quantity: number;
+  net_quantity: number;
+}
+
+export interface ProductSalesReport {
+  rows: ProductSalesRow[];
+  total_revenue: number;
+  period_start: string | null;
+  period_end: string | null;
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface TrendingProductRow {
+  rank: number;
+  product_id: string;
+  product_name: string;
+  sku: string;
+  category: string | null;
+  quantity_sold: number;
+  total_revenue: number;
+}
+
+export interface TrendingProductsReport {
+  rows: TrendingProductRow[];
+  period_start: string | null;
+  period_end: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ReportsService {
   private readonly api = inject(ApiService);
@@ -91,5 +129,33 @@ export class ReportsService {
     const query = new URLSearchParams(params).toString();
     const url = `${environment.apiBaseUrl}/reports/purchase-sale/export-csv${query ? '?' + query : ''}`;
     return this.http.get(url, { responseType: 'blob' });
+  }
+
+  getProductSalesReport(opts: {
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    pageSize?: number;
+  } = {}): Observable<ProductSalesReport> {
+    const params: Record<string, string> = {};
+    if (opts.startDate) params['start_date'] = opts.startDate;
+    if (opts.endDate) params['end_date'] = opts.endDate;
+    if (opts.page) params['page'] = String(opts.page);
+    if (opts.pageSize) params['page_size'] = String(opts.pageSize);
+    return this.api.get<ProductSalesReport>('/reports/product-sales', params);
+  }
+
+  getTrendingProducts(opts: {
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+    sortBy?: string;
+  } = {}): Observable<TrendingProductsReport> {
+    const params: Record<string, string> = {};
+    if (opts.startDate) params['start_date'] = opts.startDate;
+    if (opts.endDate) params['end_date'] = opts.endDate;
+    if (opts.limit) params['limit'] = String(opts.limit);
+    if (opts.sortBy) params['sort_by'] = opts.sortBy;
+    return this.api.get<TrendingProductsReport>('/reports/trending-products', params);
   }
 }
