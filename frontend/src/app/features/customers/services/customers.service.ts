@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { shareReplay, tap } from 'rxjs/operators';
 import { ApiService } from '../../../core/services/api.service';
+import { CustomerService } from '../../../core/services/customer.service';
 
 export interface Customer {
   id: string;
@@ -57,12 +58,15 @@ export interface CustomerListResponse {
 @Injectable({ providedIn: 'root' })
 export class CustomersService {
   private readonly api = inject(ApiService);
+  // Inject core service so mutations here also bust the core dropdown cache
+  private readonly coreCustomerService = inject(CustomerService);
 
   // Cache the no-params variant (full list used for dropdowns/filters)
   private allCache$: Observable<CustomerListResponse> | null = null;
 
   private invalidateCache(): void {
     this.allCache$ = null;
+    this.coreCustomerService.invalidateCache();
   }
 
   getCustomers(params?: Record<string, string>): Observable<CustomerListResponse> {

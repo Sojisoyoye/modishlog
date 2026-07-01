@@ -35,23 +35,20 @@ export class CustomerService {
   // Cache the no-search variant (the hot path for dropdowns)
   private allCache$: Observable<CustomerListResponse> | null = null;
 
-  private invalidateCache(): void {
+  invalidateCache(): void {
     this.allCache$ = null;
   }
 
   getAll(search?: string): Observable<CustomerListResponse> {
-    const params: Record<string, string> = {};
-    if (search) params['search'] = search;
-
     if (!search) {
       if (!this.allCache$) {
         this.allCache$ = this.api
-          .get<CustomerListResponse>('/customers', params)
+          .get<CustomerListResponse>('/customers')
           .pipe(shareReplay(1));
       }
       return this.allCache$;
     }
-    return this.api.get<CustomerListResponse>('/customers', params);
+    return this.api.get<CustomerListResponse>('/customers', { search });
   }
 
   create(data: CustomerCreate): Observable<Customer> {
