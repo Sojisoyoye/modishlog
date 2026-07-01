@@ -47,14 +47,17 @@ test.describe('mobile bottom navigation', () => {
     await expect(page).toHaveURL('/inventory');
   });
 
-  test('tapping More opens the sidebar overlay', async ({ page }) => {
+  test('tapping More opens the sidebar overlay and hides the bottom nav', async ({ page }) => {
     const sidebar = page.locator('aside');
+    const bottomNav = page.getByTestId('bottom-nav');
     // Initially sidebar is hidden — tap More to reveal it
-    await page.getByTestId('bottom-nav').getByRole('button', { name: /more/i }).click();
-    await page.waitForTimeout(300);
+    await bottomNav.getByRole('button', { name: /more/i }).click();
+    // Sidebar slides in
+    await expect(sidebar).toBeVisible({ timeout: 2000 });
     const box = await sidebar.boundingBox();
-    // After open, sidebar should be on-screen
     expect(box !== null && box.x >= 0).toBeTruthy();
+    // Bottom nav hides itself to avoid overlapping the open sidebar
+    await expect(bottomNav).not.toBeVisible();
   });
 
   test('hamburger toggle is hidden on mobile', async ({ page }) => {

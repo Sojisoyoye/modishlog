@@ -27,7 +27,7 @@ import { BottomNavComponent } from '../bottom-nav/bottom-nav.component';
       </div>
     </div>
 
-    <app-bottom-nav (openMore)="mobileOpen.set(true)" />
+    <app-bottom-nav [mobileOpen]="mobileOpen()" (openMore)="mobileOpen.set(true)" />
 
     @if (mobileOpen()) {
       <div

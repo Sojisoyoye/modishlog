@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
 @Component({
@@ -10,6 +10,7 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
       data-testid="bottom-nav"
       aria-label="Mobile navigation"
       class="fixed bottom-0 inset-x-0 z-50 md:hidden bg-white border-t border-gray-200 grid grid-cols-4"
+      [class.hidden]="mobileOpen()"
     >
       <a
         routerLink="/dashboard"
@@ -43,6 +44,7 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
         type="button"
         (click)="openMore.emit()"
         class="flex min-h-[56px] min-w-[44px] flex-col items-center justify-center gap-0.5 text-[10px] font-medium text-gray-500 transition-colors"
+        [class.text-emerald-600]="mobileOpen()"
         aria-label="More"
       >
         <i class="pi pi-bars text-lg"></i>
@@ -53,5 +55,6 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BottomNavComponent {
+  mobileOpen = input(false);
   openMore = output<void>();
 }
