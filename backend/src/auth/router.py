@@ -225,13 +225,7 @@ async def admin_invite_user(
 ):
     """Create a new user account (admin invite). Admin only."""
     try:
-        user = await create_user(db, body.email, body.password, body.full_name)
-        if body.role and body.role != "sales_manager":
-            try:
-                user.role = UserRole(body.role)
-                await db.flush()
-            except ValueError:
-                pass
+        user = await create_user(db, body.email, body.password, body.full_name, role=UserRole(body.role))
     except WeakPasswordError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except UserAlreadyExistsError as e:
@@ -312,7 +306,12 @@ async def admin_reset_password(
         raw_token = await admin_reset_user_password(db, user_id)
     except UserNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate reset token — user email lookup failed",
+        )
     return AdminResetPasswordResponse(
-        message="Password reset token generated. Share the token with the user.",
-        token=raw_token or "",
+        message="Password reset token generated. Share this token with the user securely.",
+        token=raw_token,
     )

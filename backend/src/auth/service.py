@@ -49,6 +49,7 @@ async def create_user(
     email: str,
     password: str,
     full_name: str,
+    role: UserRole = UserRole.SALES_MANAGER,
 ) -> User:
     """Register a new user account."""
     validate_password(password)
@@ -62,7 +63,7 @@ async def create_user(
         hashed_password=get_password_hash(password),
         full_name=full_name,
         is_active=True,
-        role=UserRole.SALES_MANAGER,
+        role=role,
         failed_login_attempts=0,
     )
     db.add(user)
@@ -390,10 +391,10 @@ async def activate_user(db: AsyncSession, user_id: uuid.UUID) -> None:
     await logger.ainfo("user_activated", user_id=str(user_id))
 
 
-async def admin_reset_user_password(db: AsyncSession, user_id: uuid.UUID) -> str:
+async def admin_reset_user_password(db: AsyncSession, user_id: uuid.UUID) -> str | None:
     """Generate a password-reset token for a user (admin-initiated).
 
-    Returns the raw reset token string.
+    Returns the raw reset token string, or None on unexpected lookup failure.
     """
     user = await db.get(User, user_id)
     if user is None:

@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
@@ -110,7 +111,7 @@ class UserInvite(BaseModel):
 
     email: EmailStr
     full_name: str
-    role: str = "sales_manager"
+    role: Literal["admin", "sales_manager"] = "sales_manager"
     password: str
 
 
@@ -118,7 +119,7 @@ class UserUpdate(BaseModel):
     """Admin update-user request — all fields optional."""
 
     full_name: str | None = None
-    role: str | None = None
+    role: Literal["admin", "sales_manager"] | None = None
     is_active: bool | None = None
 
 

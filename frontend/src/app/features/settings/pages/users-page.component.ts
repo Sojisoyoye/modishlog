@@ -5,6 +5,7 @@ import {
   signal,
   computed,
   OnInit,
+  OnDestroy,
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -287,7 +288,7 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
     }
   `,
 })
-export class UsersPageComponent implements OnInit {
+export class UsersPageComponent implements OnInit, OnDestroy {
   private readonly usersService = inject(UsersService);
   private readonly toast = inject(MessageService);
 
@@ -296,7 +297,7 @@ export class UsersPageComponent implements OnInit {
   readonly page = signal(1);
   readonly pageSize = signal(20);
   readonly loading = signal(false);
-  readonly totalPages = computed(() => Math.ceil(this.total() / this.pageSize()));
+  readonly totalPages = computed(() => Math.max(1, Math.ceil(this.total() / this.pageSize())));
 
   searchTerm = '';
   private searchTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -312,6 +313,10 @@ export class UsersPageComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadUsers();
+  }
+
+  ngOnDestroy(): void {
+    if (this.searchTimeout) clearTimeout(this.searchTimeout);
   }
 
   private loadUsers(): void {
