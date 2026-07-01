@@ -4,7 +4,9 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from src.suppliers.models import PayTermType
 
 
 class CustomerCreate(BaseModel):
@@ -18,10 +20,10 @@ class CustomerCreate(BaseModel):
     country: str | None = Field(None, max_length=100)
     zip_code: str | None = Field(None, max_length=20)
     tax_number: str | None = Field(None, max_length=100)
-    pay_term_number: int | None = None
-    pay_term_type: str | None = Field(None, max_length=20)
-    opening_balance: Decimal = Decimal("0")
-    credit_limit: Decimal | None = None
+    pay_term_number: int | None = Field(None, ge=1)
+    pay_term_type: PayTermType | None = None
+    opening_balance: Decimal = Field(Decimal("0"), ge=0)
+    credit_limit: Decimal | None = Field(None, ge=0)
     is_active: bool = True
     customer_group: str | None = Field(None, max_length=100)
     notes: str | None = None
@@ -38,13 +40,22 @@ class CustomerUpdate(BaseModel):
     country: str | None = Field(None, max_length=100)
     zip_code: str | None = Field(None, max_length=20)
     tax_number: str | None = Field(None, max_length=100)
-    pay_term_number: int | None = None
-    pay_term_type: str | None = Field(None, max_length=20)
-    opening_balance: Decimal | None = None
-    credit_limit: Decimal | None = None
+    pay_term_number: int | None = Field(None, ge=1)
+    pay_term_type: PayTermType | None = None
+    opening_balance: Decimal | None = Field(None, ge=0)
+    credit_limit: Decimal | None = Field(None, ge=0)
     is_active: bool | None = None
     customer_group: str | None = Field(None, max_length=100)
     notes: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_null_for_not_null_fields(cls, data: object) -> object:
+        if isinstance(data, dict):
+            for field in ("opening_balance", "is_active"):
+                if field in data and data[field] is None:
+                    raise ValueError(f"{field} cannot be set to null")
+        return data
 
 
 class CustomerRead(BaseModel):
@@ -62,10 +73,10 @@ class CustomerRead(BaseModel):
     zip_code: str | None = None
     tax_number: str | None = None
     pay_term_number: int | None = None
-    pay_term_type: str | None = None
-    opening_balance: Decimal = Decimal("0")
+    pay_term_type: PayTermType | None = None
+    opening_balance: Decimal
     credit_limit: Decimal | None = None
-    is_active: bool = True
+    is_active: bool
     customer_group: str | None = None
     notes: str | None = None
     created_by: uuid.UUID

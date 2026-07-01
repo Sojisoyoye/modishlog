@@ -16,6 +16,7 @@ from src.customers.service import (
     list_customers,
     update_customer,
 )
+from src.suppliers.models import PayTermType
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +183,28 @@ class TestListCustomers:
 # ---------------------------------------------------------------------------
 
 
+class TestGetCustomer:
+    @pytest.mark.asyncio
+    async def test_get_customer_found(self):
+        """Happy path: returns the customer when found."""
+        customer = _make_customer()
+        db = _mock_db_with_execute(scalar_result=customer)
+        result = await get_customer(db, customer.id)
+        assert result.id == customer.id
+
+    @pytest.mark.asyncio
+    async def test_get_customer_not_found(self):
+        """Raises CustomerNotFoundError when no row is returned."""
+        db = _mock_db_with_execute(scalar_result=None)
+        with pytest.raises(CustomerNotFoundError):
+            await get_customer(db, uuid.uuid4())
+
+
+# ---------------------------------------------------------------------------
+# update_customer — new fields
+# ---------------------------------------------------------------------------
+
+
 class TestUpdateCustomer:
     @pytest.mark.asyncio
     async def test_update_customer_city_and_country(self):
@@ -195,3 +218,35 @@ class TestUpdateCustomer:
         assert updated.city == "Abuja"
         assert updated.state == "FCT"
         db.flush.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_customer_null_opening_balance_rejected(self):
+        """Explicit null for opening_balance raises ValueError at schema validation."""
+        with pytest.raises(Exception):
+            CustomerUpdate(**{"opening_balance": None})
+
+    @pytest.mark.asyncio
+    async def test_update_customer_null_is_active_rejected(self):
+        """Explicit null for is_active raises ValueError at schema validation."""
+        with pytest.raises(Exception):
+            CustomerUpdate(**{"is_active": None})
+
+
+# ---------------------------------------------------------------------------
+# pay_term_type enum validation
+# ---------------------------------------------------------------------------
+
+
+class TestPayTermTypeValidation:
+    def test_create_customer_valid_pay_term_type(self):
+        """PayTermType enum values 'days' and 'months' are accepted."""
+        data = CustomerCreate(name="Test", pay_term_type=PayTermType.DAYS)
+        assert data.pay_term_type == PayTermType.DAYS
+
+        data2 = CustomerCreate(name="Test", pay_term_type="months")
+        assert data2.pay_term_type == PayTermType.MONTHS
+
+    def test_create_customer_invalid_pay_term_type_rejected(self):
+        """Arbitrary strings like 'weekly' are rejected by the enum validator."""
+        with pytest.raises(Exception):
+            CustomerCreate(name="Test", pay_term_type="weekly")

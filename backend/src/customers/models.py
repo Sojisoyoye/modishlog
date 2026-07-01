@@ -3,10 +3,11 @@
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
+from src.suppliers.models import PayTermType
 
 
 class Customer(UUIDMixin, TimestampMixin, Base):
@@ -37,8 +38,14 @@ class Customer(UUIDMixin, TimestampMixin, Base):
     pay_term_number: Mapped[int | None] = mapped_column(
         Integer, nullable=True, default=None
     )
-    pay_term_type: Mapped[str | None] = mapped_column(
-        String(20), nullable=True, default=None
+    pay_term_type: Mapped[PayTermType | None] = mapped_column(
+        Enum(
+            PayTermType,
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False,
+        ),
+        nullable=True,
+        default=None,
     )
     opening_balance: Mapped[Decimal] = mapped_column(
         Numeric(18, 6), nullable=False, default=Decimal("0"), server_default="0"
