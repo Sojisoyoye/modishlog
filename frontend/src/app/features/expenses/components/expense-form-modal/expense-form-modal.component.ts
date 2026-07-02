@@ -149,18 +149,18 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
           ></textarea>
         </div>
 
-        <div class="flex justify-end gap-2 pt-2">
+        <div class="flex flex-col gap-3 pt-2 sm:flex-row sm:justify-end">
           <button
             type="button"
             (click)="close()"
-            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 min-h-[40px]"
+            class="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 min-h-[40px] sm:w-auto"
           >
             Cancel
           </button>
           <button
             type="submit"
             [disabled]="saving() || !f.valid"
-            class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50 min-h-[40px]"
+            class="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50 min-h-[40px] sm:w-auto"
           >
             {{ saving() ? 'Saving…' : 'Save Expense' }}
           </button>
