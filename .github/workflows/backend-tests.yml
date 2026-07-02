@@ -15,6 +15,7 @@ jobs:
       - run: pip-audit -r backend/requirements.txt --progress-spinner off
 
   test:
+    needs: [dependency-scan]
     runs-on: ubuntu-latest
     services:
       postgres:
