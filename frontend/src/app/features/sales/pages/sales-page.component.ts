@@ -1778,9 +1778,9 @@ export class SalesPageComponent implements OnInit {
           });
         }
       },
-      error: () => {
+      error: (err) => {
         this.uploading.set(false);
-        const detail = 'Failed to upload CSV file';
+        const detail = err?.error?.detail || 'Failed to upload CSV file';
         this.uploadError.set(detail);
         this.messageService.add({
           severity: 'error',
