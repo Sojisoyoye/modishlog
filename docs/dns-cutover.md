@@ -1,62 +1,65 @@
-# DNS Cutover Runbook — modishlog.com
+# DNS Configuration — modishlog.com
 
-## Prerequisites
-- Production VPS provisioned and IP known
-- Nginx SSL certificates issued via `scripts/init-letsencrypt.sh`
-- Backend health check passing at `http://<VPS_IP>/health`
+DNS is managed on **Cloudflare** (zone ID `36eea4c43f0e35b17289e53618046aa4`).
 
-## DNS Records to Create
+## Current DNS records (live)
 
-Add these at your DNS provider (e.g. Cloudflare, Namecheap, Route 53):
+| Type | Name | Value | Proxy | TTL | Purpose |
+|------|------|-------|-------|-----|---------|
+| A | `api` | `178.104.122.53` | DNS-only | 300 | Backend API → Hetzner VPS; Caddy handles SSL |
+| CNAME | `@` | `cname.vercel-dns.com` | DNS-only | 300 | Apex domain → Vercel (Cloudflare CNAME flattening) |
+| CNAME | `www` | `cname.vercel-dns.com` | DNS-only | 300 | www → Vercel |
 
-| Type  | Name  | Value            | TTL  | Notes                          |
-|-------|-------|------------------|------|--------------------------------|
-| A     | @     | `<VPS_IP>`       | 300  | Apex domain → VPS (lower TTL for cutover) |
-| A     | www   | `<VPS_IP>`       | 300  | www → VPS (Nginx redirects to apex) |
-| CAA   | @     | `0 issue "letsencrypt.org"` | 3600 | Restrict cert issuance to Let's Encrypt |
-| TXT   | @     | (domain verification if required by provider) | — | — |
+> **Why DNS-only (not proxied)?** Caddy on Hetzner obtains its own Let's Encrypt certificate for `api.modishlog.com` using the HTTP challenge. Cloudflare proxying would intercept the ACME challenge and prevent cert issuance. Vercel similarly manages its own TLS for `modishlog.com`.
 
-## Cutover Steps
+## Vercel domain config
 
-1. **24 hours before cutover**: Lower TTL to 300s on existing DNS records so propagation is fast after cutover.
+Both `modishlog.com` and `www.modishlog.com` are linked to the `modishlog` Vercel project (`prj_vo4UE6aXYIG2Mrtc24ZZbykYzc2r`). Vercel issues and renews the TLS certificate automatically.
 
-2. **Deploy to VPS**: Ensure `docker compose -f docker-compose.prod.yml up -d` is running and `curl http://<VPS_IP>/health` returns `{"status":"healthy"}`.
+## Updating DNS via Cloudflare API
 
-3. **Issue SSL cert** (first time only):
-   ```bash
-   bash scripts/init-letsencrypt.sh
-   ```
-
-4. **Update DNS**: At your registrar, point A record `@` and `www` to `<VPS_IP>`.
-
-5. **Verify propagation**:
-   ```bash
-   dig A modishlog.com +short      # should return VPS_IP
-   dig A www.modishlog.com +short  # should return VPS_IP
-   ```
-
-6. **Smoke test**:
-   ```bash
-   curl -I http://modishlog.com         # → 301 to https://
-   curl -I http://www.modishlog.com     # → 301 to https://modishlog.com
-   curl -I https://modishlog.com        # → 200, check HSTS header
-   curl https://modishlog.com/health    # → {"status":"healthy"}
-   ```
-
-7. **After 48h stable**: Raise TTL to 3600s.
-
-8. **HSTS Preload** (after 30 days stable): Submit to https://hstspreload.org
-
-## Rollback
-
-If the new VPS is broken, point DNS back to the previous server IP. Propagation takes up to TTL seconds (300s during cutover window).
-
-## SSL Renewal
-
-Certbot runs automatically every 12 hours inside the `certbot` Docker service. No manual action needed.
-
-To renew manually:
 ```bash
-docker compose -f docker-compose.prod.yml run --rm certbot renew
-docker compose -f docker-compose.prod.yml restart nginx
+CF_TOKEN="<your-cloudflare-api-token>"
+ZONE_ID="36eea4c43f0e35b17289e53618046aa4"
+
+# List current records
+curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+  -H "Authorization: Bearer $CF_TOKEN" | python3 -m json.tool | grep -E '"name"|"content"|"id"'
+
+# Update a record (replace <record-id> with the ID from the list above)
+curl -s -X PATCH "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/<record-id>" \
+  -H "Authorization: Bearer $CF_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "<new-value>"}'
 ```
+
+The Cloudflare token is stored locally in `.env` as `CLOUDFLARE_TOKEN`.
+
+## Re-pointing the backend to a different server
+
+If the Hetzner VPS IP changes:
+
+1. Update the `api` A record in Cloudflare to the new IP
+2. Update the `PRODUCTION_HOST` GitHub secret
+3. SSH into the new server and ensure `/root/modishlog-prod/` is set up with the compose file and `.env.production`
+4. Caddy will auto-obtain a new TLS cert for `api.modishlog.com` on first request (requires port 80 open)
+
+## Smoke tests
+
+```bash
+# Backend API
+curl https://api.modishlog.com/health
+# → {"status":"healthy","version":"1.0.0","db":"ok","timestamp":"..."}
+
+# Frontend
+curl -sI https://modishlog.com | head -5
+# → HTTP/2 200
+
+# www redirect (Vercel handles this)
+curl -sI https://www.modishlog.com | head -3
+# → HTTP/2 308 or 200 depending on Vercel config
+```
+
+## HSTS Preload
+
+After 30 days of stable operation, submit `modishlog.com` to https://hstspreload.org to lock in HSTS across browsers. Requires `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload` to be served — verify this is present on the Vercel response headers before submitting.

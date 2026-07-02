@@ -47,8 +47,8 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 | Frontend | Angular 21 (standalone components, Signals), TailwindCSS v4, PrimeNG v21 |
 | AI/ML | Prophet, NumPy/SciPy (Monte Carlo), scikit-learn |
 | Auth | JWT (python-jose), bcrypt (passlib) |
-| Testing | pytest (939 tests), Playwright E2E (312 tests) |
-| Infra | Docker, Docker Compose, Hetzner (SSH), Neon PostgreSQL, Vercel, GitHub Actions |
+| Testing | pytest (1018 tests), Playwright E2E (312 tests) |
+| Infra | Docker, Docker Compose, Hetzner VPS (Caddy + PostgreSQL), Neon PostgreSQL (staging), Vercel, GitHub Actions |
 | Observability | Sentry (error tracking, PII scrubbing), structlog (structured JSON logs) |
 | Security | slowapi (rate limiting), SecurityHeadersMiddleware (CSP, HSTS, X-Frame-Options) |
 
@@ -84,10 +84,10 @@ modishlog/
 │   ├── e2e/               # Playwright E2E tests
 │   └── playwright.config.ts
 ├── nginx/
-│   ├── nginx.prod.conf    # Production Nginx — SSL, HTTPS redirect, security headers
+│   ├── nginx.prod.conf    # Legacy Nginx config (retained; Caddy used in production)
 │   └── snippets/ssl-params.conf
 ├── scripts/
-│   ├── backup-db.sh       # Production DB backup to S3/local
+│   ├── backup-db.sh       # Production DB backup
 │   ├── restore-db.sh      # Restore from backup
 │   ├── deploy-prod.sh     # One-shot production deploy helper
 │   └── init-letsencrypt.sh
@@ -204,61 +204,89 @@ docker compose exec backend python scripts/patch_po_ngn_to_usd.py             # 
 
 ---
 
-## Staging Deployment
+## Deployments
 
-Staging is **live**. Every push to `main` automatically deploys.
+### Production — live at modishlog.com
 
 | Component | Service | URL |
 |-----------|---------|-----|
-| Frontend | Vercel | https://modishlog-staging.vercel.app |
-| Backend API | Hetzner server (Docker Compose over SSH) | Set via `STAGING_API_URL` secret |
-| API Docs | Swagger UI (staging) | `$STAGING_API_URL/docs` |
+| Frontend | Vercel (`modishlog` project) | https://modishlog.com |
+| Backend API | Hetzner VPS — Docker Compose, Caddy SSL | https://api.modishlog.com |
+| API Docs | Disabled in production | — |
+| Database | PostgreSQL 15 on Hetzner (Docker volume) | `/root/modishlog-prod/` |
+| AI proxy | cliproxy on same Hetzner server | https://cliproxy.modishstandard.com |
+| Registry | GHCR | `ghcr.io/sojisoyoye/modishlog/backend:production` |
+| CI/CD | GitHub Actions — manual trigger | `.github/workflows/deploy-production.yml` |
+
+**To deploy to production:**
+```
+GitHub → Actions → "Deploy Production (modishlog.com)" → Run workflow
+  image_tag: staging   (or a specific SHA)
+  confirm:   deploy-production
+```
+
+The workflow runs tests → CVE scan → builds image → deploys frontend to Vercel → SSHs into Hetzner to start the DB, run migrations, and restart the backend → smoke-tests `https://api.modishlog.com/health`.
+
+**GitHub secrets required** (repo-level + `production` environment):
+
+| Secret | Purpose |
+|--------|---------|
+| `PRODUCTION_HOST` | Hetzner VPS IP |
+| `PRODUCTION_SSH_KEY` | Private SSH key for VPS root (`~/.ssh/hetzner_modish`) |
+| `PRODUCTION_VERCEL_PROJECT_ID` | Vercel project ID for `modishlog` (`prj_vo4UE6aXYIG2Mrtc24ZZbykYzc2r`) |
+| `GHCR_TOKEN` | GitHub PAT (packages:read + packages:write) |
+| `VERCEL_TOKEN` | Vercel API token |
+| `VERCEL_ORG_ID` | Vercel org ID |
+
+**Server layout** (`/root/modishlog-prod/`):
+```
+docker-compose.yml    # backend + postgres containers
+.env.production       # SECRET_KEY, POSTGRES_PASSWORD, ANTHROPIC_API_KEY, etc. (chmod 600)
+```
+
+**Rollback:**
+```bash
+ssh root@<PRODUCTION_HOST>
+cd /root/modishlog-prod
+# Edit .env.production → set BACKEND_IMAGE to a previous SHA tag
+docker compose --env-file .env.production up -d --no-deps --force-recreate backend
+```
+
+---
+
+### Staging — live at modishlog-staging.vercel.app
+
+Every push to `main` automatically deploys to staging.
+
+| Component | Service | URL |
+|-----------|---------|-----|
+| Frontend | Vercel (`modishlog-staging` project) | https://modishlog-staging.vercel.app |
+| Backend API | Hetzner VPS — same server, port 8002 | https://api-modishlog.modishstandard.com |
 | Database | Neon PostgreSQL (staging branch, SSL) | — |
-| Registry | GitHub Container Registry (GHCR) | `ghcr.io/sojisoyoye/modishlog/backend:staging` |
-| CI/CD | GitHub Actions | `.github/workflows/deploy-staging.yml` |
+| Registry | GHCR | `ghcr.io/sojisoyoye/modishlog/backend:staging` |
+| CI/CD | GitHub Actions — auto on push to `main` | `.github/workflows/deploy-staging.yml` |
 
-### Deployment pipeline (triggered on every push to `main`)
+**Staging deploy pipeline:**
+1. Backend tests — `pytest` against a temporary PostgreSQL container
+2. CVE scan — `pip-audit 2.10.1`; blocks deploy if any CVE is found
+3. Build backend image — push `staging-<sha>` + `staging` to GHCR
+4. Deploy frontend — `npx vercel --prod` with `STAGING_API_URL` substituted at build time
+5. Deploy backend — SSH into Hetzner, pull image, run `alembic upgrade head`, restart container, health-check
 
-1. **Backend tests** — `pytest` against a temporary PostgreSQL container
-2. **CVE scan** (requires tests pass) — `pip-audit 2.10.1` against `backend/requirements.txt`; blocks deploy if any known CVE is found
-3. **Build backend image** (requires scan pass) — push to `ghcr.io/sojisoyoye/modishlog/backend:staging-<sha>`
-4. **Deploy frontend** (requires scan pass) — `npx vercel --prod`; `STAGING_API_URL` substituted via `sed` at Vercel build time
-5. **Deploy backend** (requires image push) — SSH into Hetzner: pull image, run `alembic upgrade head`, restart container, health-check `GET /health` until 200
-
-### Architecture notes
-
-- **Database**: Neon PostgreSQL staging branch. Connection string format: `postgresql+asyncpg://user:pass@ep-xxx-pooler.eu-central-1.aws.neon.tech/neondb?sslmode=require`. SSL is auto-configured via `connect_args={"ssl": True}`.
-- **Backend host**: Hetzner root server running Docker Compose. The deploy job SSHs in as root, runs `docker-compose pull backend` then `docker-compose up -d --no-deps backend`. Alembic migrations run as a one-off `docker-compose run --rm` before the container swap.
-- **Health-check**: CI polls `GET /health` up to 24 times (5 s apart = 2 min) before marking the deploy failed.
-- **Frontend env injection**: `STAGING_API_URL` is injected by Vercel's `buildCommand` via `sed` into `environment.staging.ts` at build time — it is not a runtime env var.
-- **Azure provisioning scripts**: `infra/azure/setup-staging.sh` is retained for optional Azure Container Apps provisioning but is not used by the current CI pipeline.
-
-### Environment variables reference
-
-See `docs/deployment.md` for the full provisioning guide and `.env.staging.example` for the variable list. Required GitHub Actions secrets:
+**GitHub secrets required** (staging):
 
 | Secret | Purpose |
 |--------|---------|
 | `STAGING_DATABASE_URL` | Neon connection string |
-| `STAGING_SECRET_KEY` | JWT signing key (`openssl rand -hex 32`) |
+| `STAGING_SECRET_KEY` | JWT signing key |
 | `STAGING_CORS_ORIGINS` | Allowed frontend origins |
 | `STAGING_API_URL` | Backend URL (also set in Vercel dashboard env vars) |
-| `HETZNER_HOST` | IPv4 address of the Hetzner server |
-| `HETZNER_SSH_KEY` | Private SSH key for root access to the Hetzner server |
-| `GHCR_TOKEN` | GitHub PAT (packages:read + packages:write) |
+| `HETZNER_HOST` | Hetzner VPS IP |
+| `HETZNER_SSH_KEY` | Private SSH key |
+| `GHCR_TOKEN` | GitHub PAT |
 | `VERCEL_TOKEN` | Vercel API token |
 | `VERCEL_ORG_ID` | Vercel org ID |
-| `VERCEL_PROJECT_ID` | Vercel project ID |
-
-### Re-provisioning from scratch
-
-```bash
-# 1. Create Neon project → staging branch → get pooled connection string
-# 2. Provision a Hetzner server, install Docker + Docker Compose, place docker-compose.staging.yml
-# 3. Set all GitHub Actions secrets (see table above + .env.staging.example)
-# 4. Set STAGING_API_URL in Vercel project dashboard (Settings → Environment Variables)
-# 5. Push to main — CI/CD handles the rest
-```
+| `VERCEL_PROJECT_ID` | Staging Vercel project ID (`prj_m67UC2flGknEZWabTkwIoCLiJomw`) |
 
 ---
 
@@ -326,7 +354,7 @@ UPLOAD_DIR=/tmp/modishlog_uploads .venv/bin/pytest tests/ -v
 # Or inside Docker:
 docker compose exec backend pytest tests/
 ```
-939 tests covering all services, endpoints, and business logic (including security headers, rate limiting, and health endpoint).
+1018 tests covering all services, endpoints, and business logic (including security headers, rate limiting, and health endpoint).
 
 ### Frontend E2E (Playwright)
 ```bash
