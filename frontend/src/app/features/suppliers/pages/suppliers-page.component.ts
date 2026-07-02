@@ -63,6 +63,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
           <input
             type="text"
             id="supplier-search"
+            aria-label="Search suppliers"
             [(ngModel)]="searchTerm"
             (ngModelChange)="supplierSearch$.next($event)"
             placeholder="Search suppliers..."
