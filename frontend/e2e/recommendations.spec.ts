@@ -92,6 +92,22 @@ test.describe('AI Recommendations page', () => {
     await expect(page.getByRole('button', { name: 'Show History' })).toBeVisible();
   });
 
+  test('switching tabs does not leave skeleton permanently visible', async ({ page }) => {
+    await page.goto('/recommendations');
+    // Toggle tabs
+    const historyBtn = page.getByRole('button', { name: /history/i }).first();
+    if (await historyBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await historyBtn.click();
+      await page.waitForTimeout(100);
+      const activeBtn = page.getByRole('button', { name: /active/i }).first();
+      if (await activeBtn.isVisible()) {
+        await activeBtn.click();
+        // After clicking Active, skeleton should not persist indefinitely
+        await expect(page.locator('.animate-pulse').first()).not.toBeVisible({ timeout: 3000 });
+      }
+    }
+  });
+
   test.describe('Recommendation card actions', () => {
     test('Apply button removes recommendation from pending list and shows success toast', async ({
       page,
