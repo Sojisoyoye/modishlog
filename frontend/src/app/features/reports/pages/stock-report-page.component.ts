@@ -63,6 +63,8 @@ import { ReportsService, StockReport } from '../../../core/services/reports.serv
               <div class="h-4 bg-gray-200 rounded w-16"></div>
               <div class="h-4 bg-gray-200 rounded w-20"></div>
               <div class="h-4 bg-gray-200 rounded w-20"></div>
+              <div class="h-4 bg-gray-200 rounded w-20"></div>
+              <div class="h-4 bg-gray-200 rounded w-16"></div>
             </div>
           }
         </div>
