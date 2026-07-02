@@ -2,9 +2,11 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.rate_limit import limiter
 
 from src.core.config import settings
 
@@ -77,8 +79,9 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("10/minute")
 async def login(
-    body: UserLogin, response: Response, db: AsyncSession = Depends(get_db)
+    request: Request, body: UserLogin, response: Response, db: AsyncSession = Depends(get_db)
 ):
     """Authenticate and return a JWT access token and refresh token.
 
@@ -143,8 +146,9 @@ async def logout(
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
+@limiter.limit("5/minute")
 async def forgot_password(
-    body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)
+    request: Request, body: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)
 ):
     """Request a password-reset token.
 
@@ -158,8 +162,9 @@ async def forgot_password(
 
 
 @router.post("/reset-password", response_model=MessageResponse)
+@limiter.limit("5/minute")
 async def do_reset_password(
-    body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)
+    request: Request, body: ResetPasswordRequest, db: AsyncSession = Depends(get_db)
 ):
     """Reset a user's password using a valid reset token."""
     try:
