@@ -33,7 +33,7 @@ import { AuthService } from '../../../core/services/auth.service';
     KpiCardComponent, Select, DatePicker, FormsModule,
   ],
   template: `
-    <div class="space-y-5">
+    <div class="flex flex-col gap-5">
 
       <!-- ============================================================
            Global filters — affect all data on this page
@@ -155,7 +155,7 @@ import { AuthService } from '../../../core/services/auth.service';
       <!-- ============================================================
            Recent Sales table
            ============================================================ -->
-      <div class="rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <div class="mt-4 rounded-2xl border border-gray-100 bg-white shadow-sm">
         <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <h2 class="text-base font-semibold text-gray-900">Recent Sales</h2>
           <a routerLink="/sales" class="text-xs font-semibold text-emerald-600 hover:text-emerald-700">
