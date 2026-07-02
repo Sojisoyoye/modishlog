@@ -161,5 +161,8 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_BASE_URL: str = "https://api.anthropic.com"
 
+    # Error tracking
+    SENTRY_DSN: str = ""
+
 
 settings = Settings()
