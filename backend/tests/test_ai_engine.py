@@ -546,3 +546,30 @@ class TestAIEngineEndpoints:
                 },
             )
         assert resp.status_code == 401
+
+    @pytest.mark.anyio
+    async def test_usd_accumulation_schedule_unexpected_error_returns_500(self):
+        self._override_auth()
+        order_id = uuid.uuid4()
+        with patch(
+            "src.ai_engine.router.generate_usd_accumulation_schedule",
+            new_callable=AsyncMock,
+        ) as mock_sched:
+            mock_sched.side_effect = RuntimeError("database connection lost")
+            async with AsyncClient(
+                transport=ASGITransport(app=app),
+                base_url="http://test",
+            ) as client:
+                resp = await client.get(f"/api/v1/ai/usd-accumulation/{order_id}")
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Internal server error"
+        assert "database connection lost" not in resp.text
+
+    @pytest.mark.anyio
+    async def test_usd_accumulation_schedule_requires_auth(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            resp = await client.get(f"/api/v1/ai/usd-accumulation/{uuid.uuid4()}")
+        assert resp.status_code == 401

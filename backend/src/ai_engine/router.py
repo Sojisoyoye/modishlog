@@ -193,7 +193,7 @@ async def usd_accumulation_schedule_endpoint(
         data = await generate_usd_accumulation_schedule(db, order_id)
         return USDAccumulationScheduleResponse(**data)
     except Exception:
-        logger.exception("usd_accumulation_schedule_error")
+        logger.exception("usd_accumulation_schedule_error", order_id=str(order_id))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
