@@ -6,6 +6,7 @@ import { RouterLink } from '@angular/router';
   standalone: true,
   imports: [RouterLink],
   template: `
+    <div class="h-screen overflow-y-auto overflow-x-hidden scroll-smooth">
     <!-- ============================================================
          A. STICKY HEADER NAV
          ============================================================ -->
@@ -31,7 +32,7 @@ import { RouterLink } from '@angular/router';
           <div class="flex items-center gap-3">
             <a
               routerLink="/login"
-              class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+              class="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
             >
               Launch My POS →
             </a>
@@ -581,6 +582,7 @@ import { RouterLink } from '@angular/router';
         </div>
       </div>
     </footer>
+    </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
