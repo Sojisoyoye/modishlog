@@ -10,9 +10,15 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+# _rate_limit_exceeded_handler: private symbol used per slowapi docs — pin slowapi==0.1.9 to guard against breakage
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from src.core.config import settings
 from src.core.logging import setup_logging
+from src.core.middleware import SecurityHeadersMiddleware
+from src.core.rate_limit import limiter
 
 logger = structlog.get_logger()
 
@@ -72,7 +78,13 @@ app = FastAPI(
     description="Smart business management platform for everyday traders and SMB owners",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None if settings.ENVIRONMENT == "production" else "/docs",
+    redoc_url=None if settings.ENVIRONMENT == "production" else "/redoc",
+    openapi_url=None if settings.ENVIRONMENT == "production" else "/openapi.json",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.exception_handler(Exception)
@@ -86,6 +98,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
+app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -169,8 +183,8 @@ app.include_router(
 )
 app.include_router(expenses_router, prefix="/api/v1/expenses", tags=["expenses"])
 
+from src.health.router import api_router as health_api_router, router as health_router  # noqa: E402
 
-@app.get("/health")
-async def health_check() -> dict[str, str]:
-    """Health check endpoint."""
-    return {"status": "healthy"}
+# Mount at both /health (used by docker-compose healthcheck) and /api/health (convention)
+app.include_router(health_router, tags=["health"])
+app.include_router(health_api_router, prefix="/api", tags=["health"])

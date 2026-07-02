@@ -28,6 +28,9 @@ httpx==0.27.0
 # Caching
 redis==5.0.8
 
+# Rate limiting
+slowapi==0.1.9
+
 # Logging
 structlog==24.4.0
 

@@ -151,6 +151,7 @@ class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "info"
+    APP_VERSION: str = "1.0.0"
 
     # External APIs
     FX_API_KEY: str = ""
