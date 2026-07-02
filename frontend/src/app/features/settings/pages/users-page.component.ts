@@ -1,9 +1,13 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  ElementRef,
+  HostListener,
   inject,
   signal,
   computed,
+  effect,
+  viewChild,
   OnInit,
   OnDestroy,
 } from '@angular/core';
@@ -11,12 +15,13 @@ import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
+import { Dialog } from 'primeng/dialog';
 import { UsersService, UserListItem, UserInvite } from '../../../core/services/users.service';
 
 @Component({
   selector: 'app-users-page',
   standalone: true,
-  imports: [DatePipe, FormsModule, Toast],
+  imports: [DatePipe, FormsModule, Toast, Dialog],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -35,7 +40,7 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
       </div>
       <button
         (click)="showInviteDialog.set(true)"
-        class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 min-h-[40px]"
+        class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 min-h-[44px]"
       >
         <i class="pi pi-user-plus text-sm"></i> Invite User
       </button>
@@ -107,7 +112,7 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
                     <button
                       (click)="openEdit(user)"
                       title="Edit user"
-                      class="rounded-lg px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 min-h-[32px]"
+                      class="rounded-lg px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 min-h-[44px]"
                     >
                       <i class="pi pi-pencil"></i>
                     </button>
@@ -115,7 +120,7 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
                       <button
                         (click)="confirmDeactivate(user)"
                         title="Deactivate user"
-                        class="rounded-lg px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 min-h-[32px]"
+                        class="rounded-lg px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 min-h-[44px]"
                       >
                         <i class="pi pi-ban"></i>
                       </button>
@@ -123,7 +128,7 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
                       <button
                         (click)="doActivate(user)"
                         title="Activate user"
-                        class="rounded-lg px-2 py-1.5 text-xs text-emerald-600 hover:bg-emerald-50 min-h-[32px]"
+                        class="rounded-lg px-2 py-1.5 text-xs text-emerald-600 hover:bg-emerald-50 min-h-[44px]"
                       >
                         <i class="pi pi-check-circle"></i>
                       </button>
@@ -131,7 +136,7 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
                     <button
                       (click)="doResetPassword(user)"
                       title="Reset password"
-                      class="rounded-lg px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 min-h-[32px]"
+                      class="rounded-lg px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 min-h-[44px]"
                     >
                       <i class="pi pi-key"></i>
                     </button>
@@ -152,7 +157,7 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
           <button
             (click)="changePage(page() - 1)"
             [disabled]="page() === 1"
-            class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs disabled:opacity-40 hover:bg-gray-50 min-h-[32px]"
+            class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs disabled:opacity-40 hover:bg-gray-50 min-h-[44px]"
           >
             <i class="pi pi-chevron-left"></i>
           </button>
@@ -160,7 +165,7 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
           <button
             (click)="changePage(page() + 1)"
             [disabled]="page() >= totalPages()"
-            class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs disabled:opacity-40 hover:bg-gray-50 min-h-[32px]"
+            class="rounded-lg border border-gray-300 px-3 py-1.5 text-xs disabled:opacity-40 hover:bg-gray-50 min-h-[44px]"
           >
             <i class="pi pi-chevron-right"></i>
           </button>
@@ -170,11 +175,22 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
 
     <!-- Invite User Dialog -->
     @if (showInviteDialog()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+      <div
+        #inviteDialog
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invite-dialog-title"
+        tabindex="-1"
+      >
         <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl">
           <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-            <h3 class="text-base font-semibold text-text">Invite User</h3>
-            <button (click)="showInviteDialog.set(false)" class="text-gray-400 hover:text-text min-h-[32px] min-w-[32px]">
+            <h3 id="invite-dialog-title" class="text-base font-semibold text-text">Invite User</h3>
+            <button
+              (click)="showInviteDialog.set(false)"
+              aria-label="Close dialog"
+              class="text-gray-400 hover:text-text min-h-[44px] min-w-[44px]"
+            >
               <i class="pi pi-times"></i>
             </button>
           </div>
@@ -239,11 +255,22 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
 
     <!-- Edit User Dialog -->
     @if (showEditDialog() && editingUser()) {
-      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+      <div
+        #editDialog
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-dialog-title"
+        tabindex="-1"
+      >
         <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl">
           <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-            <h3 class="text-base font-semibold text-text">Edit User</h3>
-            <button (click)="showEditDialog.set(false)" class="text-gray-400 hover:text-text min-h-[32px] min-w-[32px]">
+            <h3 id="edit-dialog-title" class="text-base font-semibold text-text">Edit User</h3>
+            <button
+              (click)="showEditDialog.set(false)"
+              aria-label="Close dialog"
+              class="text-gray-400 hover:text-text min-h-[44px] min-w-[44px]"
+            >
               <i class="pi pi-times"></i>
             </button>
           </div>
@@ -286,11 +313,44 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
         </div>
       </div>
     }
+
+    <!-- Password Reset Token Dialog -->
+    <p-dialog
+      [visible]="showTokenDialog()"
+      (visibleChange)="showTokenDialog.set($event)"
+      (onHide)="onTokenDialogHide()"
+      header="Password Reset Token"
+      [modal]="true"
+      [closable]="true"
+      [style]="{ width: '28rem' }"
+    >
+      <div class="space-y-4 py-2">
+        <p class="text-sm text-muted">Copy this token and share it securely with the user. It will not be shown again.</p>
+        <div class="flex gap-2">
+          <input
+            type="text"
+            [value]="resetToken() ?? ''"
+            readonly
+            class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-gray-50 font-mono min-h-[40px]"
+            aria-label="Password reset token"
+          />
+          <button
+            (click)="copyToken()"
+            class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90 min-h-[44px]"
+          >
+            <i class="pi pi-copy"></i> Copy
+          </button>
+        </div>
+      </div>
+    </p-dialog>
   `,
 })
 export class UsersPageComponent implements OnInit, OnDestroy {
   private readonly usersService = inject(UsersService);
   private readonly toast = inject(MessageService);
+
+  private readonly inviteDialogRef = viewChild<ElementRef>('inviteDialog');
+  private readonly editDialogRef = viewChild<ElementRef>('editDialog');
 
   readonly users = signal<UserListItem[]>([]);
   readonly total = signal(0);
@@ -310,6 +370,31 @@ export class UsersPageComponent implements OnInit, OnDestroy {
   readonly editSaving = signal(false);
   readonly editingUser = signal<UserListItem | null>(null);
   editForm: { full_name: string; role: string } = { full_name: '', role: '' };
+
+  readonly resetToken = signal<string | null>(null);
+  readonly showTokenDialog = signal(false);
+
+  constructor() {
+    effect(() => {
+      if (this.showInviteDialog()) {
+        setTimeout(() => this.inviteDialogRef()?.nativeElement?.focus(), 0);
+      }
+    });
+    effect(() => {
+      if (this.showEditDialog()) {
+        setTimeout(() => this.editDialogRef()?.nativeElement?.focus(), 0);
+      }
+    });
+  }
+
+  @HostListener('keydown.escape')
+  onEscape(): void {
+    if (this.showInviteDialog()) {
+      this.showInviteDialog.set(false);
+    } else if (this.showEditDialog()) {
+      this.showEditDialog.set(false);
+    }
+  }
 
   ngOnInit(): void {
     this.loadUsers();
@@ -369,10 +454,9 @@ export class UsersPageComponent implements OnInit, OnDestroy {
         this.loadUsers();
         this.toast.add({ severity: 'success', summary: 'Invited', detail: 'User created successfully' });
       },
-      error: (err) => {
+      error: () => {
         this.inviteSaving.set(false);
-        const detail = err?.error?.detail ?? 'Failed to invite user';
-        this.toast.add({ severity: 'error', summary: 'Error', detail });
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to invite user' });
       },
     });
   }
@@ -388,10 +472,9 @@ export class UsersPageComponent implements OnInit, OnDestroy {
         this.users.update((list) => list.map((u) => (u.id === updated.id ? updated : u)));
         this.toast.add({ severity: 'success', summary: 'Saved', detail: 'User updated' });
       },
-      error: (err) => {
+      error: () => {
         this.editSaving.set(false);
-        const detail = err?.error?.detail ?? 'Failed to update user';
-        this.toast.add({ severity: 'error', summary: 'Error', detail });
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to update user' });
       },
     });
   }
@@ -405,9 +488,8 @@ export class UsersPageComponent implements OnInit, OnDestroy {
         );
         this.toast.add({ severity: 'success', summary: 'Deactivated', detail: `${user.full_name} deactivated` });
       },
-      error: (err) => {
-        const detail = err?.error?.detail ?? 'Failed to deactivate user';
-        this.toast.add({ severity: 'error', summary: 'Error', detail });
+      error: () => {
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to deactivate user' });
       },
     });
   }
@@ -430,16 +512,26 @@ export class UsersPageComponent implements OnInit, OnDestroy {
     if (!confirm(`Generate a password reset token for ${user.full_name}?`)) return;
     this.usersService.resetPassword(user.id).subscribe({
       next: (res) => {
-        this.toast.add({
-          severity: 'info',
-          summary: 'Reset Token',
-          detail: `Token: ${res.token}`,
-          life: 15000,
-        });
+        this.resetToken.set(res.token);
+        this.showTokenDialog.set(true);
       },
       error: () => {
         this.toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to reset password' });
       },
     });
+  }
+
+  copyToken(): void {
+    const token = this.resetToken();
+    if (!token) return;
+    navigator.clipboard.writeText(token).then(() => {
+      this.toast.add({ severity: 'success', summary: 'Copied', detail: 'Token copied to clipboard', life: 3000 });
+    }).catch(() => {
+      this.toast.add({ severity: 'warn', summary: 'Copy failed', detail: 'Please copy the token manually', life: 5000 });
+    });
+  }
+
+  onTokenDialogHide(): void {
+    this.resetToken.set(null);
   }
 }
