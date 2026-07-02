@@ -88,7 +88,7 @@ import { RouterLink } from '@angular/router';
           </div>
 
           <!-- Right: Product mockup (static HTML browser window) -->
-          <div class="relative">
+          <div class="relative pb-8 sm:pb-0">
             <div class="rounded-xl border border-gray-200 shadow-2xl overflow-hidden bg-white">
               <!-- Browser chrome title bar -->
               <div class="flex items-center gap-2 bg-gray-100 px-4 py-3 border-b border-gray-200">
@@ -161,7 +161,7 @@ import { RouterLink } from '@angular/router';
             </div>
 
             <!-- Floating badge -->
-            <div class="absolute -bottom-4 -left-4 rounded-xl bg-white border border-gray-200 shadow-lg px-4 py-3 flex items-center gap-3">
+            <div class="absolute -bottom-4 left-2 sm:-left-4 rounded-xl bg-white border border-gray-200 shadow-lg px-4 py-3 flex items-center gap-3">
               <div class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50">
                 <span class="text-emerald-600 text-lg">⚡</span>
               </div>
@@ -322,7 +322,7 @@ import { RouterLink } from '@angular/router';
           <p class="mt-3 text-lg text-gray-500">Everything you were trying to do in Excel — done automatically.</p>
         </div>
 
-        <div class="overflow-hidden rounded-2xl border border-gray-200 shadow-sm">
+        <div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm">
           <table class="w-full">
             <thead>
               <tr class="bg-gray-900 text-white">
@@ -413,7 +413,7 @@ import { RouterLink } from '@angular/router';
           </div>
 
           <!-- Growth (highlighted) -->
-          <div class="rounded-2xl bg-emerald-600 border border-emerald-500 p-8 flex flex-col relative shadow-xl shadow-emerald-900/30 scale-105">
+          <div class="rounded-2xl bg-emerald-600 border border-emerald-500 p-8 flex flex-col relative shadow-xl shadow-emerald-900/30 sm:scale-105">
             <!-- Badge -->
             <div class="absolute -top-4 left-1/2 -translate-x-1/2">
               <span class="rounded-full bg-yellow-400 text-yellow-900 text-xs font-bold px-4 py-1.5 shadow-md">Most Popular</span>

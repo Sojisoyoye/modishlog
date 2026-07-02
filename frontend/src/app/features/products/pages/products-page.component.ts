@@ -165,7 +165,7 @@ interface ColEntry {
       </div>
 
       <!-- Tabs -->
-      <div class="mt-4 flex gap-1 border-b border-gray-200">
+      <div class="mt-4 flex gap-1 overflow-x-auto scrollbar-none border-b border-gray-200">
         <button
           (click)="activeTab.set('products')"
           [class]="activeTab() === 'products' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
@@ -733,7 +733,7 @@ interface ColEntry {
             }
           </div>
 
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted">Cost Currency</label>
               <select
@@ -767,7 +767,7 @@ interface ColEntry {
               Live rate: 1 {{ addCurrency() }} = {{ currentFxRate() | number: '1.0-2' }} NGN
             </p>
           }
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label class="mb-1.5 block text-xs font-medium text-muted">Unit Cost ({{ addCurrency() }}) *</label>
               <input

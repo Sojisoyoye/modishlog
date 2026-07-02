@@ -24,7 +24,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
   template: `
     <p-toast />
     <div class="p-6">
-      <div class="mb-6 flex items-center justify-between">
+      <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 class="text-2xl font-bold text-gray-900">Stock Counts</h1>
           <p class="mt-1 text-sm text-gray-500">Physical inventory count sessions and variance reports</p>
@@ -37,7 +37,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
         </button>
       </div>
 
-      <div class="rounded-xl border border-gray-100 bg-white shadow-sm">
+      <div class="overflow-x-auto rounded-xl border border-gray-100 bg-white shadow-sm">
         <table class="min-w-full divide-y divide-gray-200 text-sm">
           <caption class="sr-only">Stock count sessions</caption>
           <thead>

@@ -99,7 +99,7 @@ import { DATE_PRESETS, DatePreset } from '../../../core/utils/date-presets.utils
           }
         </div>
       } @else if (report(); as r) {
-        <div class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <p class="text-xs font-medium text-gray-500">Total Products</p>
             <p class="mt-1 text-2xl font-bold text-gray-900">{{ r.total }}</p>

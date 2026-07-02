@@ -28,11 +28,12 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
       (visibleChange)="onVisibleChange($event)"
       [modal]="true"
       [style]="{ width: '520px' }"
+      [breakpoints]="{ '640px': '95vw' }"
       [draggable]="false"
     >
       <form (ngSubmit)="submit()" #f="ngForm" class="flex flex-col gap-4 py-2">
 
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label for="expense-amount-ngn" class="mb-1 block text-sm font-medium text-gray-700">
               Amount (NGN) <span class="text-red-500">*</span>
@@ -67,7 +68,7 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label for="expense-date" class="mb-1 block text-sm font-medium text-gray-700">
               Expense Date <span class="text-red-500">*</span>
@@ -96,7 +97,7 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label for="expense-category" class="mb-1 block text-sm font-medium text-gray-700">Category</label>
             <select

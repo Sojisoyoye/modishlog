@@ -472,11 +472,11 @@ import { FxService } from '../../../core/services/fx.service';
       [(visible)]="showCreate"
       [modal]="true"
       [style]="{ width: '680px' }"
-      [breakpoints]="{ '960px': '95vw' }"
+      [breakpoints]="{ '960px': '95vw', '640px': '95vw' }"
     >
       <div class="space-y-4">
         <!-- PO vs Purchase toggle -->
-        <div class="flex gap-4 rounded-lg bg-gray-50 p-3">
+        <div class="flex flex-col gap-2 rounded-lg bg-gray-50 p-3 sm:flex-row sm:gap-4">
           <label class="flex cursor-pointer items-center gap-2 text-sm font-medium text-text">
             <input
               type="radio"
@@ -588,7 +588,7 @@ import { FxService } from '../../../core/services/fx.service';
         </div>
 
         <!-- Lead times -->
-        <div class="grid grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <label for="order-production-days" class="mb-1.5 block text-xs font-medium text-muted">Production (days)</label>
             <input id="order-production-days" type="number" [(ngModel)]="newOrder.production_days" min="0"
@@ -607,7 +607,7 @@ import { FxService } from '../../../core/services/fx.service';
         </div>
 
         <!-- Shipping charges -->
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label for="order-shipping-charges" class="mb-1.5 block text-xs font-medium text-muted">Shipping Charges</label>
             <input id="order-shipping-charges" type="number" [(ngModel)]="newOrder.shipping_cost" min="0" step="0.01" placeholder="0.00"
@@ -640,7 +640,7 @@ import { FxService } from '../../../core/services/fx.service';
         </div>
 
         <!-- Discount & Tax -->
-        <div class="grid grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <label for="order-discount-amount" class="mb-1.5 block text-xs font-medium text-muted">Discount</label>
             <div class="flex gap-1">

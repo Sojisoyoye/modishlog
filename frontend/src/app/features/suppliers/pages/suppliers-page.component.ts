@@ -38,9 +38,9 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
 
     <div>
       <!-- Header -->
-      <div class="mb-6 flex items-center justify-between">
+      <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
             <i class="pi pi-users text-lg"></i>
           </div>
           <div>
@@ -403,7 +403,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
     >
       @if (selectedSupplier()) {
         <!-- Supplier summary strip -->
-        <div class="mb-4 grid grid-cols-2 gap-3 rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm sm:grid-cols-4">
+        <div class="mb-4 grid grid-cols-1 gap-2 rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm sm:grid-cols-2">
           <div>
             <p class="text-xs text-muted">Contact</p>
             <p class="font-semibold text-gray-900">{{ selectedSupplier()!.contact_person ?? '—' }}</p>
@@ -429,7 +429,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
         </div>
 
         <!-- Tabs -->
-        <div class="mb-4 flex gap-1 border-b border-gray-200">
+        <div class="mb-4 flex gap-1 overflow-x-auto scrollbar-none border-b border-gray-200">
           @for (tab of detailTabs; track tab.key) {
             <button
               role="tab"
