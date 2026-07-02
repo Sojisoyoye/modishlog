@@ -6,5 +6,7 @@ import { environment } from './environments/environment';
 bootstrapApplication(App, appConfig).catch((err) => {
   if (!environment.production) {
     console.error(err);
+  } else {
+    throw new Error('Application failed to initialize. Please refresh the page.');
   }
 });
