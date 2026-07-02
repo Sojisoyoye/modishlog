@@ -34,10 +34,11 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">
+            <label for="expense-amount-ngn" class="mb-1 block text-sm font-medium text-gray-700">
               Amount (NGN) <span class="text-red-500">*</span>
             </label>
             <input
+              id="expense-amount-ngn"
               type="number"
               name="amount_ngn"
               [(ngModel)]="form.amount_ngn"
@@ -49,10 +50,11 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
             />
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">
+            <label for="expense-amount-usd" class="mb-1 block text-sm font-medium text-gray-700">
               Amount (USD) <span class="text-red-500">*</span>
             </label>
             <input
+              id="expense-amount-usd"
               type="number"
               name="amount_usd"
               [(ngModel)]="form.amount_usd"
@@ -67,10 +69,11 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">
+            <label for="expense-date" class="mb-1 block text-sm font-medium text-gray-700">
               Expense Date <span class="text-red-500">*</span>
             </label>
             <input
+              id="expense-date"
               type="date"
               name="expense_date"
               [(ngModel)]="form.expense_date"
@@ -79,8 +82,9 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
             />
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">FX Rate</label>
+            <label for="expense-fx-rate" class="mb-1 block text-sm font-medium text-gray-700">FX Rate</label>
             <input
+              id="expense-fx-rate"
               type="number"
               name="fx_rate"
               [(ngModel)]="form.fx_rate"
@@ -94,8 +98,9 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">Category</label>
+            <label for="expense-category" class="mb-1 block text-sm font-medium text-gray-700">Category</label>
             <select
+              id="expense-category"
               name="category_id"
               [(ngModel)]="form.category_id"
               class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
@@ -107,8 +112,9 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
             </select>
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">Payment Method</label>
+            <label for="expense-payment-method" class="mb-1 block text-sm font-medium text-gray-700">Payment Method</label>
             <input
+              id="expense-payment-method"
               type="text"
               name="payment_method"
               [(ngModel)]="form.payment_method"
@@ -119,8 +125,9 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
         </div>
 
         <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700">Ref No</label>
+          <label for="expense-ref-no" class="mb-1 block text-sm font-medium text-gray-700">Ref No</label>
           <input
+            id="expense-ref-no"
             type="text"
             name="ref_no"
             [(ngModel)]="form.ref_no"
@@ -130,8 +137,9 @@ import { ExpenseCategory, ExpenseRead } from '../../models/expense.model';
         </div>
 
         <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700">Note</label>
+          <label for="expense-note" class="mb-1 block text-sm font-medium text-gray-700">Note</label>
           <textarea
+            id="expense-note"
             name="note"
             [(ngModel)]="form.note"
             rows="2"
