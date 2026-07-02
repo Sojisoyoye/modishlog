@@ -53,7 +53,22 @@ import { ReportsService, StockReport } from '../../../core/services/reports.serv
         </div>
       </div>
 
-      @if (report(); as r) {
+      @if (loading()) {
+        <div class="space-y-3 p-4">
+          @for (i of [1,2,3,4,5,6,7,8]; track i) {
+            <div class="animate-pulse flex gap-4">
+              <div class="h-4 bg-gray-200 rounded w-20"></div>
+              <div class="h-4 bg-gray-200 rounded flex-1"></div>
+              <div class="h-4 bg-gray-200 rounded w-24"></div>
+              <div class="h-4 bg-gray-200 rounded w-16"></div>
+              <div class="h-4 bg-gray-200 rounded w-20"></div>
+              <div class="h-4 bg-gray-200 rounded w-20"></div>
+              <div class="h-4 bg-gray-200 rounded w-20"></div>
+              <div class="h-4 bg-gray-200 rounded w-16"></div>
+            </div>
+          }
+        </div>
+      } @else if (report(); as r) {
         <!-- Summary cards -->
         <div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -125,7 +140,7 @@ import { ReportsService, StockReport } from '../../../core/services/reports.serv
             </table>
           </div>
         </div>
-      } @else if (!loading()) {
+      } @else {
         <div class="flex flex-col items-center justify-center rounded-xl border border-gray-100 bg-white py-20 shadow-sm">
           <i class="pi pi-box mb-4 text-4xl text-gray-300"></i>
           <p class="text-base font-medium text-gray-500">Click Generate Report to view current stock data</p>

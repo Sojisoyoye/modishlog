@@ -39,7 +39,7 @@ import { DATE_PRESETS, DatePreset } from '../../../core/utils/date-presets.utils
             <button
               type="button"
               (click)="applyPreset(preset)"
-              class="rounded-full border px-3 py-1 text-xs font-medium transition-colors"
+              class="min-h-[44px] rounded-full border px-3 py-2 text-xs font-medium transition-colors"
               [class]="activePreset === preset.key
                 ? 'border-emerald-600 bg-emerald-600 text-white'
                 : 'border-gray-300 bg-white text-gray-500 hover:border-emerald-500 hover:text-emerald-600'"
@@ -83,7 +83,22 @@ import { DATE_PRESETS, DatePreset } from '../../../core/utils/date-presets.utils
       </div>
 
       <!-- Summary -->
-      @if (report(); as r) {
+      @if (loading()) {
+        <div class="space-y-3 p-4">
+          @for (i of [1,2,3,4,5,6,7,8]; track i) {
+            <div class="animate-pulse flex gap-4">
+              <div class="h-4 bg-gray-200 rounded w-20"></div>
+              <div class="h-4 bg-gray-200 rounded flex-1"></div>
+              <div class="h-4 bg-gray-200 rounded w-24"></div>
+              <div class="h-4 bg-gray-200 rounded w-16"></div>
+              <div class="h-4 bg-gray-200 rounded w-16"></div>
+              <div class="h-4 bg-gray-200 rounded w-16"></div>
+              <div class="h-4 bg-gray-200 rounded w-20"></div>
+              <div class="h-4 bg-gray-200 rounded w-20"></div>
+            </div>
+          }
+        </div>
+      } @else if (report(); as r) {
         <div class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <p class="text-xs font-medium text-gray-500">Total Products</p>
@@ -146,19 +161,19 @@ import { DATE_PRESETS, DatePreset } from '../../../core/utils/date-presets.utils
                   type="button"
                   (click)="changePage(currentPage() - 1)"
                   [disabled]="currentPage() <= 1"
-                  class="rounded-lg border border-gray-300 px-3 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-40"
+                  class="min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-40"
                 >Prev</button>
                 <button
                   type="button"
                   (click)="changePage(currentPage() + 1)"
                   [disabled]="currentPage() >= Math.ceil(r.total / r.page_size)"
-                  class="rounded-lg border border-gray-300 px-3 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-40"
+                  class="min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-40"
                 >Next</button>
               </div>
             </div>
           }
         </div>
-      } @else if (!loading()) {
+      } @else {
         <div class="flex flex-col items-center justify-center rounded-xl border border-gray-100 bg-white py-20 shadow-sm">
           <i class="pi pi-table mb-4 text-4xl text-gray-300"></i>
           <p class="text-base font-medium text-gray-500">Select a date range and click Generate Report</p>

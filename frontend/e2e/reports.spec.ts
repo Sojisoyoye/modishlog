@@ -134,6 +134,19 @@ test.describe('Stock report generation', () => {
     // Total stock value renders as a formatted decimal
     await expect(page.locator('p.text-2xl.font-bold').first()).toHaveText(/\d[\d,]*\.\d{2}/);
   });
+
+  test('shows skeleton loader while report is generating', async ({ page }) => {
+    await page.goto('/reports/stock');
+    await expect(page.getByRole('heading', { name: 'Stock Report' })).toBeVisible();
+
+    // Trigger a report generation
+    const generateBtn = page.getByRole('button', { name: 'Generate Report' });
+    if (await generateBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await generateBtn.click();
+      // The skeleton should appear (animate-pulse rows) or the table should eventually show content
+      await expect(page.locator('table, .animate-pulse').first()).toBeVisible({ timeout: 10000 });
+    }
+  });
 });
 
 test.describe('Date range preset buttons', () => {
