@@ -552,11 +552,11 @@ import { RouterLink } from '@angular/router';
          ============================================================ -->
     <footer class="bg-gray-900 text-gray-400 py-12">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div class="flex flex-col sm:flex-row items-center justify-between gap-6">
+        <div class="flex flex-row items-center justify-between gap-4">
           <!-- Brand -->
-          <div class="flex flex-col items-center sm:items-start gap-2">
+          <div class="flex flex-col items-start gap-2">
             <div class="flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">M</div>
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">M</div>
               <span class="text-base font-bold text-white">ModishLog</span>
             </div>
             <p class="text-sm text-gray-500">Your shop runs better when you can see the numbers.</p>
@@ -594,7 +594,7 @@ import { RouterLink } from '@angular/router';
           </div>
         </div>
 
-        <div class="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-gray-800 pt-8">
+        <div class="mt-8 flex flex-row items-center justify-between gap-4 border-t border-gray-800 pt-8">
           <p class="text-xs text-gray-600">© 2025 ModishLog. All rights reserved.</p>
           <div class="flex items-center gap-6">
             <a href="#" class="text-xs text-gray-600 hover:text-gray-400 transition-colors">Privacy</a>
