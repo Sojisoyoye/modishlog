@@ -44,10 +44,17 @@ jobs:
           ENVIRONMENT: test
           UPLOAD_DIR: /tmp/uploads
 
-  # ─── 2. Build and push backend image to GHCR ──────────────────────────────
+  # ─── 2. CVE dependency scan ───────────────────────────────────────────────
+  dependency-scan:
+    needs: [test-backend]
+    if: needs.test-backend.result == 'success'
+    uses: ./.github/workflows/_dependency-scan.yml
+
+  # ─── 3. Build and push backend image to GHCR ──────────────────────────────
   build-backend:
     name: Build & push backend
-    needs: test-backend
+    needs: [test-backend, dependency-scan]
+    if: needs.dependency-scan.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -88,13 +95,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ─── 3. Deploy frontend to Vercel ─────────────────────────────────────────
+  # ─── 4. Deploy frontend to Vercel ─────────────────────────────────────────
   # Vercel re-builds from source using vercel.json buildCommand, which runs
   # the sed substitution itself using the STAGING_API_URL env var set in the
   # Vercel project settings (dashboard → Settings → Environment Variables).
   deploy-frontend:
     name: Deploy frontend to Vercel
-    needs: test-backend
+    needs: [test-backend, dependency-scan]
+    if: needs.dependency-scan.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -107,7 +115,7 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-  # ─── 4. Deploy backend to Hetzner via SSH ─────────────────────────────────
+  # ─── 5. Deploy backend to Hetzner via SSH ─────────────────────────────────
   deploy-backend:
     name: Deploy backend to Hetzner
     needs: build-backend

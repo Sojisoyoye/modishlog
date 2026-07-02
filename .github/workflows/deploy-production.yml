@@ -72,10 +72,17 @@ jobs:
           ENVIRONMENT: test
           UPLOAD_DIR: /tmp/uploads
 
+  # ─── CVE dependency scan ──────────────────────────────────────────────────
+  dependency-scan:
+    needs: [test-backend]
+    if: needs.test-backend.result == 'success'
+    uses: ./.github/workflows/_dependency-scan.yml
+
   # ─── Build production image ────────────────────────────────────────────────
   build-production:
     name: Build & push production image
-    needs: [test-backend]
+    needs: [test-backend, dependency-scan]
+    if: needs.dependency-scan.result == 'success'
     runs-on: ubuntu-latest
     environment: production
     permissions:
