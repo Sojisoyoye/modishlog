@@ -56,3 +56,11 @@ test('inventory page: skeleton resolves and table is visible', async ({ page }) 
   // "Stock" is a stable, unconditional header unique to the inventory table
   await expect(page.getByRole('columnheader', { name: 'Stock' }).first()).toBeVisible();
 });
+
+// ---------------------------------------------------------------------------
+// Sales page aria-live
+// ---------------------------------------------------------------------------
+test('sales transactions table has aria-live region', async ({ page }) => {
+  await page.goto('/sales');
+  await expect(page.locator('[aria-live="polite"]').first()).toBeAttached({ timeout: 5000 });
+});
