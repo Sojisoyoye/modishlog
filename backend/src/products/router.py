@@ -282,8 +282,9 @@ async def bulk_upload_products_endpoint(
             errors.append(BulkUploadRowError(row=i, error=str(e)))
         except (DuplicateSKUError, DuplicateSlugError, InvalidProductNameError) as e:
             errors.append(BulkUploadRowError(row=i, error=str(e)))
-        except Exception as e:
-            errors.append(BulkUploadRowError(row=i, error=str(e)))
+        except Exception:
+            logger.exception("bulk_upload_row_error", row=i)
+            errors.append(BulkUploadRowError(row=i, error="Internal error processing row"))
 
     await logger.ainfo(
         "bulk_product_upload",

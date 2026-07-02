@@ -2,6 +2,7 @@
 
 import uuid
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +44,8 @@ from src.ai_engine.service import (
 from src.auth.dependencies import get_current_active_user
 from src.auth.models import User
 from src.core.database import get_db
+
+logger = structlog.get_logger()
 
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
@@ -189,8 +192,9 @@ async def usd_accumulation_schedule_endpoint(
     try:
         data = await generate_usd_accumulation_schedule(db, order_id)
         return USDAccumulationScheduleResponse(**data)
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception:
+        logger.exception("usd_accumulation_schedule_error", order_id=str(order_id))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get(
