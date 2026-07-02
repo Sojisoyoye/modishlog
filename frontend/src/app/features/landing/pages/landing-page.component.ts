@@ -89,10 +89,8 @@ import { RouterLink } from '@angular/router';
           </div>
 
           <!-- Right: Product mockup (static HTML browser window) -->
-          <div class="relative pb-10 sm:pb-0">
-            <!-- overflow-hidden clips the mockup on mobile so it shows at full desktop width -->
-            <div class="overflow-hidden rounded-xl shadow-2xl">
-            <div class="w-[560px] border border-gray-200 bg-white">
+          <div class="relative pb-8 sm:pb-0">
+            <div class="rounded-xl border border-gray-200 shadow-2xl overflow-hidden bg-white">
               <!-- Browser chrome title bar -->
               <div class="flex items-center gap-2 bg-gray-100 px-4 py-3 border-b border-gray-200">
                 <span class="h-3 w-3 rounded-full bg-red-400"></span>
@@ -161,7 +159,6 @@ import { RouterLink } from '@angular/router';
                   </table>
                 </div>
               </div>
-            </div>
             </div>
 
             <!-- Floating badge -->
