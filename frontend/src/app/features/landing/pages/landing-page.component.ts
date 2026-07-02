@@ -327,58 +327,86 @@ import { RouterLink } from '@angular/router';
         </div>
 
         <div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm">
-          <table class="w-full">
+          <table class="min-w-full">
             <thead>
               <tr class="bg-gray-900 text-white">
-                <th class="px-6 py-4 text-left text-sm font-semibold">Feature</th>
-                <th class="px-6 py-4 text-center text-sm font-semibold text-emerald-400">ModishLog</th>
-                <th class="px-6 py-4 text-center text-sm font-semibold text-gray-400">Spreadsheet</th>
+                <th class="px-5 py-4 text-left text-sm font-semibold min-w-[180px]">Feature</th>
+                <th class="px-5 py-4 text-center text-sm font-semibold text-emerald-400 min-w-[120px]">ModishLog</th>
+                <th class="px-5 py-4 text-center text-sm font-semibold text-gray-400 min-w-[120px]">Other POS Apps</th>
+                <th class="px-5 py-4 text-center text-sm font-semibold text-gray-400 min-w-[120px]">Spreadsheet</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100 bg-white">
               <tr>
-                <td class="px-6 py-4 text-sm text-gray-700">Real-time stock tracking</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Sales recording in seconds</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr class="bg-gray-50">
-                <td class="px-6 py-4 text-sm text-gray-700">Auto-calculated margins</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Auto profit margin per product</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr>
-                <td class="px-6 py-4 text-sm text-gray-700">FX rate integration</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Live NGN/USD &amp; EUR/NGN rates</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr class="bg-gray-50">
-                <td class="px-6 py-4 text-sm text-gray-700">Profit &amp; Loss reports</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">AI price recommendations</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr>
-                <td class="px-6 py-4 text-sm text-gray-700">Supplier order tracking</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Full P&amp;L &amp; cashflow reports</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr class="bg-gray-50">
-                <td class="px-6 py-4 text-sm text-gray-700">Multiple payment methods</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Expense tracking</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr>
-                <td class="px-6 py-4 text-sm text-gray-700">AI price suggestions</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Supplier &amp; purchase order management</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-yellow-500 font-bold text-base">~</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr class="bg-gray-50">
-                <td class="px-6 py-4 text-sm text-gray-700">Works on mobile</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Customer debt ledger</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-yellow-500 font-bold text-base">~</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+              </tr>
+              <tr>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Stock count &amp; variance reports</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-yellow-500 font-bold text-base">~</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+              </tr>
+              <tr class="bg-gray-50">
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">One-time payment, no subscription</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+              </tr>
+              <tr>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Works on mobile</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-yellow-500 font-bold text-base">~</span></td>
               </tr>
             </tbody>
           </table>
         </div>
+        <p class="mt-3 text-center text-xs text-gray-400">~ = limited or basic support</p>
       </div>
     </section>
 
