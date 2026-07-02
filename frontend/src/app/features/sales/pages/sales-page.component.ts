@@ -50,77 +50,79 @@ interface TransactionMeta {
       </div>
 
       <!-- Tab Navigation -->
-      <div class="mb-6 overflow-x-auto scrollbar-none border-b border-gray-200">
-        <nav class="flex gap-4" aria-label="Sales tabs">
-          <button
-            type="button"
-            data-testid="tab-all-sales"
-            (click)="activeTab.set('all')"
-            [attr.aria-selected]="activeTab() === 'all'"
-            class="min-h-[44px] whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
-            [class.border-primary]="activeTab() === 'all'"
-            [class.text-primary]="activeTab() === 'all'"
-            [class.font-semibold]="activeTab() === 'all'"
-            [class.border-transparent]="activeTab() !== 'all'"
-            [class.text-muted]="activeTab() !== 'all'"
-            [class.hover:border-gray-300]="activeTab() !== 'all'"
-            [class.hover:text-text]="activeTab() !== 'all'"
-          >
-            <i class="pi pi-list mr-1.5 text-xs"></i>
-            All Sales
-          </button>
-          <button
-            type="button"
-            data-testid="tab-upload-csv"
-            (click)="activeTab.set('upload')"
-            [attr.aria-selected]="activeTab() === 'upload'"
-            class="min-h-[44px] whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
-            [class.border-primary]="activeTab() === 'upload'"
-            [class.text-primary]="activeTab() === 'upload'"
-            [class.font-semibold]="activeTab() === 'upload'"
-            [class.border-transparent]="activeTab() !== 'upload'"
-            [class.text-muted]="activeTab() !== 'upload'"
-            [class.hover:border-gray-300]="activeTab() !== 'upload'"
-            [class.hover:text-text]="activeTab() !== 'upload'"
-          >
-            <i class="pi pi-upload mr-1.5 text-xs"></i>
-            Upload CSV
-          </button>
-          <button
-            type="button"
-            data-testid="tab-quick-quote"
-            (click)="activeTab.set('quick-quote')"
-            [attr.aria-selected]="activeTab() === 'quick-quote'"
-            class="min-h-[44px] whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
-            [class.border-primary]="activeTab() === 'quick-quote'"
-            [class.text-primary]="activeTab() === 'quick-quote'"
-            [class.font-semibold]="activeTab() === 'quick-quote'"
-            [class.border-transparent]="activeTab() !== 'quick-quote'"
-            [class.text-muted]="activeTab() !== 'quick-quote'"
-            [class.hover:border-gray-300]="activeTab() !== 'quick-quote'"
-            [class.hover:text-text]="activeTab() !== 'quick-quote'"
-          >
-            <i class="pi pi-calculator mr-1.5 text-xs"></i>
-            Quick Quote
-          </button>
-          <button
-            type="button"
-            data-testid="tab-record-sales"
-            (click)="activeTab.set('record')"
-            [attr.aria-selected]="activeTab() === 'record'"
-            class="min-h-[44px] whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
-            [class.border-primary]="activeTab() === 'record'"
-            [class.text-primary]="activeTab() === 'record'"
-            [class.font-semibold]="activeTab() === 'record'"
-            [class.border-transparent]="activeTab() !== 'record'"
-            [class.text-muted]="activeTab() !== 'record'"
-            [class.hover:border-gray-300]="activeTab() !== 'record'"
-            [class.hover:text-text]="activeTab() !== 'record'"
-          >
-            <i class="pi pi-plus-circle mr-1.5 text-xs"></i>
-            Add Sale
-          </button>
-        </nav>
+      <div class="mb-6 border-b border-gray-200">
+        <div class="overflow-x-auto scrollbar-none">
+          <nav class="-mb-px flex gap-4 whitespace-nowrap" aria-label="Sales tabs">
+            <button
+              type="button"
+              data-testid="tab-all-sales"
+              (click)="activeTab.set('all')"
+              [attr.aria-selected]="activeTab() === 'all'"
+              class="min-h-[44px] shrink-0 whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+              [class.border-primary]="activeTab() === 'all'"
+              [class.text-primary]="activeTab() === 'all'"
+              [class.font-semibold]="activeTab() === 'all'"
+              [class.border-transparent]="activeTab() !== 'all'"
+              [class.text-muted]="activeTab() !== 'all'"
+              [class.hover:border-gray-300]="activeTab() !== 'all'"
+              [class.hover:text-text]="activeTab() !== 'all'"
+            >
+              <i class="pi pi-list mr-1.5 text-xs"></i>
+              All Sales
+            </button>
+            <button
+              type="button"
+              data-testid="tab-upload-csv"
+              (click)="activeTab.set('upload')"
+              [attr.aria-selected]="activeTab() === 'upload'"
+              class="min-h-[44px] shrink-0 whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+              [class.border-primary]="activeTab() === 'upload'"
+              [class.text-primary]="activeTab() === 'upload'"
+              [class.font-semibold]="activeTab() === 'upload'"
+              [class.border-transparent]="activeTab() !== 'upload'"
+              [class.text-muted]="activeTab() !== 'upload'"
+              [class.hover:border-gray-300]="activeTab() !== 'upload'"
+              [class.hover:text-text]="activeTab() !== 'upload'"
+            >
+              <i class="pi pi-upload mr-1.5 text-xs"></i>
+              Upload CSV
+            </button>
+            <button
+              type="button"
+              data-testid="tab-quick-quote"
+              (click)="activeTab.set('quick-quote')"
+              [attr.aria-selected]="activeTab() === 'quick-quote'"
+              class="min-h-[44px] shrink-0 whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+              [class.border-primary]="activeTab() === 'quick-quote'"
+              [class.text-primary]="activeTab() === 'quick-quote'"
+              [class.font-semibold]="activeTab() === 'quick-quote'"
+              [class.border-transparent]="activeTab() !== 'quick-quote'"
+              [class.text-muted]="activeTab() !== 'quick-quote'"
+              [class.hover:border-gray-300]="activeTab() !== 'quick-quote'"
+              [class.hover:text-text]="activeTab() !== 'quick-quote'"
+            >
+              <i class="pi pi-calculator mr-1.5 text-xs"></i>
+              Quick Quote
+            </button>
+            <button
+              type="button"
+              data-testid="tab-record-sales"
+              (click)="activeTab.set('record')"
+              [attr.aria-selected]="activeTab() === 'record'"
+              class="min-h-[44px] shrink-0 whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
+              [class.border-primary]="activeTab() === 'record'"
+              [class.text-primary]="activeTab() === 'record'"
+              [class.font-semibold]="activeTab() === 'record'"
+              [class.border-transparent]="activeTab() !== 'record'"
+              [class.text-muted]="activeTab() !== 'record'"
+              [class.hover:border-gray-300]="activeTab() !== 'record'"
+              [class.hover:text-text]="activeTab() !== 'record'"
+            >
+              <i class="pi pi-plus-circle mr-1.5 text-xs"></i>
+              Add Sale
+            </button>
+          </nav>
+        </div>
       </div>
 
       <!-- Record Sales Tab -->
@@ -546,7 +548,7 @@ interface TransactionMeta {
             />
           </div>
 
-          <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <div class="ml-auto flex flex-wrap items-center gap-2 justify-end">
             <button
               type="button"
               data-testid="export-sales-csv"
