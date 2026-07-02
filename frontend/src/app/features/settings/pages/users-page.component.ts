@@ -524,7 +524,7 @@ export class UsersPageComponent implements OnInit, OnDestroy {
   copyToken(): void {
     const token = this.resetToken();
     if (!token) return;
-    navigator.clipboard.writeText(this.resetToken()!).then(() => {
+    navigator.clipboard.writeText(token).then(() => {
       this.toast.add({ severity: 'success', summary: 'Copied', detail: 'Token copied to clipboard', life: 3000 });
     }).catch(() => {
       this.toast.add({ severity: 'warn', summary: 'Copy failed', detail: 'Please copy the token manually', life: 5000 });
