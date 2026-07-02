@@ -50,8 +50,8 @@ interface TransactionMeta {
       </div>
 
       <!-- Tab Navigation -->
-      <div class="mb-6 border-b border-gray-200">
-        <nav class="-mb-px flex gap-4" aria-label="Sales tabs">
+      <div class="mb-6 overflow-x-auto scrollbar-none border-b border-gray-200">
+        <nav class="flex gap-4" aria-label="Sales tabs">
           <button
             type="button"
             data-testid="tab-all-sales"
@@ -140,7 +140,7 @@ interface TransactionMeta {
           </div>
 
           <!-- Top meta: Date + Customer -->
-          <div class="grid grid-cols-2 gap-4 border-b border-gray-100 px-5 py-4">
+          <div class="grid grid-cols-1 gap-4 border-b border-gray-100 px-5 py-4 sm:grid-cols-2">
             <div>
               <label for="sale-date" class="mb-1 block text-xs font-medium text-muted">Sale Date</label>
               <p-datepicker
@@ -242,7 +242,8 @@ interface TransactionMeta {
                   </div>
 
                   <!-- Mobile row 2: Qty + Unit Price + Discount + Total + Remove -->
-                  <div class="flex items-center gap-2">
+                  <div class="overflow-x-auto flex-1 min-w-0">
+                  <div class="flex items-center gap-2 min-w-max">
 
                     <!-- Qty -->
                     <div class="flex flex-col gap-1">
@@ -318,6 +319,7 @@ interface TransactionMeta {
                     }
 
                   </div>
+                  </div>
                 </div>
               </div>
             }
@@ -332,7 +334,7 @@ interface TransactionMeta {
 
           <!-- Payment & submit footer -->
           <div class="border-t border-gray-200 bg-gray-50/40 px-5 py-4">
-            <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <!-- Payment Method -->
               <div>
                 <label for="sale-payment-method" class="mb-1 block text-xs font-medium text-muted">Payment Method</label>
@@ -544,46 +546,51 @@ interface TransactionMeta {
             />
           </div>
 
-          <div class="ml-auto flex items-center gap-2">
+          <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               data-testid="export-sales-csv"
+              aria-label="Export CSV"
               (click)="exportSalesCsv()"
               class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
-              <i class="pi pi-download text-xs"></i> CSV
+              <i class="pi pi-download text-xs"></i> <span class="hidden sm:inline">CSV</span>
             </button>
             <button
               type="button"
               data-testid="export-sales-excel"
+              aria-label="Export Excel"
               (click)="exportSalesExcel()"
               class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
-              <i class="pi pi-file-excel text-xs"></i> Excel
+              <i class="pi pi-file-excel text-xs"></i> <span class="hidden sm:inline">Excel</span>
             </button>
             <button
               type="button"
               data-testid="export-sales-pdf"
+              aria-label="Export PDF"
               (click)="exportSalesPdf()"
               class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
-              <i class="pi pi-file-pdf text-xs"></i> PDF
+              <i class="pi pi-file-pdf text-xs"></i> <span class="hidden sm:inline">PDF</span>
             </button>
             <button
               type="button"
               data-testid="export-sales-print"
+              aria-label="Print sales"
               (click)="printSales()"
               class="flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
             >
-              <i class="pi pi-print text-xs"></i> Print
+              <i class="pi pi-print text-xs"></i> <span class="hidden sm:inline">Print</span>
             </button>
             <button
               type="button"
               data-testid="add-sale-btn"
+              aria-label="Add sale"
               (click)="activeTab.set('record')"
               class="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90"
             >
-              <i class="pi pi-plus text-xs"></i> Add Sale
+              <i class="pi pi-plus text-xs"></i> <span class="hidden sm:inline">Add Sale</span>
             </button>
           </div>
         </div>

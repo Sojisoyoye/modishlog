@@ -64,6 +64,18 @@ input[type="number"] {
   height: 6px;
 }
 
+/* Suppress webkit scrollbar on elements that use the scrollbar-none utility.
+   The global ::-webkit-scrollbar rule above would otherwise override Tailwind's
+   scrollbar-width:none on webkit engines, making the scrollbar visible on mobile
+   tab strips. */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }

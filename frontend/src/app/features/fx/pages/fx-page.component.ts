@@ -233,7 +233,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
               <span class="ml-1.5 text-xs font-normal text-gray-500">({{ forecastPair() === 'USDNGN' ? 'USD/NGN' : 'EUR/NGN' }})</span>
             </h3>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <!-- Pair toggle -->
             <div class="flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-0.5">
               <button
@@ -308,7 +308,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
                 <p class="mt-1 text-xs leading-relaxed text-gray-500">{{ insight.summary }}</p>
 
                 <!-- Milestone row -->
-                <div class="mt-3 grid grid-cols-3 gap-3">
+                <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <div class="rounded-lg bg-white px-3 py-2 text-center shadow-sm">
                     <p class="text-[10px] font-medium uppercase text-gray-500">Today (actual)</p>
                     <p class="mt-0.5 text-sm font-bold text-gray-900">₦{{ insight.currentRate | number:'1.2-2' }}</p>

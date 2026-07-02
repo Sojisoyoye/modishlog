@@ -29,6 +29,7 @@ import { Sale, SellReturn } from '../../models/return.model';
       (visibleChange)="onVisibleChange($event)"
       [modal]="true"
       [style]="{ width: '520px' }"
+      [breakpoints]="{ '640px': '95vw' }"
       [draggable]="false"
     >
       <form (ngSubmit)="submit()" #f="ngForm" class="flex flex-col gap-4 py-2">
@@ -100,7 +101,7 @@ import { Sale, SellReturn } from '../../models/return.model';
           />
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-700">
               Total Amount <span class="text-red-500">*</span>
