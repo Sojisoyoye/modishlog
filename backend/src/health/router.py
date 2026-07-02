@@ -1,5 +1,8 @@
 """Health check endpoint — no auth required, used by monitoring and deploy pipelines."""
 
+from datetime import datetime, timezone
+
+import structlog
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -7,6 +10,7 @@ from sqlalchemy import text
 from src.core.config import settings
 from src.core.database import async_session_factory
 
+logger = structlog.get_logger()
 router = APIRouter()
 
 
@@ -26,6 +30,7 @@ async def health() -> JSONResponse:
     try:
         await check_db()
     except Exception:
+        logger.error("health_check_db_failed", exc_info=True)
         db_status = "error"
         http_status = 503
 
@@ -33,6 +38,7 @@ async def health() -> JSONResponse:
         "status": "healthy" if http_status == 200 else "degraded",
         "version": settings.APP_VERSION,
         "db": db_status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     return JSONResponse(content=payload, status_code=http_status)
 
