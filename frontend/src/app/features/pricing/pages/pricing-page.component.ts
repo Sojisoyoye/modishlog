@@ -1872,8 +1872,7 @@ export class PricingPageComponent implements OnInit {
       },
       error: (err) => {
         this.forecastLoading.set(false);
-        const detail = err?.error?.detail ?? 'Not enough sales history (need ≥10 days in last 180 days).';
-        this.messageService.add({ severity: 'warn', summary: 'Forecast unavailable', detail });
+        this.messageService.add({ severity: 'warn', summary: 'Forecast unavailable', detail: 'Not enough sales history to generate a demand forecast. Try again after recording more sales.' });
       },
     });
   }
