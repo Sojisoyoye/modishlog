@@ -379,7 +379,7 @@ export class LocationsPageComponent implements OnInit {
   private readonly locationsService = inject(LocationsService);
   private readonly messageService = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly locationSearch$ = new Subject<string>();
+  protected readonly locationSearch$ = new Subject<string>();
 
   locations = signal<Location[]>([]);
   total = signal(0);
