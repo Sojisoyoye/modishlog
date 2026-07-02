@@ -5,11 +5,14 @@ import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+import sentry_sdk
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 # _rate_limit_exceeded_handler: private symbol used per slowapi docs — pin slowapi==0.1.9 to guard against breakage
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -60,10 +63,35 @@ async def _pos_sync_loop(interval_seconds: int = 600) -> None:
         await asyncio.sleep(interval_seconds)
 
 
+def _init_sentry() -> None:
+    """Initialise Sentry if DSN is configured. No-op when DSN is empty."""
+    if not settings.SENTRY_DSN:
+        return
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        environment=settings.ENVIRONMENT,
+        traces_sample_rate=0.1,
+        integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+        before_send=_scrub_pii,
+    )
+
+
+def _scrub_pii(event: dict, hint: dict) -> dict:
+    """Strip PII fields from Sentry events before they leave the process."""
+    _PII_FIELDS = {"password", "hashed_password", "email", "phone", "token", "refresh_token"}
+    if "request" in event:
+        event["request"].pop("data", None)
+    if "extra" in event:
+        for field in _PII_FIELDS:
+            event["extra"].pop(field, None)
+    return event
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown events."""
     setup_logging()
+    _init_sentry()
     task = asyncio.create_task(_pos_sync_loop())
     yield
     task.cancel()
