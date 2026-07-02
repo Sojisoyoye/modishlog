@@ -142,8 +142,9 @@ interface TransactionMeta {
           <!-- Top meta: Date + Customer -->
           <div class="grid grid-cols-2 gap-4 border-b border-gray-100 px-5 py-4">
             <div>
-              <label class="mb-1 block text-xs font-medium text-muted">Sale Date</label>
+              <label for="sale-date" class="mb-1 block text-xs font-medium text-muted">Sale Date</label>
               <p-datepicker
+                inputId="sale-date"
                 [ngModel]="saleDateObj()"
                 (ngModelChange)="onSaleDateChange($event)"
                 [showIcon]="true"
@@ -157,9 +158,10 @@ interface TransactionMeta {
               </p-datepicker>
             </div>
             <div>
-              <label class="mb-1 block text-xs font-medium text-muted">Customer</label>
+              <label for="sale-customer" class="mb-1 block text-xs font-medium text-muted">Customer</label>
               <div class="flex gap-2">
                 <select
+                  id="sale-customer"
                   [(ngModel)]="txnMeta.customer_id"
                   name="customer_id"
                   (change)="onCustomerSelected()"
@@ -213,8 +215,9 @@ interface TransactionMeta {
 
                   <!-- Product dropdown + fixed-height stock slot -->
                   <div class="min-w-0 flex-1">
-                    <label class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:hidden">Product</label>
+                    <label [for]="'sale-row-product-' + $index" class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:hidden">Product</label>
                     <select
+                      [id]="'sale-row-product-' + $index"
                       [(ngModel)]="row.product_id"
                       [name]="'product_' + $index"
                       (change)="onProductChange(row)"
@@ -243,8 +246,9 @@ interface TransactionMeta {
 
                     <!-- Qty -->
                     <div class="flex flex-col gap-1">
-                      <label class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:hidden">Qty</label>
+                      <label [for]="'sale-row-qty-' + $index" class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:hidden">Qty</label>
                       <input
+                        [id]="'sale-row-qty-' + $index"
                         type="number"
                         [(ngModel)]="row.quantity"
                         (ngModelChange)="refreshRows()"
@@ -273,8 +277,9 @@ interface TransactionMeta {
 
                     <!-- Discount -->
                     <div class="flex flex-col gap-1">
-                      <label class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:hidden">Discount</label>
+                      <label [for]="'sale-row-discount-' + $index" class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 md:hidden">Discount</label>
                       <input
+                        [id]="'sale-row-discount-' + $index"
                         type="number"
                         [(ngModel)]="row.discount_amount"
                         (ngModelChange)="refreshRows()"
@@ -330,8 +335,9 @@ interface TransactionMeta {
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <!-- Payment Method -->
               <div>
-                <label class="mb-1 block text-xs font-medium text-muted">Payment Method</label>
+                <label for="sale-payment-method" class="mb-1 block text-xs font-medium text-muted">Payment Method</label>
                 <select
+                  id="sale-payment-method"
                   [(ngModel)]="txnMeta.payment_method"
                   name="payment_method"
                   class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
@@ -347,8 +353,9 @@ interface TransactionMeta {
 
               <!-- Payment Amount -->
               <div>
-                <label class="mb-1 block text-xs font-medium text-muted">Amount Paid (₦)</label>
+                <label for="sale-payment-amount" class="mb-1 block text-xs font-medium text-muted">Amount Paid (₦)</label>
                 <input
+                  id="sale-payment-amount"
                   type="number"
                   [(ngModel)]="txnMeta.payment_amount"
                   name="payment_amount"
@@ -361,8 +368,9 @@ interface TransactionMeta {
 
               <!-- Payment Date -->
               <div>
-                <label class="mb-1 block text-xs font-medium text-muted">Payment Date</label>
+                <label for="sale-payment-date" class="mb-1 block text-xs font-medium text-muted">Payment Date</label>
                 <p-datepicker
+                  inputId="sale-payment-date"
                   [ngModel]="paymentDateObj"
                   (ngModelChange)="onPaymentDateChange($event)"
                   [showIcon]="true"
@@ -378,8 +386,9 @@ interface TransactionMeta {
 
               <!-- Payment Status -->
               <div>
-                <label class="mb-1 block text-xs font-medium text-muted">Payment Status</label>
+                <label for="sale-payment-status" class="mb-1 block text-xs font-medium text-muted">Payment Status</label>
                 <select
+                  id="sale-payment-status"
                   [(ngModel)]="txnMeta.payment_status"
                   name="payment_status"
                   class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
@@ -437,8 +446,9 @@ interface TransactionMeta {
           <div class="mb-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <div class="flex flex-wrap items-end gap-3">
               <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-muted">Location</label>
+                <label for="filter-location" class="text-xs font-medium text-muted">Location</label>
                 <select
+                  id="filter-location"
                   [(ngModel)]="filterLocationId"
                   class="min-w-[160px] rounded-lg border border-gray-300 py-2 pl-2.5 pr-8 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 >
@@ -449,8 +459,9 @@ interface TransactionMeta {
                 </select>
               </div>
               <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-muted">Customer</label>
+                <label for="filter-customer" class="text-xs font-medium text-muted">Customer</label>
                 <select
+                  id="filter-customer"
                   [(ngModel)]="filterCustomerId"
                   class="min-w-[160px] rounded-lg border border-gray-300 py-2 pl-2.5 pr-8 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 >
@@ -461,8 +472,9 @@ interface TransactionMeta {
                 </select>
               </div>
               <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-muted">Payment Status</label>
+                <label for="filter-payment-status" class="text-xs font-medium text-muted">Payment Status</label>
                 <select
+                  id="filter-payment-status"
                   [(ngModel)]="filterPaymentStatus"
                   class="min-w-[160px] rounded-lg border border-gray-300 py-2 pl-2.5 pr-8 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 >
@@ -473,8 +485,9 @@ interface TransactionMeta {
                 </select>
               </div>
               <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-muted">Date Range</label>
+                <label for="filter-date-range" class="text-xs font-medium text-muted">Date Range</label>
                 <p-datepicker
+                  inputId="filter-date-range"
                   [ngModel]="filterDateRange"
                   (ngModelChange)="onFilterDateRangeChange($event)"
                   selectionMode="range"
@@ -575,6 +588,7 @@ interface TransactionMeta {
           </div>
         </div>
 
+        <div aria-live="polite" aria-atomic="true">
         <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
           <table class="min-w-full text-sm">
             <caption class="sr-only">All sales transactions</caption>
@@ -659,6 +673,7 @@ interface TransactionMeta {
               } <!-- end @else (txnLoading) -->
             </tbody>
           </table>
+        </div>
         </div>
 
         <!-- Pagination controls -->
@@ -985,8 +1000,9 @@ interface TransactionMeta {
             <p><span class="font-medium text-muted">Total:</span> {{ voidingSale()!.total_amount | currency: (voidingSale()!.currency || 'NGN') : 'symbol' : '1.0-0' }}</p>
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Reason for voiding</label>
+            <label for="void-reason" class="mb-1.5 block text-xs font-medium text-muted">Reason for voiding</label>
             <textarea
+              id="void-reason"
               [(ngModel)]="voidReason"
               rows="2"
               data-testid="void-reason-input"
@@ -1029,8 +1045,9 @@ interface TransactionMeta {
     >
       <div class="space-y-4">
         <div>
-          <label class="mb-1.5 block text-xs font-medium text-muted">Name <span class="text-danger">*</span></label>
+          <label for="new-customer-name" class="mb-1.5 block text-xs font-medium text-muted">Name <span class="text-danger">*</span></label>
           <input
+            id="new-customer-name"
             type="text"
             [(ngModel)]="newCustomerForm.name"
             name="new_customer_name"
@@ -1039,8 +1056,9 @@ interface TransactionMeta {
           />
         </div>
         <div>
-          <label class="mb-1.5 block text-xs font-medium text-muted">Contact Number</label>
+          <label for="new-customer-contact" class="mb-1.5 block text-xs font-medium text-muted">Contact Number</label>
           <input
+            id="new-customer-contact"
             type="text"
             [(ngModel)]="newCustomerForm.contact_number"
             name="new_customer_contact"
@@ -1049,8 +1067,9 @@ interface TransactionMeta {
           />
         </div>
         <div>
-          <label class="mb-1.5 block text-xs font-medium text-muted">Email</label>
+          <label for="new-customer-email" class="mb-1.5 block text-xs font-medium text-muted">Email</label>
           <input
+            id="new-customer-email"
             type="email"
             [(ngModel)]="newCustomerForm.email"
             name="new_customer_email"
@@ -1752,9 +1771,9 @@ export class SalesPageComponent implements OnInit {
           });
         }
       },
-      error: (err) => {
+      error: () => {
         this.uploading.set(false);
-        const detail = err?.error?.detail || 'Failed to upload CSV file';
+        const detail = 'Failed to upload CSV file';
         this.uploadError.set(detail);
         this.messageService.add({
           severity: 'error',
