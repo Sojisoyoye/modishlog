@@ -31,23 +31,17 @@ import {
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <!-- Active / History toggle button group -->
-          <div class="flex rounded-lg border border-gray-300 overflow-hidden">
-            <button
-              (click)="showActive()"
-              class="px-3 py-2 text-sm font-medium transition-colors"
-              [class]="!showHistory() ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
-            >
-              Active
-            </button>
-            <button
-              (click)="!showHistory() && toggleView()"
-              class="px-3 py-2 text-sm font-medium border-l border-gray-300 transition-colors"
-              [class]="showHistory() ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
-            >
-              History
-            </button>
-          </div>
+          <!-- Active / History toggle button -->
+          <button
+            (click)="toggleView()"
+            class="flex min-h-[44px] items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            @if (showHistory()) {
+              <i class="pi pi-list text-sm"></i> Show Active
+            } @else {
+              <i class="pi pi-history text-sm"></i> Show History
+            }
+          </button>
           <button
             (click)="generateNew()"
             [disabled]="generating()"
