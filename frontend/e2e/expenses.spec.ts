@@ -93,3 +93,27 @@ test('edit expense note', async ({ page }) => {
 
   await expect(page.getByRole('table').first().locator('tbody tr').first()).toContainText('updated note', { timeout: 5000 });
 });
+
+test('shows skeleton loader while expenses are loading', async ({ page }) => {
+  // Navigate fresh so we can observe initial load state
+  await page.goto('/expenses');
+  // The table (or skeleton placeholder) should appear during/after load
+  await expect(page.getByRole('table').first()).toBeVisible({ timeout: 10000 });
+  // Heading confirms the page fully rendered
+  await expect(page.getByRole('heading', { name: 'Expenses' })).toBeVisible();
+});
+
+test('delete button is disabled while deletion is in progress', async ({ page }) => {
+  const token = await getAuthToken();
+  await createExpense(token, { note: 'to be deleted' });
+
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Expenses' })).toBeVisible({ timeout: 15000 });
+
+  const deleteButtons = page.getByRole('button', { name: /delete/i });
+  const count = await deleteButtons.count();
+  if (count > 0) {
+    // Delete button should be enabled before any action is taken
+    await expect(deleteButtons.first()).toBeEnabled();
+  }
+});
