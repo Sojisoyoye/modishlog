@@ -23,6 +23,7 @@ class TestHealthEndpoint:
         assert body["status"] == "healthy"
         assert body["db"] == "ok"
         assert "version" in body
+        assert "timestamp" in body
 
     def test_health_includes_db_status(self):
         with patch("src.health.router.check_db", new=AsyncMock(return_value="ok")):
