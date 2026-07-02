@@ -3,6 +3,8 @@ import { Observable, shareReplay } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { ApiService } from './api.service';
 
+export type LocationType = 'retail' | 'warehouse' | 'online';
+
 export interface Location {
   id: string;
   name: string;
@@ -17,6 +19,11 @@ export interface Location {
   country: string | null;
   zip_code: string | null;
   is_active: boolean;
+  timezone: string;
+  currency: string;
+  tax_number: string | null;
+  location_type: LocationType | null;
+  is_pos_location: boolean;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -34,6 +41,10 @@ export interface LocationCreate {
   state?: string | null;
   country?: string | null;
   zip_code?: string | null;
+  timezone?: string;
+  currency?: string;
+  tax_number?: string | null;
+  location_type?: LocationType | null;
 }
 
 export interface LocationListResponse {

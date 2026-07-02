@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.locations.models import LocationType
+
 
 class LocationCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -18,6 +20,10 @@ class LocationCreate(BaseModel):
     state: str | None = Field(None, max_length=100)
     country: str | None = Field(None, max_length=100)
     zip_code: str | None = Field(None, max_length=20)
+    timezone: str = Field("Africa/Lagos", max_length=60)
+    currency: str = Field("NGN", max_length=3)
+    tax_number: str | None = Field(None, max_length=100)
+    location_type: LocationType | None = None
 
 
 class LocationUpdate(BaseModel):
@@ -33,6 +39,10 @@ class LocationUpdate(BaseModel):
     country: str | None = Field(None, max_length=100)
     zip_code: str | None = Field(None, max_length=20)
     is_active: bool | None = None
+    timezone: str | None = Field(None, max_length=60)
+    currency: str | None = Field(None, max_length=3)
+    tax_number: str | None = Field(None, max_length=100)
+    location_type: LocationType | None = None
 
 
 class LocationRead(BaseModel):
@@ -51,6 +61,11 @@ class LocationRead(BaseModel):
     country: str | None = None
     zip_code: str | None = None
     is_active: bool
+    timezone: str
+    currency: str
+    tax_number: str | None = None
+    location_type: LocationType | None = None
+    is_pos_location: bool
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime

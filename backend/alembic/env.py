@@ -27,7 +27,8 @@ from src.orders.models import (  # noqa: F401
     OrderPayment,
     PurchaseReturn,
 )
-from src.locations.models import BusinessLocation  # noqa: F401
+from src.locations.models import BusinessLocation, LocationType  # noqa: F401
+from src.settings.models import BusinessProfile, AppSetting  # noqa: F401
 from src.suppliers.models import Supplier, SupplierProduct  # noqa: F401
 from src.customers.models import Customer  # noqa: F401
 from src.fx.models import (  # noqa: F401
