@@ -35,3 +35,8 @@ async def health() -> JSONResponse:
         "db": db_status,
     }
     return JSONResponse(content=payload, status_code=http_status)
+
+
+# Alias router for /api/health — separate instance to avoid duplicate registration
+api_router = APIRouter()
+api_router.add_api_route("/health", health, methods=["GET"], include_in_schema=False)
