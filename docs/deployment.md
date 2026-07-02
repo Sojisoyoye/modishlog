@@ -128,3 +128,42 @@ ssh root@<HETZNER_HOST> "
 | Vercel build fails | Check `STAGING_API_URL` is set in Vercel dashboard env vars |
 | GHCR pull denied on server | Re-run `docker login ghcr.io` with a fresh PAT |
 | Alembic fails on migration | Check `DATABASE_URL` in `/root/modishlog/.env`; confirm Neon staging branch is active |
+
+---
+
+## Production Deployment (modishlog.com)
+
+See `docker-compose.prod.yml`, `nginx/nginx.prod.conf`, and `scripts/deploy-prod.sh`.
+
+**Pipeline**: `deploy-production.yml` workflow — requires:
+1. Manual `workflow_dispatch` with confirmation string `"deploy-production"`
+2. GitHub Environment `production` approval from designated reviewer
+3. Backend tests passing
+4. Post-deploy `/health` smoke test at https://modishlog.com/health
+
+**First-time setup**:
+```bash
+# On VPS:
+cp .env.production.example .env.production
+# Fill all values, then:
+bash scripts/init-letsencrypt.sh    # Issue SSL cert
+bash scripts/deploy-prod.sh         # Initial deploy
+```
+
+**Ongoing deploys**: trigger `Deploy Production` workflow from GitHub Actions UI.
+
+**DNS cutover**: see `docs/dns-cutover.md` for exact records and zero-downtime procedure.
+
+**Rollback**:
+```bash
+docker compose -f docker-compose.prod.yml up -d --no-deps \
+  --force-recreate backend
+# (will use BACKEND_IMAGE from .env.production — update to previous SHA first)
+```
+
+**Secrets required** (GitHub → Settings → Environments → production):
+| Secret | Purpose |
+|--------|---------|
+| `PRODUCTION_HOST` | VPS IPv4 address |
+| `PRODUCTION_SSH_KEY` | Private SSH key for VPS root |
+| `GHCR_TOKEN` | GitHub PAT with `read:packages` |
