@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+# _rate_limit_exceeded_handler: private symbol used per slowapi docs — pin slowapi==0.1.9 to guard against breakage
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -182,8 +183,8 @@ app.include_router(
 )
 app.include_router(expenses_router, prefix="/api/v1/expenses", tags=["expenses"])
 
-from src.health.router import router as health_router  # noqa: E402
+from src.health.router import api_router as health_api_router, router as health_router  # noqa: E402
 
 # Mount at both /health (used by docker-compose healthcheck) and /api/health (convention)
 app.include_router(health_router, tags=["health"])
-app.include_router(health_router, prefix="/api", tags=["health"], include_in_schema=False)
+app.include_router(health_api_router, prefix="/api", tags=["health"])
