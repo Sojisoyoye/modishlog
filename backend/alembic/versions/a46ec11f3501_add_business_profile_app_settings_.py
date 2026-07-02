@@ -51,17 +51,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['updated_by'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_table('user_preferences',
-    sa.Column('user_id', sa.Uuid(), nullable=False),
-    sa.Column('fiscal_year_start_month', sa.Integer(), nullable=True),
-    sa.Column('fiscal_year_start_day', sa.Integer(), nullable=True),
-    sa.Column('id', sa.Uuid(), nullable=False),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.create_index(op.f('ix_user_preferences_user_id'), 'user_preferences', ['user_id'], unique=True)
     op.add_column('business_locations', sa.Column('timezone', sa.String(length=60), server_default='Africa/Lagos', nullable=False))
     op.add_column('business_locations', sa.Column('currency', sa.String(length=3), server_default='NGN', nullable=False))
     op.add_column('business_locations', sa.Column('tax_number', sa.String(length=100), nullable=True))
@@ -87,8 +76,6 @@ def downgrade() -> None:
     op.drop_column('business_locations', 'tax_number')
     op.drop_column('business_locations', 'currency')
     op.drop_column('business_locations', 'timezone')
-    op.drop_index(op.f('ix_user_preferences_user_id'), table_name='user_preferences')
-    op.drop_table('user_preferences')
     op.drop_table('business_profile')
     op.drop_table('app_settings')
     # ### end Alembic commands ###
