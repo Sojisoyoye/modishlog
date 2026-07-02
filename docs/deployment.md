@@ -18,10 +18,11 @@
 
 ## CI pipeline (triggered on every push to `main`)
 
-1. **Backend tests** — run `pytest tests/ --tb=short -q` against a temporary PostgreSQL 16 container
-2. **Build & push** (parallel with step 3, requires step 1) — build Docker image, tag `staging-<sha>` + `staging`, push to GHCR
-3. **Deploy frontend** (parallel with step 2, requires step 1) — `npx vercel@latest --prod`
-4. **Deploy backend** (requires step 2) — SSH into Hetzner server:
+1. **Backend tests** — `pytest tests/ --tb=short -q` against a temporary PostgreSQL 16 container
+2. **CVE scan** (requires step 1) — `pip-audit 2.10.1` against `backend/requirements.txt`; blocks all deploys if a known CVE is found
+3. **Build & push** (requires step 2) — build Docker image, tag `staging-<sha>` + `staging`, push to GHCR
+4. **Deploy frontend** (requires step 2) — `npx vercel@latest --prod`; both backend and frontend are gated on the CVE scan so they stay in sync
+5. **Deploy backend** (requires step 3) — SSH into Hetzner server:
    - `echo $GHCR_TOKEN | docker login ghcr.io -u sojisoyoye --password-stdin`
    - `docker-compose pull backend`
    - `docker-compose run --rm --no-deps backend alembic upgrade head`
@@ -136,10 +137,11 @@ ssh root@<HETZNER_HOST> "
 See `docker-compose.prod.yml`, `nginx/nginx.prod.conf`, and `scripts/deploy-prod.sh`.
 
 **Pipeline**: `deploy-production.yml` workflow — requires:
-1. Manual `workflow_dispatch` with confirmation string `"deploy-production"`
-2. GitHub Environment `production` approval from designated reviewer
-3. Backend tests passing
-4. Post-deploy `/health` smoke test at https://modishlog.com/health
+1. Manual `workflow_dispatch` with confirmation string `"deploy-production"` (or push a semver tag `v*.*.*`)
+2. Backend tests pass
+3. CVE scan passes (`pip-audit 2.10.1` — any known CVE blocks the image build)
+4. GitHub Environment `production` approval from designated reviewer
+5. Post-deploy `/health` smoke test at https://modishlog.com/health
 
 **First-time setup**:
 ```bash
@@ -167,3 +169,6 @@ docker compose -f docker-compose.prod.yml up -d --no-deps \
 | `PRODUCTION_HOST` | VPS IPv4 address |
 | `PRODUCTION_SSH_KEY` | Private SSH key for VPS root |
 | `GHCR_TOKEN` | GitHub PAT with `read:packages` |
+| `SENTRY_DSN` | Sentry DSN — optional; error tracking is disabled when absent |
+
+**Branch protection** (`main`): requires the `backend-tests / gate` status check to pass before any PR can merge. Gate is the fan-in job that requires both `dependency-scan` and `test` to succeed. Configured via GitHub API — see `.github/workflows/backend-tests.yml`.
