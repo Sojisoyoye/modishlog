@@ -6,6 +6,7 @@ import { RouterLink } from '@angular/router';
   standalone: true,
   imports: [RouterLink],
   template: `
+    <div class="h-screen overflow-y-auto overflow-x-hidden scroll-smooth">
     <!-- ============================================================
          A. STICKY HEADER NAV
          ============================================================ -->
@@ -31,7 +32,7 @@ import { RouterLink } from '@angular/router';
           <div class="flex items-center gap-3">
             <a
               routerLink="/login"
-              class="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+              class="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
             >
               Launch My POS →
             </a>
@@ -88,8 +89,10 @@ import { RouterLink } from '@angular/router';
           </div>
 
           <!-- Right: Product mockup (static HTML browser window) -->
-          <div class="relative pb-8 sm:pb-0">
-            <div class="rounded-xl border border-gray-200 shadow-2xl overflow-hidden bg-white">
+          <div class="relative pb-10 sm:pb-0">
+            <!-- overflow-hidden clips the mockup on mobile so it shows at full desktop width -->
+            <div class="overflow-hidden rounded-xl shadow-2xl">
+            <div class="w-[560px] border border-gray-200 bg-white">
               <!-- Browser chrome title bar -->
               <div class="flex items-center gap-2 bg-gray-100 px-4 py-3 border-b border-gray-200">
                 <span class="h-3 w-3 rounded-full bg-red-400"></span>
@@ -158,6 +161,7 @@ import { RouterLink } from '@angular/router';
                   </table>
                 </div>
               </div>
+            </div>
             </div>
 
             <!-- Floating badge -->
@@ -323,58 +327,86 @@ import { RouterLink } from '@angular/router';
         </div>
 
         <div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm">
-          <table class="w-full">
+          <table class="min-w-full">
             <thead>
               <tr class="bg-gray-900 text-white">
-                <th class="px-6 py-4 text-left text-sm font-semibold">Feature</th>
-                <th class="px-6 py-4 text-center text-sm font-semibold text-emerald-400">ModishLog</th>
-                <th class="px-6 py-4 text-center text-sm font-semibold text-gray-400">Spreadsheet</th>
+                <th class="px-5 py-4 text-left text-sm font-semibold min-w-[180px]">Feature</th>
+                <th class="px-5 py-4 text-center text-sm font-semibold text-emerald-400 min-w-[120px]">ModishLog</th>
+                <th class="px-5 py-4 text-center text-sm font-semibold text-gray-400 min-w-[120px]">Other POS Apps</th>
+                <th class="px-5 py-4 text-center text-sm font-semibold text-gray-400 min-w-[120px]">Spreadsheet</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100 bg-white">
               <tr>
-                <td class="px-6 py-4 text-sm text-gray-700">Real-time stock tracking</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Sales recording in seconds</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr class="bg-gray-50">
-                <td class="px-6 py-4 text-sm text-gray-700">Auto-calculated margins</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Auto profit margin per product</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr>
-                <td class="px-6 py-4 text-sm text-gray-700">FX rate integration</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Live NGN/USD &amp; EUR/NGN rates</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr class="bg-gray-50">
-                <td class="px-6 py-4 text-sm text-gray-700">Profit &amp; Loss reports</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">AI price recommendations</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr>
-                <td class="px-6 py-4 text-sm text-gray-700">Supplier order tracking</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Full P&amp;L &amp; cashflow reports</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr class="bg-gray-50">
-                <td class="px-6 py-4 text-sm text-gray-700">Multiple payment methods</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Expense tracking</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr>
-                <td class="px-6 py-4 text-sm text-gray-700">AI price suggestions</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Supplier &amp; purchase order management</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-yellow-500 font-bold text-base">~</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr class="bg-gray-50">
-                <td class="px-6 py-4 text-sm text-gray-700">Works on mobile</td>
-                <td class="px-6 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-6 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Customer debt ledger</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-yellow-500 font-bold text-base">~</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+              </tr>
+              <tr>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Stock count &amp; variance reports</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-yellow-500 font-bold text-base">~</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+              </tr>
+              <tr class="bg-gray-50">
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">One-time payment, no subscription</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+              </tr>
+              <tr>
+                <td class="px-5 py-4 text-sm text-gray-700 font-medium">Works on mobile</td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
+                <td class="px-5 py-4 text-center"><span class="text-yellow-500 font-bold text-base">~</span></td>
               </tr>
             </tbody>
           </table>
         </div>
+        <p class="mt-3 text-center text-xs text-gray-400">~ = limited or basic support</p>
       </div>
     </section>
 
@@ -527,9 +559,7 @@ import { RouterLink } from '@angular/router';
       </div>
     </section>
 
-    <!-- ============================================================
-         H. FOUNDER MESSAGE PLACEHOLDER
-         ============================================================ -->
+    <!-- H. FOUNDER MESSAGE — hidden until ready
     <section class="py-20 bg-gray-50">
       <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 text-center">
         <h2 class="text-2xl sm:text-3xl font-extrabold text-gray-900 mb-8">A message from our founder</h2>
@@ -543,36 +573,56 @@ import { RouterLink } from '@angular/router';
         </div>
       </div>
     </section>
+    -->
 
     <!-- ============================================================
          I. FOOTER
          ============================================================ -->
     <footer class="bg-gray-900 text-gray-400 py-12">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div class="flex flex-col sm:flex-row items-center justify-between gap-6">
+        <div class="flex flex-row items-center justify-between gap-4">
           <!-- Brand -->
-          <div class="flex flex-col items-center sm:items-start gap-2">
+          <div class="flex flex-col items-start gap-2">
             <div class="flex items-center gap-2">
-              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">M</div>
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">M</div>
               <span class="text-base font-bold text-white">ModishLog</span>
             </div>
-            <p class="text-sm text-gray-500">Built for Nigerian traders.</p>
+            <p class="text-sm text-gray-500">Your shop runs better when you can see the numbers.</p>
           </div>
 
-          <!-- Twitter / share -->
-          <div>
+          <!-- Social links -->
+          <div class="flex items-center gap-3">
             <a
-              href="https://twitter.com/intent/tweet?text=Just+found+%40modishlog+%E2%80%94+it+tracks+my+shop+sales%2C+margins%2C+and+FX+rates+all+in+one+place.+Way+better+than+spreadsheets.+Check+it+out!"
+              href="#"
               target="_blank"
               rel="noopener noreferrer"
-              class="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+              aria-label="Follow us on Instagram"
+              class="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
             >
-              Share on Twitter →
+              <i class="pi pi-instagram text-base"></i>
+            </a>
+            <a
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Follow us on Facebook"
+              class="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
+            >
+              <i class="pi pi-facebook text-base"></i>
+            </a>
+            <a
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Follow us on X"
+              class="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
+            >
+              <i class="pi pi-twitter text-base"></i>
             </a>
           </div>
         </div>
 
-        <div class="mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-gray-800 pt-8">
+        <div class="mt-8 flex flex-row items-center justify-between gap-4 border-t border-gray-800 pt-8">
           <p class="text-xs text-gray-600">© 2025 ModishLog. All rights reserved.</p>
           <div class="flex items-center gap-6">
             <a href="#" class="text-xs text-gray-600 hover:text-gray-400 transition-colors">Privacy</a>
@@ -581,6 +631,7 @@ import { RouterLink } from '@angular/router';
         </div>
       </div>
     </footer>
+    </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
