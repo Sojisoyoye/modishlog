@@ -28,6 +28,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "max-age=31536000; includeSubDomains"
         )
         # Content Security Policy — tightened per domain in Nginx for production
+        # 'unsafe-inline' required by Angular's runtime inline styles/scripts.
+        # Switch to nonce-based CSP after Angular build is configured with nonces (post-MVP).
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "

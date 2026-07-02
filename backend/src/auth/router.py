@@ -6,9 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.rate_limit import limiter
-
 from src.core.config import settings
+from src.core.rate_limit import limiter
 
 from src.auth.dependencies import get_current_active_user, require_admin
 from src.auth.exceptions import (
