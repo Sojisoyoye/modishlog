@@ -28,6 +28,7 @@ import { ExpenseCategory } from '../../models/expense.model';
       (visibleChange)="onVisibleChange($event)"
       [modal]="true"
       [style]="{ width: '420px' }"
+      [breakpoints]="{ '640px': '95vw' }"
       [draggable]="false"
     >
       <div class="flex flex-col gap-4 py-2">

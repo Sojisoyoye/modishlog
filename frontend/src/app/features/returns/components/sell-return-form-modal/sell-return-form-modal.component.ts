@@ -29,6 +29,7 @@ import { Sale, SellReturn } from '../../models/return.model';
       (visibleChange)="onVisibleChange($event)"
       [modal]="true"
       [style]="{ width: '520px' }"
+      [breakpoints]="{ '640px': '95vw' }"
       [draggable]="false"
     >
       <form (ngSubmit)="submit()" #f="ngForm" class="flex flex-col gap-4 py-2">
@@ -102,7 +103,7 @@ import { Sale, SellReturn } from '../../models/return.model';
           />
         </div>
 
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label for="return-total-amount" class="mb-1 block text-sm font-medium text-gray-700">
               Total Amount <span class="text-red-500">*</span>
@@ -158,18 +159,18 @@ import { Sale, SellReturn } from '../../models/return.model';
           ></textarea>
         </div>
 
-        <div class="flex justify-end gap-2 pt-2">
+        <div class="flex flex-col gap-3 pt-2 sm:flex-row sm:justify-end">
           <button
             type="button"
             (click)="close()"
-            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 min-h-[40px]"
+            class="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 min-h-[40px] sm:flex-none"
           >
             Cancel
           </button>
           <button
             type="submit"
             [disabled]="saving() || !f.valid || !selectedSaleId()"
-            class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50 min-h-[40px]"
+            class="flex-1 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50 min-h-[40px] sm:flex-none"
           >
             {{ saving() ? 'Saving…' : 'Save Return' }}
           </button>
