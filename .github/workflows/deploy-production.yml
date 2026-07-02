@@ -174,6 +174,11 @@ jobs:
             # Run migrations
             docker compose --env-file .env.production run --rm --no-deps backend alembic upgrade head
 
+            # Ensure uploads volume has correct permissions for non-root app user
+            docker run --rm \
+              -v modishlog-prod_modishlog_uploads:/app/uploads \
+              alpine sh -c "mkdir -p /app/uploads/products /app/uploads/logos && chmod -R 777 /app/uploads"
+
             # Rolling restart — backend only, zero-downtime via health check
             docker compose --env-file .env.production up -d --no-deps backend
 
