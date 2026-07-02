@@ -28,7 +28,7 @@ import {
 
     <div>
       <!-- Page Header -->
-      <div class="mb-6 flex items-center justify-between">
+      <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-2xl font-bold text-gray-900">Locations</h2>
           <p class="mt-1 text-sm text-gray-500">Manage your business locations and branches</p>
@@ -154,12 +154,13 @@ import {
       [header]="editingLocation() ? 'Edit Location' : 'Add Location'"
       [modal]="true"
       [style]="{ width: '640px' }"
+      [breakpoints]="{ '768px': '95vw' }"
       [closable]="true"
       [draggable]="false"
     >
       <div class="space-y-4 py-2">
         <!-- Row 1: Name + Code -->
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">
               Location Name <span class="text-danger">*</span>
@@ -187,7 +188,7 @@ import {
         </div>
 
         <!-- Row 2: Mobile + Alternate Number -->
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">Mobile</label>
             <input
@@ -211,7 +212,7 @@ import {
         </div>
 
         <!-- Row 3: Email + Website -->
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">Email</label>
             <input
@@ -235,7 +236,7 @@ import {
         </div>
 
         <!-- Row 4: City + State -->
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">City</label>
             <input
@@ -259,7 +260,7 @@ import {
         </div>
 
         <!-- Row 5: Country + Zip Code -->
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">Country</label>
             <input
@@ -295,7 +296,7 @@ import {
         </div>
 
         <!-- Row 7: Currency + Timezone -->
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">Currency</label>
             <select
@@ -323,7 +324,7 @@ import {
         </div>
 
         <!-- Row 8: Tax Number + Location Type -->
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label class="mb-1.5 block text-xs font-medium text-muted">Tax Number</label>
             <input

@@ -36,7 +36,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
   template: `
     <p-toast />
     <div>
-      <div class="mb-6 flex items-center justify-between">
+      <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-2xl font-bold text-gray-900">FX Rates</h2>
           <p class="mt-1 text-sm text-gray-500">Track and forecast NGN exchange rates</p>

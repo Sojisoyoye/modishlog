@@ -29,7 +29,7 @@ import {
 
     <!-- Page Header -->
     <div class="mb-6">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-2xl font-bold text-gray-900">Invoice Schemes</h2>
           <p class="mt-1 text-sm text-gray-500">Manage invoice numbering schemes</p>

@@ -38,9 +38,9 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
 
     <div>
       <!-- Header -->
-      <div class="mb-6 flex items-center justify-between">
+      <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
             <i class="pi pi-users text-lg"></i>
           </div>
           <div>

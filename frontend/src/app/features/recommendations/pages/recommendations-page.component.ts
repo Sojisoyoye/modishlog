@@ -19,9 +19,9 @@ import {
     <p-toast />
     <div>
       <!-- Page Header -->
-      <div class="mb-6 flex items-center justify-between">
+      <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="flex items-center gap-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
             <i class="pi pi-sparkles text-lg text-emerald-700"></i>
           </div>
           <div>
@@ -29,7 +29,7 @@ import {
             <p class="mt-0.5 text-sm text-gray-500">AI-powered insights to optimize your business</p>
           </div>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 shrink-0">
           <!-- Active / History toggle button group -->
           <div class="flex rounded-lg border border-gray-300 overflow-hidden">
             <button

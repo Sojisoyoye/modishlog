@@ -32,7 +32,7 @@ interface SummaryCard {
         <span class="text-gray-400">/</span>
         <span class="font-semibold text-gray-900">Profit & Loss</span>
       </div>
-      <div class="mb-6 flex items-center justify-between">
+      <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 class="text-2xl font-bold text-gray-900">Profit & Loss Report</h2>
           <p class="mt-1 text-sm text-gray-500">Revenue, costs, and net profit over a period</p>
@@ -122,7 +122,7 @@ interface SummaryCard {
           </div>
 
           <!-- Summary cards grid -->
-          <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             @for (card of summaryCards; track card.key) {
               <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
                 <p class="text-xs font-medium text-gray-500">{{ card.label }}</p>

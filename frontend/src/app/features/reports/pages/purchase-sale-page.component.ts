@@ -113,7 +113,7 @@ interface SummaryCard {
         </div>
 
         <!-- Summary cards -->
-        <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           @for (card of buildCards(r); track card.label) {
             <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
               <p class="text-xs font-medium text-gray-500">{{ card.label }}</p>
