@@ -294,8 +294,9 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
               <p class="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Move Status</p>
               @if (nextStatuses(order()!.status).includes('DELIVERED')) {
                 <div class="mb-3 max-w-xs">
-                  <label class="mb-1 block text-xs font-medium text-muted">FX Rate at Delivery</label>
+                  <label for="order-detail-delivery-fx-rate" class="mb-1 block text-xs font-medium text-muted">FX Rate at Delivery</label>
                   <input
+                    id="order-detail-delivery-fx-rate"
                     type="number"
                     [(ngModel)]="deliveryFxRate"
                     step="1"
@@ -791,8 +792,9 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                   <div class="space-y-2">
                     <div class="flex gap-2">
                       <div class="flex-1">
-                        <label class="mb-0.5 block text-xs text-muted">Amount</label>
+                        <label for="payment-amount" class="mb-0.5 block text-xs text-muted">Amount</label>
                         <input
+                          id="payment-amount"
                           type="number"
                           [(ngModel)]="paymentForm.amount"
                           step="0.01"
@@ -803,8 +805,9 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                         />
                       </div>
                       <div class="w-24">
-                        <label class="mb-0.5 block text-xs text-muted">Currency</label>
+                        <label for="payment-currency" class="mb-0.5 block text-xs text-muted">Currency</label>
                         <select
+                          id="payment-currency"
                           [(ngModel)]="paymentForm.currency"
                           class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
                           data-testid="payment-currency-select"
@@ -819,10 +822,11 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                     <!-- FX rate — only when paying in foreign currency -->
                     @if (paymentForm.currency !== 'NGN') {
                       <div>
-                        <label class="mb-0.5 block text-xs text-muted">
+                        <label for="payment-fx-rate" class="mb-0.5 block text-xs text-muted">
                           Exchange Rate (₦ per {{ paymentForm.currency }})
                         </label>
                         <input
+                          id="payment-fx-rate"
                           type="number"
                           [(ngModel)]="paymentForm.fx_rate"
                           step="1"
@@ -840,8 +844,9 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                     }
 
                     <div>
-                      <label class="mb-0.5 block text-xs text-muted">Method</label>
+                      <label for="payment-method" class="mb-0.5 block text-xs text-muted">Method</label>
                       <select
+                        id="payment-method"
                         [(ngModel)]="paymentForm.payment_method"
                         class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
                         data-testid="payment-method-select"
@@ -852,8 +857,9 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                       </select>
                     </div>
                     <div>
-                      <label class="mb-0.5 block text-xs text-muted">Date</label>
+                      <label for="payment-date" class="mb-0.5 block text-xs text-muted">Date</label>
                       <input
+                        id="payment-date"
                         type="date"
                         [(ngModel)]="paymentForm.payment_date"
                         class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
@@ -861,8 +867,9 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                       />
                     </div>
                     <div>
-                      <label class="mb-0.5 block text-xs text-muted">Reference (optional)</label>
+                      <label for="payment-reference" class="mb-0.5 block text-xs text-muted">Reference (optional)</label>
                       <input
+                        id="payment-reference"
                         type="text"
                         [(ngModel)]="paymentForm.reference"
                         placeholder="e.g. TRF-001"
@@ -1325,10 +1332,9 @@ export class OrderDetailPageComponent implements OnInit {
         this.editing.set(false);
         this.messageService.add({ severity: 'success', summary: 'Saved', detail: 'Order updated' });
       },
-      error: (err) => {
+      error: () => {
         this.saving.set(false);
-        const detail = err?.error?.detail ?? 'Failed to save changes';
-        this.messageService.add({ severity: 'error', summary: 'Error', detail });
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to save changes' });
       },
     });
   }
@@ -1376,10 +1382,9 @@ export class OrderDetailPageComponent implements OnInit {
           this.refreshPaymentsAndSummary(o.id);
           this.messageService.add({ severity: 'success', summary: 'Payment recorded' });
         },
-        error: (err) => {
+        error: () => {
           this.recordingPayment.set(false);
-          const detail = err?.error?.detail ?? 'Failed to record payment';
-          this.messageService.add({ severity: 'error', summary: 'Error', detail });
+          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to record payment' });
         },
       });
   }

@@ -79,9 +79,37 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
       <div class="rounded-xl border border-gray-100 bg-white shadow-sm">
         <div class="overflow-x-auto">
           @if (loading()) {
-            <div class="flex items-center justify-center py-16">
-              <i class="pi pi-spinner pi-spin text-2xl text-muted"></i>
-            </div>
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <caption class="sr-only">Loading customers</caption>
+              <thead>
+                <tr class="bg-gray-50">
+                  <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Name</th>
+                  <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Email</th>
+                  <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Contact</th>
+                  <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">City</th>
+                  <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Country</th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Credit Limit</th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Balance</th>
+                  <th class="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-gray-500">Status</th>
+                  <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                @for (i of [1,2,3,4,5,6,7]; track i) {
+                  <tr class="animate-pulse">
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-32"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-40"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-28"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-20"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-20"></div></td>
+                    <td class="px-4 py-3 text-right"><div class="h-4 bg-gray-200 rounded w-16 inline-block"></div></td>
+                    <td class="px-4 py-3 text-right"><div class="h-4 bg-gray-200 rounded w-16 inline-block"></div></td>
+                    <td class="px-4 py-3 text-center"><div class="h-4 bg-gray-200 rounded w-12 inline-block"></div></td>
+                    <td class="px-4 py-3 text-right"><div class="h-4 bg-gray-200 rounded w-12 inline-block"></div></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
           } @else {
             <table class="min-w-full divide-y divide-gray-200 text-sm">
               <caption class="sr-only">Customers list</caption>
@@ -186,10 +214,11 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
         <!-- Identity -->
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div class="sm:col-span-2">
-            <label class="mb-1 block text-xs font-medium text-muted">
+            <label for="customer-name" class="mb-1 block text-xs font-medium text-muted">
               Customer Name <span class="text-danger">*</span>
             </label>
             <input
+              id="customer-name"
               type="text"
               [(ngModel)]="form.name"
               placeholder="Customer name"
@@ -197,8 +226,9 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Email Address</label>
+            <label for="customer-email" class="mb-1 block text-xs font-medium text-muted">Email Address</label>
             <input
+              id="customer-email"
               type="email"
               [(ngModel)]="form.email"
               placeholder="Email address"
@@ -206,8 +236,9 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Contact Number</label>
+            <label for="customer-contact-number" class="mb-1 block text-xs font-medium text-muted">Contact Number</label>
             <input
+              id="customer-contact-number"
               type="tel"
               [(ngModel)]="form.contact_number"
               placeholder="Contact number"
@@ -215,8 +246,9 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Alternate Number</label>
+            <label for="customer-alternate-number" class="mb-1 block text-xs font-medium text-muted">Alternate Number</label>
             <input
+              id="customer-alternate-number"
               type="tel"
               [(ngModel)]="form.alternate_number"
               placeholder="Alternate number"
@@ -224,8 +256,9 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Tax Number</label>
+            <label for="customer-tax-number" class="mb-1 block text-xs font-medium text-muted">Tax Number</label>
             <input
+              id="customer-tax-number"
               type="text"
               [(ngModel)]="form.tax_number"
               placeholder="TIN / VAT number"
@@ -233,8 +266,9 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Customer Group</label>
+            <label for="customer-group" class="mb-1 block text-xs font-medium text-muted">Customer Group</label>
             <input
+              id="customer-group"
               type="text"
               [(ngModel)]="form.customer_group"
               placeholder="e.g. Wholesale, Retail"
@@ -293,8 +327,9 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
         <!-- Payment Terms & Financials -->
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Pay Term</label>
+            <label for="customer-pay-term-number" class="mb-1 block text-xs font-medium text-muted">Pay Term</label>
             <input
+              id="customer-pay-term-number"
               type="number"
               [(ngModel)]="form.pay_term_number"
               placeholder="e.g. 30"
@@ -303,8 +338,9 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Term Type</label>
+            <label for="customer-pay-term-type" class="mb-1 block text-xs font-medium text-muted">Term Type</label>
             <select
+              id="customer-pay-term-type"
               [(ngModel)]="form.pay_term_type"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             >
@@ -314,8 +350,9 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             </select>
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Opening Balance</label>
+            <label for="customer-opening-balance" class="mb-1 block text-xs font-medium text-muted">Opening Balance</label>
             <input
+              id="customer-opening-balance"
               type="number"
               [(ngModel)]="form.opening_balance"
               min="0"
@@ -325,8 +362,9 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Credit Limit</label>
+            <label for="customer-credit-limit" class="mb-1 block text-xs font-medium text-muted">Credit Limit</label>
             <input
+              id="customer-credit-limit"
               type="number"
               [(ngModel)]="form.credit_limit"
               min="0"
@@ -345,8 +383,9 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
 
         <!-- Notes -->
         <div>
-          <label class="mb-1 block text-xs font-medium text-muted">Notes</label>
+          <label for="customer-notes" class="mb-1 block text-xs font-medium text-muted">Notes</label>
           <textarea
+            id="customer-notes"
             [(ngModel)]="form.notes"
             rows="2"
             placeholder="Internal notes about this customer"

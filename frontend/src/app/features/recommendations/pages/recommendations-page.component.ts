@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
+import { Subscription } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -30,23 +31,17 @@ import {
           </div>
         </div>
         <div class="flex items-center gap-2 shrink-0">
-          <!-- Active / History toggle button group -->
-          <div class="flex rounded-lg border border-gray-300 overflow-hidden">
-            <button
-              (click)="showHistory.set(false)"
-              class="px-3 py-2 text-sm font-medium transition-colors"
-              [class]="!showHistory() ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
-            >
-              Active
-            </button>
-            <button
-              (click)="!showHistory() && toggleView()"
-              class="px-3 py-2 text-sm font-medium border-l border-gray-300 transition-colors"
-              [class]="showHistory() ? 'bg-emerald-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'"
-            >
-              History
-            </button>
-          </div>
+          <!-- Active / History toggle button -->
+          <button
+            (click)="toggleView()"
+            class="flex min-h-[44px] items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            @if (showHistory()) {
+              <i class="pi pi-list text-sm"></i> Show Active
+            } @else {
+              <i class="pi pi-history text-sm"></i> Show History
+            }
+          </button>
           <button
             (click)="generateNew()"
             [disabled]="generating()"
@@ -121,6 +116,25 @@ import {
       }
 
       <!-- Recommendations List -->
+      @if (loading()) {
+        <div class="space-y-4 p-4">
+          @for (i of [1,2,3]; track i) {
+            <div class="animate-pulse border border-gray-200 rounded-xl bg-white p-5">
+              <div class="mb-2 flex items-center gap-2">
+                <div class="h-4 bg-gray-200 rounded w-16"></div>
+                <div class="h-4 bg-gray-200 rounded w-12"></div>
+              </div>
+              <div class="h-5 bg-gray-200 rounded w-48 mb-3"></div>
+              <div class="h-4 bg-gray-200 rounded w-full mb-2"></div>
+              <div class="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
+              <div class="flex gap-3">
+                <div class="h-8 bg-gray-200 rounded w-36"></div>
+                <div class="h-8 bg-gray-200 rounded w-24"></div>
+              </div>
+            </div>
+          }
+        </div>
+      } @else {
       <div class="space-y-3">
         @for (rec of filteredRecs(); track rec.id) {
           <div
@@ -199,6 +213,7 @@ import {
           </div>
         }
       </div>
+      }
     </div>
 
     <!-- Dismiss Dialog -->
@@ -229,14 +244,17 @@ import {
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class RecommendationsPageComponent implements OnInit {
+export class RecommendationsPageComponent implements OnInit, OnDestroy {
   private readonly recsService = inject(RecommendationsService);
   private readonly messageService = inject(MessageService);
+
+  private historySubscription: Subscription | null = null;
 
   recs = signal<Recommendation[]>([]);
   historyRecs = signal<Recommendation[]>([]);
   impact = signal<ImpactSummary | null>(null);
   showHistory = signal(false);
+  loading = signal(false);
   generating = signal(false);
   activeCategory = signal('ALL');
   dismissVisible = false;
@@ -251,8 +269,15 @@ export class RecommendationsPageComponent implements OnInit {
   }
 
   private loadRecs(): void {
+    this.loading.set(true);
     this.recsService.getAll().subscribe({
-      next: (r) => this.recs.set(r.items),
+      next: (r) => {
+        this.recs.set(r.items);
+        this.loading.set(false);
+      },
+      error: () => {
+        this.loading.set(false);
+      },
     });
   }
 
@@ -264,11 +289,29 @@ export class RecommendationsPageComponent implements OnInit {
     return items.filter((r) => r.status === 'PENDING' && r.category === cat);
   });
 
+  showActive(): void {
+    this.historySubscription?.unsubscribe();
+    this.historySubscription = null;
+    this.showHistory.set(false);
+    this.loading.set(false);
+  }
+
+  ngOnDestroy(): void {
+    this.historySubscription?.unsubscribe();
+  }
+
   toggleView(): void {
     this.showHistory.update((v) => !v);
     if (this.showHistory() && this.historyRecs().length === 0) {
-      this.recsService.getHistory().subscribe({
-        next: (h) => this.historyRecs.set(h),
+      this.loading.set(true);
+      this.historySubscription = this.recsService.getHistory().subscribe({
+        next: (h) => {
+          this.historyRecs.set(h);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+        },
       });
     }
   }

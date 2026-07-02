@@ -20,6 +20,7 @@ import { FxService } from '../../../core/services/fx.service';
 import { ApiService } from '../../../core/services/api.service';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import { AlertBannerComponent } from '../../../shared/components/alert-banner/alert-banner.component';
+import { environment } from '../../../../environments/environment';
 
 type ProductsTab = 'products' | 'stock-report' | 'add' | 'upload' | 'categories';
 type SortDir = 'asc' | 'desc';
@@ -104,7 +105,7 @@ interface ColEntry {
         <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" (click)="$event.stopPropagation()">
           <div class="mb-4 flex items-center justify-between">
             <h3 class="font-bold text-text">Suggest Sell Price</h3>
-            <button (click)="closeSuggestPanel()" class="rounded p-1 text-muted hover:bg-gray-100"><i class="pi pi-times text-sm"></i></button>
+            <button (click)="closeSuggestPanel()" aria-label="Close suggestions" class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-muted hover:bg-gray-100"><i class="pi pi-times text-sm"></i></button>
           </div>
           <p class="mb-3 text-sm text-muted">
             Product: <strong class="text-text">{{ products().find(p => p.id === suggestionPanelProductId())?.name }}</strong>
@@ -430,7 +431,7 @@ interface ColEntry {
                     <div class="flex items-center gap-3">
                       <div class="h-8 w-8 flex-shrink-0 overflow-hidden rounded-lg bg-gray-100">
                         @if (product.image_url) {
-                          <img [src]="'http://localhost:8000' + product.image_url" [alt]="product.name" class="h-full w-full object-cover" />
+                          <img [src]="mediaBaseUrl + product.image_url" [alt]="product.name" width="32" height="32" class="h-full w-full object-cover" />
                         } @else {
                           <div class="flex h-full w-full items-center justify-center">
                             <i class="pi pi-image text-xs text-gray-300"></i>
@@ -465,7 +466,7 @@ interface ColEntry {
                       [attr.aria-expanded]="openActionId() === product.id"
                       aria-haspopup="true"
                       aria-label="Product actions"
-                      class="rounded-lg p-1.5 text-muted hover:bg-gray-100"
+                      class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 text-muted hover:bg-gray-100"
                     >
                       <i class="pi pi-ellipsis-v text-sm"></i>
                     </button>
@@ -506,7 +507,8 @@ interface ColEntry {
               <button
                 (click)="prevPage()"
                 [disabled]="currentPage() === 1"
-                class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+                aria-label="Previous page"
+                class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40"
               >
                 <i class="pi pi-chevron-left text-xs"></i>
               </button>
@@ -521,7 +523,8 @@ interface ColEntry {
               <button
                 (click)="nextPage()"
                 [disabled]="currentPage() === totalPages()"
-                class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"
+                aria-label="Next page"
+                class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40"
               >
                 <i class="pi pi-chevron-right text-xs"></i>
               </button>
@@ -537,7 +540,7 @@ interface ColEntry {
             <div class="rounded-xl border border-gray-100 bg-white p-4 shadow-sm transition-all hover:shadow-md">
               <div class="mb-3 flex h-32 items-center justify-center overflow-hidden rounded-lg bg-gray-100">
                 @if (product.image_url) {
-                  <img [src]="'http://localhost:8000' + product.image_url" [alt]="product.name" class="h-full w-full object-cover" />
+                  <img [src]="mediaBaseUrl + product.image_url" [alt]="product.name" width="128" height="128" class="h-full w-full object-cover" />
                 } @else {
                   <i class="pi pi-image text-3xl text-gray-300"></i>
                 }
@@ -585,11 +588,11 @@ interface ColEntry {
           <div class="mt-4 flex items-center justify-between text-sm text-muted">
             <span>Showing {{ showingFrom() }}–{{ showingTo() }} of {{ filteredProducts().length }}</span>
             <div class="flex items-center gap-1">
-              <button (click)="prevPage()" [disabled]="currentPage() === 1" class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"><i class="pi pi-chevron-left text-xs"></i></button>
+              <button (click)="prevPage()" [disabled]="currentPage() === 1" aria-label="Previous page" class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40"><i class="pi pi-chevron-left text-xs"></i></button>
               @for (n of pageNumbers(); track n) {
                 <button (click)="goToPage(n)" [class]="n === currentPage() ? 'rounded bg-primary px-2.5 py-1 text-xs font-semibold text-white' : 'rounded px-2.5 py-1 text-xs hover:bg-gray-100'">{{ n }}</button>
               }
-              <button (click)="nextPage()" [disabled]="currentPage() === totalPages()" class="rounded px-2 py-1 hover:bg-gray-100 disabled:opacity-40"><i class="pi pi-chevron-right text-xs"></i></button>
+              <button (click)="nextPage()" [disabled]="currentPage() === totalPages()" aria-label="Next page" class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40"><i class="pi pi-chevron-right text-xs"></i></button>
             </div>
           </div>
         }
@@ -1034,10 +1037,10 @@ interface ColEntry {
                   </td>
                   <td class="px-4 py-3 text-muted">{{ productCountForCategory(cat.id) }}</td>
                   <td class="px-4 py-3 text-right">
-                    <button (click)="openEditCategory(cat)" class="rounded-lg p-1.5 text-muted hover:bg-gray-100 mr-1" title="Edit category">
+                    <button (click)="openEditCategory(cat)" aria-label="Edit category" class="mr-1 flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-muted hover:bg-gray-100" title="Edit category">
                       <i class="pi pi-pencil text-xs"></i>
                     </button>
-                    <button (click)="confirmDeleteCategory(cat)" class="rounded-lg p-1.5 text-red-400 hover:bg-red-50" title="Delete category">
+                    <button (click)="confirmDeleteCategory(cat)" aria-label="Delete category" class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-red-400 hover:bg-red-50" title="Delete category">
                       <i class="pi pi-trash text-xs"></i>
                     </button>
                   </td>
@@ -1058,10 +1061,10 @@ interface ColEntry {
                     </td>
                     <td class="px-4 py-2 text-sm text-muted">{{ productCountForCategory(child.id) }}</td>
                     <td class="px-4 py-2 text-right">
-                      <button (click)="openEditCategory(child)" class="rounded-lg p-1.5 text-muted hover:bg-gray-100 mr-1" title="Edit sub-category">
+                      <button (click)="openEditCategory(child)" aria-label="Edit category" class="mr-1 flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-muted hover:bg-gray-100" title="Edit sub-category">
                         <i class="pi pi-pencil text-xs"></i>
                       </button>
-                      <button (click)="confirmDeleteCategory(child)" class="rounded-lg p-1.5 text-red-400 hover:bg-red-50" title="Delete sub-category">
+                      <button (click)="confirmDeleteCategory(child)" aria-label="Delete category" class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-red-400 hover:bg-red-50" title="Delete sub-category">
                         <i class="pi pi-trash text-xs"></i>
                       </button>
                     </td>
@@ -1325,6 +1328,7 @@ export class ProductsPageComponent implements OnInit {
   private readonly fxService = inject(FxService);
   private readonly messageService = inject(MessageService);
   private readonly api = inject(ApiService);
+  readonly mediaBaseUrl = environment.apiBaseUrl.replace('/api/v1', '');
 
   // ── Shared state ──────────────────────────────────────────────────────────
   pageLoading = signal(true);
@@ -1790,7 +1794,9 @@ export class ProductsPageComponent implements OnInit {
         this.suggestionLoading.set(false);
       },
       error: (err) => {
-        this.suggestionError.set(err?.error?.detail ?? 'No active lots found for this product');
+        this.suggestionError.set(
+          err?.status === 422 ? 'No active lots found for this product' : 'Failed to compute price suggestion'
+        );
         this.suggestionLoading.set(false);
       },
     });
@@ -2034,10 +2040,9 @@ export class ProductsPageComponent implements OnInit {
           });
         }
       },
-      error: (err) => {
+      error: () => {
         this.uploadingBulk.set(false);
-        const detail = err?.error?.detail ?? 'Upload failed';
-        this.messageService.add({ severity: 'error', summary: 'Error', detail });
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Upload failed' });
       },
     });
   }
@@ -2084,10 +2089,9 @@ export class ProductsPageComponent implements OnInit {
         this.loadCategories();
         this.messageService.add({ severity: 'success', summary: 'Created', detail: `Category "${created.name}" added` });
       },
-      error: (err) => {
+      error: () => {
         this.savingCategory.set(false);
-        const detail = err?.error?.detail ?? 'Failed to create category';
-        this.messageService.add({ severity: 'error', summary: 'Error', detail });
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to create category' });
       },
     });
   }

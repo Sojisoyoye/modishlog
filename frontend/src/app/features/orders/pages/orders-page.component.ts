@@ -538,7 +538,7 @@ import { FxService } from '../../../core/services/fx.service';
         <!-- Line items -->
         <div>
           <div class="mb-2 flex items-center justify-between">
-            <label class="text-xs font-medium text-muted">Items</label>
+            <span class="text-xs font-medium text-muted">Items</span>
             <div class="flex items-center gap-3">
               <a [href]="productsTemplateUrl" download="products_import_template.csv"
                 class="text-xs text-muted hover:text-secondary hover:underline">
@@ -590,18 +590,18 @@ import { FxService } from '../../../core/services/fx.service';
         <!-- Lead times -->
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Production (days)</label>
-            <input type="number" [(ngModel)]="newOrder.production_days" min="0"
+            <label for="order-production-days" class="mb-1.5 block text-xs font-medium text-muted">Production (days)</label>
+            <input id="order-production-days" type="number" [(ngModel)]="newOrder.production_days" min="0"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Shipping (days)</label>
-            <input type="number" [(ngModel)]="newOrder.shipping_days" min="0"
+            <label for="order-shipping-days" class="mb-1.5 block text-xs font-medium text-muted">Shipping (days)</label>
+            <input id="order-shipping-days" type="number" [(ngModel)]="newOrder.shipping_days" min="0"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Clearing (days)</label>
-            <input type="number" [(ngModel)]="newOrder.clearing_days" min="0"
+            <label for="order-clearing-days" class="mb-1.5 block text-xs font-medium text-muted">Clearing (days)</label>
+            <input id="order-clearing-days" type="number" [(ngModel)]="newOrder.clearing_days" min="0"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
           </div>
         </div>
@@ -609,13 +609,13 @@ import { FxService } from '../../../core/services/fx.service';
         <!-- Shipping charges -->
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Shipping Charges</label>
-            <input type="number" [(ngModel)]="newOrder.shipping_cost" min="0" step="0.01" placeholder="0.00"
+            <label for="order-shipping-charges" class="mb-1.5 block text-xs font-medium text-muted">Shipping Charges</label>
+            <input id="order-shipping-charges" type="number" [(ngModel)]="newOrder.shipping_cost" min="0" step="0.01" placeholder="0.00"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Clearing Charges</label>
-            <input type="number" [(ngModel)]="newOrder.clearing_cost" min="0" step="0.01" placeholder="0.00"
+            <label for="order-clearing-charges" class="mb-1.5 block text-xs font-medium text-muted">Clearing Charges</label>
+            <input id="order-clearing-charges" type="number" [(ngModel)]="newOrder.clearing_cost" min="0" step="0.01" placeholder="0.00"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
           </div>
         </div>
@@ -642,7 +642,7 @@ import { FxService } from '../../../core/services/fx.service';
         <!-- Discount & Tax -->
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Discount</label>
+            <label for="order-discount-amount" class="mb-1.5 block text-xs font-medium text-muted">Discount</label>
             <div class="flex gap-1">
               <select [(ngModel)]="newOrder.discount_type"
                 class="rounded-lg border border-gray-300 px-2 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary">
@@ -650,26 +650,26 @@ import { FxService } from '../../../core/services/fx.service';
                 <option value="percentage">%</option>
                 <option value="fixed">Fixed</option>
               </select>
-              <input type="number" [(ngModel)]="newOrder.discount_amount" min="0" step="0.01" placeholder="0"
+              <input id="order-discount-amount" type="number" [(ngModel)]="newOrder.discount_amount" min="0" step="0.01" placeholder="0"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
             </div>
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Tax Rate (%)</label>
-            <input type="number" [(ngModel)]="newOrder.tax_rate" min="0" step="0.1" placeholder="0"
+            <label for="order-tax-rate" class="mb-1.5 block text-xs font-medium text-muted">Tax Rate (%)</label>
+            <input id="order-tax-rate" type="number" [(ngModel)]="newOrder.tax_rate" min="0" step="0.1" placeholder="0"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
           </div>
           <div>
-            <label class="mb-1.5 block text-xs font-medium text-muted">Supplier Invoice #</label>
-            <input type="text" [(ngModel)]="newOrder.supplier_invoice_number" placeholder="INV-001"
+            <label for="order-invoice-number" class="mb-1.5 block text-xs font-medium text-muted">Supplier Invoice #</label>
+            <input id="order-invoice-number" type="text" [(ngModel)]="newOrder.supplier_invoice_number" placeholder="INV-001"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
           </div>
         </div>
 
         <!-- Shipping details -->
         <div>
-          <label class="mb-1.5 block text-xs font-medium text-muted">Shipping Details / Notes</label>
-          <textarea [(ngModel)]="newOrder.shipping_details" rows="2" placeholder="Delivery instructions, container number, etc."
+          <label for="order-shipping-details" class="mb-1.5 block text-xs font-medium text-muted">Shipping Details / Notes</label>
+          <textarea id="order-shipping-details" [(ngModel)]="newOrder.shipping_details" rows="2" placeholder="Delivery instructions, container number, etc."
             class="w-full resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"></textarea>
         </div>
 
@@ -1205,11 +1205,9 @@ export class OrdersPageComponent implements OnInit {
           this.loadStatusCounts();
         }
       },
-      error: (err) => {
+      error: () => {
         this.importing.set(false);
-        const detail =
-          err?.error?.detail ?? 'Failed to import orders. Check the file format.';
-        this.messageService.add({ severity: 'error', summary: 'Import failed', detail });
+        this.messageService.add({ severity: 'error', summary: 'Import failed', detail: 'Failed to import orders. Please check your file and try again.' });
       },
     });
   }

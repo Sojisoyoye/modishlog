@@ -7,6 +7,8 @@ import {
   OnInit,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { FormsModule } from '@angular/forms';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
@@ -49,7 +51,7 @@ import {
           <input
             type="text"
             [(ngModel)]="searchQuery"
-            (ngModelChange)="onSearch()"
+            (ngModelChange)="locationSearch$.next($event)"
             placeholder="Search locations..."
             class="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
           />
@@ -378,6 +380,7 @@ export class LocationsPageComponent implements OnInit {
   private readonly locationsService = inject(LocationsService);
   private readonly messageService = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly locationSearch$ = new Subject<string>();
 
   locations = signal<Location[]>([]);
   total = signal(0);
@@ -423,13 +426,17 @@ export class LocationsPageComponent implements OnInit {
   };
 
   ngOnInit(): void {
+    this.locationSearch$
+      .pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
+      .subscribe((query) => this.loadLocations(query));
     this.loadLocations();
   }
 
-  loadLocations(): void {
+  loadLocations(query?: string): void {
     this.loading.set(true);
+    const searchTerm = query ?? this.searchQuery;
     this.locationsService
-      .getAll(this.searchQuery || undefined)
+      .getAll(searchTerm || undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (res) => {
@@ -446,10 +453,6 @@ export class LocationsPageComponent implements OnInit {
           });
         },
       });
-  }
-
-  onSearch(): void {
-    this.loadLocations();
   }
 
   openAddDialog(): void {
@@ -532,11 +535,9 @@ export class LocationsPageComponent implements OnInit {
           detail: editing ? 'Location updated successfully' : 'Location created successfully',
         });
       },
-      error: (err) => {
+      error: () => {
         this.saving.set(false);
-        const detail =
-          err?.error?.detail ?? (editing ? 'Failed to update location' : 'Failed to create location');
-        this.messageService.add({ severity: 'error', summary: 'Error', detail });
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to save location' });
       },
     });
   }

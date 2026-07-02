@@ -232,9 +232,7 @@ export class ResetPasswordPageComponent implements OnInit {
       error: (err: HttpErrorResponse) => {
         this.loading.set(false);
         if (err.status === 400) {
-          this.errorMessage.set(
-            err.error?.detail ?? 'Invalid or expired reset token. Please request a new link.',
-          );
+          this.errorMessage.set('Invalid or expired reset link. Please request a new one.');
         } else {
           this.errorMessage.set('An unexpected error occurred. Please try again.');
         }

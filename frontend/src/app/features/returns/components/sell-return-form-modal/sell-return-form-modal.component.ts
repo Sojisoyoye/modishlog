@@ -36,11 +36,12 @@ import { Sale, SellReturn } from '../../models/return.model';
 
         <!-- Sale search -->
         <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700">
+          <label for="return-sale-search" class="mb-1 block text-sm font-medium text-gray-700">
             Sale <span class="text-red-500">*</span>
           </label>
           <div class="relative">
             <input
+              id="return-sale-search"
               type="text"
               [(ngModel)]="saleSearch"
               name="sale_search"
@@ -89,10 +90,11 @@ import { Sale, SellReturn } from '../../models/return.model';
         </div>
 
         <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700">
+          <label for="return-date" class="mb-1 block text-sm font-medium text-gray-700">
             Return Date <span class="text-red-500">*</span>
           </label>
           <input
+            id="return-date"
             type="date"
             name="return_date"
             [(ngModel)]="form.return_date"
@@ -103,10 +105,11 @@ import { Sale, SellReturn } from '../../models/return.model';
 
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">
+            <label for="return-total-amount" class="mb-1 block text-sm font-medium text-gray-700">
               Total Amount <span class="text-red-500">*</span>
             </label>
             <input
+              id="return-total-amount"
               type="number"
               name="total_amount"
               [(ngModel)]="form.total_amount"
@@ -118,8 +121,9 @@ import { Sale, SellReturn } from '../../models/return.model';
             />
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-700">Amount Paid</label>
+            <label for="return-amount-paid" class="mb-1 block text-sm font-medium text-gray-700">Amount Paid</label>
             <input
+              id="return-amount-paid"
               type="number"
               name="amount_paid"
               [(ngModel)]="form.amount_paid"
@@ -132,8 +136,9 @@ import { Sale, SellReturn } from '../../models/return.model';
         </div>
 
         <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700">Ref No</label>
+          <label for="return-ref-no" class="mb-1 block text-sm font-medium text-gray-700">Ref No</label>
           <input
+            id="return-ref-no"
             type="text"
             name="ref_no"
             [(ngModel)]="form.ref_no"
@@ -143,8 +148,9 @@ import { Sale, SellReturn } from '../../models/return.model';
         </div>
 
         <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700">Notes</label>
+          <label for="return-notes" class="mb-1 block text-sm font-medium text-gray-700">Notes</label>
           <textarea
+            id="return-notes"
             name="notes"
             [(ngModel)]="form.notes"
             rows="2"

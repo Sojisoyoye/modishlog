@@ -31,9 +31,14 @@ type ContactTab = 'suppliers' | 'customers';
     </div>
 
     <!-- Tab bar -->
-    <div class="mb-6 flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 w-fit" role="tablist">
+    <div
+      class="mb-6 flex gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 w-fit"
+      role="tablist"
+      aria-label="Contact type"
+    >
       <button
         role="tab"
+        id="tab-suppliers"
         [attr.aria-selected]="activeTab() === 'suppliers'"
         (click)="setTab('suppliers')"
         class="rounded px-5 py-2 text-sm font-medium transition-colors min-h-[38px]"
@@ -45,6 +50,7 @@ type ContactTab = 'suppliers' | 'customers';
       </button>
       <button
         role="tab"
+        id="tab-customers"
         [attr.aria-selected]="activeTab() === 'customers'"
         (click)="setTab('customers')"
         class="rounded px-5 py-2 text-sm font-medium transition-colors min-h-[38px]"
@@ -58,9 +64,21 @@ type ContactTab = 'suppliers' | 'customers';
 
     <!-- Tab panels -->
     @if (activeTab() === 'suppliers') {
-      <app-suppliers-page />
+      <div
+        id="contacts-panel-suppliers"
+        role="tabpanel"
+        aria-labelledby="tab-suppliers"
+      >
+        <app-suppliers-page />
+      </div>
     } @else {
-      <app-customers-page />
+      <div
+        id="contacts-panel-customers"
+        role="tabpanel"
+        aria-labelledby="tab-customers"
+      >
+        <app-customers-page />
+      </div>
     }
   `,
 })

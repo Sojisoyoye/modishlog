@@ -76,26 +76,35 @@ import { CategoryManagerComponent } from '../../components/category-manager/cate
     <!-- Table -->
     <div class="rounded-xl border border-gray-100 bg-white shadow-sm">
       <div class="overflow-x-auto">
-        @if (loading()) {
-          <div class="flex items-center justify-center py-16">
-            <i class="pi pi-spinner pi-spin text-2xl text-muted"></i>
-          </div>
-        } @else {
-          <table class="min-w-full divide-y divide-gray-200 text-sm">
-            <caption class="sr-only">Expenses list</caption>
-            <thead>
-              <tr class="bg-gray-50">
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Date</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Ref No</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Category</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Note</th>
-                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Payment</th>
-                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Amount (USD)</th>
-                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Amount (NGN)</th>
-                <th class="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
+        <table class="min-w-full divide-y divide-gray-200 text-sm">
+          <caption class="sr-only">Expenses list</caption>
+          <thead>
+            <tr class="bg-gray-50">
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Date</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Ref No</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Category</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Note</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Payment</th>
+              <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Amount (USD)</th>
+              <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Amount (NGN)</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            @if (loading()) {
+              @for (i of [1,2,3,4,5]; track i) {
+                <tr class="animate-pulse">
+                  <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-24"></div></td>
+                  <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-20"></div></td>
+                  <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-28"></div></td>
+                  <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-40"></div></td>
+                  <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-20"></div></td>
+                  <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-16 ml-auto"></div></td>
+                  <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-20 ml-auto"></div></td>
+                  <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-12 ml-auto"></div></td>
+                </tr>
+              }
+            } @else {
               @for (e of expenses(); track e.id) {
                 <tr class="transition-colors hover:bg-gray-50">
                   <td class="px-4 py-3 text-gray-700">{{ e.expense_date | date: 'mediumDate' }}</td>
@@ -116,17 +125,23 @@ import { CategoryManagerComponent } from '../../components/category-manager/cate
                   <td class="px-4 py-3 text-right">
                     <button
                       (click)="openEdit(e)"
-                      class="mr-1 rounded px-2 py-1 text-xs text-muted hover:bg-gray-100 hover:text-primary"
+                      [disabled]="deleting() === e.id"
+                      class="mr-1 rounded px-2 py-1 text-xs text-muted hover:bg-gray-100 hover:text-primary disabled:opacity-50"
                       aria-label="Edit"
                     >
                       <i class="pi pi-pencil"></i> Edit
                     </button>
                     <button
                       (click)="deleteExpense(e)"
-                      class="rounded px-2 py-1 text-xs text-muted hover:bg-red-50 hover:text-red-600"
-                      aria-label="Delete"
+                      [disabled]="deleting() === e.id"
+                      class="rounded px-2 py-1 text-xs text-muted hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                      [attr.aria-label]="deleting() === e.id ? 'Deleting…' : 'Delete'"
                     >
-                      <i class="pi pi-trash"></i>
+                      @if (deleting() === e.id) {
+                        <i class="pi pi-spinner pi-spin text-xs"></i>
+                      } @else {
+                        <i class="pi pi-trash"></i>
+                      }
                     </button>
                   </td>
                 </tr>
@@ -135,9 +150,9 @@ import { CategoryManagerComponent } from '../../components/category-manager/cate
                   <td colspan="8" class="py-12 text-center text-sm text-muted">No expenses found.</td>
                 </tr>
               }
-            </tbody>
-          </table>
-        }
+            }
+          </tbody>
+        </table>
       </div>
 
       <!-- Pagination -->
@@ -197,6 +212,7 @@ export class ExpensesPageComponent implements OnInit {
   showCategoryManager = signal(false);
   editId = signal<string | null>(null);
   editData = signal<ExpenseRead | null>(null);
+  deleting = signal<string | null>(null);
 
   readonly pageSize = 25;
 
@@ -274,13 +290,16 @@ export class ExpensesPageComponent implements OnInit {
 
   deleteExpense(e: ExpenseRead): void {
     if (!window.confirm('Delete this expense? This cannot be undone.')) return;
+    this.deleting.set(e.id);
     this.expensesService.deleteExpense(e.id).subscribe({
       next: () => {
+        this.deleting.set(null);
         this.expenses.update((list) => list.filter((x) => x.id !== e.id));
         this.total.update((t) => t - 1);
         this.messageService.add({ severity: 'success', summary: 'Deleted', detail: 'Expense removed' });
       },
       error: () => {
+        this.deleting.set(null);
         this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to delete expense' });
       },
     });
