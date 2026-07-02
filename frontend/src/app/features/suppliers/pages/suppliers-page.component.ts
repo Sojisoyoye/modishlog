@@ -1,12 +1,16 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  DestroyRef,
   inject,
   signal,
   OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged, switchMap } from 'rxjs/operators';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
@@ -58,8 +62,10 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
           <i class="pi pi-search absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted"></i>
           <input
             type="text"
+            id="supplier-search"
+            aria-label="Search suppliers"
             [(ngModel)]="searchTerm"
-            (ngModelChange)="onSearch()"
+            (ngModelChange)="supplierSearch$.next($event)"
             placeholder="Search suppliers..."
             class="w-full rounded-lg border border-gray-300 py-2.5 pl-9 pr-3 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
           />
@@ -88,6 +94,20 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
+              @if (loading()) {
+                @for (i of [1,2,3,4,5]; track i) {
+                  <tr class="animate-pulse">
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-32"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-24"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-24"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-40"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-20"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-20 ml-auto"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-16 mx-auto"></div></td>
+                    <td class="px-4 py-3"><div class="h-4 bg-gray-200 rounded w-16 ml-auto"></div></td>
+                  </tr>
+                }
+              } @else {
               @for (s of suppliers(); track s.id) {
                 <tr
                   class="cursor-pointer transition-colors hover:bg-gray-50"
@@ -157,6 +177,7 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
                   </td>
                 </tr>
               }
+              }
             </tbody>
           </table>
         </div>
@@ -180,10 +201,11 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
         <!-- Identity -->
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div class="sm:col-span-2">
-            <label class="mb-1 block text-xs font-medium text-muted">
+            <label for="supplier-name" class="mb-1 block text-xs font-medium text-muted">
               Supplier Name <span class="text-danger">*</span>
             </label>
             <input
+              id="supplier-name"
               type="text"
               [(ngModel)]="form.name"
               placeholder="Supplier name"
@@ -191,8 +213,9 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Contact Person</label>
+            <label for="supplier-contact-person" class="mb-1 block text-xs font-medium text-muted">Contact Person</label>
             <input
+              id="supplier-contact-person"
               type="text"
               [(ngModel)]="form.contact_person"
               placeholder="Contact person"
@@ -200,8 +223,9 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Tax / VAT Number</label>
+            <label for="supplier-tax-number" class="mb-1 block text-xs font-medium text-muted">Tax / VAT Number</label>
             <input
+              id="supplier-tax-number"
               type="text"
               [(ngModel)]="form.tax_number"
               placeholder="TIN / VAT number"
@@ -209,8 +233,9 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Email Address</label>
+            <label for="supplier-email" class="mb-1 block text-xs font-medium text-muted">Email Address</label>
             <input
+              id="supplier-email"
               type="email"
               [(ngModel)]="form.email"
               placeholder="Email address"
@@ -218,8 +243,9 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Mobile</label>
+            <label for="supplier-mobile" class="mb-1 block text-xs font-medium text-muted">Mobile</label>
             <input
+              id="supplier-mobile"
               type="tel"
               [(ngModel)]="form.mobile"
               placeholder="Mobile number"
@@ -227,8 +253,9 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Alternate Number</label>
+            <label for="supplier-alternate-number" class="mb-1 block text-xs font-medium text-muted">Alternate Number</label>
             <input
+              id="supplier-alternate-number"
               type="tel"
               [(ngModel)]="form.alternate_number"
               placeholder="Alternate number"
@@ -295,8 +322,9 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
         <!-- Payment Terms & Opening Balance -->
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Pay Term</label>
+            <label for="supplier-pay-term-number" class="mb-1 block text-xs font-medium text-muted">Pay Term</label>
             <input
+              id="supplier-pay-term-number"
               type="number"
               [(ngModel)]="form.pay_term_number"
               placeholder="e.g. 30"
@@ -305,8 +333,9 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             />
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Term Type</label>
+            <label for="supplier-pay-term-type" class="mb-1 block text-xs font-medium text-muted">Term Type</label>
             <select
+              id="supplier-pay-term-type"
               [(ngModel)]="form.pay_term_type"
               class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
             >
@@ -316,8 +345,9 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
             </select>
           </div>
           <div>
-            <label class="mb-1 block text-xs font-medium text-muted">Opening Balance</label>
+            <label for="supplier-opening-balance" class="mb-1 block text-xs font-medium text-muted">Opening Balance</label>
             <input
+              id="supplier-opening-balance"
               type="number"
               [(ngModel)]="form.opening_balance"
               min="0"
@@ -330,8 +360,9 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
 
         <!-- Notes -->
         <div>
-          <label class="mb-1 block text-xs font-medium text-muted">Notes</label>
+          <label for="supplier-notes" class="mb-1 block text-xs font-medium text-muted">Notes</label>
           <textarea
+            id="supplier-notes"
             [(ngModel)]="form.notes"
             rows="2"
             placeholder="Internal notes about this supplier"
@@ -579,9 +610,12 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
 export class SuppliersPageComponent implements OnInit {
   private readonly suppliersService = inject(SuppliersService);
   private readonly messageService = inject(MessageService);
+  private readonly destroyRef = inject(DestroyRef);
+  protected readonly supplierSearch$ = new Subject<string>();
 
   suppliers = signal<Supplier[]>([]);
   total = signal(0);
+  loading = signal(false);
   saving = signal(false);
   tabLoading = signal(false);
 
@@ -609,6 +643,30 @@ export class SuppliersPageComponent implements OnInit {
   ];
 
   ngOnInit(): void {
+    this.supplierSearch$
+      .pipe(
+        debounceTime(300),
+        distinctUntilChanged(),
+        switchMap(() => {
+          const params: Record<string, string> = {};
+          if (this.searchTerm) params['search'] = this.searchTerm;
+          if (this.activeOnly) params['active_only'] = 'true';
+          this.loading.set(true);
+          return this.suppliersService.getAll(params);
+        }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (resp) => {
+          this.suppliers.set(resp.items);
+          this.total.set(resp.total);
+          this.loading.set(false);
+        },
+        error: () => {
+          this.loading.set(false);
+          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to load suppliers' });
+        },
+      });
     this.loadSuppliers();
   }
 
@@ -616,17 +674,18 @@ export class SuppliersPageComponent implements OnInit {
     const params: Record<string, string> = {};
     if (this.searchTerm) params['search'] = this.searchTerm;
     if (this.activeOnly) params['active_only'] = 'true';
+    this.loading.set(true);
     this.suppliersService.getAll(params).subscribe({
       next: (resp) => {
         this.suppliers.set(resp.items);
         this.total.set(resp.total);
+        this.loading.set(false);
       },
-      error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to load suppliers' }),
+      error: () => {
+        this.loading.set(false);
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to load suppliers' });
+      },
     });
-  }
-
-  onSearch(): void {
-    this.loadSuppliers();
   }
 
   openAddDialog(): void {
