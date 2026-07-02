@@ -1,8 +1,9 @@
-import { Component, ChangeDetectionStrategy, OnInit, inject, signal, computed, DestroyRef } from '@angular/core';
+import { Component, ChangeDetectionStrategy, ChangeDetectorRef, OnInit, inject, signal, computed, DestroyRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { SettingsService } from '../../../core/services/settings.service';
+import { Toast } from 'primeng/toast';
+import { SettingsService, BusinessProfile } from '../../../core/services/settings.service';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -13,15 +14,131 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 @Component({
   selector: 'app-settings-page',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, Toast],
   template: `
+    <p-toast />
     <div>
       <div class="mb-6">
         <h2 class="text-2xl font-bold text-gray-900">Settings</h2>
-        <p class="mt-1 text-sm text-gray-500">Manage API keys and alert thresholds</p>
+        <p class="mt-1 text-sm text-gray-500">Manage business profile, API keys and preferences</p>
       </div>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+
+        <!-- Business Profile Section -->
+        <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm lg:col-span-2">
+          <div class="mb-5 flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
+              <i class="pi pi-building text-sm text-blue-700"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Business Profile</h3>
+          </div>
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Business Name</label>
+              <input
+                type="text"
+                [(ngModel)]="bpForm.business_name"
+                placeholder="e.g. Ade Traders Ltd"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Phone</label>
+              <input
+                type="text"
+                [(ngModel)]="bpForm.phone"
+                placeholder="e.g. +234 801 234 5678"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Email</label>
+              <input
+                type="email"
+                [(ngModel)]="bpForm.email"
+                placeholder="info@business.com"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Address</label>
+              <input
+                type="text"
+                [(ngModel)]="bpForm.address_line_1"
+                placeholder="123 Market Street"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">City</label>
+              <input
+                type="text"
+                [(ngModel)]="bpForm.city"
+                placeholder="e.g. Lagos"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Country</label>
+              <input
+                type="text"
+                [(ngModel)]="bpForm.country"
+                placeholder="e.g. Nigeria"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Tax Number</label>
+              <input
+                type="text"
+                [(ngModel)]="bpForm.tax_number"
+                placeholder="e.g. TIN-1234567"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Currency</label>
+              <select
+                [(ngModel)]="bpForm.currency"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              >
+                <option value="NGN">NGN — Nigerian Naira</option>
+                <option value="USD">USD — US Dollar</option>
+                <option value="GBP">GBP — British Pound</option>
+                <option value="EUR">EUR — Euro</option>
+              </select>
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Timezone</label>
+              <select
+                [(ngModel)]="bpForm.timezone"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              >
+                <option value="Africa/Lagos">Africa/Lagos (WAT +01:00)</option>
+                <option value="UTC">UTC</option>
+                <option value="Europe/London">Europe/London (GMT/BST)</option>
+                <option value="America/New_York">America/New_York (EST/EDT)</option>
+              </select>
+            </div>
+          </div>
+          <div class="mt-4 flex items-center gap-3">
+            <button
+              (click)="saveBusinessProfile()"
+              [disabled]="bpSaving()"
+              class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50 min-h-[44px]"
+            >
+              <i class="pi pi-save text-sm"></i> Save Business Profile
+            </button>
+            @if (bpStatus() === 'saved') {
+              <span class="text-sm text-emerald-600"><i class="pi pi-check-circle mr-1 text-xs"></i>Saved</span>
+            }
+            @if (bpStatus() === 'error') {
+              <span class="text-sm text-red-600"><i class="pi pi-times-circle mr-1 text-xs"></i>Failed to save</span>
+            }
+          </div>
+        </div>
+
         <!-- API Key Section -->
         <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
           <div class="mb-5 flex items-center gap-2">
@@ -48,6 +165,30 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                   <p class="text-xs text-emerald-700">API key saved successfully</p>
                 }
               </div>
+              <button
+                (click)="testApiKey()"
+                [disabled]="apiKeyTesting()"
+                class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 min-h-[44px]"
+              >
+                @if (apiKeyTesting()) {
+                  <i class="pi pi-spin pi-spinner text-sm"></i>
+                } @else {
+                  <i class="pi pi-play text-sm"></i>
+                }
+                Test Connection
+              </button>
+              @if (apiKeyTestResult()) {
+                <div
+                  class="rounded-lg p-3 text-sm"
+                  [class]="apiKeyTestResult()!.success ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'"
+                >
+                  <i class="pi mr-1 text-xs" [class]="apiKeyTestResult()!.success ? 'pi-check-circle' : 'pi-times-circle'"></i>
+                  {{ apiKeyTestResult()!.message }}
+                  @if (apiKeyTestResult()!.latency_ms !== null) {
+                    <span class="ml-2 text-xs opacity-70">({{ apiKeyTestResult()!.latency_ms }}ms)</span>
+                  }
+                </div>
+              }
             } @else {
               <div>
                 <label class="mb-1.5 block text-xs font-medium text-muted">API Key</label>
@@ -75,20 +216,10 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                 >
                   <i class="pi pi-save text-sm"></i> Save
                 </button>
-                <button
-                  (click)="testApiKey()"
-                  class="flex items-center gap-1.5 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 min-h-[44px]"
-                >
-                  <i class="pi pi-play text-sm"></i> Test Connection
-                </button>
               </div>
-              @if (apiKeyStatus()) {
-                <div
-                  class="rounded-lg p-3 text-sm"
-                  [class]="apiKeyStatus() === 'saved' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-50 text-muted'"
-                >
-                  <i class="pi mr-1 text-xs" [class]="apiKeyStatus() === 'saved' ? 'pi-check-circle' : 'pi-info-circle'"></i>
-                  {{ apiKeyStatus() === 'saved' ? 'API key saved successfully' : 'Test connection feature coming soon' }}
+              @if (apiKeyStatus() === 'saved') {
+                <div class="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">
+                  <i class="pi pi-check-circle mr-1 text-xs"></i>API key saved successfully
                 </div>
               }
             }
@@ -223,6 +354,21 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
               />
             </div>
           </div>
+          <div class="mt-4 flex items-center gap-3">
+            <button
+              (click)="savePreferences()"
+              [disabled]="prefSaving()"
+              class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50 min-h-[44px]"
+            >
+              <i class="pi pi-save text-sm"></i> Save Preferences
+            </button>
+            @if (prefStatus() === 'saved') {
+              <span class="text-sm text-emerald-600"><i class="pi pi-check-circle mr-1 text-xs"></i>Saved</span>
+            }
+            @if (prefStatus() === 'error') {
+              <span class="text-sm text-red-600"><i class="pi pi-times-circle mr-1 text-xs"></i>Failed to save</span>
+            }
+          </div>
           <p class="mt-4 text-xs text-muted">
             <i class="pi pi-info-circle mr-1 text-[10px]"></i>
             Per-product thresholds can be edited directly in the Inventory page.
@@ -235,22 +381,48 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 })
 export class SettingsPageComponent implements OnInit {
   private readonly settingsService = inject(SettingsService);
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly monthNames = MONTH_NAMES;
 
+  // Business Profile
+  bpForm: Partial<BusinessProfile> = {
+    business_name: null,
+    address_line_1: null,
+    city: null,
+    state: null,
+    country: null,
+    zip_code: null,
+    phone: null,
+    email: null,
+    tax_number: null,
+    currency: 'NGN',
+    timezone: 'Africa/Lagos',
+  };
+  bpSaving = signal(false);
+  bpStatus = signal<'saved' | 'error' | null>(null);
+
+  // API Key
   apiKey = '';
   apiKeyVisible = signal(false);
-  apiKeyStatus = signal<'saved' | 'testing' | null>(null);
+  apiKeyStatus = signal<'saved' | null>(null);
   apiKeyConfigured = signal(false);
+  apiKeyTesting = signal(false);
+  apiKeyTestResult = signal<{ success: boolean; message: string; latency_ms: number | null } | null>(null);
   saving = signal(false);
-  defaultPair = 'USDNGN';
-  globalStockThreshold = 10;
 
+  // Fiscal Year
   fyMonth = signal('');
   fyDay = signal<number | null>(null);
   fysSaving = signal(false);
   fyStatus = signal<'saved' | 'error' | null>(null);
+
+  // Preferences
+  defaultPair = 'USDNGN';
+  globalStockThreshold = 10;
+  prefSaving = signal(false);
+  prefStatus = signal<'saved' | 'error' | null>(null);
 
   fyDayWarning = computed(() => {
     const m = parseInt(this.fyMonth(), 10);
@@ -276,6 +448,54 @@ export class SettingsPageComponent implements OnInit {
         },
         error: () => {},
       });
+    this.settingsService
+      .getBusinessProfile()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (bp) => {
+          this.bpForm = {
+            business_name: bp.business_name,
+            address_line_1: bp.address_line_1,
+            city: bp.city,
+            state: bp.state,
+            country: bp.country,
+            zip_code: bp.zip_code,
+            phone: bp.phone,
+            email: bp.email,
+            tax_number: bp.tax_number,
+            currency: bp.currency,
+            timezone: bp.timezone,
+          };
+          this.cdr.markForCheck();
+        },
+        error: () => {},
+      });
+    this.settingsService
+      .getAppSettings()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (settings) => {
+          this.defaultPair = settings['default_currency_pair'] ?? 'USDNGN';
+          this.globalStockThreshold = parseInt(settings['global_low_stock_threshold'] ?? '10', 10);
+          this.cdr.markForCheck();
+        },
+        error: () => {},
+      });
+  }
+
+  saveBusinessProfile(): void {
+    this.bpSaving.set(true);
+    this.bpStatus.set(null);
+    this.settingsService.updateBusinessProfile(this.bpForm).subscribe({
+      next: () => {
+        this.bpSaving.set(false);
+        this.bpStatus.set('saved');
+      },
+      error: () => {
+        this.bpSaving.set(false);
+        this.bpStatus.set('error');
+      },
+    });
   }
 
   saveApiKey(): void {
@@ -290,6 +510,21 @@ export class SettingsPageComponent implements OnInit {
       },
       error: () => {
         this.saving.set(false);
+      },
+    });
+  }
+
+  testApiKey(): void {
+    this.apiKeyTesting.set(true);
+    this.apiKeyTestResult.set(null);
+    this.settingsService.testApiKey('anthropic').subscribe({
+      next: (result) => {
+        this.apiKeyTesting.set(false);
+        this.apiKeyTestResult.set(result);
+      },
+      error: () => {
+        this.apiKeyTesting.set(false);
+        this.apiKeyTestResult.set({ success: false, message: 'Connection test failed', latency_ms: null });
       },
     });
   }
@@ -315,7 +550,20 @@ export class SettingsPageComponent implements OnInit {
     });
   }
 
-  testApiKey(): void {
-    this.apiKeyStatus.set('testing');
+  savePreferences(): void {
+    this.prefSaving.set(true);
+    this.prefStatus.set(null);
+    const pair$ = this.settingsService.updateAppSetting('default_currency_pair', this.defaultPair);
+    const threshold$ = this.settingsService.updateAppSetting('global_low_stock_threshold', String(this.globalStockThreshold));
+    let done = 0;
+    const onDone = () => {
+      done++;
+      if (done === 2) {
+        this.prefSaving.set(false);
+        this.prefStatus.set('saved');
+      }
+    };
+    pair$.subscribe({ next: onDone, error: () => { this.prefSaving.set(false); this.prefStatus.set('error'); } });
+    threshold$.subscribe({ next: onDone, error: () => { this.prefSaving.set(false); this.prefStatus.set('error'); } });
   }
 }

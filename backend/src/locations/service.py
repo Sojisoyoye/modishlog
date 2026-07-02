@@ -41,6 +41,10 @@ async def create_location(
         state=data.state,
         country=data.country,
         zip_code=data.zip_code,
+        timezone=data.timezone,
+        currency=data.currency,
+        tax_number=data.tax_number,
+        location_type=data.location_type,
         created_by=user_id,
     )
     db.add(location)

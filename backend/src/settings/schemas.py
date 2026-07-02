@@ -1,6 +1,8 @@
 """Settings Pydantic schemas."""
 
 import calendar
+import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -52,3 +54,54 @@ class FiscalYearRead(BaseModel):
 
     fiscal_year_start_month: int | None
     fiscal_year_start_day: int | None
+
+
+class BusinessProfileUpdate(BaseModel):
+    business_name: str | None = None
+    address_line_1: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    zip_code: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    website: str | None = None
+    tax_number: str | None = None
+    registration_number: str | None = None
+    currency: str | None = None
+    timezone: str | None = None
+
+
+class BusinessProfileRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    business_name: str | None
+    address_line_1: str | None
+    city: str | None
+    state: str | None
+    country: str | None
+    zip_code: str | None
+    phone: str | None
+    email: str | None
+    website: str | None
+    tax_number: str | None
+    registration_number: str | None
+    currency: str
+    timezone: str
+    updated_at: datetime
+
+
+class AppSettingRead(BaseModel):
+    key: str
+    value: str | None
+
+
+class AppSettingWrite(BaseModel):
+    value: str | None = None
+
+
+class ApiKeyTestResult(BaseModel):
+    success: bool
+    message: str
+    latency_ms: int | None = None

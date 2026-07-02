@@ -15,6 +15,7 @@ import {
   LocationsService,
   Location,
   LocationCreate,
+  LocationType,
 } from '../../../core/services/locations.service';
 
 @Component({
@@ -292,6 +293,60 @@ import {
             class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
           />
         </div>
+
+        <!-- Row 7: Currency + Timezone -->
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Currency</label>
+            <select
+              [(ngModel)]="form.currency"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+            >
+              <option value="NGN">NGN</option>
+              <option value="USD">USD</option>
+              <option value="GBP">GBP</option>
+              <option value="EUR">EUR</option>
+            </select>
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Timezone</label>
+            <select
+              [(ngModel)]="form.timezone"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+            >
+              <option value="Africa/Lagos">Africa/Lagos</option>
+              <option value="UTC">UTC</option>
+              <option value="Europe/London">Europe/London</option>
+              <option value="America/New_York">America/New_York</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Row 8: Tax Number + Location Type -->
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Tax Number</label>
+            <input
+              type="text"
+              [(ngModel)]="form.tax_number"
+              placeholder="e.g. TIN-1234567"
+              maxlength="100"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+            />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted">Location Type</label>
+            <select
+              [(ngModel)]="form.location_type"
+              class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+            >
+              <option [ngValue]="null">— None —</option>
+              <option value="retail">Retail</option>
+              <option value="warehouse">Warehouse</option>
+              <option value="online">Online</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <ng-template #footer>
@@ -344,6 +399,10 @@ export class LocationsPageComponent implements OnInit {
     state: string;
     country: string;
     zip_code: string;
+    currency: string;
+    timezone: string;
+    tax_number: string;
+    location_type: LocationType | null;
   } = {
     name: '',
     location_code: '',
@@ -356,6 +415,10 @@ export class LocationsPageComponent implements OnInit {
     state: '',
     country: '',
     zip_code: '',
+    currency: 'NGN',
+    timezone: 'Africa/Lagos',
+    tax_number: '',
+    location_type: null,
   };
 
   ngOnInit(): void {
@@ -408,6 +471,10 @@ export class LocationsPageComponent implements OnInit {
       state: loc.state ?? '',
       country: loc.country ?? '',
       zip_code: loc.zip_code ?? '',
+      currency: loc.currency ?? 'NGN',
+      timezone: loc.timezone ?? 'Africa/Lagos',
+      tax_number: loc.tax_number ?? '',
+      location_type: loc.location_type ?? null,
     };
     this.showDialog = true;
   }
@@ -442,6 +509,10 @@ export class LocationsPageComponent implements OnInit {
       state: this.form.state.trim() || null,
       country: this.form.country.trim() || null,
       zip_code: this.form.zip_code.trim() || null,
+      currency: this.form.currency,
+      timezone: this.form.timezone,
+      tax_number: this.form.tax_number.trim() || null,
+      location_type: this.form.location_type,
     };
 
     const editing = this.editingLocation();
@@ -505,6 +576,10 @@ export class LocationsPageComponent implements OnInit {
       state: '',
       country: '',
       zip_code: '',
+      currency: 'NGN',
+      timezone: 'Africa/Lagos',
+      tax_number: '',
+      location_type: null,
     };
   }
 }

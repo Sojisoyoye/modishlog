@@ -252,3 +252,195 @@ class TestFernetEncryption:
 
         with pytest.raises(ValueError, match="SECRET_KEY may have been rotated"):
             decrypt_api_key("not-a-valid-fernet-token")
+
+
+# ---------------------------------------------------------------------------
+# BusinessProfile service tests
+# ---------------------------------------------------------------------------
+
+
+def _mock_db_simple():
+    db = AsyncMock()
+    db.flush = AsyncMock()
+    db.add = MagicMock()
+    return db
+
+
+class TestBusinessProfile:
+    @pytest.mark.asyncio
+    async def test_get_business_profile_creates_empty_record_if_absent(self):
+        """get_business_profile() creates a row via upsert when none exists."""
+        from src.settings.models import BusinessProfile
+        from src.settings.service import get_business_profile
+
+        # First execute: SELECT returns None
+        first_result = MagicMock()
+        first_result.scalar_one_or_none.return_value = None
+        # Second execute: pg_insert (result is ignored)
+        insert_result = MagicMock()
+        # Third execute: SELECT after insert returns the new profile
+        new_profile = BusinessProfile()
+        new_profile.id = uuid.uuid4()
+        new_profile.created_at = datetime.now(timezone.utc)
+        new_profile.updated_at = datetime.now(timezone.utc)
+        third_result = MagicMock()
+        third_result.scalar_one.return_value = new_profile
+
+        db = _mock_db_simple()
+        db.execute = AsyncMock(side_effect=[first_result, insert_result, third_result])
+
+        profile = await get_business_profile(db)
+        assert profile is not None
+        assert profile.business_name is None
+        assert db.execute.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_get_business_profile_returns_existing(self):
+        """get_business_profile() returns the stored BusinessProfile when one exists."""
+        from src.settings.models import BusinessProfile
+        from src.settings.service import get_business_profile
+
+        existing = BusinessProfile(business_name="Ade Traders", currency="NGN")
+        existing.id = uuid.uuid4()
+        existing.created_at = datetime.now(timezone.utc)
+        existing.updated_at = datetime.now(timezone.utc)
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = existing
+        db = _mock_db_simple()
+        db.execute = AsyncMock(return_value=result_mock)
+
+        profile = await get_business_profile(db)
+        assert profile.business_name == "Ade Traders"
+
+    @pytest.mark.asyncio
+    async def test_update_business_profile_persists_all_fields(self):
+        """update_business_profile() updates and flushes the profile record."""
+        from src.settings.models import BusinessProfile
+        from src.settings.schemas import BusinessProfileUpdate
+        from src.settings.service import update_business_profile
+
+        existing = BusinessProfile(business_name="Old Name", currency="NGN")
+        existing.id = uuid.uuid4()
+        existing.created_at = datetime.now(timezone.utc)
+        existing.updated_at = datetime.now(timezone.utc)
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = existing
+        db = _mock_db_simple()
+        db.execute = AsyncMock(return_value=result_mock)
+
+        data = BusinessProfileUpdate(
+            business_name="New Name",
+            currency="USD",
+            tax_number="TIN-12345",
+        )
+        updated = await update_business_profile(db, data, user_id=uuid.uuid4())
+        assert updated.business_name == "New Name"
+        assert updated.currency == "USD"
+        assert updated.tax_number == "TIN-12345"
+        db.flush.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# AppSetting service tests
+# ---------------------------------------------------------------------------
+
+
+class TestAppSettings:
+    @pytest.mark.asyncio
+    async def test_get_app_settings_returns_defaults_when_absent(self):
+        """get_app_settings() returns all default key/value pairs when table is empty."""
+        from src.settings.service import get_app_settings
+
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        result_mock.scalars.return_value = scalars_mock
+        db = _mock_db_simple()
+        db.execute = AsyncMock(return_value=result_mock)
+
+        settings_dict = await get_app_settings(db)
+        assert "global_low_stock_threshold" in settings_dict
+        assert "default_currency_pair" in settings_dict
+        assert settings_dict["global_low_stock_threshold"] == "10"
+        assert settings_dict["default_currency_pair"] == "USDNGN"
+
+    @pytest.mark.asyncio
+    async def test_update_app_setting_persists_value(self):
+        """update_app_setting() upserts the key-value pair and flushes."""
+        from src.settings.service import update_app_setting
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
+        db = _mock_db_simple()
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await update_app_setting(db, "global_low_stock_threshold", "25", user_id=uuid.uuid4())
+        db.add.assert_called_once()
+        db.flush.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_app_setting_updates_existing(self):
+        """update_app_setting() updates in-place when a row already exists."""
+        from src.settings.models import AppSetting
+        from src.settings.service import update_app_setting
+
+        existing = AppSetting(key="global_low_stock_threshold", value="10")
+        existing.updated_at = datetime.now(timezone.utc)
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = existing
+        db = _mock_db_simple()
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await update_app_setting(db, "global_low_stock_threshold", "50", user_id=uuid.uuid4())
+        assert existing.value == "50"
+        db.flush.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Test API key endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestApiKeyTest:
+    @pytest.mark.asyncio
+    async def test_test_api_key_returns_success_true_on_valid_key(self):
+        """test_anthropic_api_key() returns success=True when key decrypts and works."""
+        from unittest.mock import patch
+
+        from src.settings.models import UserApiKey
+        from src.settings.service import test_anthropic_api_key
+
+        existing = UserApiKey()
+        existing.id = uuid.uuid4()
+        existing.key_name = "anthropic"
+        existing.encrypted_value = "gAAAAAsomefakeencryptedvalue"
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = existing
+        db = _mock_db_simple()
+        db.execute.return_value = result_mock
+
+        with patch(
+            "src.settings.service.decrypt_api_key", return_value="sk-test-valid"
+        ), patch(
+            "src.settings.service._call_anthropic_api", return_value=True
+        ):
+            result = await test_anthropic_api_key(db=db, user_id=uuid.uuid4())
+            assert result["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_test_api_key_returns_failure_when_not_configured(self):
+        """test_anthropic_api_key() returns success=False if no key is stored."""
+        from src.settings.service import test_anthropic_api_key
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None  # no key stored
+        db = _mock_db_simple()
+        db.execute = AsyncMock(return_value=result_mock)
+
+        result = await test_anthropic_api_key(db=db, user_id=uuid.uuid4())
+        assert result["success"] is False
+        assert "not configured" in result["message"].lower()

@@ -1,8 +1,9 @@
 """Settings domain — user-scoped API keys and preferences."""
 
 import uuid as _uuid
+from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -36,4 +37,46 @@ class UserPreferences(UUIDMixin, TimestampMixin, Base):
     )
     fiscal_year_start_day: Mapped[int | None] = mapped_column(
         Integer, nullable=True, default=None
+    )
+
+
+class BusinessProfile(UUIDMixin, TimestampMixin, Base):
+    """Single-row table storing the business's public profile and defaults."""
+
+    __tablename__ = "business_profile"
+
+    business_name: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default=None)
+    address_line_1: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    address_line_2: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    zip_code: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    website: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    tax_number: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    registration_number: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="NGN", server_default="NGN")
+    timezone: Mapped[str] = mapped_column(String(60), nullable=False, default="Africa/Lagos", server_default="Africa/Lagos")
+    updated_by: Mapped[_uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=None
+    )
+
+
+class AppSetting(Base):
+    """Global key-value store for application-wide settings."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    updated_by: Mapped[_uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, default=None
     )
