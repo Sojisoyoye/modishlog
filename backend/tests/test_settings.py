@@ -269,20 +269,30 @@ def _mock_db_simple():
 class TestBusinessProfile:
     @pytest.mark.asyncio
     async def test_get_business_profile_creates_empty_record_if_absent(self):
-        """get_business_profile() returns an empty BusinessProfile when none exists."""
+        """get_business_profile() creates a row via upsert when none exists."""
+        from src.settings.models import BusinessProfile
         from src.settings.service import get_business_profile
 
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = None
+        # First execute: SELECT returns None
+        first_result = MagicMock()
+        first_result.scalar_one_or_none.return_value = None
+        # Second execute: pg_insert (result is ignored)
+        insert_result = MagicMock()
+        # Third execute: SELECT after insert returns the new profile
+        new_profile = BusinessProfile()
+        new_profile.id = uuid.uuid4()
+        new_profile.created_at = datetime.now(timezone.utc)
+        new_profile.updated_at = datetime.now(timezone.utc)
+        third_result = MagicMock()
+        third_result.scalar_one.return_value = new_profile
+
         db = _mock_db_simple()
-        db.execute = AsyncMock(return_value=result_mock)
+        db.execute = AsyncMock(side_effect=[first_result, insert_result, third_result])
 
         profile = await get_business_profile(db)
-        # Should return an empty/default profile (not raise)
         assert profile is not None
-        # When absent, business_name should be None
         assert profile.business_name is None
-        db.add.assert_called_once()
+        assert db.execute.call_count == 3
 
     @pytest.mark.asyncio
     async def test_get_business_profile_returns_existing(self):

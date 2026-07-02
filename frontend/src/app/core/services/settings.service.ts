@@ -81,6 +81,6 @@ export class SettingsService {
   }
 
   updateAppSetting(key: string, value: string): Observable<void> {
-    return this.api.put<void>(`/settings/app/${key}`, { key, value });
+    return this.api.put<void>(`/settings/app/${key}`, { value });
   }
 }

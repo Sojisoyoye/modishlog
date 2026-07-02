@@ -1,5 +1,6 @@
 """Settings service — encrypt/decrypt API keys and persist to DB."""
 
+import asyncio
 import base64
 import hashlib
 import time
@@ -9,6 +10,7 @@ from functools import lru_cache
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -142,9 +144,14 @@ async def get_business_profile(db: AsyncSession) -> BusinessProfile:
     result = await db.execute(select(BusinessProfile).limit(1))
     profile = result.scalar_one_or_none()
     if profile is None:
-        profile = BusinessProfile()
-        db.add(profile)
+        # Use pg_insert with on_conflict_do_nothing to prevent duplicate rows
+        # from concurrent first-time requests (SELECT-then-INSERT race).
+        new_id = uuid.uuid4()
+        stmt = pg_insert(BusinessProfile).values(id=new_id).on_conflict_do_nothing()
+        await db.execute(stmt)
         await db.flush()
+        result2 = await db.execute(select(BusinessProfile).limit(1))
+        profile = result2.scalar_one()
     return profile
 
 
@@ -154,7 +161,7 @@ async def update_business_profile(
     user_id: uuid.UUID,
 ) -> BusinessProfile:
     profile = await get_business_profile(db)
-    for field, value in data.model_dump(exclude_none=True).items():
+    for field, value in data.model_dump(exclude_unset=True).items():
         setattr(profile, field, value)
     profile.updated_by = user_id
     await db.flush()
@@ -211,7 +218,8 @@ async def test_anthropic_api_key(
         return {"success": False, "message": "Anthropic API key not configured", "latency_ms": None}
     plaintext = decrypt_api_key(row.encrypted_value)
     start = time.monotonic()
-    ok = _call_anthropic_api(plaintext)
+    # Run the synchronous HTTP call in a thread to avoid blocking the event loop.
+    ok = await asyncio.to_thread(_call_anthropic_api, plaintext)
     latency_ms = int((time.monotonic() - start) * 1000)
     if ok:
         return {"success": True, "message": "Connection successful", "latency_ms": latency_ms}

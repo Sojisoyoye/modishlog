@@ -97,6 +97,10 @@ class AppSettingRead(BaseModel):
     value: str | None
 
 
+class AppSettingWrite(BaseModel):
+    value: str | None = None
+
+
 class ApiKeyTestResult(BaseModel):
     success: bool
     message: str

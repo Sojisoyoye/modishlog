@@ -12,6 +12,7 @@ from src.settings.schemas import (
     ApiKeyTestResult,
     ApiKeyUpsert,
     AppSettingRead,
+    AppSettingWrite,
     BusinessProfileRead,
     BusinessProfileUpdate,
     FiscalYearRead,
@@ -51,7 +52,7 @@ async def get_app_settings(
 @router.put("/app/{key}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_app_setting(
     key: str,
-    body: AppSettingRead,
+    body: AppSettingWrite,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:

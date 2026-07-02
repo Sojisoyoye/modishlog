@@ -1,8 +1,7 @@
-import { Component, ChangeDetectionStrategy, OnInit, inject, signal, computed, DestroyRef } from '@angular/core';
+import { Component, ChangeDetectionStrategy, ChangeDetectorRef, OnInit, inject, signal, computed, DestroyRef } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { SettingsService, BusinessProfile } from '../../../core/services/settings.service';
 
@@ -16,7 +15,6 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   selector: 'app-settings-page',
   standalone: true,
   imports: [FormsModule, RouterLink, Toast],
-  providers: [MessageService],
   template: `
     <p-toast />
     <div>
@@ -367,6 +365,9 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
             @if (prefStatus() === 'saved') {
               <span class="text-sm text-emerald-600"><i class="pi pi-check-circle mr-1 text-xs"></i>Saved</span>
             }
+            @if (prefStatus() === 'error') {
+              <span class="text-sm text-red-600"><i class="pi pi-times-circle mr-1 text-xs"></i>Failed to save</span>
+            }
           </div>
           <p class="mt-4 text-xs text-muted">
             <i class="pi pi-info-circle mr-1 text-[10px]"></i>
@@ -380,7 +381,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 })
 export class SettingsPageComponent implements OnInit {
   private readonly settingsService = inject(SettingsService);
-  private readonly messageService = inject(MessageService);
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly monthNames = MONTH_NAMES;
@@ -421,7 +422,7 @@ export class SettingsPageComponent implements OnInit {
   defaultPair = 'USDNGN';
   globalStockThreshold = 10;
   prefSaving = signal(false);
-  prefStatus = signal<'saved' | null>(null);
+  prefStatus = signal<'saved' | 'error' | null>(null);
 
   fyDayWarning = computed(() => {
     const m = parseInt(this.fyMonth(), 10);
@@ -465,6 +466,7 @@ export class SettingsPageComponent implements OnInit {
             currency: bp.currency,
             timezone: bp.timezone,
           };
+          this.cdr.markForCheck();
         },
         error: () => {},
       });
@@ -475,6 +477,7 @@ export class SettingsPageComponent implements OnInit {
         next: (settings) => {
           this.defaultPair = settings['default_currency_pair'] ?? 'USDNGN';
           this.globalStockThreshold = parseInt(settings['global_low_stock_threshold'] ?? '10', 10);
+          this.cdr.markForCheck();
         },
         error: () => {},
       });
@@ -560,7 +563,7 @@ export class SettingsPageComponent implements OnInit {
         this.prefStatus.set('saved');
       }
     };
-    pair$.subscribe({ next: onDone, error: () => { this.prefSaving.set(false); } });
-    threshold$.subscribe({ next: onDone, error: () => { this.prefSaving.set(false); } });
+    pair$.subscribe({ next: onDone, error: () => { this.prefSaving.set(false); this.prefStatus.set('error'); } });
+    threshold$.subscribe({ next: onDone, error: () => { this.prefSaving.set(false); this.prefStatus.set('error'); } });
   }
 }
