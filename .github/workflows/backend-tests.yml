@@ -4,6 +4,16 @@ on:
     paths: ['backend/**']
 
 jobs:
+  dependency-scan:
+    name: CVE dependency scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11', cache: pip }
+      - run: pip install pip-audit
+      - run: pip-audit -r backend/requirements.txt --progress-spinner off
+
   test:
     runs-on: ubuntu-latest
     services:
