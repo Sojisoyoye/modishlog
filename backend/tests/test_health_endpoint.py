@@ -12,36 +12,39 @@ class TestHealthEndpoint:
         self.client = TestClient(app, raise_server_exceptions=False)
 
     def test_health_returns_200(self):
-        resp = self.client.get("/health")
+        with patch("src.health.router.check_db", new=AsyncMock(return_value="ok")):
+            resp = self.client.get("/health")
         assert resp.status_code == 200
 
     def test_health_returns_json(self):
-        resp = self.client.get("/health")
+        with patch("src.health.router.check_db", new=AsyncMock(return_value="ok")):
+            resp = self.client.get("/health")
         body = resp.json()
-        assert "status" in body
-        assert body["status"] in ("healthy", "degraded")
+        assert body["status"] == "healthy"
+        assert body["db"] == "ok"
+        assert "version" in body
 
     def test_health_includes_db_status(self):
-        resp = self.client.get("/health")
-        body = resp.json()
-        assert "db" in body
+        with patch("src.health.router.check_db", new=AsyncMock(return_value="ok")):
+            resp = self.client.get("/health")
+        assert "db" in resp.json()
 
     def test_health_includes_version(self):
-        resp = self.client.get("/health")
-        body = resp.json()
-        assert "version" in body
+        with patch("src.health.router.check_db", new=AsyncMock(return_value="ok")):
+            resp = self.client.get("/health")
+        assert "version" in resp.json()
 
     def test_api_health_alias_returns_200(self):
         """/api/health must also be accessible (for monitoring tools that expect this path)."""
-        resp = self.client.get("/api/health")
+        with patch("src.health.router.check_db", new=AsyncMock(return_value="ok")):
+            resp = self.client.get("/api/health")
         assert resp.status_code == 200
 
     def test_health_db_ok_when_db_reachable(self):
-        """When DB ping succeeds, db field is 'ok'."""
-        resp = self.client.get("/health")
-        body = resp.json()
-        # In test environment the DB may not be running; accept 'ok' or 'error'
-        assert body.get("db") in ("ok", "error")
+        """When DB ping succeeds, db field reports 'ok'."""
+        with patch("src.health.router.check_db", new=AsyncMock(return_value="ok")):
+            resp = self.client.get("/health")
+        assert resp.json().get("db") == "ok"
 
     def test_health_returns_503_when_db_fails(self):
         """When the DB ping raises, health returns 503 with status=degraded."""
