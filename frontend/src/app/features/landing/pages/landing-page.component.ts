@@ -6,7 +6,7 @@ import { RouterLink } from '@angular/router';
   standalone: true,
   imports: [RouterLink],
   template: `
-    <div class="h-screen overflow-y-auto overflow-x-hidden scroll-smooth">
+    <div class="h-dvh overflow-y-auto overflow-x-hidden scroll-smooth">
     <!-- ============================================================
          A. STICKY HEADER NAV
          ============================================================ -->
@@ -61,7 +61,7 @@ import { RouterLink } from '@angular/router';
     <!-- ============================================================
          B. HERO SECTION
          ============================================================ -->
-    <section class="min-h-screen flex items-center bg-white">
+    <section class="min-h-dvh flex items-center bg-white">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-20 lg:py-0">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           <!-- Left: Copy -->
@@ -617,7 +617,7 @@ import { RouterLink } from '@angular/router';
               aria-label="Follow us on X"
               class="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
             >
-              <i class="pi pi-twitter text-base"></i>
+              <svg class="h-4 w-4 fill-current" viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.746l7.73-8.835L1.254 2.25H8.08l4.253 5.622 5.911-5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
             </a>
           </div>
         </div>
