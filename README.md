@@ -47,8 +47,10 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 | Frontend | Angular 21 (standalone components, Signals), TailwindCSS v4, PrimeNG v21 |
 | AI/ML | Prophet, NumPy/SciPy (Monte Carlo), scikit-learn |
 | Auth | JWT (python-jose), bcrypt (passlib) |
-| Testing | pytest (722 tests), Playwright E2E (312 tests) |
+| Testing | pytest (939 tests), Playwright E2E (312 tests) |
 | Infra | Docker, Docker Compose, Hetzner (SSH), Neon PostgreSQL, Vercel, GitHub Actions |
+| Observability | Sentry (error tracking, PII scrubbing), structlog (structured JSON logs) |
+| Security | slowapi (rate limiting), SecurityHeadersMiddleware (CSP, HSTS, X-Frame-Options) |
 
 ---
 
@@ -58,7 +60,7 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 modishlog/
 ├── backend/
 │   ├── src/
-│   │   ├── auth/          # Authentication, JWT, roles
+│   │   ├── auth/          # Authentication, JWT, roles, rate limiting
 │   │   ├── products/      # Product catalog, categories, images
 │   │   ├── sales/         # Daily sales, bulk upload, quick quote
 │   │   ├── inventory/     # Stock levels, batches, FIFO, liquidation
@@ -68,20 +70,39 @@ modishlog/
 │   │   ├── pricing/       # Margins, elasticity, mix targets, price suggestions
 │   │   ├── stockcount/    # Physical stock count sessions and variance
 │   │   ├── ai_engine/     # Recommendations, USD strategy, reorder
-│   │   └── core/          # Config, database, security, logging
+│   │   ├── health/        # /health + /api/health endpoints (DB ping, version)
+│   │   └── core/          # Config, database, logging, middleware, rate_limit
 │   ├── alembic/           # Database migrations
-│   ├── tests/             # 722 pytest tests
+│   ├── tests/             # 939 pytest tests
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/app/
 │   │   ├── features/      # 12 page modules (dashboard, sales, products, stockcount, etc.)
-│   │   ├── layout/        # Shell, sidebar, topbar
+│   │   ├── layout/        # Shell, sidebar, topbar, offline banner
 │   │   ├── shared/        # Reusable components
-│   │   └── core/          # Services, guards, interceptors
+│   │   └── core/          # Services, guards, interceptors, retry interceptor
 │   ├── e2e/               # Playwright E2E tests
 │   └── playwright.config.ts
-├── docker-compose.yml
-├── CLAUDE.md              # Project rules and conventions
+├── nginx/
+│   ├── nginx.prod.conf    # Production Nginx — SSL, HTTPS redirect, security headers
+│   └── snippets/ssl-params.conf
+├── scripts/
+│   ├── backup-db.sh       # Production DB backup to S3/local
+│   ├── restore-db.sh      # Restore from backup
+│   ├── deploy-prod.sh     # One-shot production deploy helper
+│   └── init-letsencrypt.sh
+├── docs/
+│   ├── deployment.md      # Staging + production provisioning guide
+│   ├── dns-cutover.md     # DNS records and zero-downtime cutover procedure
+│   └── db-backup-recovery.md
+├── .github/workflows/
+│   ├── _dependency-scan.yml   # Reusable CVE scan (pip-audit 2.10.1)
+│   ├── backend-tests.yml      # PR gate: scan + tests in parallel, gate fan-in
+│   ├── deploy-staging.yml     # Auto-deploy on push to main
+│   └── deploy-production.yml  # Manual-gate deploy to modishlog.com
+├── docker-compose.yml         # Local development
+├── docker-compose.prod.yml    # Production (Nginx + backend)
+├── CLAUDE.md                  # Project rules and conventions
 └── README.md
 ```
 
@@ -198,10 +219,11 @@ Staging is **live**. Every push to `main` automatically deploys.
 
 ### Deployment pipeline (triggered on every push to `main`)
 
-1. Run `pytest` against a temporary PostgreSQL container — must pass before any deploy step
-2. Build Docker image → push to `ghcr.io/sojisoyoye/modishlog/backend:staging-<sha>`
-3. Deploy frontend to Vercel (`npx vercel --prod` — `STAGING_API_URL` substituted via `sed` at build time by `vercel.json` `buildCommand`)
-4. SSH into the Hetzner server: pull the new image, run `alembic upgrade head`, restart the backend container, health-check `GET /health` until 200
+1. **Backend tests** — `pytest` against a temporary PostgreSQL container
+2. **CVE scan** (requires tests pass) — `pip-audit 2.10.1` against `backend/requirements.txt`; blocks deploy if any known CVE is found
+3. **Build backend image** (requires scan pass) — push to `ghcr.io/sojisoyoye/modishlog/backend:staging-<sha>`
+4. **Deploy frontend** (requires scan pass) — `npx vercel --prod`; `STAGING_API_URL` substituted via `sed` at Vercel build time
+5. **Deploy backend** (requires image push) — SSH into Hetzner: pull image, run `alembic upgrade head`, restart container, health-check `GET /health` until 200
 
 ### Architecture notes
 
@@ -250,6 +272,7 @@ Interactive API docs are available at:
 
 | Module | Endpoints |
 |--------|-----------|
+| Health | `GET /health`, `GET /api/health` — DB connectivity + version; no auth required |
 | Auth | `POST /auth/register`, `POST /auth/login`, `GET /auth/me`, `POST /auth/forgot-password`, `POST /auth/reset-password` |
 | Dashboard | `GET /dashboard/summary` |
 | Products | `GET/POST /products`, `PUT/DELETE /products/{id}`, `POST /products/{id}/image`, `GET/POST /products/categories` |
@@ -286,8 +309,11 @@ Interactive API docs are available at:
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Override to route Anthropic API calls through a proxy (e.g. cliproxy). Leave as default for direct access. |
 | `POS_USERNAME` | *(empty)* | UltimatePOS login username. Only required when running `pos_migrate.py` — not used by the app at runtime. |
 | `POS_PASSWORD` | *(empty)* | UltimatePOS login password. Only required when running `pos_migrate.py` — not used by the app at runtime. |
+| `SENTRY_DSN` | *(empty)* | Sentry DSN for error tracking. No-op when empty. Get from sentry.io → Project → Settings → Client Keys. PII is scrubbed before events are sent. |
+| `DB_POOL_SIZE` | `10` | SQLAlchemy connection pool size. Increase if you see "QueuePool limit exceeded" under load. |
+| `DB_MAX_OVERFLOW` | `20` | Max connections above `DB_POOL_SIZE` that can be opened temporarily during traffic spikes. |
 
-See `.env.example` for a fully annotated template and `.env.staging.example` for the staging/CI variable list.
+See `.env.example` for a fully annotated template, `.env.staging.example` for staging, and `.env.production.example` for production.
 
 ---
 
@@ -300,7 +326,7 @@ UPLOAD_DIR=/tmp/modishlog_uploads .venv/bin/pytest tests/ -v
 # Or inside Docker:
 docker compose exec backend pytest tests/
 ```
-849 tests covering all services, endpoints, and business logic.
+939 tests covering all services, endpoints, and business logic (including security headers, rate limiting, and health endpoint).
 
 ### Frontend E2E (Playwright)
 ```bash
@@ -338,7 +364,7 @@ npx ng build   # 0 errors, 0 warnings
 
 ## Security
 
-The following hardening was applied after the initial build (PRs #95–#113):
+### Application hardening (PRs #95–#113)
 
 | Area | Measure |
 |------|---------|
@@ -360,6 +386,23 @@ The following hardening was applied after the initial build (PRs #95–#113):
 | Products | `unit_cost` and `selling_price` validated `gt=0` — prevents division-by-zero |
 | Orders | `DELIVERED` removed from editable statuses — prevents retroactive cost manipulation |
 
+### Production hardening (PRs #213–#220)
+
+| Area | Measure |
+|------|---------|
+| Security headers | `SecurityHeadersMiddleware` adds HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy on every response |
+| Content-Security-Policy | Applied at both the FastAPI middleware layer and Nginx for defense in depth |
+| Rate limiting | `slowapi` rate limiter on all auth endpoints: login/register 5 req/min, forgot-password 5 req/min, per-IP via `X-Forwarded-For` |
+| Nginx rate limiting | Separate `auth` zone (10 req/min) and `api` zone (60 req/min) at the edge |
+| Connection pool | `pool_size=10`, `max_overflow=20`, `pool_pre_ping=True` — prevents DB socket exhaustion under load |
+| Health endpoint | `GET /health` and `GET /api/health` — DB connectivity check, version, timestamp; no auth required; used by Docker + CI smoke tests |
+| Sentry | Error tracking with `_scrub_pii()` — password, email, phone, token fields stripped before events leave the process |
+| Structured logging | `structlog` JSON output; `aerror`/`ainfo` only — no raw stack traces or DB strings in logs |
+| Docs in production | `/docs`, `/redoc`, `/openapi.json` disabled when `ENVIRONMENT=production` |
+| CVE scanning | `pip-audit 2.10.1` runs on every PR (parallel with tests) and as a gate before production image build |
+| Offline resilience | Frontend shows "Network Disconnected" banner when API is unreachable; HTTP interceptor retries with exponential backoff |
+| robots.txt | `Disallow: /` — prevents search engines from indexing the login-gated app |
+
 ---
 
 ## Contributing
@@ -376,7 +419,15 @@ Commit:  feat(<domain>): <present-tense description>
 4. Run `pytest` (all pass) + `ng build` (0 errors) + `ruff check`
 5. Commit, push, open PR
 6. Run `/review` agent on the PR
-7. Merge after review
+7. Merge after review — branch protection requires `backend-tests / gate` to pass (CVE scan + tests in parallel, fan-in)
+
+### CI checks on every backend PR
+
+| Check | Job | What it does |
+|-------|-----|-------------|
+| CVE scan | `dependency-scan` | `pip-audit 2.10.1` against `backend/requirements.txt` (parallel with tests) |
+| Tests | `test` | `pytest` + `ruff` + coverage ≥ 70% (parallel with scan) |
+| Gate | `gate` | Fan-in: fails if either scan or tests did not succeed. **This is the required status check.** |
 
 ### Code Style
 - Backend: `ruff check` + `ruff format`
