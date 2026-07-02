@@ -10,6 +10,7 @@ import { definePreset } from '@primeng/themes';
 import { routes } from './app.routes';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { errorInterceptor } from './core/interceptors/error.interceptor';
+import { retryInterceptor } from './core/interceptors/retry.interceptor';
 
 const ModishPreset = definePreset(Aura, {
   semantic: {
@@ -33,7 +34,7 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideRouter(routes),
-    provideHttpClient(withInterceptors([authInterceptor, errorInterceptor])),
+    provideHttpClient(withInterceptors([authInterceptor, retryInterceptor, errorInterceptor])),
     provideAnimationsAsync(),
     providePrimeNG({
       theme: {
