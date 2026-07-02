@@ -157,6 +157,13 @@ test.describe('Sales history table', () => {
     await expect(page.getByRole('columnheader', { name: /Payment Status/i }).first()).toBeVisible();
     await expect(page.getByRole('columnheader', { name: /Total Amount/i }).first()).toBeVisible();
   });
+
+  test('form labels are associated with their inputs', async ({ page }) => {
+    await page.goto('/sales');
+    // getByLabel works only when for/id associations exist
+    const customerField = page.getByLabel(/customer/i).first();
+    await expect(customerField).toBeAttached({ timeout: 5000 });
+  });
 });
 
 test.describe('CSV Upload tab', () => {
