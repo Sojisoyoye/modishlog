@@ -528,9 +528,7 @@ import { RouterLink } from '@angular/router';
       </div>
     </section>
 
-    <!-- ============================================================
-         H. FOUNDER MESSAGE PLACEHOLDER
-         ============================================================ -->
+    <!-- H. FOUNDER MESSAGE — hidden until ready
     <section class="py-20 bg-gray-50">
       <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 text-center">
         <h2 class="text-2xl sm:text-3xl font-extrabold text-gray-900 mb-8">A message from our founder</h2>
@@ -544,6 +542,7 @@ import { RouterLink } from '@angular/router';
         </div>
       </div>
     </section>
+    -->
 
     <!-- ============================================================
          I. FOOTER
