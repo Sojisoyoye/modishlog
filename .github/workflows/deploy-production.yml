@@ -195,7 +195,7 @@ jobs:
       - name: Report result
         run: |
           if [ "${{ needs.deploy-production.result }}" = "success" ]; then
-            echo "✅ Production deploy succeeded — modishlog.com is live"
+            echo "✅ Production deploy succeeded — modishlog.com (Vercel) + api.modishlog.com (Hetzner) are live"
           else
             echo "❌ Production deploy FAILED — check logs and rollback if needed"
             exit 1
