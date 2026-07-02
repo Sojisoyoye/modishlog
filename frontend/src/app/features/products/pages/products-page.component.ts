@@ -165,39 +165,41 @@ interface ColEntry {
       </div>
 
       <!-- Tabs -->
-      <div class="mt-4 flex gap-1 overflow-x-auto scrollbar-none border-b border-gray-200">
-        <button
-          (click)="activeTab.set('products')"
-          [class]="activeTab() === 'products' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
-        >
-          <i class="pi pi-box mr-1.5 text-xs"></i> All Products
-          <span class="ml-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-muted">{{ products().length }}</span>
-        </button>
-        <button
-          (click)="activeTab.set('stock-report')"
-          [class]="activeTab() === 'stock-report' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
-        >
-          <i class="pi pi-chart-bar mr-1.5 text-xs"></i> Stock Report
-        </button>
-        <button
-          (click)="activeTab.set('add')"
-          [class]="activeTab() === 'add' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
-        >
-          <i class="pi pi-plus-circle mr-1.5 text-xs"></i> Add Product
-        </button>
-        <button
-          (click)="activeTab.set('upload')"
-          [class]="activeTab() === 'upload' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
-        >
-          <i class="pi pi-upload mr-1.5 text-xs"></i> Bulk Upload
-        </button>
-        <button
-          (click)="activeTab.set('categories')"
-          [class]="activeTab() === 'categories' ? 'border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
-        >
-          <i class="pi pi-tag mr-1.5 text-xs"></i> Categories
-          <span class="ml-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-muted">{{ categories().length }}</span>
-        </button>
+      <div class="overflow-x-auto scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
+        <div class="mt-4 flex gap-1 border-b border-gray-200 whitespace-nowrap">
+          <button
+            (click)="activeTab.set('products')"
+            [class]="activeTab() === 'products' ? 'shrink-0 border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'shrink-0 border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
+          >
+            <i class="pi pi-box mr-1.5 text-xs"></i> All Products
+            <span class="ml-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-muted">{{ products().length }}</span>
+          </button>
+          <button
+            (click)="activeTab.set('stock-report')"
+            [class]="activeTab() === 'stock-report' ? 'shrink-0 border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'shrink-0 border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
+          >
+            <i class="pi pi-chart-bar mr-1.5 text-xs"></i> Stock Report
+          </button>
+          <button
+            (click)="activeTab.set('add')"
+            [class]="activeTab() === 'add' ? 'shrink-0 border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'shrink-0 border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
+          >
+            <i class="pi pi-plus-circle mr-1.5 text-xs"></i> Add Product
+          </button>
+          <button
+            (click)="activeTab.set('upload')"
+            [class]="activeTab() === 'upload' ? 'shrink-0 border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'shrink-0 border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
+          >
+            <i class="pi pi-upload mr-1.5 text-xs"></i> Bulk Upload
+          </button>
+          <button
+            (click)="activeTab.set('categories')"
+            [class]="activeTab() === 'categories' ? 'shrink-0 border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'shrink-0 border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
+          >
+            <i class="pi pi-tag mr-1.5 text-xs"></i> Categories
+            <span class="ml-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-muted">{{ categories().length }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
