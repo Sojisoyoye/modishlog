@@ -557,7 +557,7 @@ import { RouterLink } from '@angular/router';
               <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-sm font-bold text-white">M</div>
               <span class="text-base font-bold text-white">ModishLog</span>
             </div>
-            <p class="text-sm text-gray-500">Built for Nigerian traders.</p>
+            <p class="text-sm text-gray-500">Your shop runs better when you can see the numbers.</p>
           </div>
 
           <!-- Twitter / share -->
