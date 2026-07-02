@@ -429,20 +429,22 @@ type DetailTab = 'purchases' | 'stock-report' | 'activities' | 'ledger';
         </div>
 
         <!-- Tabs -->
-        <div class="mb-4 flex gap-1 overflow-x-auto scrollbar-none border-b border-gray-200">
-          @for (tab of detailTabs; track tab.key) {
-            <button
-              role="tab"
-              [attr.aria-selected]="activeTab() === tab.key"
-              (click)="switchTab(tab.key)"
-              class="px-4 py-2.5 text-sm transition-colors"
-              [class]="activeTab() === tab.key
-                ? 'border-b-2 border-primary text-primary font-semibold'
-                : 'font-medium text-muted hover:text-text'"
-            >
-              {{ tab.label }}
-            </button>
-          }
+        <div class="overflow-x-auto scrollbar-none">
+          <div class="mb-4 flex gap-1 border-b border-gray-200 whitespace-nowrap">
+            @for (tab of detailTabs; track tab.key) {
+              <button
+                role="tab"
+                [attr.aria-selected]="activeTab() === tab.key"
+                (click)="switchTab(tab.key)"
+                class="shrink-0 px-4 py-2.5 text-sm transition-colors"
+                [class]="activeTab() === tab.key
+                  ? 'border-b-2 border-primary text-primary font-semibold'
+                  : 'font-medium text-muted hover:text-text'"
+              >
+                {{ tab.label }}
+              </button>
+            }
+          </div>
         </div>
 
         <!-- Tab: Purchases -->
