@@ -1,8 +1,9 @@
-import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { SidebarComponent } from '../sidebar/sidebar.component';
 import { TopbarComponent } from '../topbar/topbar.component';
 import { BottomNavComponent } from '../bottom-nav/bottom-nav.component';
+import { OfflineService } from '../../core/services/offline.service';
 
 @Component({
   selector: 'app-shell',
@@ -10,7 +11,15 @@ import { BottomNavComponent } from '../bottom-nav/bottom-nav.component';
   imports: [RouterOutlet, SidebarComponent, TopbarComponent, BottomNavComponent],
   template: `
     <a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded focus:bg-primary focus:px-4 focus:py-2 focus:text-white">Skip to content</a>
-    <div class="flex h-screen bg-background">
+
+    @if (offline.isOffline()) {
+      <div role="alert" aria-live="assertive" class="fixed top-0 inset-x-0 z-50 flex items-center justify-center gap-2 bg-warning px-4 py-2 text-sm font-medium text-white shadow">
+        <span>⚠</span>
+        <span>Network disconnected — last data cached locally. Reconnecting…</span>
+      </div>
+    }
+
+    <div class="flex h-screen bg-background" [class.pt-9]="offline.isOffline()">
       <app-sidebar
         [mobileOpen]="mobileOpen()"
         [collapsed]="sidebarCollapsed()"
@@ -39,6 +48,7 @@ import { BottomNavComponent } from '../bottom-nav/bottom-nav.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ShellComponent {
+  readonly offline = inject(OfflineService);
   mobileOpen = signal(false);
   sidebarCollapsed = signal(false);
 

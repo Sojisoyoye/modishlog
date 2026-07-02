@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Block API and admin paths from indexing
+Disallow: /api/
+Disallow: /api/v1/
+
+Sitemap: https://modishlog.com/sitemap.xml
