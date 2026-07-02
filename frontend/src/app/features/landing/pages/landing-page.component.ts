@@ -559,15 +559,34 @@ import { RouterLink } from '@angular/router';
             <p class="text-sm text-gray-500">Your shop runs better when you can see the numbers.</p>
           </div>
 
-          <!-- Twitter / share -->
-          <div>
+          <!-- Social links -->
+          <div class="flex items-center gap-3">
             <a
-              href="https://twitter.com/intent/tweet?text=Just+found+%40modishlog+%E2%80%94+it+tracks+my+shop+sales%2C+margins%2C+and+FX+rates+all+in+one+place.+Way+better+than+spreadsheets.+Check+it+out!"
+              href="#"
               target="_blank"
               rel="noopener noreferrer"
-              class="inline-flex items-center gap-2 rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+              aria-label="Follow us on Instagram"
+              class="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
             >
-              Share on Twitter →
+              <i class="pi pi-instagram text-base"></i>
+            </a>
+            <a
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Follow us on Facebook"
+              class="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
+            >
+              <i class="pi pi-facebook text-base"></i>
+            </a>
+            <a
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Follow us on X"
+              class="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
+            >
+              <i class="pi pi-twitter text-base"></i>
             </a>
           </div>
         </div>
