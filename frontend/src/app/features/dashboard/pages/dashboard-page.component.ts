@@ -49,6 +49,7 @@ import { AuthService } from '../../../core/services/auth.service';
           [showClear]="true"
           styleClass="w-full sm:w-48"
           (onChange)="onLocationChange()"
+          ariaLabel="Select location"
           data-testid="location-dropdown"
         />
         <p-datepicker
@@ -62,6 +63,8 @@ import { AuthService } from '../../../core/services/auth.service';
           [iconDisplay]="'input'"
           [showIcon]="true"
           styleClass="w-full sm:w-auto"
+          ariaLabel="Select date range"
+          inputId="dashboard-date-range"
         >
           <ng-template pTemplate="inputicon" let-clickCallBack="clickCallBack">
             <i class="pi pi-calendar cursor-pointer" (click)="clickCallBack($event)"></i>
@@ -78,6 +81,7 @@ import { AuthService } from '../../../core/services/auth.service';
       <!-- ============================================================
            Hero row — Today's Revenue | Net Profit | Sales Today | Unpaid Sales
            ============================================================ -->
+      <div aria-live="polite" aria-atomic="true">
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
         <!-- Today's Revenue — emerald hero card -->
@@ -205,10 +209,12 @@ import { AuthService } from '../../../core/services/auth.service';
           </div>
         }
       </div>
+      </div><!-- /aria-live: hero KPI row + recent sales -->
 
       <!-- ============================================================
            KPI Cards — 5 business metrics: Money Out + Returns
            ============================================================ -->
+      <div aria-live="polite" aria-atomic="true">
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
 
         <!-- Money Out -->
@@ -240,6 +246,7 @@ import { AuthService } from '../../../core/services/auth.service';
           <button class="ml-auto text-xs font-semibold text-red-600 underline" (click)="loadKpi()">Retry</button>
         </div>
       }
+      </div><!-- /aria-live KPI cards -->
 
       <!-- ============================================================
            Accordions: Stock & Purchase | Pulse Metrics | AI Suggestions
