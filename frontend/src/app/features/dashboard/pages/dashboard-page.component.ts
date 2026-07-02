@@ -163,9 +163,9 @@ import { AuthService } from '../../../core/services/auth.service';
           </a>
         </div>
         @if (kpiLoading()) {
-          <div class="px-6 py-8 text-center text-sm text-muted">Loading…</div>
+          <div class="px-6 py-4 text-center text-sm text-muted">Loading…</div>
         } @else if (!(kpi()?.recent_sales?.length)) {
-          <div class="px-6 py-8 text-center text-sm text-muted">No sales recorded today yet.</div>
+          <div class="px-6 py-4 text-center text-sm text-muted">No sales recorded today yet.</div>
         } @else {
           <table class="hidden sm:table w-full text-sm">
             <thead>
