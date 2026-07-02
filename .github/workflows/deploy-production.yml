@@ -20,7 +20,7 @@ on:
 env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE: ghcr.io/sojisoyoye/modishlog/backend
-  DEPLOY_DIR: /root/modishlog
+  DEPLOY_DIR: /root/modishlog-prod
 
 jobs:
   # ─── Safety gate ──────────────────────────────────────────────────────────
@@ -124,6 +124,23 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # ─── Deploy frontend to Vercel production ────────────────────────────────
+  deploy-frontend:
+    name: Deploy frontend to Vercel (modishlog.com)
+    needs: [build-production]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        working-directory: ./frontend
+        run: npx vercel@latest --prod --yes
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.PRODUCTION_VERCEL_PROJECT_ID }}
+
   # ─── Deploy to Hetzner production VPS ─────────────────────────────────────
   deploy-production:
     name: Deploy to production (modishlog.com)
@@ -147,19 +164,19 @@ jobs:
             cd ${{ env.DEPLOY_DIR }}
 
             # Pull the new production image
-            docker compose -f docker-compose.prod.yml pull backend
+            docker compose --env-file .env.production pull backend
 
             # Run migrations before swapping containers
-            docker compose -f docker-compose.prod.yml run --rm --no-deps backend alembic upgrade head
+            docker compose --env-file .env.production run --rm --no-deps backend alembic upgrade head
 
             # Rolling restart — backend only, zero-downtime via health check
-            docker compose -f docker-compose.prod.yml up -d --no-deps backend
+            docker compose --env-file .env.production up -d --no-deps backend
 
             # Smoke test — wait up to 2 minutes for /health to return 200
             for i in $(seq 1 24); do
-              STATUS=$(curl -sf -o /dev/null -w "%{http_code}" https://modishlog.com/health || echo "000")
+              STATUS=$(curl -sf -o /dev/null -w "%{http_code}" https://api.modishlog.com/health || echo "000")
               if [ "$STATUS" = "200" ]; then
-                echo "✅ Production healthy at modishlog.com"
+                echo "✅ Production healthy at api.modishlog.com"
                 exit 0
               fi
               echo "Waiting for production... attempt $i/24 (HTTP $STATUS)"
