@@ -14,8 +14,14 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
             cd /root/modishlog-prod
-            sed -i 's|CORS_ORIGINS=\["https://modishlog.com"\]|CORS_ORIGINS=["https://modishlog.com","https://www.modishlog.com"]|g' .env.production
+            echo "Current CORS in container:"
+            docker exec modishlog-prod-backend printenv CORS_ORIGINS
+            sed -i '/^CORS_ORIGINS=/d' .env.production
+            printf 'CORS_ORIGINS=["https://modishlog.com","https://www.modishlog.com"]\n' >> .env.production
+            echo "Updated .env.production:"
             grep CORS_ORIGINS .env.production
+            git pull origin main 2>&1 | tail -2
             docker compose --env-file .env.production up -d --no-deps backend
-            sleep 3
-            docker compose --env-file .env.production ps backend
+            sleep 5
+            echo "New CORS in container:"
+            docker exec modishlog-prod-backend printenv CORS_ORIGINS
