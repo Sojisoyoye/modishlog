@@ -25,6 +25,7 @@ async def create_supplier(
     db: AsyncSession,
     data: SupplierCreate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> Supplier:
     supplier = Supplier(
         name=data.name,
@@ -45,6 +46,7 @@ async def create_supplier(
         notes=data.notes,
         is_active=True,
         created_by=user_id,
+        business_id=business_id,
     )
     db.add(supplier)
     await db.flush()
@@ -54,10 +56,14 @@ async def create_supplier(
     return supplier
 
 
-async def get_supplier(db: AsyncSession, supplier_id: uuid.UUID) -> Supplier:
+async def get_supplier(
+    db: AsyncSession,
+    supplier_id: uuid.UUID,
+    business_id: uuid.UUID,
+) -> Supplier:
     result = await db.execute(
         select(Supplier)
-        .where(Supplier.id == supplier_id)
+        .where(Supplier.id == supplier_id, Supplier.business_id == business_id)
         .options(selectinload(Supplier.products))
     )
     supplier = result.scalar_one_or_none()
@@ -69,13 +75,16 @@ async def get_supplier(db: AsyncSession, supplier_id: uuid.UUID) -> Supplier:
 async def list_suppliers(
     db: AsyncSession,
     *,
+    business_id: uuid.UUID,
     search: str | None = None,
     active_only: bool = False,
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[Supplier], int]:
-    query = select(Supplier)
-    count_query = select(func.count()).select_from(Supplier)
+    query = select(Supplier).where(Supplier.business_id == business_id)
+    count_query = select(func.count()).select_from(Supplier).where(
+        Supplier.business_id == business_id
+    )
 
     if search:
         like = f"%{search}%"
@@ -100,8 +109,9 @@ async def update_supplier(
     db: AsyncSession,
     supplier_id: uuid.UUID,
     data: SupplierUpdate,
+    business_id: uuid.UUID,
 ) -> Supplier:
-    supplier = await get_supplier(db, supplier_id)
+    supplier = await get_supplier(db, supplier_id, business_id)
     update_fields = data.model_dump(exclude_unset=True)
     for field, value in update_fields.items():
         setattr(supplier, field, value)
@@ -113,13 +123,18 @@ async def update_supplier(
 async def get_supplier_purchases(
     db: AsyncSession,
     supplier_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> list:
-    """Return purchase orders linked to this supplier."""
+    """Return purchase orders linked to this supplier, scoped to the business."""
     from src.orders.models import PurchaseOrder
 
     result = await db.execute(
         select(PurchaseOrder)
-        .where(PurchaseOrder.supplier_id == supplier_id)
+        .join(Supplier, Supplier.id == PurchaseOrder.supplier_id)
+        .where(
+            PurchaseOrder.supplier_id == supplier_id,
+            Supplier.business_id == business_id,
+        )
         .options(selectinload(PurchaseOrder.line_items))
         .order_by(PurchaseOrder.created_at.desc())
     )
@@ -129,13 +144,18 @@ async def get_supplier_purchases(
 async def get_supplier_ledger(
     db: AsyncSession,
     supplier_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> list[LedgerEntry]:
     """Build a running debit/credit ledger for the supplier from orders and payments."""
     from src.orders.models import PurchaseOrder
 
     orders_result = await db.execute(
         select(PurchaseOrder)
-        .where(PurchaseOrder.supplier_id == supplier_id)
+        .join(Supplier, Supplier.id == PurchaseOrder.supplier_id)
+        .where(
+            PurchaseOrder.supplier_id == supplier_id,
+            Supplier.business_id == business_id,
+        )
         .options(selectinload(PurchaseOrder.payments))
         .order_by(PurchaseOrder.created_at.asc())
     )
@@ -146,7 +166,9 @@ async def get_supplier_ledger(
 
     # Opening balance
     supplier_result = await db.execute(
-        select(Supplier).where(Supplier.id == supplier_id)
+        select(Supplier).where(
+            Supplier.id == supplier_id, Supplier.business_id == business_id
+        )
     )
     supplier = supplier_result.scalar_one_or_none()
     if supplier and supplier.opening_balance:
@@ -192,6 +214,7 @@ async def get_supplier_ledger(
 async def get_supplier_stock_report(
     db: AsyncSession,
     supplier_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> list[StockReportItem]:
     """Products with current stock that were sourced from this supplier."""
     from src.inventory.models import InventoryLevel
@@ -208,8 +231,12 @@ async def get_supplier_stock_report(
         )
         .join(OrderLineItem, OrderLineItem.product_id == Product.id)
         .join(PurchaseOrder, PurchaseOrder.id == OrderLineItem.order_id)
+        .join(Supplier, Supplier.id == PurchaseOrder.supplier_id)
         .join(InventoryLevel, InventoryLevel.product_id == Product.id)
-        .where(PurchaseOrder.supplier_id == supplier_id)
+        .where(
+            PurchaseOrder.supplier_id == supplier_id,
+            Supplier.business_id == business_id,
+        )
         .distinct()
     )
     rows = result.all()
@@ -233,13 +260,18 @@ async def get_supplier_stock_report(
 async def get_supplier_activities(
     db: AsyncSession,
     supplier_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> list[ActivityEntry]:
     """Timeline of all activity for a supplier — purchases and payments."""
     from src.orders.models import PurchaseOrder
 
     orders_result = await db.execute(
         select(PurchaseOrder)
-        .where(PurchaseOrder.supplier_id == supplier_id)
+        .join(Supplier, Supplier.id == PurchaseOrder.supplier_id)
+        .where(
+            PurchaseOrder.supplier_id == supplier_id,
+            Supplier.business_id == business_id,
+        )
         .options(selectinload(PurchaseOrder.payments))
         .order_by(PurchaseOrder.created_at.desc())
     )

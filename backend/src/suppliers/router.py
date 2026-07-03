@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
 from src.suppliers.exceptions import SupplierNotFoundError
@@ -37,8 +37,9 @@ async def create_supplier_endpoint(
     body: SupplierCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    return await create_supplier(db, body, current_user.id)
+    return await create_supplier(db, body, current_user.id, business_id)
 
 
 @router.get("", response_model=SupplierListResponse)
@@ -48,10 +49,15 @@ async def list_suppliers_endpoint(
     page: int = 1,
     page_size: int = 50,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     items, total = await list_suppliers(
-        db, search=search, active_only=active_only, page=page, page_size=page_size
+        db,
+        business_id=business_id,
+        search=search,
+        active_only=active_only,
+        page=page,
+        page_size=page_size,
     )
     return SupplierListResponse(items=items, total=total)
 
@@ -60,10 +66,10 @@ async def list_suppliers_endpoint(
 async def get_supplier_endpoint(
     supplier_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     try:
-        return await get_supplier(db, supplier_id)
+        return await get_supplier(db, supplier_id, business_id)
     except SupplierNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -73,10 +79,10 @@ async def update_supplier_endpoint(
     supplier_id: uuid.UUID,
     body: SupplierUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     try:
-        return await update_supplier(db, supplier_id, body)
+        return await update_supplier(db, supplier_id, body, business_id)
     except SupplierNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -85,13 +91,13 @@ async def update_supplier_endpoint(
 async def get_supplier_purchases_endpoint(
     supplier_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     try:
-        await get_supplier(db, supplier_id)
+        await get_supplier(db, supplier_id, business_id)
     except SupplierNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    purchases = await get_supplier_purchases(db, supplier_id)
+    purchases = await get_supplier_purchases(db, supplier_id, business_id)
     return {"items": purchases, "total": len(purchases)}
 
 
@@ -99,36 +105,36 @@ async def get_supplier_purchases_endpoint(
 async def get_supplier_ledger_endpoint(
     supplier_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     try:
-        await get_supplier(db, supplier_id)
+        await get_supplier(db, supplier_id, business_id)
     except SupplierNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    return await get_supplier_ledger(db, supplier_id)
+    return await get_supplier_ledger(db, supplier_id, business_id)
 
 
 @router.get("/{supplier_id}/stock-report", response_model=list[StockReportItem])
 async def get_supplier_stock_report_endpoint(
     supplier_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     try:
-        await get_supplier(db, supplier_id)
+        await get_supplier(db, supplier_id, business_id)
     except SupplierNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    return await get_supplier_stock_report(db, supplier_id)
+    return await get_supplier_stock_report(db, supplier_id, business_id)
 
 
 @router.get("/{supplier_id}/activities", response_model=list[ActivityEntry])
 async def get_supplier_activities_endpoint(
     supplier_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     try:
-        await get_supplier(db, supplier_id)
+        await get_supplier(db, supplier_id, business_id)
     except SupplierNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    return await get_supplier_activities(db, supplier_id)
+    return await get_supplier_activities(db, supplier_id, business_id)
