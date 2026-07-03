@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
 from src.stockcount.exceptions import StockCountFinalizedError, StockCountNotFoundError
@@ -33,10 +33,10 @@ router = APIRouter()
 @router.get("/", response_model=list[StockCountListRead])
 async def list_stock_counts_endpoint(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """List all stock count sessions, newest first."""
-    counts = await list_stock_counts(db)
+    """List all stock count sessions for the current business, newest first."""
+    counts = await list_stock_counts(db, business_id=business_id)
     return [
         StockCountListRead(
             id=sc.id,
@@ -57,12 +57,13 @@ async def create_stock_count_endpoint(
     body: StockCountCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Create a new DRAFT stock count session."""
     sc = await create_stock_count(
-        db, body.count_date, body.count_type, body.notes, current_user.id
+        db, body.count_date, body.count_type, body.notes, current_user.id, business_id
     )
-    sc_with_items = await get_stock_count(db, sc.id)
+    sc_with_items = await get_stock_count(db, sc.id, business_id=business_id)
     return sc_with_items
 
 
@@ -70,11 +71,11 @@ async def create_stock_count_endpoint(
 async def get_stock_count_endpoint(
     stock_count_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Return a stock count session with all its items."""
     try:
-        return await get_stock_count(db, stock_count_id)
+        return await get_stock_count(db, stock_count_id, business_id=business_id)
     except StockCountNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -85,12 +86,12 @@ async def update_item_endpoint(
     item_id: uuid.UUID,
     body: StockCountItemUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update the counted_quantity for one item. Only allowed while DRAFT."""
     try:
         return await update_count_item(
-            db, stock_count_id, item_id, body.counted_quantity
+            db, stock_count_id, item_id, body.counted_quantity, business_id=business_id
         )
     except StockCountFinalizedError as e:
         raise HTTPException(
@@ -104,11 +105,11 @@ async def update_item_endpoint(
 async def finalize_endpoint(
     stock_count_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Snapshot system stock into items and lock the session as FINALIZED."""
     try:
-        return await finalize_stock_count(db, stock_count_id)
+        return await finalize_stock_count(db, stock_count_id, business_id=business_id)
     except StockCountFinalizedError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
