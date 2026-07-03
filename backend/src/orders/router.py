@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User, UserRole
 from src.core.csv_utils import csv_safe
 from src.core.database import get_db
@@ -98,10 +98,11 @@ async def create_order_endpoint(
     body: OrderCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Create a new purchase order."""
     try:
-        return await create_order(db, body, current_user.id)
+        return await create_order(db, body, current_user.id, business_id=business_id)
     except OrderLineItemError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -115,10 +116,12 @@ async def list_orders_endpoint(
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """List orders with optional filters."""
     items, total = await list_orders(
         db,
+        business_id=business_id,
         status=order_status,
         supplier_name=supplier_name,
         date_from=date_from,
@@ -196,6 +199,7 @@ async def import_orders_endpoint(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Import multiple purchase orders from a CSV or Excel file."""
     allowed = {
@@ -217,34 +221,46 @@ async def import_orders_endpoint(
 
     file_bytes = await file.read()
     return await import_orders_from_file(
-        db, file_bytes, file.filename or "upload.csv", current_user.id
+        db, file_bytes, file.filename or "upload.csv", current_user.id, business_id=business_id
     )
 
 
 @router.get("/status-counts", response_model=dict[str, int])
-async def order_status_counts_endpoint(db: AsyncSession = Depends(get_db)):
+async def order_status_counts_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Return count of orders per status for pipeline card badges."""
-    return await get_order_status_counts(db)
+    return await get_order_status_counts(db, business_id=business_id)
 
 
 @router.get("/logistics-efficiency", response_model=LogisticsEfficiencyResponse)
-async def logistics_efficiency_endpoint(db: AsyncSession = Depends(get_db)):
+async def logistics_efficiency_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get logistics cost efficiency metrics (per-order and rolling 90d average)."""
-    data = await get_logistics_efficiency(db)
+    data = await get_logistics_efficiency(db, business_id=business_id)
     return LogisticsEfficiencyResponse(**data)
 
 
 @router.get("/summary", response_model=OrdersSummary)
-async def orders_summary_endpoint(db: AsyncSession = Depends(get_db)):
+async def orders_summary_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get order summary statistics."""
-    data = await get_orders_summary(db)
+    data = await get_orders_summary(db, business_id=business_id)
     return OrdersSummary(**data)
 
 
 @router.get("/overdue", response_model=list[OrderRead])
-async def overdue_orders_endpoint(db: AsyncSession = Depends(get_db)):
+async def overdue_orders_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """List overdue orders."""
-    return await get_overdue_orders(db)
+    return await get_overdue_orders(db, business_id=business_id)
 
 
 @router.get("/export.csv")
@@ -254,10 +270,12 @@ async def export_orders_csv_endpoint(
     date_from: date | None = None,
     date_to: date | None = None,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> StreamingResponse:
     """Export purchase orders as a CSV file matching current filter params."""
     items, _ = await list_orders(
         db,
+        business_id=business_id,
         status=order_status,
         supplier_name=supplier_name,
         date_from=date_from,
@@ -309,10 +327,13 @@ async def create_purchase_return_endpoint(
     body: PurchaseReturnCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Record a return of goods against a received purchase order."""
     try:
-        return await create_purchase_return(db, body, current_user.id)
+        return await create_purchase_return(
+            db, body, current_user.id, business_id=business_id
+        )
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -324,10 +345,11 @@ async def list_all_purchase_returns_endpoint(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> PurchaseReturnListResponse:
     """List all purchase returns, optionally filtered by order."""
     items, total = await list_purchase_returns(
-        db, order_id=order_id, page=page, page_size=page_size
+        db, order_id=order_id, business_id=business_id, page=page, page_size=page_size
     )
     return PurchaseReturnListResponse(
         items=items, total=total, page=page, page_size=page_size
@@ -338,10 +360,11 @@ async def list_all_purchase_returns_endpoint(
 async def get_purchase_return_endpoint(
     return_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> PurchaseReturnRead:
     """Fetch a single purchase return by ID."""
     try:
-        return await get_purchase_return(db, return_id)
+        return await get_purchase_return(db, return_id, business_id=business_id)
     except PurchaseReturnNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -352,10 +375,11 @@ async def list_order_purchase_returns_endpoint(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> PurchaseReturnListResponse:
     """List purchase returns for a specific order."""
     items, total = await list_purchase_returns(
-        db, order_id=order_id, page=page, page_size=page_size
+        db, order_id=order_id, business_id=business_id, page=page, page_size=page_size
     )
     return PurchaseReturnListResponse(
         items=items, total=total, page=page, page_size=page_size
@@ -366,10 +390,11 @@ async def list_order_purchase_returns_endpoint(
 async def get_order_lots_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Return lot inventory (units_remaining) for each line item in a delivered order."""
     try:
-        order = await get_order(db, order_id)
+        order = await get_order(db, order_id, business_id=business_id)
         return [LotRead.model_validate(item) for item in order.line_items]
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -380,12 +405,13 @@ async def get_order_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get order details with payment summary."""
     try:
-        order = await get_order(db, order_id)
+        order = await get_order(db, order_id, business_id=business_id)
         _check_ownership(order.created_by, current_user)
-        summary = await get_payment_summary(db, order_id)
+        summary = await get_payment_summary(db, order_id, business_id)
         order_data = OrderDetailRead.model_validate(order)
         order_data.payment_summary = summary
         order_data.total_paid = summary.total_paid
@@ -407,10 +433,11 @@ async def update_order_endpoint(
     body: OrderUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update an order (only Pending/In Production)."""
     try:
-        existing = await get_order(db, order_id)
+        existing = await get_order(db, order_id, business_id=business_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(existing.created_by, current_user)
@@ -418,7 +445,7 @@ async def update_order_endpoint(
         await update_order(db, order_id, body, current_user.id)
         # Expire identity map so the re-fetch loads fresh line_items from DB
         db.expire_all()
-        return await get_order(db, order_id)
+        return await get_order(db, order_id, business_id=business_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except OrderNotEditableError as e:
@@ -432,10 +459,11 @@ async def cancel_order_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Cancel an order (only Pending)."""
     try:
-        existing = await get_order(db, order_id)
+        existing = await get_order(db, order_id, business_id=business_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(existing.created_by, current_user)
@@ -458,10 +486,11 @@ async def transition_status_endpoint(
     body: StatusTransition,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Transition an order to the next status."""
     try:
-        existing = await get_order(db, order_id)
+        existing = await get_order(db, order_id, business_id=business_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(existing.created_by, current_user)
@@ -480,10 +509,11 @@ async def status_history_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get status transition history."""
     try:
-        order = await get_order(db, order_id)
+        order = await get_order(db, order_id, business_id=business_id)
         _check_ownership(order.created_by, current_user)
         return await get_status_history(db, order_id)
     except OrderNotFoundError as e:
@@ -505,15 +535,16 @@ async def record_payment_endpoint(
     body: PaymentCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Record a payment against an order."""
     try:
-        existing = await get_order(db, order_id)
+        existing = await get_order(db, order_id, business_id=business_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(existing.created_by, current_user)
     try:
-        return await record_payment(db, order_id, body, current_user.id)
+        return await record_payment(db, order_id, body, current_user.id, business_id=business_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except OverpaymentError as e:
@@ -525,10 +556,11 @@ async def list_payments_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """List all payments for an order."""
     try:
-        order = await get_order(db, order_id)
+        order = await get_order(db, order_id, business_id=business_id)
         _check_ownership(order.created_by, current_user)
         return await list_payments(db, order_id)
     except OrderNotFoundError as e:
@@ -540,12 +572,13 @@ async def payment_summary_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get payment summary for an order."""
     try:
-        order = await get_order(db, order_id)
+        order = await get_order(db, order_id, business_id=business_id)
         _check_ownership(order.created_by, current_user)
-        return await get_payment_summary(db, order_id)
+        return await get_payment_summary(db, order_id, business_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -556,10 +589,11 @@ async def void_payment_endpoint(
     payment_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Void a payment record."""
     try:
-        order = await get_order(db, order_id)
+        order = await get_order(db, order_id, business_id=business_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(order.created_by, current_user)
@@ -576,10 +610,13 @@ async def convert_po_to_purchase_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Convert a Purchase Order (ORDERED status) to a received purchase."""
     try:
-        return await convert_po_to_purchase(db, order_id, current_user.id)
+        return await convert_po_to_purchase(
+            db, order_id, current_user.id, business_id=business_id
+        )
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except InvalidStatusTransitionError as e:
