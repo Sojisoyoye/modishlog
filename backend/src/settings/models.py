@@ -75,9 +75,6 @@ class AppSetting(Base):
     """Per-business key-value store for application settings."""
 
     __tablename__ = "app_settings"
-    __table_args__ = (
-        UniqueConstraint("key", "business_id", name="uq_app_settings_key_business_id"),
-    )
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     business_id: Mapped[_uuid.UUID] = mapped_column(

@@ -1,6 +1,7 @@
 """Settings API routes — thin layer, all logic in service.py."""
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,10 +33,25 @@ async def get_business_profile(
 ) -> BusinessProfileRead:
     profile = await service.get_business_profile(db, business_id=business_id)
     if profile is None:
-        # New business: return an empty profile object rather than 404 so the
-        # frontend settings page renders correctly before the user has saved anything.
-        from src.settings.models import BusinessProfile as _BP
-        profile = _BP(business_id=business_id)
+        # New business: return a safe empty schema rather than a transient ORM
+        # object (whose id/updated_at/currency/timezone are None until INSERT).
+        return BusinessProfileRead(
+            id=uuid.uuid4(),
+            business_name=None,
+            address_line_1=None,
+            city=None,
+            state=None,
+            country=None,
+            zip_code=None,
+            phone=None,
+            email=None,
+            website=None,
+            tax_number=None,
+            registration_number=None,
+            currency="NGN",
+            timezone="Africa/Lagos",
+            updated_at=datetime.now(timezone.utc),
+        )
     return BusinessProfileRead.model_validate(profile)
 
 

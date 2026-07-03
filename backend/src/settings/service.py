@@ -156,15 +156,28 @@ async def update_business_profile(
     user_id: uuid.UUID,
     business_id: uuid.UUID,
 ) -> BusinessProfile:
-    """Upsert a BusinessProfile for the given business_id."""
-    profile = await get_business_profile(db, business_id)
-    if profile is None:
-        profile = BusinessProfile(business_id=business_id)
-        db.add(profile)
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(profile, field, value)
-    profile.updated_by = user_id
+    """Upsert a BusinessProfile for the given business_id.
+
+    Uses INSERT … ON CONFLICT DO UPDATE to prevent duplicate-row races when two
+    concurrent requests both find no existing profile for this business.
+    """
+    fields = data.model_dump(exclude_unset=True)
+    fields["updated_by"] = user_id
+    fields["business_id"] = business_id
+
+    stmt = (
+        pg_insert(BusinessProfile)
+        .values(id=uuid.uuid4(), **fields)
+        .on_conflict_do_update(
+            index_elements=["business_id"],
+            set_={**fields, "updated_at": func.now()},
+        )
+    )
+    await db.execute(stmt)
     await db.flush()
+    # Re-fetch so the caller always receives a fully-populated ORM object.
+    profile = await get_business_profile(db, business_id)
+    assert profile is not None  # guaranteed by the upsert above
     return profile
 
 
@@ -202,13 +215,20 @@ async def update_app_setting(
     user_id: uuid.UUID,
     business_id: uuid.UUID,
 ) -> None:
-    """Upsert an app setting for the given business_id."""
-    existing = await get_app_setting(db, key, business_id)
-    if existing:
-        existing.value = value
-        existing.updated_by = user_id
-    else:
-        db.add(AppSetting(key=key, business_id=business_id, value=value, updated_by=user_id))
+    """Upsert an app setting for the given business_id.
+
+    Uses INSERT … ON CONFLICT DO UPDATE to prevent duplicate-row races when two
+    concurrent requests both find no existing row for this (key, business_id) pair.
+    """
+    stmt = (
+        pg_insert(AppSetting)
+        .values(key=key, business_id=business_id, value=value, updated_by=user_id)
+        .on_conflict_do_update(
+            index_elements=["key", "business_id"],
+            set_={"value": value, "updated_by": user_id, "updated_at": func.now()},
+        )
+    )
+    await db.execute(stmt)
     await db.flush()
 
 
