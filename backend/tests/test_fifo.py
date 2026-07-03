@@ -313,7 +313,7 @@ class TestFifoWiredToSale:
             sale_date=date(2026, 3, 15),
             channel="retail",
         )
-        sale = await create_sale(db, data, uuid.uuid4())
+        sale = await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
 
         # 5 units × 15000.000000 landed cost = 75000.000000
         expected_cogs = Decimal("75000.000000")

@@ -102,6 +102,7 @@ async def create_sale(
     db: AsyncSession,
     data: SaleCreate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> Sale:
     """Record a sale and deplete inventory atomically."""
     # Validate product exists and is active
@@ -165,6 +166,7 @@ async def create_sale(
         notes=data.notes,
         location_id=data.location_id,
         recorded_by=user_id,
+        business_id=business_id,
     )
     db.add(sale)
     await db.flush()
@@ -211,9 +213,16 @@ async def create_sale(
     return sale
 
 
-async def get_sale(db: AsyncSession, sale_id: uuid.UUID) -> Sale:
-    """Get a single sale by ID."""
-    result = await db.execute(select(Sale).where(Sale.id == sale_id))
+async def get_sale(
+    db: AsyncSession,
+    sale_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
+) -> Sale:
+    """Get a single sale by ID, optionally scoped to a business."""
+    stmt = select(Sale).where(Sale.id == sale_id)
+    if business_id is not None:
+        stmt = stmt.where(Sale.business_id == business_id)
+    result = await db.execute(stmt)
     sale = result.scalar_one_or_none()
     if not sale:
         raise SaleNotFoundError(sale_id)
@@ -223,6 +232,7 @@ async def get_sale(db: AsyncSession, sale_id: uuid.UUID) -> Sale:
 async def list_sales(
     db: AsyncSession,
     *,
+    business_id: uuid.UUID | None = None,
     product_id: uuid.UUID | None = None,
     channel: str | None = None,
     status: str | None = None,
@@ -235,6 +245,9 @@ async def list_sales(
     query = select(Sale)
     count_query = select(func.count()).select_from(Sale)
 
+    if business_id is not None:
+        query = query.where(Sale.business_id == business_id)
+        count_query = count_query.where(Sale.business_id == business_id)
     if product_id is not None:
         query = query.where(Sale.product_id == product_id)
         count_query = count_query.where(Sale.product_id == product_id)
@@ -444,6 +457,7 @@ async def process_bulk_upload(
     file_content: bytes,
     filename: str,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> SaleBulkUploadJob:
     """Parse and process a CSV file of sales records."""
     # Create job record
@@ -455,6 +469,7 @@ async def process_bulk_upload(
         successful_rows=0,
         failed_rows=0,
         uploaded_by=user_id,
+        business_id=business_id,
         created_at=datetime.now(timezone.utc),
     )
     db.add(job)
@@ -492,7 +507,7 @@ async def process_bulk_upload(
                 channel=row["channel"],
                 notes=row.get("notes"),
             )
-            await create_sale(db, sale_data, user_id)
+            await create_sale(db, sale_data, user_id, business_id=business_id)
             job.successful_rows += 1
         except (ValueError, InvalidOperation, KeyError) as e:
             job.failed_rows += 1
@@ -528,11 +543,13 @@ async def process_bulk_upload(
 async def get_upload_status(
     db: AsyncSession,
     job_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> SaleBulkUploadJob:
-    """Get the status of a bulk upload job."""
-    result = await db.execute(
-        select(SaleBulkUploadJob).where(SaleBulkUploadJob.id == job_id)
-    )
+    """Get the status of a bulk upload job, scoped to a business."""
+    stmt = select(SaleBulkUploadJob).where(SaleBulkUploadJob.id == job_id)
+    if business_id is not None:
+        stmt = stmt.where(SaleBulkUploadJob.business_id == business_id)
+    result = await db.execute(stmt)
     job = result.scalar_one_or_none()
     if not job:
         raise BulkUploadJobNotFoundError(job_id)
@@ -567,6 +584,7 @@ async def get_sales_summary(
     db: AsyncSession,
     date_from: date,
     date_to: date,
+    business_id: uuid.UUID | None = None,
 ) -> SalesSummary:
     """Get sales summary for a date range."""
     base_filter = (
@@ -574,6 +592,8 @@ async def get_sales_summary(
         & (Sale.sale_date <= date_to)
         & (Sale.status == SaleStatus.COMPLETED)
     )
+    if business_id is not None:
+        base_filter = base_filter & (Sale.business_id == business_id)
 
     result = await db.execute(
         select(
@@ -596,8 +616,16 @@ async def get_sales_history(
     db: AsyncSession,
     date_from: date,
     date_to: date,
+    business_id: uuid.UUID | None = None,
 ) -> list[SalesHistoryEntry]:
     """Get daily aggregated sales history."""
+    base_where = (
+        (Sale.sale_date >= date_from)
+        & (Sale.sale_date <= date_to)
+        & (Sale.status == SaleStatus.COMPLETED)
+    )
+    if business_id is not None:
+        base_where = base_where & (Sale.business_id == business_id)
     result = await db.execute(
         select(
             Sale.sale_date,
@@ -605,11 +633,7 @@ async def get_sales_history(
             func.sum(Sale.quantity),
             func.count(Sale.id),
         )
-        .where(
-            (Sale.sale_date >= date_from)
-            & (Sale.sale_date <= date_to)
-            & (Sale.status == SaleStatus.COMPLETED)
-        )
+        .where(base_where)
         .group_by(Sale.sale_date)
         .order_by(Sale.sale_date)
     )
@@ -801,6 +825,7 @@ def _build_transaction_read(
 async def list_transactions(
     db: AsyncSession,
     *,
+    business_id: uuid.UUID | None = None,
     page: int = 1,
     page_size: int = 20,
     location_id: uuid.UUID | None = None,
@@ -813,6 +838,8 @@ async def list_transactions(
     """List sales grouped by transaction_id (most recent first)."""
 
     base_where = [Sale.transaction_id.isnot(None)]
+    if business_id is not None:
+        base_where.append(Sale.business_id == business_id)
     if location_id is not None:
         base_where.append(Sale.location_id == location_id)
     if customer_id is not None:
@@ -870,11 +897,14 @@ async def list_transactions(
 async def get_transaction(
     db: AsyncSession,
     transaction_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> "SaleTransactionRead":
-    """Get all Sale records for a given transaction_id."""
-    result = await db.execute(
-        select(Sale).where(Sale.transaction_id == transaction_id).order_by(Sale.created_at)
-    )
+    """Get all Sale records for a given transaction_id, scoped to a business."""
+    stmt = select(Sale).where(Sale.transaction_id == transaction_id)
+    if business_id is not None:
+        stmt = stmt.where(Sale.business_id == business_id)
+    stmt = stmt.order_by(Sale.created_at)
+    result = await db.execute(stmt)
     items = list(result.scalars().all())
     if not items:
         raise SaleNotFoundError(transaction_id)
@@ -891,6 +921,7 @@ async def create_sell_return(
     sale_id: uuid.UUID,
     data: SellReturnCreate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> SellReturn:
     """Create a sell return record against an existing completed sale."""
     result = await db.execute(select(Sale).where(Sale.id == sale_id))
@@ -912,6 +943,7 @@ async def create_sell_return(
         ref_no=data.ref_no,
         notes=data.notes,
         created_by=user_id,
+        business_id=business_id,
     )
     sell_return.created_at = now
     sell_return.updated_at = now
@@ -925,12 +957,16 @@ async def list_sell_returns(
     db: AsyncSession,
     sale_id: uuid.UUID | None = None,
     created_by: uuid.UUID | None = None,
+    business_id: uuid.UUID | None = None,
     page: int = 1,
     page_size: int = 25,
 ) -> tuple[list[SellReturn], int]:
-    """List sell returns, optionally filtered by sale and/or creator."""
+    """List sell returns, optionally filtered by sale, creator, and/or business."""
     count_q = select(func.count(SellReturn.id))
     list_q = select(SellReturn).order_by(SellReturn.return_date.desc())
+    if business_id is not None:
+        count_q = count_q.where(SellReturn.business_id == business_id)
+        list_q = list_q.where(SellReturn.business_id == business_id)
     if sale_id is not None:
         count_q = count_q.where(SellReturn.sale_id == sale_id)
         list_q = list_q.where(SellReturn.sale_id == sale_id)

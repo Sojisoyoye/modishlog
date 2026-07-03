@@ -179,7 +179,7 @@ class TestCreateSale:
             sale_date=date(2026, 3, 15),
             channel="retail",
         )
-        sale = await create_sale(db, data, uuid.uuid4())
+        sale = await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
         assert sale.quantity == 5
         assert sale.total_amount == Decimal("750")
         assert sale.status == SaleStatus.COMPLETED
@@ -202,7 +202,7 @@ class TestCreateSale:
         from src.products.exceptions import ProductNotFoundError
 
         with pytest.raises(ProductNotFoundError):
-            await create_sale(db, data, uuid.uuid4())
+            await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_create_sale_inactive_product(self):
@@ -216,7 +216,7 @@ class TestCreateSale:
             channel="retail",
         )
         with pytest.raises(SaleValidationError):
-            await create_sale(db, data, uuid.uuid4())
+            await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_create_sale_insufficient_stock(self):
@@ -248,7 +248,7 @@ class TestCreateSale:
             channel="retail",
         )
         with pytest.raises(InvalidStockAdjustmentError):
-            await create_sale(db, data, uuid.uuid4())
+            await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +444,7 @@ class TestBulkUpload:
             f"{product.id},3,150.00,2026-03-16,online\n"
         ).encode("utf-8")
 
-        job = await process_bulk_upload(db, csv_content, "test.csv", uuid.uuid4())
+        job = await process_bulk_upload(db, csv_content, "test.csv", uuid.uuid4(), business_id=uuid.uuid4())
         assert job.total_rows == 2
         assert job.successful_rows == 2
         assert job.failed_rows == 0
@@ -457,7 +457,7 @@ class TestBulkUpload:
 
         csv_content = b"product_id,quantity\n123,5\n"
         with pytest.raises(InvalidCSVFormatError):
-            await process_bulk_upload(db, csv_content, "bad.csv", uuid.uuid4())
+            await process_bulk_upload(db, csv_content, "bad.csv", uuid.uuid4(), business_id=uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_bulk_upload_invalid_utf8(self):
@@ -465,7 +465,7 @@ class TestBulkUpload:
 
         db = _mock_db()
         with pytest.raises(InvalidCSVFormatError):
-            await process_bulk_upload(db, b"\xff\xfe", "bad.csv", uuid.uuid4())
+            await process_bulk_upload(db, b"\xff\xfe", "bad.csv", uuid.uuid4(), business_id=uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -549,11 +549,15 @@ class TestSalesEndpoints:
         return {"Authorization": f"Bearer {token}"}, user
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         u = _make_user()
+        _business_id = uuid.uuid4()
         async def _fake_auth():
             return u
+        async def _fake_business_id():
+            return _business_id
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def test_create_sale_requires_auth(self):
         db = _mock_db_with_execute()
@@ -656,11 +660,15 @@ class TestSalesExportEndpoint:
         self.app.dependency_overrides[get_db] = _fake_db
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         u = _make_user()
+        _business_id = uuid.uuid4()
         async def _fake_auth():
             return u
+        async def _fake_business_id():
+            return _business_id
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def _make_execute_side_effects(self, sales: list):
         """Return two execute side effects: count then list."""
@@ -866,7 +874,7 @@ class TestCreateSaleWithDiscount:
             channel="retail",
             discount_amount=Decimal("50"),
         )
-        sale = await create_sale(db, data, uuid.uuid4())
+        sale = await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
         # total = unit_price * qty - discount = 150 * 5 - 50 = 700
         assert sale.total_amount == Decimal("700")
         assert sale.discount_amount == Decimal("50")
@@ -886,7 +894,7 @@ class TestCreateSaleWithDiscount:
             discount_amount=Decimal("300"),  # 300 > 100*2 = 200
         )
         with pytest.raises(SaleValidationError):
-            await create_sale(db, data, uuid.uuid4())
+            await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_create_sale_without_discount_uses_full_price(self):
@@ -922,7 +930,7 @@ class TestCreateSaleWithDiscount:
             sale_date=date(2026, 3, 15),
             channel="retail",
         )
-        sale = await create_sale(db, data, uuid.uuid4())
+        sale = await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
         # total = 150 * 5 = 750
         assert sale.total_amount == Decimal("750")
         assert sale.discount_amount is None
@@ -1260,7 +1268,7 @@ class TestSaleTransactions:
             channel="retail",
             transaction_id=txn_id,
         )
-        sale = await create_sale(db, data, uuid.uuid4())
+        sale = await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
         assert sale.transaction_id == txn_id
 
 
@@ -1326,7 +1334,7 @@ class TestLotFifoDeduction:
                 sale_date=date.today(),
                 channel="retail",
             )
-            await create_sale(db, data, uuid.uuid4())
+            await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
 
         # Oldest lot should be deducted
         assert old_lot.units_remaining == Decimal("20")
@@ -1384,7 +1392,7 @@ class TestLotFifoDeduction:
                 sale_date=date.today(),
                 channel="retail",
             )
-            await create_sale(db, data, uuid.uuid4())
+            await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
 
         assert old_lot.units_remaining == Decimal("0")   # fully consumed
 
@@ -1412,10 +1420,14 @@ class TestSalesOwnershipChecks:
         self.app.dependency_overrides[get_db] = _fake_db
 
     def _override_auth_as(self, user):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+        _business_id = uuid.uuid4()
         async def _fake_auth():
             return user
+        async def _fake_business_id():
+            return _business_id
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def test_user_cannot_read_other_users_sale(self):
         """Non-admin cannot GET a sale recorded by someone else."""
@@ -1692,12 +1704,18 @@ class TestUpdateTransactionEndpoint:
         self.app.dependency_overrides[get_db] = _fake_db
 
     def _override_auth_as(self, user):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+
+        _business_id = uuid.uuid4()
 
         async def _fake_auth():
             return user
 
+        async def _fake_business_id():
+            return _business_id
+
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def _make_scalars_execute(self, sales):
         db = _mock_db()
@@ -1844,11 +1862,15 @@ class TestListTransactionsEndpointFilters:
         self.app.dependency_overrides[get_db] = _fake_db
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         u = _make_user()
+        _business_id = uuid.uuid4()
         async def _fake():
             return u
+        async def _fake_business_id():
+            return _business_id
         self.app.dependency_overrides[get_current_active_user] = _fake
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def test_filter_by_payment_status_accepted(self):
         """GET /transactions?payment_status=credit returns 200 with matching items."""
@@ -1951,3 +1973,57 @@ class TestBuildTransactionReadTotalPaid:
         assert result.total_amount == Decimal("3000")
         assert result.total_paid == Decimal("3000")
         assert result.sale_due == Decimal("0")
+
+
+# ---------------------------------------------------------------------------
+# Business isolation tests (Task #159)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sales_isolates_by_business():
+    """Business B cannot see Business A's sales."""
+    business_a_id = uuid.uuid4()
+    business_b_id = uuid.uuid4()
+
+    async def fake_execute_a(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = [MagicMock()]
+        r.scalar.return_value = 1
+        return r
+
+    async def fake_execute_b(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = []
+        r.scalar.return_value = 0
+        return r
+
+    db_a, db_b = AsyncMock(), AsyncMock()
+    db_a.execute = fake_execute_a
+    db_b.execute = fake_execute_b
+
+    result_a = await list_sales(db_a, business_id=business_a_id)
+    result_b = await list_sales(db_b, business_id=business_b_id)
+    items_a = result_a[0] if isinstance(result_a, tuple) else result_a
+    items_b = result_b[0] if isinstance(result_b, tuple) else result_b
+    assert len(items_a) > 0
+    assert len(items_b) == 0
+
+
+@pytest.mark.asyncio
+async def test_sales_owner_sees_own_data():
+    """Business owner can see their own sales."""
+    business_id = uuid.uuid4()
+    mock_sale = MagicMock()
+
+    async def fake_execute(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = [mock_sale]
+        r.scalar.return_value = 1
+        return r
+
+    db = AsyncMock()
+    db.execute = fake_execute
+    result = await list_sales(db, business_id=business_id)
+    items = result[0] if isinstance(result, tuple) else result
+    assert len(items) == 1

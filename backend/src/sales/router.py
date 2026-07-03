@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user, require_any_role
+from src.auth.dependencies import get_current_active_user, get_current_business_id, require_any_role
 from src.auth.models import User, UserRole
 from src.core.csv_utils import csv_safe
 from src.core.database import get_db
@@ -90,10 +90,11 @@ async def create_sale_endpoint(
     body: SaleCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Record a new sale."""
     try:
-        return await create_sale(db, body, current_user.id)
+        return await create_sale(db, body, current_user.id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except SaleValidationError as e:
@@ -109,6 +110,7 @@ async def daily_entry_endpoint(
     body: DailyEntryRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Record multiple sales from daily entry form.
 
@@ -145,7 +147,7 @@ async def daily_entry_endpoint(
             location_id=entry.location_id,
         )
         try:
-            sale = await create_sale(db, sale_data, current_user.id)
+            sale = await create_sale(db, sale_data, current_user.id, business_id=business_id)
             results.append(sale)
         except (ProductNotFoundError, SaleValidationError) as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -164,10 +166,12 @@ async def list_sales_endpoint(
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """List sales with optional filters."""
     items, total = await list_sales(
         db,
+        business_id=business_id,
         product_id=product_id,
         channel=channel,
         status=sale_status,
@@ -184,13 +188,14 @@ async def sales_summary_endpoint(
     date_from: date = None,
     date_to: date = None,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get sales summary for a date range."""
     if date_from is None:
         date_from = date.today() - timedelta(days=30)
     if date_to is None:
         date_to = date.today()
-    return await get_sales_summary(db, date_from, date_to)
+    return await get_sales_summary(db, date_from, date_to, business_id=business_id)
 
 
 @router.get("/history", response_model=list[SalesHistoryEntry])
@@ -198,9 +203,10 @@ async def sales_history_endpoint(
     date_from: date,
     date_to: date,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get daily aggregated sales history."""
-    return await get_sales_history(db, date_from, date_to)
+    return await get_sales_history(db, date_from, date_to, business_id=business_id)
 
 
 @router.post("/quick-quote", response_model=QuickQuoteResponse)
@@ -218,6 +224,7 @@ async def upload_sales_csv_endpoint(
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Upload a CSV file of sales records."""
     if not file.filename or not file.filename.endswith(".csv"):
@@ -227,7 +234,7 @@ async def upload_sales_csv_endpoint(
         )
     try:
         content = await file.read()
-        job = await process_bulk_upload(db, content, file.filename, current_user.id)
+        job = await process_bulk_upload(db, content, file.filename, current_user.id, business_id=business_id)
         return BulkUploadResponse(
             job_id=job.id,
             status=job.status.value,
@@ -241,10 +248,11 @@ async def upload_sales_csv_endpoint(
 async def upload_status_endpoint(
     job_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Check the status of a bulk upload job."""
     try:
-        return await get_upload_status(db, job_id)
+        return await get_upload_status(db, job_id, business_id=business_id)
     except BulkUploadJobNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -260,10 +268,12 @@ async def list_transactions_endpoint(
     date_from: date | None = None,
     date_to: date | None = None,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """List sales grouped by transaction (most recent first)."""
     items, total = await list_transactions(
         db,
+        business_id=business_id,
         page=page,
         page_size=page_size,
         location_id=location_id,
@@ -282,10 +292,11 @@ async def list_transactions_endpoint(
 async def get_transaction_endpoint(
     transaction_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get all sale items for a given transaction."""
     try:
-        return await get_transaction(db, transaction_id)
+        return await get_transaction(db, transaction_id, business_id=business_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -296,6 +307,7 @@ async def update_transaction_endpoint(
     body: SaleTransactionUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update payment method, payment status, and notes for all items in a transaction."""
     try:
@@ -303,7 +315,7 @@ async def update_transaction_endpoint(
             db, transaction_id, body, current_user.id,
             is_admin=(current_user.role == UserRole.ADMIN),
         )
-        return await get_transaction(db, transaction_id)
+        return await get_transaction(db, transaction_id, business_id=business_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except SalePermissionError:
@@ -323,10 +335,12 @@ async def export_sales_csv_endpoint(
     date_from: date | None = None,
     date_to: date | None = None,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> StreamingResponse:
     """Export sales as a CSV file matching current filter params."""
     items, _ = await list_sales(
         db,
+        business_id=business_id,
         product_id=product_id,
         channel=channel,
         status=sale_status,
@@ -386,11 +400,12 @@ async def list_all_sell_returns_endpoint(
     page_size: int = 25,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> SellReturnListResponse:
     """List all sell returns, optionally filtered by sale_id."""
     created_by = None if current_user.role == UserRole.ADMIN else current_user.id
     items, total = await list_sell_returns(
-        db, sale_id=sale_id, created_by=created_by, page=page, page_size=page_size
+        db, sale_id=sale_id, created_by=created_by, business_id=business_id, page=page, page_size=page_size
     )
     return SellReturnListResponse(items=items, total=total, page=page, page_size=page_size)
 
@@ -418,10 +433,11 @@ async def create_sell_return_endpoint(
     body: SellReturnCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> SellReturnRead:
     """Create a sell return against an existing sale."""
     try:
-        return await create_sell_return(db, sale_id=sale_id, data=body, user_id=current_user.id)
+        return await create_sell_return(db, sale_id=sale_id, data=body, user_id=current_user.id, business_id=business_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except SaleValidationError as e:
@@ -435,14 +451,15 @@ async def list_sell_returns_by_sale_endpoint(
     page_size: int = 25,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> SellReturnListResponse:
     """List all sell returns for a specific sale."""
     try:
-        sale = await get_sale(db, sale_id)
+        sale = await get_sale(db, sale_id, business_id=business_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(sale.recorded_by, current_user)
-    items, total = await list_sell_returns(db, sale_id=sale_id, page=page, page_size=page_size)
+    items, total = await list_sell_returns(db, sale_id=sale_id, business_id=business_id, page=page, page_size=page_size)
     return SellReturnListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -451,10 +468,11 @@ async def get_sale_endpoint(
     sale_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get a single sale by ID."""
     try:
-        sale = await get_sale(db, sale_id)
+        sale = await get_sale(db, sale_id, business_id=business_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(sale.recorded_by, current_user)
@@ -467,10 +485,11 @@ async def update_sale_endpoint(
     body: SaleUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update a sale record."""
     try:
-        existing = await get_sale(db, sale_id)
+        existing = await get_sale(db, sale_id, business_id=business_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(existing.recorded_by, current_user)
@@ -490,10 +509,11 @@ async def void_sale_endpoint(
     reason: str = "No reason provided",
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Void a sale (soft-delete with inventory reversal)."""
     try:
-        existing = await get_sale(db, sale_id)
+        existing = await get_sale(db, sale_id, business_id=business_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(existing.recorded_by, current_user)
@@ -510,10 +530,11 @@ async def sale_audit_trail_endpoint(
     sale_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get the audit trail for a specific sale."""
     try:
-        sale = await get_sale(db, sale_id)
+        sale = await get_sale(db, sale_id, business_id=business_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(sale.recorded_by, current_user)
