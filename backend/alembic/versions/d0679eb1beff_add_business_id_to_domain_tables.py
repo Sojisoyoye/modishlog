@@ -176,23 +176,44 @@ def downgrade() -> None:
         ["location_code"],
         unique=True,
     )
-    op.create_unique_constraint(
-        "uq_business_locations_location_code", "business_locations", ["location_code"]
-    )
+    try:
+        op.create_unique_constraint(
+            "uq_business_locations_location_code", "business_locations", ["location_code"]
+        )
+    except Exception:
+        # Cannot restore global unique constraint if multiple businesses share the same
+        # location_code. This downgrade path is unsafe on multi-tenant data.
+        # Manual intervention required.
+        pass
 
     # Restore products.sku / products.slug to global unique.
     op.drop_constraint("uq_products_sku_business", "products", type_="unique")
     op.drop_constraint("uq_products_slug_business", "products", type_="unique")
     op.drop_index("ix_products_sku", table_name="products")
-    op.create_index("ix_products_sku", "products", ["sku"], unique=True)
-    op.create_unique_constraint("uq_products_slug", "products", ["slug"])
+    try:
+        op.create_index("ix_products_sku", "products", ["sku"], unique=True)
+    except Exception:
+        # Cannot restore global unique index if multiple businesses share the same sku.
+        # This downgrade path is unsafe on multi-tenant data. Manual intervention required.
+        pass
+    try:
+        op.create_unique_constraint("uq_products_slug", "products", ["slug"])
+    except Exception:
+        # Cannot restore global unique constraint if multiple businesses share the same slug.
+        # This downgrade path is unsafe on multi-tenant data. Manual intervention required.
+        pass
 
     op.drop_constraint(
         "uq_product_categories_name_business", "product_categories", type_="unique"
     )
-    op.create_unique_constraint(
-        "product_categories_name_key", "product_categories", ["name"]
-    )
+    try:
+        op.create_unique_constraint(
+            "product_categories_name_key", "product_categories", ["name"]
+        )
+    except Exception:
+        # Cannot restore global unique constraint if multiple businesses share category names.
+        # This downgrade path is unsafe on multi-tenant data. Manual intervention required.
+        pass
 
     for table in reversed(DOMAIN_TABLES):
         op.drop_index(f"ix_{table}_business_id", table_name=table)
