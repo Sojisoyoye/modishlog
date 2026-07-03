@@ -1,9 +1,12 @@
 """Settings API routes — thin layer, all logic in service.py."""
 
+import uuid
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
 from src.settings import service
@@ -25,9 +28,30 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 @router.get("/business-profile", response_model=BusinessProfileRead)
 async def get_business_profile(
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
     db: AsyncSession = Depends(get_db),
 ) -> BusinessProfileRead:
-    profile = await service.get_business_profile(db)
+    profile = await service.get_business_profile(db, business_id=business_id)
+    if profile is None:
+        # New business: return a safe empty schema rather than a transient ORM
+        # object (whose id/updated_at/currency/timezone are None until INSERT).
+        return BusinessProfileRead(
+            id=uuid.uuid4(),
+            business_name=None,
+            address_line_1=None,
+            city=None,
+            state=None,
+            country=None,
+            zip_code=None,
+            phone=None,
+            email=None,
+            website=None,
+            tax_number=None,
+            registration_number=None,
+            currency="NGN",
+            timezone="Africa/Lagos",
+            updated_at=datetime.now(timezone.utc),
+        )
     return BusinessProfileRead.model_validate(profile)
 
 
@@ -35,18 +59,22 @@ async def get_business_profile(
 async def update_business_profile(
     body: BusinessProfileUpdate,
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
     db: AsyncSession = Depends(get_db),
 ) -> BusinessProfileRead:
-    profile = await service.update_business_profile(db, body, current_user.id)
+    profile = await service.update_business_profile(
+        db, body, current_user.id, business_id=business_id
+    )
     return BusinessProfileRead.model_validate(profile)
 
 
 @router.get("/app", response_model=dict)
 async def get_app_settings(
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await service.get_app_settings(db)
+    return await service.get_app_settings(db, business_id=business_id)
 
 
 @router.put("/app/{key}", status_code=status.HTTP_204_NO_CONTENT)
@@ -54,9 +82,12 @@ async def update_app_setting(
     key: str,
     body: AppSettingWrite,
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    await service.update_app_setting(db, key, body.value or "", current_user.id)
+    await service.update_app_setting(
+        db, key, body.value or "", current_user.id, business_id=business_id
+    )
 
 
 @router.post("/api-key", status_code=status.HTTP_200_OK, response_model=ApiKeyStatus)

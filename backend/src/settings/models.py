@@ -3,7 +3,7 @@
 import uuid as _uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -41,10 +41,16 @@ class UserPreferences(UUIDMixin, TimestampMixin, Base):
 
 
 class BusinessProfile(UUIDMixin, TimestampMixin, Base):
-    """Single-row table storing the business's public profile and defaults."""
+    """Per-business profile storing public profile info and defaults."""
 
     __tablename__ = "business_profile"
+    __table_args__ = (
+        UniqueConstraint("business_id", name="uq_business_profile_business_id"),
+    )
 
+    business_id: Mapped[_uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     business_name: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
     logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default=None)
     address_line_1: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
@@ -66,11 +72,14 @@ class BusinessProfile(UUIDMixin, TimestampMixin, Base):
 
 
 class AppSetting(Base):
-    """Global key-value store for application-wide settings."""
+    """Per-business key-value store for application settings."""
 
     __tablename__ = "app_settings"
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    business_id: Mapped[_uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, primary_key=True, index=True
+    )
     value: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

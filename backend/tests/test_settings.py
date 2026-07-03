@@ -268,31 +268,19 @@ def _mock_db_simple():
 
 class TestBusinessProfile:
     @pytest.mark.asyncio
-    async def test_get_business_profile_creates_empty_record_if_absent(self):
-        """get_business_profile() creates a row via upsert when none exists."""
-        from src.settings.models import BusinessProfile
+    async def test_get_business_profile_returns_none_when_absent(self):
+        """get_business_profile() returns None when no profile exists for this business."""
         from src.settings.service import get_business_profile
 
-        # First execute: SELECT returns None
-        first_result = MagicMock()
-        first_result.scalar_one_or_none.return_value = None
-        # Second execute: pg_insert (result is ignored)
-        insert_result = MagicMock()
-        # Third execute: SELECT after insert returns the new profile
-        new_profile = BusinessProfile()
-        new_profile.id = uuid.uuid4()
-        new_profile.created_at = datetime.now(timezone.utc)
-        new_profile.updated_at = datetime.now(timezone.utc)
-        third_result = MagicMock()
-        third_result.scalar_one.return_value = new_profile
-
+        business_id = uuid.uuid4()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
         db = _mock_db_simple()
-        db.execute = AsyncMock(side_effect=[first_result, insert_result, third_result])
+        db.execute = AsyncMock(return_value=result_mock)
 
-        profile = await get_business_profile(db)
-        assert profile is not None
-        assert profile.business_name is None
-        assert db.execute.call_count == 3
+        profile = await get_business_profile(db, business_id=business_id)
+        assert profile is None
+        assert db.execute.call_count == 1
 
     @pytest.mark.asyncio
     async def test_get_business_profile_returns_existing(self):
@@ -300,7 +288,8 @@ class TestBusinessProfile:
         from src.settings.models import BusinessProfile
         from src.settings.service import get_business_profile
 
-        existing = BusinessProfile(business_name="Ade Traders", currency="NGN")
+        business_id = uuid.uuid4()
+        existing = BusinessProfile(business_name="Ade Traders", currency="NGN", business_id=business_id)
         existing.id = uuid.uuid4()
         existing.created_at = datetime.now(timezone.utc)
         existing.updated_at = datetime.now(timezone.utc)
@@ -310,35 +299,44 @@ class TestBusinessProfile:
         db = _mock_db_simple()
         db.execute = AsyncMock(return_value=result_mock)
 
-        profile = await get_business_profile(db)
+        profile = await get_business_profile(db, business_id=business_id)
         assert profile.business_name == "Ade Traders"
 
     @pytest.mark.asyncio
     async def test_update_business_profile_persists_all_fields(self):
-        """update_business_profile() updates and flushes the profile record."""
+        """update_business_profile() upserts and returns the updated profile."""
         from src.settings.models import BusinessProfile
         from src.settings.schemas import BusinessProfileUpdate
         from src.settings.service import update_business_profile
 
-        existing = BusinessProfile(business_name="Old Name", currency="NGN")
-        existing.id = uuid.uuid4()
-        existing.created_at = datetime.now(timezone.utc)
-        existing.updated_at = datetime.now(timezone.utc)
+        business_id = uuid.uuid4()
+        # Returned by the re-fetch SELECT after pg_insert upsert
+        updated_profile = BusinessProfile(
+            business_name="New Name", currency="USD", business_id=business_id
+        )
+        updated_profile.id = uuid.uuid4()
+        updated_profile.tax_number = "TIN-12345"
+        updated_profile.created_at = datetime.now(timezone.utc)
+        updated_profile.updated_at = datetime.now(timezone.utc)
 
-        result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = existing
+        # execute call 1: pg_insert (result is ignored)
+        insert_result = MagicMock()
+        # execute call 2: re-fetch SELECT returns updated_profile
+        fetch_result = MagicMock()
+        fetch_result.scalar_one_or_none.return_value = updated_profile
+
         db = _mock_db_simple()
-        db.execute = AsyncMock(return_value=result_mock)
+        db.execute = AsyncMock(side_effect=[insert_result, fetch_result])
 
         data = BusinessProfileUpdate(
             business_name="New Name",
             currency="USD",
             tax_number="TIN-12345",
         )
-        updated = await update_business_profile(db, data, user_id=uuid.uuid4())
-        assert updated.business_name == "New Name"
-        assert updated.currency == "USD"
-        assert updated.tax_number == "TIN-12345"
+        result = await update_business_profile(db, data, user_id=uuid.uuid4(), business_id=business_id)
+        assert result.business_name == "New Name"
+        assert result.currency == "USD"
+        assert result.tax_number == "TIN-12345"
         db.flush.assert_called_once()
 
 
@@ -353,6 +351,7 @@ class TestAppSettings:
         """get_app_settings() returns all default key/value pairs when table is empty."""
         from src.settings.service import get_app_settings
 
+        business_id = uuid.uuid4()
         result_mock = MagicMock()
         scalars_mock = MagicMock()
         scalars_mock.all.return_value = []
@@ -360,7 +359,7 @@ class TestAppSettings:
         db = _mock_db_simple()
         db.execute = AsyncMock(return_value=result_mock)
 
-        settings_dict = await get_app_settings(db)
+        settings_dict = await get_app_settings(db, business_id=business_id)
         assert "global_low_stock_threshold" in settings_dict
         assert "default_currency_pair" in settings_dict
         assert settings_dict["global_low_stock_threshold"] == "10"
@@ -368,34 +367,180 @@ class TestAppSettings:
 
     @pytest.mark.asyncio
     async def test_update_app_setting_persists_value(self):
-        """update_app_setting() upserts the key-value pair and flushes."""
+        """update_app_setting() upserts via pg_insert and flushes."""
         from src.settings.service import update_app_setting
 
+        business_id = uuid.uuid4()
         result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = None
         db = _mock_db_simple()
         db.execute = AsyncMock(return_value=result_mock)
 
-        await update_app_setting(db, "global_low_stock_threshold", "25", user_id=uuid.uuid4())
-        db.add.assert_called_once()
+        await update_app_setting(
+            db, "global_low_stock_threshold", "25", user_id=uuid.uuid4(), business_id=business_id
+        )
+        # pg_insert path: db.execute is called once (pg_insert), db.add is NOT called
+        db.execute.assert_called_once()
+        db.add.assert_not_called()
         db.flush.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_app_setting_updates_existing(self):
-        """update_app_setting() updates in-place when a row already exists."""
-        from src.settings.models import AppSetting
+        """update_app_setting() uses pg_insert on_conflict_do_update (single execute)."""
         from src.settings.service import update_app_setting
 
-        existing = AppSetting(key="global_low_stock_threshold", value="10")
-        existing.updated_at = datetime.now(timezone.utc)
-
+        business_id = uuid.uuid4()
         result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = existing
         db = _mock_db_simple()
         db.execute = AsyncMock(return_value=result_mock)
 
-        await update_app_setting(db, "global_low_stock_threshold", "50", user_id=uuid.uuid4())
-        assert existing.value == "50"
+        await update_app_setting(
+            db, "global_low_stock_threshold", "50", user_id=uuid.uuid4(), business_id=business_id
+        )
+        # pg_insert path: single execute, no separate SELECT
+        db.execute.assert_called_once()
+        db.flush.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Business isolation tests
+# ---------------------------------------------------------------------------
+
+
+class TestBusinessProfileIsolation:
+    @pytest.mark.asyncio
+    async def test_business_profile_isolates_by_business(self):
+        """Each business gets its own profile, not the global one."""
+        from src.settings.service import get_business_profile
+
+        business_a_id = uuid.uuid4()
+        business_b_id = uuid.uuid4()
+
+        profile_a = MagicMock()
+        profile_a.id = uuid.uuid4()
+
+        async def fake_execute_a(query):
+            r = MagicMock()
+            r.scalar_one_or_none.return_value = profile_a
+            return r
+
+        async def fake_execute_b(query):
+            r = MagicMock()
+            r.scalar_one_or_none.return_value = None
+            return r
+
+        db_a, db_b = AsyncMock(), AsyncMock()
+        db_a.execute = fake_execute_a
+        db_b.execute = fake_execute_b
+        db_a.flush = AsyncMock()
+        db_b.flush = AsyncMock()
+        db_a.add = MagicMock()
+        db_b.add = MagicMock()
+
+        result_a = await get_business_profile(db_a, business_id=business_a_id)
+        result_b = await get_business_profile(db_b, business_id=business_b_id)
+        assert result_a is profile_a
+        assert result_b is None  # business_b has no profile yet
+
+    @pytest.mark.asyncio
+    async def test_update_business_profile_scoped_to_business(self):
+        """update_business_profile() upserts a new row scoped to the given business_id."""
+        from src.settings.models import BusinessProfile
+        from src.settings.schemas import BusinessProfileUpdate
+        from src.settings.service import update_business_profile
+
+        business_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        # Re-fetch after upsert returns this profile
+        fetched = BusinessProfile(business_name="My Shop", currency="NGN", business_id=business_id)
+        fetched.id = uuid.uuid4()
+        fetched.created_at = datetime.now(timezone.utc)
+        fetched.updated_at = datetime.now(timezone.utc)
+
+        insert_result = MagicMock()
+        fetch_result = MagicMock()
+        fetch_result.scalar_one_or_none.return_value = fetched
+
+        db = _mock_db_simple()
+        db.execute = AsyncMock(side_effect=[insert_result, fetch_result])
+
+        data = BusinessProfileUpdate(business_name="My Shop", currency="NGN")
+        profile = await update_business_profile(db, data, user_id=user_id, business_id=business_id)
+        assert profile.business_name == "My Shop"
+        assert profile.business_id == business_id
+        # pg_insert path: db.add is NOT called, execute called twice (INSERT + SELECT)
+        db.add.assert_not_called()
+        assert db.execute.call_count == 2
+        db.flush.assert_called_once()
+
+
+class TestAppSettingIsolation:
+    @pytest.mark.asyncio
+    async def test_app_settings_isolates_by_business(self):
+        """Each business gets its own app settings."""
+        from src.settings.service import get_app_setting
+
+        business_a_id = uuid.uuid4()
+        business_b_id = uuid.uuid4()
+        key = "theme"
+
+        async def fake_execute_a(query):
+            r = MagicMock()
+            r.scalar_one_or_none.return_value = MagicMock(value="dark")
+            return r
+
+        async def fake_execute_b(query):
+            r = MagicMock()
+            r.scalar_one_or_none.return_value = None
+            return r
+
+        db_a, db_b = AsyncMock(), AsyncMock()
+        db_a.execute = fake_execute_a
+        db_b.execute = fake_execute_b
+
+        result_a = await get_app_setting(db_a, key=key, business_id=business_a_id)
+        result_b = await get_app_setting(db_b, key=key, business_id=business_b_id)
+        assert result_a is not None
+        assert result_b is None
+
+    @pytest.mark.asyncio
+    async def test_get_app_settings_scoped_to_business(self):
+        """get_app_settings() returns only rows for the given business_id."""
+        from src.settings.models import AppSetting
+        from src.settings.service import get_app_settings
+
+        business_id = uuid.uuid4()
+        row = AppSetting(key="global_low_stock_threshold", value="5")
+        row.updated_at = datetime.now(timezone.utc)
+
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [row]
+        result_mock.scalars.return_value = scalars_mock
+        db = _mock_db_simple()
+        db.execute = AsyncMock(return_value=result_mock)
+
+        settings_dict = await get_app_settings(db, business_id=business_id)
+        assert settings_dict["global_low_stock_threshold"] == "5"
+
+    @pytest.mark.asyncio
+    async def test_update_app_setting_scoped_to_business(self):
+        """update_app_setting() upserts via pg_insert scoped to business_id."""
+        from src.settings.service import update_app_setting
+
+        business_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        result_mock = MagicMock()
+        db = _mock_db_simple()
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await update_app_setting(
+            db, "global_low_stock_threshold", "25", user_id=user_id, business_id=business_id
+        )
+        # pg_insert path: single execute (INSERT ON CONFLICT), no db.add
+        db.add.assert_not_called()
+        db.execute.assert_called_once()
         db.flush.assert_called_once()
 
 
