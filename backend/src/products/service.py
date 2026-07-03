@@ -36,14 +36,18 @@ logger = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 
-async def _generate_sku(db: AsyncSession) -> str:
-    """Auto-generate a unique SKU like PRD-00001."""
-    result = await db.execute(select(func.count()).select_from(Product))
+async def _generate_sku(db: AsyncSession, business_id: uuid.UUID) -> str:
+    """Auto-generate a unique SKU like PRD-00001, scoped to the given business."""
+    result = await db.execute(
+        select(func.count()).select_from(Product).where(Product.business_id == business_id)
+    )
     count = result.scalar() or 0
     while True:
         count += 1
         sku = f"PRD-{count:05d}"
-        existing = await db.execute(select(Product).where(Product.sku == sku))
+        existing = await db.execute(
+            select(Product).where(Product.sku == sku, Product.business_id == business_id)
+        )
         if not existing.scalar_one_or_none():
             return sku
 
@@ -56,11 +60,14 @@ async def _generate_sku(db: AsyncSession) -> str:
 async def create_category(
     db: AsyncSession,
     data: CategoryCreate,
+    business_id: uuid.UUID,
 ) -> ProductCategory:
     """Create a product category, optionally nested under a parent (max 2 levels)."""
     if data.parent_id is not None:
         parent = await db.get(ProductCategory, data.parent_id)
         if not parent:
+            raise CategoryNotFoundError(data.parent_id)
+        if parent.business_id != business_id:
             raise CategoryNotFoundError(data.parent_id)
         if parent.parent_id is not None:
             raise SubcategoryDepthError(data.parent_id)
@@ -70,6 +77,7 @@ async def create_category(
         description=data.description,
         parent_id=data.parent_id,
         default_margin_pct=data.default_margin_pct,
+        business_id=business_id,
     )
     db.add(category)
     await db.flush()
@@ -83,27 +91,38 @@ async def create_category(
     return result.scalar_one()
 
 
-async def list_categories(db: AsyncSession) -> list[ProductCategory]:
-    """List all product categories ordered by name, with children pre-loaded."""
+async def list_categories(db: AsyncSession, business_id: uuid.UUID) -> list[ProductCategory]:
+    """List all product categories for a business ordered by name, with children pre-loaded."""
     result = await db.execute(
         select(ProductCategory)
         .options(selectinload(ProductCategory.children))
+        .where(ProductCategory.business_id == business_id)
         .order_by(ProductCategory.name)
     )
     return list(result.scalars().all())
 
 
-async def get_category(db: AsyncSession, category_id: uuid.UUID) -> ProductCategory:
-    """Get a category by ID."""
+async def get_category(
+    db: AsyncSession,
+    category_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
+) -> ProductCategory:
+    """Get a category by ID. If business_id is provided, verifies ownership."""
     category = await db.get(ProductCategory, category_id)
     if not category:
+        raise CategoryNotFoundError(category_id)
+    if business_id is not None and category.business_id != business_id:
         raise CategoryNotFoundError(category_id)
     return category
 
 
-async def delete_category(db: AsyncSession, category_id: uuid.UUID) -> None:
+async def delete_category(
+    db: AsyncSession,
+    category_id: uuid.UUID,
+    business_id: uuid.UUID,
+) -> None:
     """Delete a category (only if no products or sub-categories are linked)."""
-    category = await get_category(db, category_id)
+    category = await get_category(db, category_id, business_id=business_id)
     child_result = await db.execute(
         select(func.count())
         .select_from(ProductCategory)
@@ -128,9 +147,10 @@ async def update_category(
     db: AsyncSession,
     category_id: uuid.UUID,
     data: CategoryUpdate,
+    business_id: uuid.UUID | None = None,
 ) -> ProductCategory:
     """Update a category's name and/or description."""
-    category = await get_category(db, category_id)
+    category = await get_category(db, category_id, business_id=business_id)
     if data.name is not None:
         category.name = data.name
     if "description" in data.model_fields_set:
@@ -157,17 +177,20 @@ async def create_product(
     db: AsyncSession,
     data: ProductCreate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> Product:
     """Create a new product, auto-generating SKU if not provided."""
-    # Validate category exists (only if provided)
+    # Validate category exists and belongs to this business (only if provided)
     if data.category_id is not None:
-        await get_category(db, data.category_id)
+        await get_category(db, data.category_id, business_id=business_id)
 
     sku = data.sku
     if not sku:
-        sku = await _generate_sku(db)
+        sku = await _generate_sku(db, business_id)
     else:
-        existing = await db.execute(select(Product).where(Product.sku == sku))
+        existing = await db.execute(
+            select(Product).where(Product.sku == sku, Product.business_id == business_id)
+        )
         if existing.scalar_one_or_none():
             raise DuplicateSKUError(sku)
 
@@ -177,7 +200,9 @@ async def create_product(
             data.name,
             "produces an empty slug — use a name with at least one alphanumeric character",
         )
-    existing_slug = await db.execute(select(Product).where(Product.slug == slug))
+    existing_slug = await db.execute(
+        select(Product).where(Product.slug == slug, Product.business_id == business_id)
+    )
     if existing_slug.scalar_one_or_none():
         raise DuplicateSlugError(slug)
 
@@ -191,6 +216,7 @@ async def create_product(
         selling_price=data.selling_price,
         currency=data.currency,
         is_active=True,
+        business_id=business_id,
     )
     db.add(product)
     await db.flush()
@@ -216,12 +242,23 @@ async def create_product(
     return product
 
 
-async def get_product(db: AsyncSession, product_id: uuid.UUID) -> Product:
-    """Get a single product by ID with category loaded."""
+async def get_product(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
+) -> Product:
+    """Get a single product by ID with category loaded.
+
+    If business_id is provided, only returns products belonging to that business.
+    """
+    conditions = [Product.id == product_id]
+    if business_id is not None:
+        conditions.append(Product.business_id == business_id)
+
     result = await db.execute(
         select(Product)
         .options(selectinload(Product.category))
-        .where(Product.id == product_id)
+        .where(*conditions)
     )
     product = result.scalar_one_or_none()
     if not product:
@@ -231,6 +268,7 @@ async def get_product(db: AsyncSession, product_id: uuid.UUID) -> Product:
 
 async def list_products(
     db: AsyncSession,
+    business_id: uuid.UUID,
     *,
     category_id: uuid.UUID | None = None,
     is_active: bool | None = True,
@@ -238,9 +276,13 @@ async def list_products(
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[Product], int]:
-    """List products with filtering and pagination."""
+    """List products with filtering and pagination, scoped to a business."""
     query = select(Product).options(selectinload(Product.category))
     count_query = select(func.count()).select_from(Product)
+
+    # Always filter by business_id for data isolation
+    query = query.where(Product.business_id == business_id)
+    count_query = count_query.where(Product.business_id == business_id)
 
     if category_id is not None:
         query = query.where(Product.category_id == category_id)
@@ -269,9 +311,10 @@ async def update_product(
     product_id: uuid.UUID,
     data: ProductUpdate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> Product:
     """Update a product. Creates PriceHistory if prices change."""
-    product = await get_product(db, product_id)
+    product = await get_product(db, product_id, business_id=business_id)
 
     update_fields = data.model_dump(exclude_unset=True)
 
@@ -288,9 +331,9 @@ async def update_product(
     ):
         price_changed = True
 
-    # Validate category if changing
+    # Validate category if changing — also verify it belongs to this business
     if "category_id" in update_fields and update_fields["category_id"] is not None:
-        await get_category(db, update_fields["category_id"])
+        await get_category(db, update_fields["category_id"], business_id=business_id)
 
     # Regenerate slug when name changes
     if "name" in update_fields:
@@ -305,6 +348,7 @@ async def update_product(
                 select(Product).where(
                     Product.slug == new_slug,
                     Product.id != product_id,
+                    Product.business_id == business_id,
                 )
             )
             if conflict.scalar_one_or_none():
@@ -335,9 +379,13 @@ async def update_product(
     return product
 
 
-async def deactivate_product(db: AsyncSession, product_id: uuid.UUID) -> Product:
+async def deactivate_product(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
+) -> Product:
     """Soft-delete a product by setting is_active=False."""
-    product = await get_product(db, product_id)
+    product = await get_product(db, product_id, business_id=business_id)
     product.is_active = False
     await db.flush()
     await logger.ainfo("product_deactivated", product_id=str(product_id))
@@ -352,9 +400,10 @@ async def deactivate_product(db: AsyncSession, product_id: uuid.UUID) -> Product
 async def get_price_history(
     db: AsyncSession,
     product_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> list[PriceHistory]:
     """Get price change history for a product."""
-    await get_product(db, product_id)  # ensure product exists
+    await get_product(db, product_id, business_id=business_id)  # ensure product exists and is owned
     result = await db.execute(
         select(PriceHistory)
         .where(PriceHistory.product_id == product_id)

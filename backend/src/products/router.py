@@ -7,7 +7,7 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.config import settings
 from src.core.database import get_db
@@ -61,10 +61,11 @@ async def create_category_endpoint(
     body: CategoryCreate,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Create a new product category."""
     try:
-        return await create_category(db, body)
+        return await create_category(db, body, business_id)
     except CategoryNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except SubcategoryDepthError as e:
@@ -72,9 +73,12 @@ async def create_category_endpoint(
 
 
 @router.get("/categories", response_model=list[CategoryRead])
-async def list_categories_endpoint(db: AsyncSession = Depends(get_db)):
+async def list_categories_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """List top-level categories with their children nested."""
-    all_cats = await list_categories(db)
+    all_cats = await list_categories(db, business_id)
     return [c for c in all_cats if c.parent_id is None]
 
 
@@ -84,10 +88,11 @@ async def update_category_endpoint(
     body: CategoryUpdate,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update a category's name and/or description."""
     try:
-        return await update_category(db, category_id, body)
+        return await update_category(db, category_id, body, business_id=business_id)
     except CategoryNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -97,10 +102,11 @@ async def delete_category_endpoint(
     category_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Delete a category (only if no products or sub-categories linked)."""
     try:
-        await delete_category(db, category_id)
+        await delete_category(db, category_id, business_id)
     except CategoryNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except CategoryHasChildrenError as e:
@@ -119,10 +125,11 @@ async def create_product_endpoint(
     body: ProductCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Create a new product."""
     try:
-        product = await create_product(db, body, current_user.id)
+        product = await create_product(db, body, current_user.id, business_id)
     except CategoryNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except InvalidProductNameError as e:
@@ -141,6 +148,7 @@ async def bulk_upload_products_endpoint(
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Bulk-create products from a CSV or Excel file.
 
@@ -243,7 +251,7 @@ async def bulk_upload_products_endpoint(
             )
 
     # Build category lookup
-    categories = await list_categories(db)
+    categories = await list_categories(db, business_id)
     cat_map = {c.name.lower(): c.id for c in categories}
 
     errors: list[BulkUploadRowError] = []
@@ -263,7 +271,7 @@ async def bulk_upload_products_endpoint(
             if cat_name:
                 cat_id = cat_map.get(cat_name.lower())
                 if not cat_id:
-                    new_cat = await create_category(db, CategoryCreate(name=cat_name))
+                    new_cat = await create_category(db, CategoryCreate(name=cat_name), business_id)
                     cat_map[cat_name.lower()] = new_cat.id
                     cat_id = new_cat.id
 
@@ -276,7 +284,7 @@ async def bulk_upload_products_endpoint(
                 selling_price=selling_price,
                 currency=row.get("currency", "").strip() or "NGN",
             )
-            product = await create_product(db, data, current_user.id)
+            product = await create_product(db, data, current_user.id, business_id)
             created_ids.append(product.id)
         except (ValueError, InvalidOperation) as e:
             errors.append(BulkUploadRowError(row=i, error=str(e)))
@@ -310,10 +318,12 @@ async def list_products_endpoint(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """List products with filtering and pagination."""
     items, total = await list_products(
         db,
+        business_id,
         category_id=category_id,
         is_active=is_active,
         search=search,
@@ -327,10 +337,11 @@ async def list_products_endpoint(
 async def get_product_endpoint(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get a single product by ID."""
     try:
-        return await get_product(db, product_id)
+        return await get_product(db, product_id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -341,10 +352,11 @@ async def update_product_endpoint(
     body: ProductUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update a product."""
     try:
-        return await update_product(db, product_id, body, current_user.id)
+        return await update_product(db, product_id, body, current_user.id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except CategoryNotFoundError as e:
@@ -362,10 +374,11 @@ async def delete_product_endpoint(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Soft-delete a product."""
     try:
-        await deactivate_product(db, product_id)
+        await deactivate_product(db, product_id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -374,10 +387,11 @@ async def delete_product_endpoint(
 async def get_price_history_endpoint(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get price change history for a product."""
     try:
-        return await get_price_history(db, product_id)
+        return await get_price_history(db, product_id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -388,6 +402,7 @@ async def upload_product_image(
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Upload or replace a product image."""
     ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -420,6 +435,6 @@ async def upload_product_image(
     image_url = f"/static/products/{product_id}{ext}"
     update_data = ProductUpdate(image_url=image_url)
     try:
-        return await update_product(db, product_id, update_data, current_user.id)
+        return await update_product(db, product_id, update_data, current_user.id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

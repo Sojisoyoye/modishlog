@@ -65,7 +65,7 @@ def _make_user(**overrides):
 
 
 def _make_category(**overrides):
-    defaults = dict(name="Electronics", description="Electronic goods")
+    defaults = dict(name="Electronics", description="Electronic goods", business_id=uuid.uuid4())
     defaults.update(overrides)
     cat = ProductCategory(**defaults)
     cat.id = overrides.get("id", uuid.uuid4())
@@ -85,6 +85,7 @@ def _make_product(category_id=None, **overrides):
         selling_price=Decimal("150.000000"),
         currency="NGN",
         is_active=True,
+        business_id=uuid.uuid4(),
     )
     defaults.update(overrides)
     product = Product(**defaults)
@@ -167,7 +168,7 @@ class TestCategoryCRUD:
         expected = _make_category(name="Electronics", description="Gadgets")
         db = _mock_db_with_execute(scalar_result=expected)
         data = CategoryCreate(name="Electronics", description="Gadgets")
-        cat = await create_category(db, data)
+        cat = await create_category(db, data, uuid.uuid4())
         assert cat.name == "Electronics"
         db.add.assert_called_once()
 
@@ -253,14 +254,15 @@ class TestProductCRUD:
             unit_cost=Decimal("10"),
             selling_price=Decimal("20"),
         )
-        product = await create_product(db, data, uuid.uuid4())
+        product = await create_product(db, data, uuid.uuid4(), uuid.uuid4())
         assert product.name == "No Category Widget"
         assert product.category_id is None
         assert product.sku.startswith("PRD-")
 
     @pytest.mark.asyncio
     async def test_create_product_auto_sku(self):
-        cat = _make_category()
+        business_id = uuid.uuid4()
+        cat = _make_category(business_id=business_id)
         db = AsyncMock()
         # get_category call (db.get returns the category)
         db.get = AsyncMock(return_value=cat)
@@ -290,14 +292,15 @@ class TestProductCRUD:
             unit_cost=Decimal("10"),
             selling_price=Decimal("20"),
         )
-        product = await create_product(db, data, uuid.uuid4())
+        product = await create_product(db, data, uuid.uuid4(), business_id)
         assert product.name == "Widget"
         assert product.sku.startswith("PRD-")
 
     @pytest.mark.asyncio
     async def test_create_product_duplicate_sku(self):
-        cat = _make_category()
-        existing = _make_product(category_id=cat.id, sku="DUP-SKU")
+        business_id = uuid.uuid4()
+        cat = _make_category(business_id=business_id)
+        existing = _make_product(category_id=cat.id, sku="DUP-SKU", business_id=business_id)
 
         db = AsyncMock()
         db.get = AsyncMock(return_value=cat)
@@ -316,7 +319,7 @@ class TestProductCRUD:
             selling_price=Decimal("20"),
         )
         with pytest.raises(DuplicateSKUError):
-            await create_product(db, data, uuid.uuid4())
+            await create_product(db, data, uuid.uuid4(), business_id)
 
     @pytest.mark.asyncio
     async def test_get_product_not_found(self):
@@ -503,9 +506,18 @@ class TestProductEndpoints:
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
         self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
+    def _override_business_id(self, business_id: uuid.UUID | None = None):
+        from src.auth.dependencies import get_current_business_id
+        bid = business_id or uuid.uuid4()
+        async def _fake_business_id():
+            return bid
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
+        return bid
+
     def test_list_categories_empty(self):
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
+        self._override_business_id()
         with TestClient(self.app) as client:
             resp = client.get("/api/v1/products/categories")
         assert resp.status_code == 200
@@ -543,6 +555,7 @@ class TestProductEndpoints:
 
         db.add = _add_and_patch
         self._override_db(db)
+        self._override_business_id()
         headers, _ = self._auth_headers()
         with TestClient(self.app) as client:
             resp = client.post(
@@ -556,6 +569,7 @@ class TestProductEndpoints:
     def test_get_product_not_found(self):
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
+        self._override_business_id()
         fake_id = str(uuid.uuid4())
         with TestClient(self.app) as client:
             resp = client.get(f"/api/v1/products/{fake_id}")
@@ -586,6 +600,7 @@ class TestProductEndpoints:
         user = _make_user()
         db.get = AsyncMock(return_value=user)
         self._override_db(db)
+        self._override_business_id()
         headers, _ = self._auth_headers()
         fake_id = str(uuid.uuid4())
         with TestClient(self.app) as client:
@@ -602,6 +617,7 @@ class TestProductEndpoints:
         user = _make_user()
         db.get = AsyncMock(return_value=user)
         self._override_db(db)
+        self._override_business_id()
         headers, _ = self._auth_headers()
         fake_id = str(uuid.uuid4())
         # 6MB file exceeds 5MB limit
@@ -626,6 +642,7 @@ class TestProductEndpoints:
         db = _mock_db_with_execute(scalar_result=product)
         db.get = AsyncMock(return_value=user)
         self._override_db(db)
+        self._override_business_id()
         headers, _ = self._auth_headers()
 
         with patch("anyio.to_thread.run_sync", new_callable=AsyncMock), \
@@ -657,13 +674,15 @@ class TestProductEndpoints:
 
     def test_update_category_success(self):
         """PATCH /products/categories/{id} updates name and description."""
-        cat = _make_category(name="New Name", description="New desc")
+        business_id = uuid.uuid4()
+        cat = _make_category(name="New Name", description="New desc", business_id=business_id)
         cat.children = []
         user = _make_user()
         # update_category calls db.execute after flush to reload with selectinload(children)
         db = _mock_db_with_execute(scalar_result=cat)
         db.get = AsyncMock(side_effect=[user, cat])  # auth user then category
         self._override_db(db)
+        self._override_business_id(business_id)
         headers, _ = self._auth_headers()
         with TestClient(self.app) as client:
             resp = client.patch(
@@ -682,6 +701,7 @@ class TestProductEndpoints:
         db = _mock_db_with_execute()
         db.get = AsyncMock(side_effect=[user, None])  # auth user then missing category
         self._override_db(db)
+        self._override_business_id()
         headers, _ = self._auth_headers()
         with TestClient(self.app) as client:
             resp = client.patch(
@@ -779,11 +799,12 @@ class TestSubcategoryHierarchy:
     @pytest.mark.asyncio
     async def test_create_subcategory(self):
         """create_category with parent_id sets parent_id on the created category."""
-        parent = _make_category(name="Edge Tape")
+        business_id = uuid.uuid4()
+        parent = _make_category(name="Edge Tape", business_id=business_id)
         parent.parent_id = None
         parent.children = []
 
-        expected = _make_category(name="Matt")
+        expected = _make_category(name="Matt", business_id=business_id)
         expected.parent_id = parent.id
         expected.children = []
 
@@ -797,7 +818,7 @@ class TestSubcategoryHierarchy:
         db.execute.return_value = result_mock
 
         data = CategoryCreate(name="Matt", parent_id=parent.id)
-        cat = await create_category(db, data)
+        cat = await create_category(db, data, business_id)
         assert cat.parent_id == parent.id
         db.add.assert_called_once()
 
@@ -806,8 +827,9 @@ class TestSubcategoryHierarchy:
         """Cannot create a sub-sub-category (max 2 levels deep)."""
         from src.products.exceptions import SubcategoryDepthError
 
+        business_id = uuid.uuid4()
         grandparent_id = uuid.uuid4()
-        parent = _make_category(name="Mid Level")
+        parent = _make_category(name="Mid Level", business_id=business_id)
         parent.parent_id = grandparent_id  # parent is itself a sub-category
         parent.children = []
 
@@ -818,7 +840,7 @@ class TestSubcategoryHierarchy:
 
         data = CategoryCreate(name="Deep Level", parent_id=parent.id)
         with pytest.raises(SubcategoryDepthError):
-            await create_category(db, data)
+            await create_category(db, data, business_id)
 
     @pytest.mark.asyncio
     async def test_list_categories_tree(self):
@@ -831,7 +853,7 @@ class TestSubcategoryHierarchy:
         parent.children = [child]
 
         db = _mock_db_with_execute(scalars_result=[parent])
-        cats = await list_categories(db)
+        cats = await list_categories(db, uuid.uuid4())
         db.execute.assert_called_once()
         assert len(cats) == 1
         assert cats[0].name == "Edge Tape"
@@ -842,7 +864,8 @@ class TestSubcategoryHierarchy:
         """Cannot delete a category that has sub-categories."""
         from src.products.exceptions import CategoryHasChildrenError
 
-        parent = _make_category(name="Edge Tape")
+        business_id = uuid.uuid4()
+        parent = _make_category(name="Edge Tape", business_id=business_id)
         parent.parent_id = None
 
         db = AsyncMock()
@@ -865,13 +888,14 @@ class TestSubcategoryHierarchy:
 
         from src.products.service import delete_category
         with pytest.raises(CategoryHasChildrenError):
-            await delete_category(db, parent.id)
+            await delete_category(db, parent.id, business_id)
 
     @pytest.mark.asyncio
     async def test_product_assigned_to_subcategory(self):
         """Products can be assigned to a sub-category (any valid category UUID)."""
+        business_id = uuid.uuid4()
         grandparent_id = uuid.uuid4()
-        subcat = _make_category(name="Matt")
+        subcat = _make_category(name="Matt", business_id=business_id)
         subcat.parent_id = grandparent_id
         subcat.children = []
 
@@ -892,7 +916,7 @@ class TestSubcategoryHierarchy:
             selling_price=Decimal("350.00"),
             category_id=subcat.id,
         )
-        product = await create_product(db, data, user_id)
+        product = await create_product(db, data, user_id, business_id)
         assert product.category_id == subcat.id
 
 
@@ -981,7 +1005,7 @@ class TestProductSlug:
             unit_cost=Decimal("10"),
             selling_price=Decimal("20"),
         )
-        product = await create_product(db, data, uuid.uuid4())
+        product = await create_product(db, data, uuid.uuid4(), uuid.uuid4())
         assert product.slug == "blue-marker"
 
     @pytest.mark.asyncio
@@ -1002,14 +1026,15 @@ class TestProductSlug:
             unit_cost=Decimal("10"),
             selling_price=Decimal("20"),
         )
-        product = await create_product(db, data, uuid.uuid4())
+        product = await create_product(db, data, uuid.uuid4(), uuid.uuid4())
         assert product.slug == "05x48"
 
     @pytest.mark.asyncio
     async def test_create_product_duplicate_slug_raises(self):
         """create_product raises DuplicateSlugError when slug already exists."""
-        cat = _make_category()
-        existing = _make_product(category_id=cat.id, slug="test-product")
+        business_id = uuid.uuid4()
+        cat = _make_category(business_id=business_id)
+        existing = _make_product(category_id=cat.id, slug="test-product", business_id=business_id)
 
         db = AsyncMock()
         db.get = AsyncMock(return_value=cat)
@@ -1038,7 +1063,7 @@ class TestProductSlug:
             selling_price=Decimal("20"),
         )
         with pytest.raises(DuplicateSlugError):
-            await create_product(db, data, uuid.uuid4())
+            await create_product(db, data, uuid.uuid4(), business_id)
 
     @pytest.mark.asyncio
     async def test_update_product_name_change_regenerates_slug(self):
@@ -1123,7 +1148,7 @@ class TestProductSlug:
             selling_price=Decimal("20"),
         )
         with pytest.raises(InvalidProductNameError):
-            await create_product(db, data, uuid.uuid4())
+            await create_product(db, data, uuid.uuid4(), uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_update_product_empty_slug_raises_invalid_name(self):
@@ -1153,7 +1178,7 @@ class TestProductSlug:
             unit_cost=Decimal("5"),
             selling_price=Decimal("10"),
         )
-        product = await create_product(db, data, uuid.uuid4())
+        product = await create_product(db, data, uuid.uuid4(), uuid.uuid4())
         assert product.slug == "hello-world"
 
 
@@ -1179,6 +1204,14 @@ class TestProductSlugEndpoint:
             yield db_mock
 
         self.app.dependency_overrides[get_db] = _fake_db
+
+    def _override_business_id(self, business_id: uuid.UUID | None = None):
+        from src.auth.dependencies import get_current_business_id
+        bid = business_id or uuid.uuid4()
+        async def _fake_business_id():
+            return bid
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
+        return bid
 
     def _auth_headers(self):
         user = _make_user()
@@ -1211,6 +1244,7 @@ class TestProductSlugEndpoint:
         db.get = AsyncMock(return_value=user)
 
         self._override_db(db)
+        self._override_business_id()
         headers, _ = self._auth_headers()
         with TestClient(self.app) as client:
             resp = client.post(
@@ -1246,6 +1280,7 @@ class TestProductSlugEndpoint:
         db.get = AsyncMock(return_value=user)
 
         self._override_db(db)
+        self._override_business_id()
         headers, _ = self._auth_headers()
         with TestClient(self.app) as client:
             resp = client.post(
@@ -1258,3 +1293,62 @@ class TestProductSlugEndpoint:
                 headers=headers,
             )
         assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Business isolation tests (task #159)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_products_isolates_by_business():
+    """Business B user cannot see Business A's products."""
+    business_a_id = uuid.uuid4()
+    business_b_id = uuid.uuid4()
+
+    # Mock: business_a sees 1 product, business_b sees 0
+    async def fake_execute_a(query):
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [MagicMock()]
+        result.scalar.return_value = 1
+        return result
+
+    async def fake_execute_b(query):
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        result.scalar.return_value = 0
+        return result
+
+    from src.products.service import list_products
+
+    db_a = AsyncMock()
+    db_a.execute = fake_execute_a
+    db_b = AsyncMock()
+    db_b.execute = fake_execute_b
+
+    items_a, total_a = await list_products(db_a, business_id=business_a_id)
+    items_b, total_b = await list_products(db_b, business_id=business_b_id)
+
+    assert total_a == 1
+    assert total_b == 0
+
+
+@pytest.mark.asyncio
+async def test_products_owner_sees_own_data():
+    """Business A user sees their own products."""
+    business_id = uuid.uuid4()
+    mock_product = MagicMock()
+
+    async def fake_execute(query):
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [mock_product]
+        result.scalar.return_value = 1
+        return result
+
+    from src.products.service import list_products
+
+    db = AsyncMock()
+    db.execute = fake_execute
+    items, total = await list_products(db, business_id=business_id)
+    assert total == 1
+    assert items[0] is mock_product
