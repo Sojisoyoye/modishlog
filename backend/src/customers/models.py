@@ -61,6 +61,9 @@ class Customer(UUIDMixin, TimestampMixin, Base):
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
 
     def __repr__(self) -> str:
         return f"<Customer(id={self.id}, name={self.name})>"
