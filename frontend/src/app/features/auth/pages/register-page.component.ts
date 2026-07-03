@@ -141,7 +141,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10 pr-10"
                     placeholder="12+ chars, upper, lower, number, special"
                     required
-                    minlength="8"
+                    minlength="12"
                   />
                   <button
                     type="button"
