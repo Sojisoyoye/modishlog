@@ -26,6 +26,8 @@ from src.auth.schemas import (
     ForgotPasswordRequest,
     LogoutRequest,
     MessageResponse,
+    OnboardRequest,
+    OnboardResponse,
     RefreshRequest,
     ResetPasswordRequest,
     TokenResponse,
@@ -42,6 +44,7 @@ from src.auth.service import (
     admin_reset_user_password,
     authenticate_user,
     build_token,
+    create_business_and_owner,
     create_refresh_token,
     create_user,
     deactivate_user,
@@ -57,6 +60,35 @@ from src.auth.service import (
 from src.core.database import get_db
 
 router = APIRouter()
+
+
+@router.post("/onboard", response_model=OnboardResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
+async def onboard_business(
+    request: Request, data: OnboardRequest, response: Response, db: AsyncSession = Depends(get_db)
+):
+    """Public endpoint — creates a Business and its owner User atomically."""
+    try:
+        business, user, access_token, refresh_token = await create_business_and_owner(db, data)
+    except WeakPasswordError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+    except UserAlreadyExistsError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.ENVIRONMENT != "development",
+        path="/",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    return OnboardResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        user_id=str(user.id),
+        business_id=str(business.id),
+    )
 
 
 @router.post(

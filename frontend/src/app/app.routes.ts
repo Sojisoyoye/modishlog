@@ -230,6 +230,14 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'register',
+    loadComponent: () =>
+      import('./features/auth/pages/register-page.component').then(
+        (m) => m.RegisterPageComponent,
+      ),
+    canActivate: [noAuthGuard],
+  },
+  {
     path: '**',
     redirectTo: 'dashboard',
   },

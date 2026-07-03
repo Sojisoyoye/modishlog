@@ -31,10 +31,10 @@ import { RouterLink } from '@angular/router';
           <!-- Right: CTA (desktop) + hamburger (mobile) -->
           <div class="flex items-center gap-3">
             <a
-              routerLink="/login"
+              routerLink="/register"
               class="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
             >
-              Launch My POS →
+              Get Started →
             </a>
             <button
               class="md:hidden flex h-10 w-10 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
@@ -77,10 +77,10 @@ import { RouterLink } from '@angular/router';
             </p>
             <div class="mt-8 flex flex-col sm:flex-row gap-4">
               <a
-                routerLink="/login"
+                routerLink="/register"
                 class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-8 py-4 text-base font-bold text-white shadow-md hover:bg-emerald-700 transition-colors min-h-[52px]"
               >
-                Launch My POS →
+                Get Started →
               </a>
             </div>
             <p class="mt-6 text-sm text-gray-500">
@@ -434,7 +434,7 @@ import { RouterLink } from '@angular/router';
               <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> 12 months updates</li>
             </ul>
             <a
-              routerLink="/login"
+              routerLink="/register"
               class="block text-center rounded-lg border border-gray-600 px-6 py-3 text-sm font-semibold text-white hover:bg-gray-700 transition-colors"
             >
               Get Starter
@@ -461,7 +461,7 @@ import { RouterLink } from '@angular/router';
               <li class="flex items-center gap-2 text-sm text-emerald-100"><span class="text-yellow-300">✓</span> Multi-location support</li>
             </ul>
             <a
-              routerLink="/login"
+              routerLink="/register"
               class="block text-center rounded-lg bg-white px-6 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50 transition-colors"
             >
               Get Growth
@@ -484,7 +484,7 @@ import { RouterLink } from '@angular/router';
               <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> API access</li>
             </ul>
             <a
-              routerLink="/login"
+              routerLink="/register"
               class="block text-center rounded-lg border border-gray-600 px-6 py-3 text-sm font-semibold text-white hover:bg-gray-700 transition-colors"
             >
               Get Scale
