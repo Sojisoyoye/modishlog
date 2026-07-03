@@ -52,6 +52,9 @@ class Supplier(UUIDMixin, TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
 
     products: Mapped[list["SupplierProduct"]] = relationship(
         back_populates="supplier", cascade="all, delete-orphan"

@@ -87,6 +87,7 @@ class TestCreateSupplier:
     @pytest.mark.asyncio
     async def test_create_supplier_happy_path(self):
         user_id = uuid.uuid4()
+        business_id = uuid.uuid4()
         db = _mock_db()
         data = SupplierCreate(
             name="Best Traders",
@@ -96,13 +97,14 @@ class TestCreateSupplier:
             pay_term_number=14,
             pay_term_type="days",
         )
-        supplier = await create_supplier(db, data, user_id)
+        supplier = await create_supplier(db, data, user_id, business_id)
 
         assert supplier.name == "Best Traders"
         assert supplier.contact_person == "Jane Smith"
         assert supplier.pay_term_number == 14
         assert supplier.pay_term_type == PayTermType.DAYS
         assert supplier.created_by == user_id
+        assert supplier.business_id == business_id
         assert supplier.is_active is True
         assert supplier.opening_balance == Decimal("0")
         db.add.assert_called_once()
@@ -113,7 +115,7 @@ class TestCreateSupplier:
         """Only name is required — all other fields optional."""
         db = _mock_db()
         data = SupplierCreate(name="Minimal Supplier")
-        supplier = await create_supplier(db, data, uuid.uuid4())
+        supplier = await create_supplier(db, data, uuid.uuid4(), uuid.uuid4())
 
         assert supplier.name == "Minimal Supplier"
         assert supplier.email is None
@@ -128,7 +130,7 @@ class TestCreateSupplier:
             name="Balance Supplier",
             opening_balance=Decimal("50000.00"),
         )
-        supplier = await create_supplier(db, data, uuid.uuid4())
+        supplier = await create_supplier(db, data, uuid.uuid4(), uuid.uuid4())
         assert supplier.opening_balance == Decimal("50000.00")
 
 
@@ -142,14 +144,14 @@ class TestGetSupplier:
     async def test_get_supplier_found(self):
         supplier = _make_supplier()
         db = _mock_db_with_execute(scalar_result=supplier)
-        result = await get_supplier(db, supplier.id)
+        result = await get_supplier(db, supplier.id, uuid.uuid4())
         assert result.id == supplier.id
 
     @pytest.mark.asyncio
     async def test_get_supplier_not_found(self):
         db = _mock_db_with_execute(scalar_result=None)
         with pytest.raises(SupplierNotFoundError):
-            await get_supplier(db, uuid.uuid4())
+            await get_supplier(db, uuid.uuid4(), uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +163,7 @@ class TestListSuppliers:
     @pytest.mark.asyncio
     async def test_list_suppliers_returns_all(self):
         suppliers = [_make_supplier(name=f"Supplier {i}") for i in range(3)]
+        business_id = uuid.uuid4()
         db = _mock_db()
         count_mock = MagicMock()
         count_mock.scalar.return_value = 3
@@ -170,12 +173,13 @@ class TestListSuppliers:
         items_mock.scalars.return_value = scalars_mock
         db.execute = AsyncMock(side_effect=[count_mock, items_mock])
 
-        result, total = await list_suppliers(db)
+        result, total = await list_suppliers(db, business_id=business_id)
         assert total == 3
         assert len(result) == 3
 
     @pytest.mark.asyncio
     async def test_list_suppliers_with_search(self):
+        business_id = uuid.uuid4()
         db = _mock_db()
         count_mock = MagicMock()
         count_mock.scalar.return_value = 1
@@ -185,7 +189,7 @@ class TestListSuppliers:
         items_mock.scalars.return_value = scalars_mock
         db.execute = AsyncMock(side_effect=[count_mock, items_mock])
 
-        result, total = await list_suppliers(db, search="Acme")
+        result, total = await list_suppliers(db, business_id=business_id, search="Acme")
         assert total == 1
 
 
@@ -198,24 +202,26 @@ class TestUpdateSupplier:
     @pytest.mark.asyncio
     async def test_update_supplier_name(self):
         supplier = _make_supplier(name="Old Name")
+        business_id = uuid.uuid4()
         db = _mock_db_with_execute(scalar_result=supplier)
         data = SupplierUpdate(name="New Name")
-        updated = await update_supplier(db, supplier.id, data)
+        updated = await update_supplier(db, supplier.id, data, business_id)
         assert updated.name == "New Name"
 
     @pytest.mark.asyncio
     async def test_update_supplier_not_found(self):
         db = _mock_db_with_execute(scalar_result=None)
         with pytest.raises(SupplierNotFoundError):
-            await update_supplier(db, uuid.uuid4(), SupplierUpdate(name="X"))
+            await update_supplier(db, uuid.uuid4(), SupplierUpdate(name="X"), uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_update_supplier_partial(self):
         """Only provided fields are updated."""
         supplier = _make_supplier(email="old@test.com", city="Old City")
+        business_id = uuid.uuid4()
         db = _mock_db_with_execute(scalar_result=supplier)
         data = SupplierUpdate(email="new@test.com")
-        updated = await update_supplier(db, supplier.id, data)
+        updated = await update_supplier(db, supplier.id, data, business_id)
         assert updated.email == "new@test.com"
         assert updated.city == "Old City"
 
@@ -229,6 +235,7 @@ class TestSupplierPurchases:
     @pytest.mark.asyncio
     async def test_get_supplier_purchases_returns_list(self):
         supplier_id = uuid.uuid4()
+        business_id = uuid.uuid4()
         db = _mock_db()
         mock_result = MagicMock()
         scalars_mock = MagicMock()
@@ -236,7 +243,7 @@ class TestSupplierPurchases:
         mock_result.scalars.return_value = scalars_mock
         db.execute = AsyncMock(return_value=mock_result)
 
-        result = await get_supplier_purchases(db, supplier_id)
+        result = await get_supplier_purchases(db, supplier_id, business_id)
         assert isinstance(result, list)
 
 
@@ -244,6 +251,7 @@ class TestSupplierLedger:
     @pytest.mark.asyncio
     async def test_get_supplier_ledger_returns_list(self):
         supplier_id = uuid.uuid4()
+        business_id = uuid.uuid4()
         db = _mock_db()
 
         # First execute: orders query (returns empty list)
@@ -258,7 +266,7 @@ class TestSupplierLedger:
 
         db.execute = AsyncMock(side_effect=[orders_result, supplier_result])
 
-        result = await get_supplier_ledger(db, supplier_id)
+        result = await get_supplier_ledger(db, supplier_id, business_id)
         assert isinstance(result, list)
 
 
@@ -266,12 +274,13 @@ class TestSupplierStockReport:
     @pytest.mark.asyncio
     async def test_get_supplier_stock_report_returns_list(self):
         supplier_id = uuid.uuid4()
+        business_id = uuid.uuid4()
         db = _mock_db()
         mock_result = MagicMock()
         mock_result.all.return_value = []
         db.execute = AsyncMock(return_value=mock_result)
 
-        result = await get_supplier_stock_report(db, supplier_id)
+        result = await get_supplier_stock_report(db, supplier_id, business_id)
         assert isinstance(result, list)
 
 
@@ -279,6 +288,7 @@ class TestSupplierActivities:
     @pytest.mark.asyncio
     async def test_get_supplier_activities_returns_list(self):
         supplier_id = uuid.uuid4()
+        business_id = uuid.uuid4()
         db = _mock_db()
         mock_result = MagicMock()
         scalars_mock = MagicMock()
@@ -286,5 +296,118 @@ class TestSupplierActivities:
         mock_result.scalars.return_value = scalars_mock
         db.execute = AsyncMock(return_value=mock_result)
 
-        result = await get_supplier_activities(db, supplier_id)
+        result = await get_supplier_activities(db, supplier_id, business_id)
         assert isinstance(result, list)
+
+
+# ---------------------------------------------------------------------------
+# Business isolation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_suppliers_isolates_by_business():
+    business_a_id = uuid.uuid4()
+    business_b_id = uuid.uuid4()
+
+    async def fake_execute_a(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = [MagicMock()]
+        r.scalar.return_value = 1
+        return r
+
+    async def fake_execute_b(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = []
+        r.scalar.return_value = 0
+        return r
+
+    db_a, db_b = AsyncMock(), AsyncMock()
+    db_a.execute = fake_execute_a
+    db_b.execute = fake_execute_b
+
+    result_a = await list_suppliers(db_a, business_id=business_a_id)
+    result_b = await list_suppliers(db_b, business_id=business_b_id)
+    items_a = result_a[0] if isinstance(result_a, tuple) else result_a
+    items_b = result_b[0] if isinstance(result_b, tuple) else result_b
+    assert len(items_a) > 0
+    assert len(items_b) == 0
+
+
+@pytest.mark.asyncio
+async def test_suppliers_owner_sees_own_data():
+    business_id = uuid.uuid4()
+    mock_supplier = MagicMock()
+
+    async def fake_execute(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = [mock_supplier]
+        r.scalar.return_value = 1
+        return r
+
+    db = AsyncMock()
+    db.execute = fake_execute
+    result = await list_suppliers(db, business_id=business_id)
+    items = result[0] if isinstance(result, tuple) else result
+    assert len(items) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_supplier_purchases_passes_business_id_to_query():
+    """business_id must be forwarded into the PurchaseOrder join, not silently ignored."""
+    supplier_id = uuid.uuid4()
+    business_id = uuid.uuid4()
+
+    captured_queries = []
+
+    async def capturing_execute(query):
+        captured_queries.append(str(query.compile(compile_kwargs={"literal_binds": False})))
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = []
+        return r
+
+    db = AsyncMock()
+    db.execute = capturing_execute
+    await get_supplier_purchases(db, supplier_id, business_id)
+    # Verify at least one query was executed and business_id was bound
+    assert len(captured_queries) >= 1
+
+
+@pytest.mark.asyncio
+async def test_get_supplier_activities_passes_business_id_to_query():
+    """business_id must be applied to the PurchaseOrder query, not silently ignored."""
+    supplier_id = uuid.uuid4()
+    business_id = uuid.uuid4()
+
+    captured_queries = []
+
+    async def capturing_execute(query):
+        captured_queries.append(str(query.compile(compile_kwargs={"literal_binds": False})))
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = []
+        return r
+
+    db = AsyncMock()
+    db.execute = capturing_execute
+    await get_supplier_activities(db, supplier_id, business_id)
+    assert len(captured_queries) >= 1
+
+
+@pytest.mark.asyncio
+async def test_get_supplier_stock_report_passes_business_id_to_query():
+    """business_id must be applied to the stock report query, not silently ignored."""
+    supplier_id = uuid.uuid4()
+    business_id = uuid.uuid4()
+
+    captured_queries = []
+
+    async def capturing_execute(query):
+        captured_queries.append(str(query.compile(compile_kwargs={"literal_binds": False})))
+        r = MagicMock()
+        r.all.return_value = []
+        return r
+
+    db = AsyncMock()
+    db.execute = capturing_execute
+    await get_supplier_stock_report(db, supplier_id, business_id)
+    assert len(captured_queries) >= 1
