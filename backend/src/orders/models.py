@@ -199,6 +199,9 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     pos_id: Mapped[str | None] = mapped_column(
         String(50), nullable=True, default=None, index=True
     )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
 
     line_items: Mapped[list["OrderLineItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
@@ -300,6 +303,9 @@ class PurchaseReturn(UUIDMixin, TimestampMixin, Base):
         Numeric(18, 6), default=Decimal("0"), server_default="0"
     )
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
 
     original_order: Mapped["PurchaseOrder"] = relationship(
         "PurchaseOrder", foreign_keys=[original_order_id], lazy="raise", viewonly=True

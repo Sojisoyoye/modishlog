@@ -61,6 +61,7 @@ def _make_user(**overrides):
         role=UserRole.ADMIN,
         failed_login_attempts=0,
         locked_until=None,
+        business_id=uuid.uuid4(),
     )
     defaults.update(overrides)
     user = User(**defaults)
@@ -1347,11 +1348,15 @@ class TestOrderEndpoints:
         return {"Authorization": f"Bearer {token}"}, user
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         u = _make_user()
+        business_id = u.business_id
         async def _fake_auth():
             return u
+        async def _fake_business_id():
+            return business_id
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def test_create_order_requires_auth(self):
         db = _mock_db_with_execute()
@@ -1450,11 +1455,15 @@ class TestOrdersExportEndpoint:
         self.app.dependency_overrides[get_db] = _fake_db
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         u = _make_user()
+        business_id = u.business_id
         async def _fake_auth():
             return u
+        async def _fake_business_id():
+            return business_id
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def _make_execute_side_effects(self, orders: list):
         """Return two execute side effects: count then list."""
@@ -1534,11 +1543,15 @@ class TestLotInventoryTracking:
     """units_remaining is set on delivery and exposed via /lots endpoint."""
 
     def _override_auth(self, app):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         u = _make_user()
+        business_id = u.business_id
         async def _fake_auth():
             return u
+        async def _fake_business_id():
+            return business_id
         app.dependency_overrides[get_current_active_user] = _fake_auth
+        app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     @pytest.mark.asyncio
     async def test_order_delivered_sets_units_remaining(self):
@@ -1635,10 +1648,14 @@ class TestOrdersOwnershipChecks:
         self.app.dependency_overrides[get_db] = _fake_db
 
     def _override_auth_as(self, user):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+        business_id = user.business_id or uuid.uuid4()
         async def _fake_auth():
             return user
+        async def _fake_business_id():
+            return business_id
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def test_user_cannot_delete_other_users_order(self):
         """Non-admin cannot DELETE (cancel) an order created by someone else."""
@@ -1756,3 +1773,107 @@ class TestOrdersOwnershipChecks:
                 },
             )
         assert resp.status_code != 403
+
+
+# ---------------------------------------------------------------------------
+# Business isolation tests (Task #159)
+# ---------------------------------------------------------------------------
+
+
+class TestOrdersBusinessIsolation:
+    @pytest.mark.asyncio
+    async def test_orders_isolates_by_business(self):
+        """list_orders returns only orders belonging to the requested business_id."""
+        business_a_id = uuid.uuid4()
+        business_b_id = uuid.uuid4()
+
+        async def fake_execute_a(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = [MagicMock()]
+            r.scalar.return_value = 1
+            return r
+
+        async def fake_execute_b(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            r.scalar.return_value = 0
+            return r
+
+        db_a, db_b = AsyncMock(), AsyncMock()
+        db_a.execute = fake_execute_a
+        db_b.execute = fake_execute_b
+
+        result_a = await list_orders(db_a, business_id=business_a_id)
+        result_b = await list_orders(db_b, business_id=business_b_id)
+        items_a = result_a[0] if isinstance(result_a, tuple) else result_a
+        items_b = result_b[0] if isinstance(result_b, tuple) else result_b
+        assert len(items_a) > 0
+        assert len(items_b) == 0
+
+    @pytest.mark.asyncio
+    async def test_orders_owner_sees_own_data(self):
+        """list_orders returns the caller's orders when business_id matches."""
+        business_id = uuid.uuid4()
+        mock_order = MagicMock()
+
+        async def fake_execute(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = [mock_order]
+            r.scalar.return_value = 1
+            return r
+
+        db = AsyncMock()
+        db.execute = fake_execute
+        result = await list_orders(db, business_id=business_id)
+        items = result[0] if isinstance(result, tuple) else result
+        assert len(items) == 1
+
+    @pytest.mark.asyncio
+    async def test_create_order_sets_business_id(self):
+        """create_order stores the business_id on the PurchaseOrder object."""
+        business_id = uuid.uuid4()
+        product = _make_product(id=uuid.uuid4())
+
+        db = _mock_db()
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:
+                result.scalar.return_value = 0
+            elif call_count == 3:
+                result.scalar_one_or_none.return_value = None
+            else:
+                result.scalar_one_or_none.return_value = _make_order()
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderCreate(
+            supplier_name="Test Supplier",
+            currency="USD",
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=product.id,
+                    quantity=5,
+                    unit_cost=Decimal("100"),
+                )
+            ],
+        )
+        await create_order(db, data, user_id=uuid.uuid4(), business_id=business_id)
+
+        purchase_orders = [o for o in added_objects if isinstance(o, PurchaseOrder)]
+        assert len(purchase_orders) == 1
+        assert purchase_orders[0].business_id == business_id

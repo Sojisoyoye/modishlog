@@ -110,6 +110,7 @@ async def create_order(
     db: AsyncSession,
     data: OrderCreate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> PurchaseOrder:
     """Create a purchase order with line items."""
     # Validate all products exist
@@ -164,6 +165,7 @@ async def create_order(
         expected_delivery_date=expected_delivery,
         notes=data.notes,
         created_by=user_id,
+        business_id=business_id,
         pay_term_number=data.pay_term_number,
         pay_term_type=data.pay_term_type,
         shipping_details=data.shipping_details,
@@ -236,9 +238,10 @@ async def create_order(
 async def get_order(
     db: AsyncSession,
     order_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> PurchaseOrder:
     """Get a purchase order with related data loaded."""
-    result = await db.execute(
+    query = (
         select(PurchaseOrder)
         .options(
             selectinload(PurchaseOrder.line_items),
@@ -247,23 +250,33 @@ async def get_order(
         )
         .where(PurchaseOrder.id == order_id)
     )
+    if business_id is not None:
+        query = query.where(PurchaseOrder.business_id == business_id)
+    result = await db.execute(query)
     order = result.scalar_one_or_none()
     if not order:
         raise OrderNotFoundError(order_id)
     return order
 
 
-async def get_order_status_counts(db: AsyncSession) -> dict[str, int]:
+async def get_order_status_counts(
+    db: AsyncSession,
+    business_id: uuid.UUID | None = None,
+) -> dict[str, int]:
     """Return a dict of order status → count for all orders."""
-    result = await db.execute(
-        select(PurchaseOrder.status, func.count(PurchaseOrder.id)).group_by(PurchaseOrder.status)
+    query = select(PurchaseOrder.status, func.count(PurchaseOrder.id)).group_by(
+        PurchaseOrder.status
     )
+    if business_id is not None:
+        query = query.where(PurchaseOrder.business_id == business_id)
+    result = await db.execute(query)
     return {row[0].value: row[1] for row in result.all()}
 
 
 async def list_orders(
     db: AsyncSession,
     *,
+    business_id: uuid.UUID | None = None,
     status: str | None = None,
     supplier_name: str | None = None,
     date_from: date | None = None,
@@ -275,6 +288,10 @@ async def list_orders(
     """List orders with filtering and pagination."""
     query = select(PurchaseOrder).options(selectinload(PurchaseOrder.line_items))
     count_query = select(func.count()).select_from(PurchaseOrder)
+
+    if business_id is not None:
+        query = query.where(PurchaseOrder.business_id == business_id)
+        count_query = count_query.where(PurchaseOrder.business_id == business_id)
 
     if status is not None:
         query = query.where(PurchaseOrder.status == OrderStatus(status))
@@ -611,12 +628,13 @@ async def record_payment(
     order_id: uuid.UUID,
     data: PaymentCreate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> OrderPayment:
     """Record a payment against an order."""
-    order = await get_order(db, order_id)
+    order = await get_order(db, order_id, business_id)
 
     # Check for overpayment
-    summary = await get_payment_summary(db, order_id)
+    summary = await get_payment_summary(db, order_id, business_id)
     balance = summary.balance_remaining
     if data.amount > balance:
         raise OverpaymentError(
@@ -665,9 +683,10 @@ async def list_payments(
 async def get_payment_summary(
     db: AsyncSession,
     order_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> PaymentSummary:
     """Get payment summary for an order."""
-    order = await get_order(db, order_id)
+    order = await get_order(db, order_id, business_id)
     result = await db.execute(
         select(
             func.coalesce(func.sum(OrderPayment.amount), 0),
@@ -724,11 +743,14 @@ async def void_payment(
 # ---------------------------------------------------------------------------
 
 
-async def get_overdue_orders(db: AsyncSession) -> list[PurchaseOrder]:
+async def get_overdue_orders(
+    db: AsyncSession,
+    business_id: uuid.UUID | None = None,
+) -> list[PurchaseOrder]:
     """Get orders past their expected delivery date."""
     today = date.today()
     terminal = [OrderStatus.DELIVERED, OrderStatus.CANCELLED]
-    result = await db.execute(
+    query = (
         select(PurchaseOrder)
         .options(selectinload(PurchaseOrder.line_items))
         .where(
@@ -737,28 +759,38 @@ async def get_overdue_orders(db: AsyncSession) -> list[PurchaseOrder]:
         )
         .order_by(PurchaseOrder.expected_delivery_date)
     )
+    if business_id is not None:
+        query = query.where(PurchaseOrder.business_id == business_id)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 
-async def get_orders_summary(db: AsyncSession) -> dict:
+async def get_orders_summary(
+    db: AsyncSession,
+    business_id: uuid.UUID | None = None,
+) -> dict:
     """Get summary statistics for all orders."""
     # Total count and value
+    base_filter = (
+        [PurchaseOrder.business_id == business_id] if business_id is not None else []
+    )
     result = await db.execute(
         select(
             func.count(PurchaseOrder.id),
             func.coalesce(func.sum(PurchaseOrder.total_amount), 0),
-        )
+        ).where(*base_filter)
     )
     row = result.one()
     total_orders = row[0]
     total_value = row[1]
 
     # Count by status
-    status_result = await db.execute(
-        select(PurchaseOrder.status, func.count(PurchaseOrder.id)).group_by(
-            PurchaseOrder.status
-        )
-    )
+    status_query = select(
+        PurchaseOrder.status, func.count(PurchaseOrder.id)
+    ).group_by(PurchaseOrder.status)
+    if business_id is not None:
+        status_query = status_query.where(PurchaseOrder.business_id == business_id)
+    status_result = await db.execute(status_query)
     by_status = {row[0].value: row[1] for row in status_result.all()}
 
     return {
@@ -787,11 +819,14 @@ def calculate_logistics_pct(
     )
 
 
-async def get_logistics_efficiency(db: AsyncSession) -> dict:
+async def get_logistics_efficiency(
+    db: AsyncSession,
+    business_id: uuid.UUID | None = None,
+) -> dict:
     """Calculate per-order logistics % and rolling 90-day average."""
     ninety_days_ago = (datetime.now(timezone.utc) - timedelta(days=90)).date()
 
-    result = await db.execute(
+    query = (
         select(PurchaseOrder)
         .options(selectinload(PurchaseOrder.line_items))
         .where(
@@ -803,6 +838,9 @@ async def get_logistics_efficiency(db: AsyncSession) -> dict:
         )
         .order_by(PurchaseOrder.created_at.desc())
     )
+    if business_id is not None:
+        query = query.where(PurchaseOrder.business_id == business_id)
+    result = await db.execute(query)
     orders = list(result.scalars().all())
 
     per_order = []
@@ -918,6 +956,7 @@ async def convert_po_to_purchase(
     db: AsyncSession,
     order_id: uuid.UUID,
     user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> PurchaseOrder:
     """Convert a Purchase Order (ORDERED status) to a received purchase.
 
@@ -925,11 +964,14 @@ async def convert_po_to_purchase(
     the normal delivery flow (PENDING → IN_PRODUCTION → ... → DELIVERED),
     at which point inventory is updated.
     """
-    result = await db.execute(
+    query = (
         select(PurchaseOrder)
         .options(selectinload(PurchaseOrder.line_items))
         .where(PurchaseOrder.id == order_id)
     )
+    if business_id is not None:
+        query = query.where(PurchaseOrder.business_id == business_id)
+    result = await db.execute(query)
     order = result.scalar_one_or_none()
     if not order:
         raise OrderNotFoundError(order_id)
@@ -973,16 +1015,10 @@ async def create_purchase_return(
     db: AsyncSession,
     data: PurchaseReturnCreate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> PurchaseReturn:
     """Record a return of goods against a purchase order."""
-    result = await db.execute(
-        select(PurchaseOrder)
-        .options(selectinload(PurchaseOrder.line_items))
-        .where(PurchaseOrder.id == data.original_order_id)
-    )
-    order = result.scalar_one_or_none()
-    if not order:
-        raise OrderNotFoundError(data.original_order_id)
+    order = await get_order(db, data.original_order_id, business_id)
 
     # Build a map of product_id -> unit_cost from the original order
     cost_map: dict[uuid.UUID, Decimal] = {
@@ -1017,6 +1053,7 @@ async def create_purchase_return(
         notes=data.notes,
         total_amount=total_amount.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP),
         created_by=user_id,
+        business_id=business_id,
     )
     db.add(purchase_return)
     await db.flush()
@@ -1204,6 +1241,7 @@ async def import_orders_from_file(
     file_bytes: bytes,
     filename: str,
     user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> BulkImportResult:
     """Parse CSV or XLSX bytes and create multiple purchase orders.
 
@@ -1395,7 +1433,7 @@ async def import_orders_from_file(
     # Create all orders
     created_orders = []
     for order_data in order_creates:
-        order = await create_order(db, order_data, user_id)
+        order = await create_order(db, order_data, user_id, business_id=business_id)
         created_orders.append(order)
 
     await logger.ainfo("bulk_import_complete", created=len(created_orders))
@@ -1521,6 +1559,7 @@ async def parse_products_from_file(
 async def list_purchase_returns(
     db: AsyncSession,
     order_id: uuid.UUID | None = None,
+    business_id: uuid.UUID | None = None,
     page: int = 1,
     page_size: int = 25,
 ) -> tuple[list[PurchaseReturn], int]:
@@ -1528,6 +1567,8 @@ async def list_purchase_returns(
     base_q = select(PurchaseReturn)
     if order_id:
         base_q = base_q.where(PurchaseReturn.original_order_id == order_id)
+    if business_id is not None:
+        base_q = base_q.where(PurchaseReturn.business_id == business_id)
 
     count_result = await db.execute(
         select(func.count()).select_from(base_q.subquery())
@@ -1546,11 +1587,13 @@ async def list_purchase_returns(
 async def get_purchase_return(
     db: AsyncSession,
     return_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> PurchaseReturn:
     """Fetch a single purchase return by ID, raise PurchaseReturnNotFoundError if missing."""
-    result = await db.execute(
-        select(PurchaseReturn).where(PurchaseReturn.id == return_id)
-    )
+    query = select(PurchaseReturn).where(PurchaseReturn.id == return_id)
+    if business_id is not None:
+        query = query.where(PurchaseReturn.business_id == business_id)
+    result = await db.execute(query)
     pr = result.scalar_one_or_none()
     if pr is None:
         raise PurchaseReturnNotFoundError(return_id)

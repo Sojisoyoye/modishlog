@@ -30,6 +30,7 @@ def _make_user(**overrides):
         role=UserRole.ADMIN,
         failed_login_attempts=0,
         locked_until=None,
+        business_id=uuid.uuid4(),
     )
     defaults.update(overrides)
     user = User(**defaults)
@@ -186,14 +187,18 @@ class TestPurchaseReturnEndpoints:
         app.dependency_overrides = self._orig
 
     def _override_db(self, db):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         from src.core.database import get_db
 
         async def _fake_db():
             yield db
 
+        u = _make_user()
+        business_id = u.business_id
+
         self.app.dependency_overrides[get_db] = _fake_db
-        self.app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        self.app.dependency_overrides[get_current_active_user] = lambda: u
+        self.app.dependency_overrides[get_current_business_id] = lambda: business_id
 
     def test_list_all_purchase_returns_endpoint_ok(self):
         """GET /orders/returns/purchases returns 200 with items + total."""
