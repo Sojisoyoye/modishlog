@@ -13,5 +13,39 @@ jobs:
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            echo "=== Caddyfile ==="
-            cat /opt/modish/Caddyfile
+            set -e
+            CADDYFILE=/opt/modish/Caddyfile
+
+            # Get the host IP that Caddy uses to reach the backend on port 8003
+            DOCKER_GW=$(docker network inspect bridge \
+              --format '{{range .IPAM.Config}}{{.Gateway}}{{"\n"}}{{end}}' \
+              | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+            BACKEND="${DOCKER_GW}:8003"
+            echo "Backend: $BACKEND"
+
+            # Replace the api.modishlog.com block — strip Caddy CORS handling,
+            # let FastAPI's CORSMiddleware handle it (it correctly reflects origin)
+            python3 - <<PYEOF
+            import re, pathlib
+
+            path = pathlib.Path("$CADDYFILE")
+            text = path.read_text()
+
+            # Replace the api.modishlog.com block with a simple reverse_proxy
+            new_block = "\napi.modishlog.com {\n    reverse_proxy $BACKEND\n}\n"
+            text = re.sub(
+                r'\napi\.modishlog\.com\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}',
+                new_block,
+                text,
+                flags=re.DOTALL,
+            )
+            path.write_text(text)
+            print("Caddyfile updated")
+            PYEOF
+
+            echo "=== Updated api.modishlog.com block ==="
+            grep -A 5 "api.modishlog.com" $CADDYFILE
+
+            docker exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+            echo "Caddy reloaded"
