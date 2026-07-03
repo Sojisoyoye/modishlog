@@ -21,6 +21,29 @@ interface UserProfile {
   role: string;
 }
 
+export interface RegisterRequest {
+  full_name: string;
+  email: string;
+  password: string;
+  business_name: string;
+  currency: string;
+  timezone: string;
+  country?: string;
+  state?: string;
+  city?: string;
+  phone?: string;
+  tax_number?: string;
+  fiscal_year_start_month: number;
+}
+
+export interface RegisterResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  user_id: string;
+  business_id: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly api = inject(ApiService);
@@ -39,6 +62,16 @@ export class AuthService {
       tap((tokens) => {
         this._accessToken = tokens.access_token;
         this._refreshToken = tokens.refresh_token ?? null;
+        this._isAuthenticated.set(true);
+      }),
+    );
+  }
+
+  register(data: RegisterRequest): Observable<RegisterResponse> {
+    return this.api.post<RegisterResponse>('/auth/onboard', data).pipe(
+      tap((res) => {
+        this._accessToken = res.access_token;
+        this._refreshToken = res.refresh_token;
         this._isAuthenticated.set(true);
       }),
     );

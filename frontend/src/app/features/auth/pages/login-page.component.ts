@@ -1,13 +1,13 @@
 import { Component, ChangeDetectionStrategy, signal, computed, inject, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   selector: 'app-login-page',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   template: `
     <div class="flex min-h-screen">
       <!-- Left brand panel (hidden on mobile) -->
@@ -190,7 +190,7 @@ import { AuthService } from '../../../core/services/auth.service';
 
           <!-- Footer text -->
           <p class="mt-8 text-center text-xs text-gray-400">
-            Don't have an account? <a href="mailto:hello@modishlog.com" class="text-emerald-600 hover:underline">Contact us</a>
+            Don't have an account? <a routerLink="/register" class="font-medium text-emerald-600 hover:text-emerald-700">Sign up</a>
           </p>
         </div>
       </div>

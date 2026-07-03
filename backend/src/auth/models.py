@@ -4,7 +4,7 @@ import enum
 import uuid as _uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -15,6 +15,28 @@ class UserRole(str, enum.Enum):
 
     ADMIN = "admin"
     SALES_MANAGER = "sales_manager"
+    OWNER = "owner"
+
+
+class Business(UUIDMixin, TimestampMixin, Base):
+    """Business entity that owns a set of users."""
+
+    __tablename__ = "businesses"
+
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default="NGN")
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    timezone: Mapped[str] = mapped_column(String(60), nullable=False, server_default="Africa/Lagos")
+    tax_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    fiscal_year_start_month: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+
+    users: Mapped[list["User"]] = relationship(back_populates="business", lazy="selectin")
 
 
 class User(UUIDMixin, TimestampMixin, Base):
@@ -33,6 +55,10 @@ class User(UUIDMixin, TimestampMixin, Base):
     )
     failed_login_attempts: Mapped[int] = mapped_column(default=0)
     locked_until: Mapped[datetime | None] = mapped_column(default=None)
+    business_id: Mapped[_uuid.UUID | None] = mapped_column(
+        ForeignKey("businesses.id"), nullable=True, index=True
+    )
+    business: Mapped["Business | None"] = relationship(back_populates="users", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email})>"

@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserRegister(BaseModel):
@@ -128,3 +128,33 @@ class AdminResetPasswordResponse(BaseModel):
 
     message: str
     token: str
+
+
+class OnboardRequest(BaseModel):
+    """Public onboarding request — creates a Business and owner User atomically."""
+
+    # Step 1 — Account
+    full_name: str = Field(..., min_length=2, max_length=255)
+    email: EmailStr
+    password: str
+
+    # Step 2 — Business
+    business_name: str = Field(..., min_length=2, max_length=255)
+    currency: str = Field(default="NGN", max_length=3)
+    country: str | None = None
+    state: str | None = None
+    city: str | None = None
+    phone: str | None = None
+    timezone: str = "Africa/Lagos"
+    tax_number: str | None = None
+    fiscal_year_start_month: int = Field(default=1, ge=1, le=12)
+
+
+class OnboardResponse(BaseModel):
+    """Response after successful business onboarding."""
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user_id: str
+    business_id: str
