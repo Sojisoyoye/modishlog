@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -15,8 +15,14 @@ class ProductCategory(UUIDMixin, TimestampMixin, Base):
     """Category grouping for products."""
 
     __tablename__ = "product_categories"
+    __table_args__ = (
+        UniqueConstraint("name", "business_id", name="uq_product_categories_name_business"),
+    )
 
-    name: Mapped[str] = mapped_column(String(255), unique=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str | None] = mapped_column(Text, default=None)
     parent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("product_categories.id", ondelete="SET NULL"),
@@ -50,10 +56,17 @@ class Product(UUIDMixin, TimestampMixin, Base):
     """Product catalog entry."""
 
     __tablename__ = "products"
+    __table_args__ = (
+        UniqueConstraint("sku", "business_id", name="uq_products_sku_business"),
+        UniqueConstraint("slug", "business_id", name="uq_products_slug_business"),
+    )
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(255), index=True)
-    sku: Mapped[str] = mapped_column(String(100), unique=True, index=True)
-    slug: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    sku: Mapped[str] = mapped_column(String(100), index=True)
+    slug: Mapped[str] = mapped_column(String(255), index=True)
     description: Mapped[str | None] = mapped_column(Text, default=None)
     business_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("businesses.id", ondelete="SET NULL"),
