@@ -73,6 +73,11 @@ class Product(UUIDMixin, TimestampMixin, Base):
     )
     barcode: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
+    # Multi-tenant scoping: set by the Foundation PR migration.
+    # Nullable to allow backward compatibility until all rows are backfilled.
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("businesses.id"), nullable=True, index=True, default=None
+    )
 
     category: Mapped["ProductCategory"] = relationship(back_populates="products")
     price_history: Mapped[list["PriceHistory"]] = relationship(back_populates="product")

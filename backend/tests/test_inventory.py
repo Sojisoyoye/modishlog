@@ -30,6 +30,7 @@ def _make_user(**overrides):
         role=UserRole.ADMIN,
         failed_login_attempts=0,
         locked_until=None,
+        business_id=uuid.uuid4(),
     )
     defaults.update(overrides)
     user = User(**defaults)
@@ -134,17 +135,25 @@ class _InventoryEndpointBase:
 
     def _auth_headers(self, user=None):
         from src.auth.service import build_token
+        from src.auth.dependencies import get_current_business_id
 
         u = user or _make_user()
         token = build_token(u)
+        # Also override business_id dependency so endpoints work without a real DB join
+        async def _fake_business_id():
+            return u.business_id
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
         return {"Authorization": f"Bearer {token}"}, u
 
-    def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
-        u = _make_user()
+    def _override_auth(self, user=None):
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+        u = user or _make_user()
         async def _fake_auth():
             return u
+        async def _fake_business_id():
+            return u.business_id
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
 
 # ---------------------------------------------------------------------------
@@ -380,3 +389,102 @@ class TestListInventoryEndpoint(_InventoryEndpointBase):
         data = resp.json()
         assert data["total"] == 0
         assert data["items"] == []
+
+
+# ---------------------------------------------------------------------------
+# Business isolation tests (TDD — written before implementation)
+# ---------------------------------------------------------------------------
+
+
+class TestInventoryBusinessIsolation:
+    """Service-level tests: inventory data is scoped per business_id."""
+
+    @pytest.mark.asyncio
+    async def test_inventory_isolates_by_business(self):
+        """Business B cannot see Business A's inventory levels."""
+        from unittest.mock import AsyncMock, MagicMock
+        from src.inventory.service import list_inventory_levels
+
+        business_a_id = uuid.uuid4()
+        business_b_id = uuid.uuid4()
+
+        async def fake_execute_a(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = [MagicMock()]
+            r.scalar.return_value = 1
+            return r
+
+        async def fake_execute_b(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            r.scalar.return_value = 0
+            return r
+
+        db_a, db_b = AsyncMock(), AsyncMock()
+        db_a.execute = fake_execute_a
+        db_b.execute = fake_execute_b
+
+        result_a = await list_inventory_levels(db_a, business_id=business_a_id)
+        result_b = await list_inventory_levels(db_b, business_id=business_b_id)
+        items_a = result_a[0] if isinstance(result_a, tuple) else result_a
+        items_b = result_b[0] if isinstance(result_b, tuple) else result_b
+        assert len(items_a) > 0
+        assert len(items_b) == 0
+
+    @pytest.mark.asyncio
+    async def test_inventory_owner_sees_own_data(self):
+        """Business owner sees their own inventory levels."""
+        from unittest.mock import AsyncMock, MagicMock
+        from src.inventory.service import list_inventory_levels
+
+        business_id = uuid.uuid4()
+        mock_item = MagicMock()
+
+        async def fake_execute(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = [mock_item]
+            r.scalar.return_value = 1
+            return r
+
+        db = AsyncMock()
+        db.execute = fake_execute
+        result = await list_inventory_levels(db, business_id=business_id)
+        items = result[0] if isinstance(result, tuple) else result
+        assert len(items) == 1
+
+    @pytest.mark.asyncio
+    async def test_list_all_movements_scoped_by_business(self):
+        """list_all_movements with business_id only returns movements for that business's products."""
+        from unittest.mock import AsyncMock, MagicMock
+        from src.inventory.service import list_all_movements
+
+        business_id = uuid.uuid4()
+        mock_movement = MagicMock()
+
+        async def fake_execute(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = [mock_movement]
+            return r
+
+        db = AsyncMock()
+        db.execute = fake_execute
+        result = await list_all_movements(db, business_id=business_id)
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_list_all_movements_empty_for_other_business(self):
+        """list_all_movements for a business with no products returns empty list."""
+        from unittest.mock import AsyncMock, MagicMock
+        from src.inventory.service import list_all_movements
+
+        business_id = uuid.uuid4()
+
+        async def fake_execute(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            return r
+
+        db = AsyncMock()
+        db.execute = fake_execute
+        result = await list_all_movements(db, business_id=business_id)
+        assert result == []
