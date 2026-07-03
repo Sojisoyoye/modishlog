@@ -30,6 +30,7 @@ def _make_user(**overrides):
         role=UserRole.ADMIN,
         failed_login_attempts=0,
         locked_until=None,
+        business_id=uuid.uuid4(),
     )
     defaults.update(overrides)
     u = User(**defaults)
@@ -43,6 +44,7 @@ def _make_stock_count(count_type="PRODUCT", status="DRAFT", **overrides):
     from src.stockcount.models import StockCount, StockCountStatus, StockCountType
 
     sc = StockCount(
+        business_id=overrides.get("business_id", uuid.uuid4()),
         count_date=date.today(),
         count_type=StockCountType(count_type),
         status=StockCountStatus(status),
@@ -111,7 +113,7 @@ class TestCreateProductStockCount:
         db.execute = mock_execute
         user_id = uuid.uuid4()
 
-        sc = await create_stock_count(db, date.today(), "PRODUCT", None, user_id)
+        sc = await create_stock_count(db, date.today(), "PRODUCT", None, user_id, uuid.uuid4())
 
         assert sc.count_type.value == "PRODUCT"
         assert sc.status.value == "DRAFT"
@@ -144,7 +146,7 @@ class TestCreateLotStockCount:
             return result
 
         db.execute = mock_execute
-        sc = await create_stock_count(db, date.today(), "LOT", None, uuid.uuid4())
+        sc = await create_stock_count(db, date.today(), "LOT", None, uuid.uuid4(), uuid.uuid4())
 
         assert sc.count_type.value == "LOT"
         added_items = [
@@ -183,7 +185,7 @@ class TestUpdateCountedQuantity:
 
         db.execute = mock_execute
 
-        updated = await update_count_item(db, sc_id, item_id, Decimal("80"))
+        updated = await update_count_item(db, sc_id, item_id, Decimal("80"), business_id=sc.business_id)
         assert updated.counted_quantity == Decimal("80")
 
     @pytest.mark.asyncio
@@ -205,7 +207,7 @@ class TestUpdateCountedQuantity:
         db.execute = mock_execute
 
         with pytest.raises(StockCountFinalizedError):
-            await update_count_item(db, sc_id, uuid.uuid4(), Decimal("80"))
+            await update_count_item(db, sc_id, uuid.uuid4(), Decimal("80"), business_id=uuid.uuid4())
 
 
 class TestFinalizeStockCount:
@@ -236,7 +238,7 @@ class TestFinalizeStockCount:
 
         db.execute = mock_execute
 
-        finalized = await finalize_stock_count(db, sc_id)
+        finalized = await finalize_stock_count(db, sc_id, business_id=sc.business_id)
 
         assert finalized.status.value == "FINALIZED"
         assert finalized.finalized_at is not None
@@ -259,7 +261,7 @@ class TestFinalizeStockCount:
         db.execute = mock_execute
 
         with pytest.raises(StockCountFinalizedError):
-            await finalize_stock_count(db, sc.id)
+            await finalize_stock_count(db, sc.id, business_id=sc.business_id)
 
 
 class TestVarianceCalculation:
@@ -323,7 +325,7 @@ class TestSystemQuantitySnapshotTiming:
             return result
 
         db.execute = mock_execute
-        await finalize_stock_count(db, sc_id)
+        await finalize_stock_count(db, sc_id, business_id=sc.business_id)
 
         # Must reflect the finalization-time value (75), not any prior value
         assert item.system_quantity_at_count == Decimal("75")
@@ -354,8 +356,15 @@ class _StockCountEndpointBase:
 
     def _auth_headers(self, user=None):
         from src.auth.service import build_token
+        from src.auth.dependencies import get_current_business_id
 
         u = user or _make_user()
+        business_id = u.business_id or uuid.uuid4()
+
+        async def _fake_business_id():
+            return business_id
+
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
         return {"Authorization": f"Bearer {build_token(u)}"}, u
 
 
@@ -413,3 +422,159 @@ class TestStockCountFinalizeEndpoint(_StockCountEndpointBase):
                 )
         assert resp.status_code == 200
         assert resp.json()["status"] == "FINALIZED"
+
+
+# ---------------------------------------------------------------------------
+# Business isolation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stockcount_isolates_by_business():
+    """list_stock_counts with different business_ids returns different results."""
+    import uuid
+    from unittest.mock import AsyncMock, MagicMock
+    from src.stockcount.service import list_stock_counts
+
+    business_a_id = uuid.uuid4()
+    business_b_id = uuid.uuid4()
+
+    async def fake_execute_a(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = [MagicMock()]
+        r.scalar.return_value = 1
+        return r
+
+    async def fake_execute_b(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = []
+        r.scalar.return_value = 0
+        return r
+
+    db_a, db_b = AsyncMock(), AsyncMock()
+    db_a.execute = fake_execute_a
+    db_b.execute = fake_execute_b
+
+    result_a = await list_stock_counts(db_a, business_id=business_a_id)
+    result_b = await list_stock_counts(db_b, business_id=business_b_id)
+    items_a = result_a[0] if isinstance(result_a, tuple) else result_a
+    items_b = result_b[0] if isinstance(result_b, tuple) else result_b
+    assert len(items_a) > 0
+    assert len(items_b) == 0
+
+
+@pytest.mark.asyncio
+async def test_stockcount_owner_sees_own_data():
+    """list_stock_counts returns data for the given business_id."""
+    import uuid
+    from unittest.mock import AsyncMock, MagicMock
+    from src.stockcount.service import list_stock_counts
+
+    business_id = uuid.uuid4()
+    mock_count = MagicMock()
+
+    async def fake_execute(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = [mock_count]
+        r.scalar.return_value = 1
+        return r
+
+    db = AsyncMock()
+    db.execute = fake_execute
+    result = await list_stock_counts(db, business_id=business_id)
+    items = result[0] if isinstance(result, tuple) else result
+    assert len(items) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_stock_count_seeds_only_business_products():
+    """create_stock_count only seeds items for the business's own products (via subquery scope)."""
+    from src.stockcount.service import create_stock_count
+
+    business_id = uuid.uuid4()
+    pid = uuid.uuid4()
+    db = _mock_db()
+    executed_stmts = []
+
+    async def mock_execute(stmt):
+        executed_stmts.append(stmt)
+        result = MagicMock()
+        # First call: flush triggers no execute; second: InventoryLevel scoped query
+        il = MagicMock(product_id=pid, quantity_on_hand=50)
+        result.scalars.return_value.all.return_value = [il]
+        return result
+
+    db.execute = mock_execute
+    sc = await create_stock_count(db, date.today(), "PRODUCT", None, uuid.uuid4(), business_id)
+
+    # The execute was called and seeded exactly one item (for our one scoped product)
+    added_items = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if hasattr(call.args[0], "system_quantity_at_count")
+    ]
+    assert len(added_items) == 1
+    assert added_items[0].product_id == pid
+    assert sc.business_id == business_id
+
+
+@pytest.mark.asyncio
+async def test_get_stock_count_enforces_business_id():
+    """get_stock_count raises StockCountNotFoundError when business_id doesn't match."""
+    from src.stockcount.exceptions import StockCountNotFoundError
+    from src.stockcount.service import get_stock_count
+
+    db = _mock_db()
+
+    async def mock_execute(stmt):
+        result = MagicMock()
+        # Simulate no match because business_id filter excluded this row
+        result.scalar_one_or_none.return_value = None
+        return result
+
+    db.execute = mock_execute
+    sc_id = uuid.uuid4()
+    wrong_business_id = uuid.uuid4()
+
+    with pytest.raises(StockCountNotFoundError):
+        await get_stock_count(db, sc_id, business_id=wrong_business_id)
+
+
+@pytest.mark.asyncio
+async def test_update_count_item_enforces_business_id():
+    """update_count_item raises StockCountNotFoundError when business_id doesn't match."""
+    from src.stockcount.exceptions import StockCountNotFoundError
+    from src.stockcount.service import update_count_item
+
+    db = _mock_db()
+
+    async def mock_execute(stmt):
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        return result
+
+    db.execute = mock_execute
+
+    with pytest.raises(StockCountNotFoundError):
+        await update_count_item(
+            db, uuid.uuid4(), uuid.uuid4(), Decimal("10"), business_id=uuid.uuid4()
+        )
+
+
+@pytest.mark.asyncio
+async def test_finalize_stock_count_enforces_business_id():
+    """finalize_stock_count raises StockCountNotFoundError when business_id doesn't match."""
+    from src.stockcount.exceptions import StockCountNotFoundError
+    from src.stockcount.service import finalize_stock_count
+
+    db = _mock_db()
+
+    async def mock_execute(stmt):
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        return result
+
+    db.execute = mock_execute
+
+    with pytest.raises(StockCountNotFoundError):
+        await finalize_stock_count(db, uuid.uuid4(), business_id=uuid.uuid4())

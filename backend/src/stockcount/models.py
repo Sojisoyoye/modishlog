@@ -31,6 +31,9 @@ class StockCount(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "stock_counts"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     count_date: Mapped[date] = mapped_column(Date, nullable=False)
     count_type: Mapped[StockCountType] = mapped_column(
         Enum(
