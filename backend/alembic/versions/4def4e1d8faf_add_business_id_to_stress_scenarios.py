@@ -1,7 +1,7 @@
 """add business_id to stress_scenarios
 
-Revision ID: a1b2c3d4e5f6
-Revises: fc51a3928318
+Revision ID: 4def4e1d8faf
+Revises: d0679eb1beff
 Create Date: 2026-07-03 12:00:00.000000
 
 """
@@ -9,8 +9,8 @@ Create Date: 2026-07-03 12:00:00.000000
 from alembic import op
 import sqlalchemy as sa
 
-revision = "a1b2c3d4e5f6"
-down_revision = "fc51a3928318"
+revision = "4def4e1d8faf"
+down_revision = "d0679eb1beff"
 branch_labels = None
 depends_on = None
 
@@ -24,6 +24,12 @@ def upgrade() -> None:
             nullable=True,
         ),
     )
+    op.execute(
+        "UPDATE stress_scenarios SET business_id = "
+        "(SELECT id FROM businesses ORDER BY created_at LIMIT 1) "
+        "WHERE business_id IS NULL"
+    )
+    op.alter_column("stress_scenarios", "business_id", nullable=False)
     op.create_index(
         "ix_stress_scenarios_business_id",
         "stress_scenarios",
