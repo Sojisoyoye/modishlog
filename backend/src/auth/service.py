@@ -1,10 +1,16 @@
 """Auth business logic -- all async operations."""
 
+from __future__ import annotations
+
 import hashlib
 import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.auth.schemas import OnboardRequest
 
 import structlog
 from sqlalchemy import delete, func, or_, select, update
@@ -20,7 +26,7 @@ from src.auth.exceptions import (
     UserNotFoundError,
     WeakPasswordError,
 )
-from src.auth.models import PasswordResetToken, RefreshToken, User, UserRole
+from src.auth.models import Business, PasswordResetToken, RefreshToken, User, UserRole
 from src.core.config import settings
 from src.core.database import async_session_factory
 from src.core.security import create_access_token, get_password_hash, verify_password
@@ -70,6 +76,38 @@ async def create_user(
     await db.flush()
     await logger.ainfo("user_registered", user_id=str(user.id), email=email)
     return user
+
+
+async def create_business_and_owner(
+    db: AsyncSession, data: "OnboardRequest"
+) -> tuple["Business", User, str, str]:
+    """Create a Business + owner User atomically."""
+    business = Business(
+        name=data.business_name,
+        currency=data.currency,
+        country=data.country,
+        state=data.state,
+        city=data.city,
+        phone=data.phone,
+        timezone=data.timezone,
+        tax_number=data.tax_number,
+        fiscal_year_start_month=data.fiscal_year_start_month,
+    )
+    db.add(business)
+    await db.flush()  # materialise business.id
+
+    # create_user() validates password + checks email uniqueness
+    user = await create_user(db, data.email, data.password, data.full_name, role=UserRole.OWNER)
+    user.business_id = business.id
+    await db.flush()
+
+    raw_refresh = await create_refresh_token(db, user)
+    access_token = build_token(user)
+    # Do NOT call db.commit() here — get_db handles the final commit after the handler
+    # returns successfully. This keeps the transaction open so the router can set the
+    # cookie before any data is persisted, and rolls back atomically on any failure.
+    await logger.ainfo("business_onboarded", business_id=str(business.id), user_id=str(user.id))
+    return business, user, access_token, raw_refresh
 
 
 async def authenticate_user(
