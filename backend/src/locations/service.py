@@ -19,10 +19,11 @@ async def create_location(
     user_id: uuid.UUID,
 ) -> BusinessLocation:
     """Create a new business location record."""
-    # Check for duplicate location_code
+    # Check for duplicate location_code within the same business
     existing_result = await db.execute(
         select(BusinessLocation).where(
-            BusinessLocation.location_code == data.location_code
+            BusinessLocation.location_code == data.location_code,
+            BusinessLocation.business_id == business_id,
         )
     )
     existing = existing_result.scalar_one_or_none()

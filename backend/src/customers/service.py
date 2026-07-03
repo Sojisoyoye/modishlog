@@ -25,6 +25,7 @@ async def create_customer(
     db: AsyncSession,
     data: CustomerCreate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> Customer:
     """Create a new customer record."""
     customer = Customer(
@@ -46,6 +47,7 @@ async def create_customer(
         customer_group=data.customer_group,
         notes=data.notes,
         created_by=user_id,
+        business_id=business_id,
     )
     db.add(customer)
     await db.flush()
@@ -58,14 +60,19 @@ async def create_customer(
 async def list_customers(
     db: AsyncSession,
     *,
+    business_id: uuid.UUID,
     search: str | None = None,
     is_active: bool | None = None,
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[Customer], int]:
     """List customers with optional name search and active filter."""
-    query = select(Customer)
-    count_query = select(func.count()).select_from(Customer)
+    query = select(Customer).where(Customer.business_id == business_id)
+    count_query = (
+        select(func.count())
+        .select_from(Customer)
+        .where(Customer.business_id == business_id)
+    )
 
     if search:
         like = f"%{search}%"
@@ -90,9 +97,14 @@ async def list_customers(
 async def get_customer(
     db: AsyncSession,
     customer_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> Customer:
-    """Fetch a single customer by ID."""
-    result = await db.execute(select(Customer).where(Customer.id == customer_id))
+    """Fetch a single customer by ID, scoped to the given business."""
+    query = select(Customer).where(
+        Customer.id == customer_id,
+        Customer.business_id == business_id,
+    )
+    result = await db.execute(query)
     customer = result.scalar_one_or_none()
     if not customer:
         raise CustomerNotFoundError(customer_id)
@@ -103,9 +115,10 @@ async def update_customer(
     db: AsyncSession,
     customer_id: uuid.UUID,
     data: CustomerUpdate,
+    business_id: uuid.UUID,
 ) -> Customer:
     """Update a customer record."""
-    customer = await get_customer(db, customer_id)
+    customer = await get_customer(db, customer_id, business_id=business_id)
     update_fields = data.model_dump(exclude_unset=True)
     for field, value in update_fields.items():
         setattr(customer, field, value)
@@ -117,6 +130,7 @@ async def update_customer(
 async def deactivate_customer(
     db: AsyncSession,
     customer_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> Customer:
     """Soft-delete a customer (set is_active=False).
 
@@ -124,7 +138,7 @@ async def deactivate_customer(
     """
     from src.sales.models import Sale
 
-    customer = await get_customer(db, customer_id)
+    customer = await get_customer(db, customer_id, business_id=business_id)
 
     count_result = await db.execute(
         select(func.count()).select_from(Sale).where(Sale.customer_id == customer_id)
@@ -167,11 +181,12 @@ async def get_customer_sales(
 async def get_customer_ledger(
     db: AsyncSession,
     customer_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> list[CustomerLedgerEntry]:
     """Build a running debit ledger for a customer from their sales."""
     from src.sales.models import Sale
 
-    customer = await get_customer(db, customer_id)
+    customer = await get_customer(db, customer_id, business_id=business_id)
 
     sales_result = await db.execute(
         select(Sale)
@@ -215,6 +230,7 @@ async def get_customer_ledger(
 async def get_customer_activities(
     db: AsyncSession,
     customer_id: uuid.UUID,
+    business_id: uuid.UUID,
     limit: int = 20,
 ) -> list[CustomerActivityEntry]:
     """Recent activity feed for a customer — sales events.
@@ -223,7 +239,7 @@ async def get_customer_activities(
     """
     from src.sales.models import Sale
 
-    await get_customer(db, customer_id)
+    await get_customer(db, customer_id, business_id=business_id)
 
     result = await db.execute(
         select(Sale)
@@ -247,12 +263,13 @@ async def get_customer_activities(
 
 async def export_customers_csv(
     db: AsyncSession,
+    business_id: uuid.UUID,
     search: str | None = None,
     is_active: bool | None = None,
 ) -> str:
     """Export customer list as a CSV string."""
     items, _ = await list_customers(
-        db, search=search, is_active=is_active, page=1, page_size=10_000
+        db, business_id=business_id, search=search, is_active=is_active, page=1, page_size=10_000
     )
     output = io.StringIO()
     fieldnames = [

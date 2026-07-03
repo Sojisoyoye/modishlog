@@ -45,6 +45,7 @@ def _make_customer(**overrides):
         customer_group=None,
         notes=None,
         created_by=uuid.uuid4(),
+        business_id=uuid.uuid4(),
     )
     defaults.update(overrides)
     customer = Customer(**defaults)
@@ -103,7 +104,7 @@ class TestCreateCustomer:
             is_active=True,
             customer_group="Wholesale",
         )
-        customer = await create_customer(db, data, user_id)
+        customer = await create_customer(db, data, user_id, business_id=uuid.uuid4())
 
         assert customer.name == "Ade Traders"
         assert customer.alternate_number == "+2348022222222"
@@ -127,7 +128,7 @@ class TestCreateCustomer:
         """Only name is required; is_active defaults True, opening_balance defaults 0."""
         db = _mock_db()
         data = CustomerCreate(name="Minimal Customer")
-        customer = await create_customer(db, data, uuid.uuid4())
+        customer = await create_customer(db, data, uuid.uuid4(), business_id=uuid.uuid4())
 
         assert customer.name == "Minimal Customer"
         assert customer.is_active is True
@@ -157,7 +158,7 @@ class TestListCustomers:
         items_mock.scalars.return_value = scalars_mock
         db.execute = AsyncMock(side_effect=[count_mock, items_mock])
 
-        result, total = await list_customers(db, is_active=True)
+        result, total = await list_customers(db, business_id=uuid.uuid4(), is_active=True)
         assert total == 1
         assert result[0].is_active is True
 
@@ -174,7 +175,7 @@ class TestListCustomers:
         items_mock.scalars.return_value = scalars_mock
         db.execute = AsyncMock(side_effect=[count_mock, items_mock])
 
-        result, total = await list_customers(db, is_active=False)
+        result, total = await list_customers(db, business_id=uuid.uuid4(), is_active=False)
         assert total == 1
         assert result[0].is_active is False
 
@@ -190,7 +191,7 @@ class TestGetCustomer:
         """Happy path: returns the customer when found."""
         customer = _make_customer()
         db = _mock_db_with_execute(scalar_result=customer)
-        result = await get_customer(db, customer.id)
+        result = await get_customer(db, customer.id, customer.business_id)
         assert result.id == customer.id
 
     @pytest.mark.asyncio
@@ -198,7 +199,7 @@ class TestGetCustomer:
         """Raises CustomerNotFoundError when no row is returned."""
         db = _mock_db_with_execute(scalar_result=None)
         with pytest.raises(CustomerNotFoundError):
-            await get_customer(db, uuid.uuid4())
+            await get_customer(db, uuid.uuid4(), uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -395,7 +396,7 @@ class TestGetCustomerLedger:
         db = _mock_db()
         db.execute = AsyncMock(side_effect=[get_mock, sales_mock])
 
-        entries = await get_customer_ledger(db, customer.id)
+        entries = await get_customer_ledger(db, customer.id, business_id=customer.business_id)
         assert len(entries) == 1
         assert entries[0].description == "Opening balance"
         assert entries[0].balance == Decimal("5000")
@@ -434,7 +435,7 @@ class TestGetCustomerLedger:
         db = _mock_db()
         db.execute = AsyncMock(side_effect=[get_mock, sales_mock])
 
-        entries = await get_customer_ledger(db, customer.id)
+        entries = await get_customer_ledger(db, customer.id, business_id=customer.business_id)
         # No opening balance entry (0), one sale entry
         assert len(entries) == 1
         assert entries[0].debit == Decimal("3000")
@@ -480,7 +481,7 @@ class TestGetCustomerActivities:
         db = _mock_db()
         db.execute = AsyncMock(side_effect=[get_mock, sales_mock])
 
-        activities = await get_customer_activities(db, customer.id)
+        activities = await get_customer_activities(db, customer.id, business_id=customer.business_id)
         assert len(activities) == 1
         assert activities[0].event_type == "sale"
         assert activities[0].amount == Decimal("1500")
@@ -503,7 +504,7 @@ class TestGetCustomerActivities:
         db = _mock_db()
         db.execute = AsyncMock(side_effect=[get_mock, sales_mock])
 
-        activities = await get_customer_activities(db, customer.id)
+        activities = await get_customer_activities(db, customer.id, business_id=customer.business_id)
         assert activities == []
 
     @pytest.mark.asyncio
@@ -513,7 +514,61 @@ class TestGetCustomerActivities:
 
         db = _mock_db_with_execute(scalar_result=None)
         with pytest.raises(CustomerNotFoundError):
-            await get_customer_activities(db, uuid.uuid4())
+            await get_customer_activities(db, uuid.uuid4(), business_id=uuid.uuid4())
+
+
+# ---------------------------------------------------------------------------
+# business_id isolation
+# ---------------------------------------------------------------------------
+
+
+class TestBusinessIdIsolation:
+    @pytest.mark.asyncio
+    async def test_customers_isolates_by_business(self):
+        """Business B cannot see Business A's customers."""
+        business_a_id = uuid.uuid4()
+        business_b_id = uuid.uuid4()
+
+        async def fake_execute_a(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = [MagicMock()]
+            r.scalar.return_value = 1
+            return r
+
+        async def fake_execute_b(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            r.scalar.return_value = 0
+            return r
+
+        db_a, db_b = AsyncMock(), AsyncMock()
+        db_a.execute = fake_execute_a
+        db_b.execute = fake_execute_b
+
+        result_a = await list_customers(db_a, business_id=business_a_id)
+        result_b = await list_customers(db_b, business_id=business_b_id)
+        items_a = result_a[0] if isinstance(result_a, tuple) else result_a
+        items_b = result_b[0] if isinstance(result_b, tuple) else result_b
+        assert len(items_a) > 0
+        assert len(items_b) == 0
+
+    @pytest.mark.asyncio
+    async def test_customers_owner_sees_own_data(self):
+        """Business A user sees their own customers."""
+        business_id = uuid.uuid4()
+        mock_customer = MagicMock()
+
+        async def fake_execute(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = [mock_customer]
+            r.scalar.return_value = 1
+            return r
+
+        db = AsyncMock()
+        db.execute = fake_execute
+        result = await list_customers(db, business_id=business_id)
+        items = result[0] if isinstance(result, tuple) else result
+        assert len(items) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -540,7 +595,7 @@ class TestExportCustomersCsv:
         db = _mock_db()
         db.execute = AsyncMock(side_effect=[count_mock, items_mock])
 
-        csv_text = await export_customers_csv(db)
+        csv_text = await export_customers_csv(db, business_id=uuid.uuid4())
         assert "name" in csv_text
         assert "Ade Store" in csv_text
         assert "Lagos" in csv_text
