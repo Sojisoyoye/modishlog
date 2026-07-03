@@ -148,7 +148,7 @@ class TestGlobalExposure:
         db = _make_mock_db()
         db.execute = mock_execute
 
-        result = await calculate_global_exposure(db)
+        result = await calculate_global_exposure(db, business_id=uuid.uuid4())
 
         expected_total = (
             usd_obligations * ngn_usd + eur_balance * eur_usd * ngn_usd
@@ -182,7 +182,7 @@ class TestGlobalExposure:
         db = _make_mock_db()
         db.execute = mock_execute
 
-        result = await calculate_global_exposure(db)
+        result = await calculate_global_exposure(db, business_id=uuid.uuid4())
         assert result["debt_to_trade_ratio"] == Decimal("0")
 
 

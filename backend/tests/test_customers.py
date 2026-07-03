@@ -215,7 +215,7 @@ class TestUpdateCustomer:
         db = _mock_db_with_execute(scalar_result=existing)
 
         data = CustomerUpdate(city="Abuja", country="Nigeria", state="FCT")
-        updated = await update_customer(db, existing.id, data)
+        updated = await update_customer(db, existing.id, data, business_id=existing.business_id)
 
         assert updated.city == "Abuja"
         assert updated.state == "FCT"
@@ -274,7 +274,7 @@ class TestDeactivateCustomer:
         db = _mock_db()
         db.execute = AsyncMock(side_effect=[get_mock, count_mock])
 
-        result = await deactivate_customer(db, customer.id)
+        result = await deactivate_customer(db, customer.id, business_id=customer.business_id)
         assert result.is_active is False
         db.flush.assert_called_once()
 
@@ -296,7 +296,7 @@ class TestDeactivateCustomer:
         db.execute = AsyncMock(side_effect=[get_mock, count_mock])
 
         with pytest.raises(CustomerHasLinkedSalesError):
-            await deactivate_customer(db, customer.id)
+            await deactivate_customer(db, customer.id, business_id=customer.business_id)
 
     @pytest.mark.asyncio
     async def test_deactivate_customer_not_found_raises(self):
@@ -305,7 +305,7 @@ class TestDeactivateCustomer:
 
         db = _mock_db_with_execute(scalar_result=None)
         with pytest.raises(CustomerNotFoundError):
-            await deactivate_customer(db, uuid.uuid4())
+            await deactivate_customer(db, uuid.uuid4(), business_id=uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------

@@ -299,7 +299,7 @@ class TestRecommendations:
         from src.pricing.service import get_recommendations
 
         db = _mock_db_with_execute(scalars_result=[])
-        result = await get_recommendations(db)
+        result = await get_recommendations(db, business_id=uuid.uuid4())
         assert result == []
 
     @pytest.mark.asyncio
@@ -308,7 +308,7 @@ class TestRecommendations:
 
         db = _mock_db_with_execute(scalar_result=None)
         with pytest.raises(RecommendationNotFoundError):
-            await apply_recommendation(db, uuid.uuid4(), uuid.uuid4())
+            await apply_recommendation(db, uuid.uuid4(), uuid.uuid4(), business_id=uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_apply_recommendation_expired(self):
@@ -319,7 +319,7 @@ class TestRecommendations:
         )
         db = _mock_db_with_execute(scalar_result=rec)
         with pytest.raises(RecommendationExpiredError):
-            await apply_recommendation(db, rec.id, uuid.uuid4())
+            await apply_recommendation(db, rec.id, uuid.uuid4(), business_id=uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_apply_recommendation_success(self):
@@ -340,7 +340,7 @@ class TestRecommendations:
 
         db.execute = AsyncMock(side_effect=[rec_result, product_result])
 
-        result = await apply_recommendation(db, rec.id, uuid.uuid4())
+        result = await apply_recommendation(db, rec.id, uuid.uuid4(), business_id=uuid.uuid4())
         assert result.status == RecommendationStatus.APPLIED
         assert result.applied_at is not None
         assert product.selling_price == Decimal("1650.000000")
@@ -353,7 +353,7 @@ class TestRecommendations:
 
         rec = _make_recommendation()
         db = _mock_db_with_execute(scalar_result=rec)
-        result = await dismiss_recommendation(db, rec.id)
+        result = await dismiss_recommendation(db, rec.id, business_id=uuid.uuid4())
         assert result.status == RecommendationStatus.REJECTED
 
     @pytest.mark.asyncio
@@ -362,7 +362,7 @@ class TestRecommendations:
 
         db = _mock_db_with_execute(scalar_result=None)
         with pytest.raises(RecommendationNotFoundError):
-            await dismiss_recommendation(db, uuid.uuid4())
+            await dismiss_recommendation(db, uuid.uuid4(), business_id=uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +382,7 @@ class TestMarginTargets:
             target_margin_pct=Decimal("35.00"),
             min_margin_pct=Decimal("25.00"),
         )
-        result = await set_margin_target(db, data, uuid.uuid4())
+        result = await set_margin_target(db, data, uuid.uuid4(), business_id=uuid.uuid4())
         assert result.target_margin_pct == Decimal("35.00")
         assert db.add.called
 
@@ -398,7 +398,7 @@ class TestMarginTargets:
         )]
         targets[0].id = uuid.uuid4()
         db = _mock_db_with_execute(scalars_result=targets)
-        result = await get_margin_targets(db)
+        result = await get_margin_targets(db, business_id=uuid.uuid4())
         assert len(result) == 1
 
 
@@ -482,6 +482,9 @@ class TestDemandForecastHelpers:
 # ---------------------------------------------------------------------------
 
 
+BUSINESS_ID = uuid.uuid4()
+
+
 class TestPricingEndpoints:
     @pytest.fixture(autouse=True)
     def _setup_client(self):
@@ -506,11 +509,14 @@ class TestPricingEndpoints:
         return {"Authorization": f"Bearer {token}"}, user
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
-        u = _make_user()
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+        u = _make_user(business_id=BUSINESS_ID)
         async def _fake_auth():
             return u
+        async def _fake_business_id():
+            return BUSINESS_ID
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def test_recommendations_empty(self):
         self._override_auth()
@@ -1198,14 +1204,18 @@ class TestPortfolioMarginResponseShape:
         app.dependency_overrides = self._original_overrides
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
 
-        u = _make_user()
+        u = _make_user(business_id=BUSINESS_ID)
 
         async def _fake_auth():
             return u
 
+        async def _fake_business_id():
+            return BUSINESS_ID
+
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def test_portfolio_margin_returns_margin_gap_field(self):
         """Response must include margin_gap (not gap) — matches frontend mapping."""

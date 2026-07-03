@@ -201,6 +201,7 @@ class TestScenarioSave:
             db,
             name="Test Scenario",
             user_id=uuid.uuid4(),
+            business_id=uuid.uuid4(),
             selling_price=Decimal("50000"),
             fx_rate=Decimal("750"),
             quantity=10,
@@ -238,6 +239,7 @@ class TestScenarioSave:
             db,
             name="New Scenario",
             user_id=uuid.uuid4(),
+            business_id=uuid.uuid4(),
             selling_price=Decimal("45000"),
             fx_rate=Decimal("800"),
             quantity=5,
@@ -262,6 +264,7 @@ class TestScenarioSave:
             db,
             name="Product Scenario",
             user_id=uuid.uuid4(),
+            business_id=uuid.uuid4(),
             selling_price=Decimal("60000"),
             fx_rate=Decimal("750"),
             quantity=20,
@@ -421,7 +424,7 @@ class TestScenarioList:
         result.scalars.return_value = scalars_mock
         db.execute = AsyncMock(return_value=result)
 
-        scenarios = await list_scenarios(db, uuid.uuid4())
+        scenarios = await list_scenarios(db, uuid.uuid4(), business_id=uuid.uuid4())
         assert len(scenarios) == 2
 
     @pytest.mark.asyncio
@@ -435,5 +438,5 @@ class TestScenarioList:
         result.scalars.return_value = scalars_mock
         db.execute = AsyncMock(return_value=result)
 
-        scenarios = await list_scenarios(db, uuid.uuid4())
+        scenarios = await list_scenarios(db, uuid.uuid4(), business_id=uuid.uuid4())
         assert scenarios == []
