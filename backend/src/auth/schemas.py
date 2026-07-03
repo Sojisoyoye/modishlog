@@ -140,7 +140,7 @@ class OnboardRequest(BaseModel):
 
     # Step 2 — Business
     business_name: str = Field(..., min_length=2, max_length=255)
-    currency: str = Field(default="NGN", max_length=3)
+    currency: str = Field(default="NGN", min_length=3, max_length=3)
     country: str | None = None
     state: str | None = None
     city: str | None = None

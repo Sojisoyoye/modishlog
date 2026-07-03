@@ -103,7 +103,9 @@ async def create_business_and_owner(
 
     raw_refresh = await create_refresh_token(db, user)
     access_token = build_token(user)
-    await db.commit()
+    # Do NOT call db.commit() here — get_db handles the final commit after the handler
+    # returns successfully. This keeps the transaction open so the router can set the
+    # cookie before any data is persisted, and rolls back atomically on any failure.
     await logger.ainfo("business_onboarded", business_id=str(business.id), user_id=str(user.id))
     return business, user, access_token, raw_refresh
 

@@ -63,8 +63,9 @@ router = APIRouter()
 
 
 @router.post("/onboard", response_model=OnboardResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
 async def onboard_business(
-    data: OnboardRequest, response: Response, db: AsyncSession = Depends(get_db)
+    request: Request, data: OnboardRequest, response: Response, db: AsyncSession = Depends(get_db)
 ):
     """Public endpoint — creates a Business and its owner User atomically."""
     try:
