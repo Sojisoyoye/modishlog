@@ -139,7 +139,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                     name="password"
                     autocomplete="new-password"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10 pr-10"
-                    placeholder="At least 8 characters"
+                    placeholder="12+ chars, upper, lower, number, special"
                     required
                     minlength="8"
                   />
@@ -344,11 +344,8 @@ export class RegisterPageComponent {
   currency = 'NGN';
   timezone = 'Africa/Lagos';
   country = '';
-  state = '';
   city = '';
   phone = '';
-  taxNumber = '';
-  fiscalYearStartMonth = 1;
 
   goToStep2(): void {
     if (!this.fullName.trim() || !this.email.trim() || !this.password) {
@@ -383,14 +380,12 @@ export class RegisterPageComponent {
       business_name: this.businessName,
       currency: this.currency,
       timezone: this.timezone,
-      fiscal_year_start_month: this.fiscalYearStartMonth,
+      fiscal_year_start_month: 1,
     };
 
     if (this.country) payload.country = this.country;
-    if (this.state) payload.state = this.state;
     if (this.city) payload.city = this.city;
     if (this.phone) payload.phone = this.phone;
-    if (this.taxNumber) payload.tax_number = this.taxNumber;
 
     this.authService.register(payload).subscribe({
       next: () => {

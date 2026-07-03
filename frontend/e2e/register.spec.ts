@@ -1,9 +1,8 @@
 import { test, expect, request as pwRequest } from '@playwright/test';
 
 const API = 'http://localhost:8000/api/v1';
-// Unique email per test run to avoid duplicate-email conflicts
-const REG_EMAIL = `e2e-register-${Date.now()}@modishlogtest.com`;
-const REG_PASSWORD = 'E2eReg!5678';
+// 14 chars, meets backend policy: 12+, upper, lower, digit, special
+const REG_PASSWORD = 'E2eReg!Pass#14';
 const REG_NAME = 'E2E Register Tester';
 const REG_BUSINESS = 'E2E Test Shop';
 

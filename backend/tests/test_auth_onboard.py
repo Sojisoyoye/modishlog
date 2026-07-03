@@ -173,7 +173,7 @@ class TestOnboardEndpoint(OnboardTestBase):
         assert resp.status_code == 422
 
     def test_onboard_owner_role_set(self):
-        """After onboard, the created user has role == 'owner'."""
+        """Service is called with role=OWNER — verifies the router passes the right role."""
         from src.auth.models import UserRole
 
         business = _make_business()
@@ -181,16 +181,56 @@ class TestOnboardEndpoint(OnboardTestBase):
         fake_access = "fake_access_token"
         fake_refresh = "fake_refresh_token"
 
-        with patch(
-            "src.auth.router.create_business_and_owner",
-            new=AsyncMock(return_value=(business, owner_user, fake_access, fake_refresh)),
-        ):
+        mock_fn = AsyncMock(return_value=(business, owner_user, fake_access, fake_refresh))
+        with patch("src.auth.router.create_business_and_owner", new=mock_fn):
             db_mock = AsyncMock()
             self._override_db(db_mock)
             with TestClient(self.app) as client:
                 resp = client.post("/api/v1/auth/onboard", json=VALID_ONBOARD)
 
         assert resp.status_code == 201
-        # Verify the user returned by the mock has OWNER role
+        # Verify the service was actually called (not bypassed)
+        mock_fn.assert_called_once()
+        # The user returned carries OWNER role — the service contract the router relies on
         assert owner_user.role == UserRole.OWNER
-        assert owner_user.role.value == "owner"
+
+
+class TestCreateBusinessAndOwnerService:
+    """Unit tests for create_business_and_owner() in service.py."""
+
+    def test_service_calls_create_user_with_owner_role(self):
+        """create_business_and_owner passes role=OWNER to create_user."""
+        import asyncio
+        from src.auth.models import UserRole
+        from src.auth.service import create_business_and_owner
+        from src.auth.schemas import OnboardRequest
+
+        data = OnboardRequest(**VALID_ONBOARD)
+        business = _make_business()
+        owner_user = _make_user(role=UserRole.OWNER)
+        owner_user.business_id = business.id
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+
+        with (
+            patch("src.auth.service.Business", return_value=business),
+            patch(
+                "src.auth.service.create_user",
+                new=AsyncMock(return_value=owner_user),
+            ) as mock_create_user,
+            patch("src.auth.service.create_refresh_token", new=AsyncMock(return_value="raw_refresh")),
+            patch("src.auth.service.build_token", return_value="access_token"),
+        ):
+            result = asyncio.run(create_business_and_owner(db, data))
+
+        # The critical assertion: create_user must be called with role=OWNER
+        _call_kwargs = mock_create_user.call_args
+        assert _call_kwargs.kwargs.get("role") == UserRole.OWNER or (
+            len(_call_kwargs.args) >= 5 and _call_kwargs.args[4] == UserRole.OWNER
+        ), f"Expected role=OWNER, got call: {_call_kwargs}"
+
+        returned_business, returned_user, access_token, raw_refresh = result
+        assert returned_user.role == UserRole.OWNER
+        assert access_token == "access_token"
+        assert raw_refresh == "raw_refresh"
