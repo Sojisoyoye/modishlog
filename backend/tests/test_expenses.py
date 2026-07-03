@@ -19,6 +19,9 @@ VALID_PASSWORD = "Str0ng!Pass#99"
 # ---------------------------------------------------------------------------
 
 
+BUSINESS_ID = uuid.uuid4()
+
+
 def _make_user(**overrides):
     from src.auth.models import User, UserRole
 
@@ -30,6 +33,7 @@ def _make_user(**overrides):
         role=UserRole.ADMIN,
         failed_login_attempts=0,
         locked_until=None,
+        business_id=BUSINESS_ID,
     )
     defaults.update(overrides)
     user = User(**defaults)
@@ -54,6 +58,7 @@ def _make_category(**overrides):
         name="Office Supplies",
         description="Paper, pens, etc.",
         created_by=uuid.uuid4(),
+        business_id=BUSINESS_ID,
     )
     defaults.update(overrides)
     cat = ExpenseCategory(**defaults)
@@ -67,6 +72,7 @@ def _make_expense(**overrides):
     from src.expenses.models import Expense
 
     defaults = dict(
+        business_id=BUSINESS_ID,
         category_id=None,
         ref_no="EXP-001",
         amount_ngn=Decimal("50000.000000"),
@@ -103,21 +109,24 @@ class TestExpensesService:
         db = _mock_db()
         data = ExpenseCategoryCreate(name="Travel", description="Business travel")
         user_id = uuid.uuid4()
+        business_id = uuid.uuid4()
 
-        cat = await create_category(db, data, user_id)
+        cat = await create_category(db, data, user_id, business_id)
 
         db.add.assert_called_once()
         db.flush.assert_called_once()
         assert cat.name == "Travel"
         assert cat.created_by == user_id
+        assert cat.business_id == business_id
 
     @pytest.mark.asyncio
     async def test_list_categories(self):
-        """list_categories returns all ExpenseCategory rows."""
-        from src.expenses.service import list_categories
+        """list_expense_categories returns categories for the given business."""
+        from src.expenses.service import list_expense_categories
 
-        cat1 = _make_category(name="Food")
-        cat2 = _make_category(name="Transport")
+        business_id = uuid.uuid4()
+        cat1 = _make_category(name="Food", business_id=business_id)
+        cat2 = _make_category(name="Transport", business_id=business_id)
 
         result_mock = MagicMock()
         result_mock.scalars.return_value.all.return_value = [cat1, cat2]
@@ -125,7 +134,7 @@ class TestExpensesService:
         db = _mock_db()
         db.execute = AsyncMock(return_value=result_mock)
 
-        cats = await list_categories(db)
+        cats = await list_expense_categories(db, business_id=business_id)
 
         assert len(cats) == 2
 
@@ -137,6 +146,7 @@ class TestExpensesService:
 
         db = _mock_db()
         cat_id = uuid.uuid4()
+        business_id = uuid.uuid4()
         data = ExpenseCreate(
             category_id=cat_id,
             amount_ngn=Decimal("10000"),
@@ -146,13 +156,13 @@ class TestExpensesService:
         user_id = uuid.uuid4()
 
         # selectinload triggers a second execute for the relationship
-        cat_mock = MagicMock()
-        cat_mock.scalar_one_or_none.return_value = None  # reloaded expense
         result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = _make_expense(category_id=cat_id)
+        result_mock.scalar_one_or_none.return_value = _make_expense(
+            category_id=cat_id, business_id=business_id
+        )
         db.execute = AsyncMock(return_value=result_mock)
 
-        exp = await create_expense(db, data, user_id)
+        exp = await create_expense(db, data, user_id, business_id)
 
         db.add.assert_called_once()
         assert exp.category_id == cat_id
@@ -164,6 +174,7 @@ class TestExpensesService:
         from src.expenses.service import create_expense
 
         db = _mock_db()
+        business_id = uuid.uuid4()
         data = ExpenseCreate(
             category_id=None,
             amount_ngn=Decimal("5000"),
@@ -173,10 +184,12 @@ class TestExpensesService:
         user_id = uuid.uuid4()
 
         result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = _make_expense(category_id=None)
+        result_mock.scalar_one_or_none.return_value = _make_expense(
+            category_id=None, business_id=business_id
+        )
         db.execute = AsyncMock(return_value=result_mock)
 
-        exp = await create_expense(db, data, user_id)
+        exp = await create_expense(db, data, user_id, business_id)
 
         assert exp.category_id is None
 
@@ -186,7 +199,8 @@ class TestExpensesService:
         from src.expenses.service import list_expenses
 
         cat_id = uuid.uuid4()
-        exp = _make_expense(category_id=cat_id)
+        business_id = uuid.uuid4()
+        exp = _make_expense(category_id=cat_id, business_id=business_id)
 
         count_mock = MagicMock()
         count_mock.scalar.return_value = 1
@@ -197,7 +211,9 @@ class TestExpensesService:
         db = _mock_db()
         db.execute = AsyncMock(side_effect=[count_mock, items_mock])
 
-        items, total = await list_expenses(db, category_id=cat_id)
+        items, total = await list_expenses(
+            db, business_id=business_id, category_id=cat_id
+        )
 
         assert total == 1
         assert items[0].category_id == cat_id
@@ -207,7 +223,8 @@ class TestExpensesService:
         """list_expenses with date_from/date_to returns (items, total)."""
         from src.expenses.service import list_expenses
 
-        exp = _make_expense(expense_date=date(2026, 6, 15))
+        business_id = uuid.uuid4()
+        exp = _make_expense(expense_date=date(2026, 6, 15), business_id=business_id)
 
         count_mock = MagicMock()
         count_mock.scalar.return_value = 1
@@ -220,6 +237,7 @@ class TestExpensesService:
 
         items, total = await list_expenses(
             db,
+            business_id=business_id,
             date_from=date(2026, 6, 1),
             date_to=date(2026, 6, 30),
         )
@@ -233,7 +251,8 @@ class TestExpensesService:
         from src.expenses.schemas import ExpenseUpdate
         from src.expenses.service import update_expense
 
-        exp = _make_expense(note="original")
+        business_id = uuid.uuid4()
+        exp = _make_expense(note="original", business_id=business_id)
 
         result_mock = MagicMock()
         result_mock.scalar_one_or_none.return_value = exp
@@ -241,7 +260,7 @@ class TestExpensesService:
         db.execute = AsyncMock(return_value=result_mock)
 
         data = ExpenseUpdate(note="updated note")
-        updated = await update_expense(db, exp.id, data)
+        updated = await update_expense(db, exp.id, data, business_id=business_id)
 
         assert updated.note == "updated note"
 
@@ -250,14 +269,15 @@ class TestExpensesService:
         """delete_expense calls db.delete then db.flush."""
         from src.expenses.service import delete_expense
 
-        exp = _make_expense()
+        business_id = uuid.uuid4()
+        exp = _make_expense(business_id=business_id)
 
         result_mock = MagicMock()
         result_mock.scalar_one_or_none.return_value = exp
         db = _mock_db()
         db.execute = AsyncMock(return_value=result_mock)
 
-        await delete_expense(db, exp.id)
+        await delete_expense(db, exp.id, business_id=business_id)
 
         db.delete.assert_called_once_with(exp)
         db.flush.assert_called_once()
@@ -277,11 +297,61 @@ class TestExpensesService:
             await get_expense(db, uuid.uuid4())
 
     @pytest.mark.asyncio
+    async def test_expenses_isolates_by_business(self):
+        """list_expenses scoped to business_a returns results; business_b returns empty."""
+        from src.expenses.service import list_expenses
+
+        business_a_id = uuid.uuid4()
+        business_b_id = uuid.uuid4()
+
+        async def fake_execute_a(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = [MagicMock()]
+            r.scalar.return_value = 1
+            return r
+
+        async def fake_execute_b(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            r.scalar.return_value = 0
+            return r
+
+        db_a, db_b = AsyncMock(), AsyncMock()
+        db_a.execute = fake_execute_a
+        db_b.execute = fake_execute_b
+
+        result_a = await list_expenses(db_a, business_id=business_a_id)
+        result_b = await list_expenses(db_b, business_id=business_b_id)
+        items_a = result_a[0] if isinstance(result_a, tuple) else result_a
+        items_b = result_b[0] if isinstance(result_b, tuple) else result_b
+        assert len(items_a) > 0
+        assert len(items_b) == 0
+
+    @pytest.mark.asyncio
+    async def test_expense_categories_isolates_by_business(self):
+        """list_expense_categories scoped to a business_id returns only its categories."""
+        from src.expenses.service import list_expense_categories
+
+        business_a_id = uuid.uuid4()
+
+        async def fake_execute(query):
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = [MagicMock()]
+            return r
+
+        db = AsyncMock()
+        db.execute = fake_execute
+        result = await list_expense_categories(db, business_id=business_a_id)
+        items = result[0] if isinstance(result, tuple) else result
+        assert len(items) > 0
+
+    @pytest.mark.asyncio
     async def test_export_expenses_csv_returns_valid_csv(self):
         """export_expenses_csv returns a string with a valid CSV header."""
         from src.expenses.service import export_expenses_csv
 
-        exp = _make_expense()
+        business_id = uuid.uuid4()
+        exp = _make_expense(business_id=business_id)
 
         count_mock = MagicMock()
         count_mock.scalar.return_value = 1
@@ -292,7 +362,7 @@ class TestExpensesService:
         db = _mock_db()
         db.execute = AsyncMock(side_effect=[count_mock, items_mock])
 
-        csv_str = await export_expenses_csv(db)
+        csv_str = await export_expenses_csv(db, business_id=business_id)
 
         assert isinstance(csv_str, str)
         first_line = csv_str.splitlines()[0]
@@ -315,7 +385,7 @@ class TestExpenseEndpoints:
         app.dependency_overrides = self._orig
 
     def _override_db(self, db):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         from src.core.database import get_db
 
         async def _fake_db():
@@ -323,6 +393,7 @@ class TestExpenseEndpoints:
 
         self.app.dependency_overrides[get_db] = _fake_db
         self.app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        self.app.dependency_overrides[get_current_business_id] = lambda: BUSINESS_ID
 
     def test_list_expenses_endpoint_ok(self):
         """GET /expenses returns 200 with items + total."""
@@ -417,3 +488,5 @@ class TestExpenseEndpoints:
         body = resp.json()
         assert isinstance(body, list)
         assert body[0]["name"] == cat.name
+
+

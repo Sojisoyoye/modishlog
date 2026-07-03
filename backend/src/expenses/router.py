@@ -4,7 +4,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
 from src.expenses.exceptions import ExpenseNotFoundError
@@ -32,14 +32,18 @@ async def create_category(
     data: ExpenseCategoryCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    cat = await service.create_category(db, data, current_user.id)
+    cat = await service.create_category(db, data, current_user.id, business_id)
     return cat
 
 
 @categories_router.get("", response_model=list[ExpenseCategoryRead])
-async def list_categories(db: AsyncSession = Depends(get_db)):
-    return await service.list_categories(db)
+async def list_categories(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    return await service.list_expense_categories(db, business_id=business_id)
 
 
 # ---------------------------------------------------------------------------
@@ -52,8 +56,9 @@ async def create_expense(
     data: ExpenseCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    exp = await service.create_expense(db, data, current_user.id)
+    exp = await service.create_expense(db, data, current_user.id, business_id)
     return _to_read(exp)
 
 
@@ -65,9 +70,11 @@ async def list_expenses(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     items, total = await service.list_expenses(
         db,
+        business_id=business_id,
         category_id=category_id,
         date_from=date_from,
         date_to=date_to,
@@ -87,8 +94,11 @@ async def export_expenses_csv(
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    csv_str = await service.export_expenses_csv(db, date_from=date_from, date_to=date_to)
+    csv_str = await service.export_expenses_csv(
+        db, business_id=business_id, date_from=date_from, date_to=date_to
+    )
     return Response(
         content=csv_str,
         media_type="text/csv",
@@ -97,9 +107,13 @@ async def export_expenses_csv(
 
 
 @expenses_router.get("/{expense_id}", response_model=ExpenseRead)
-async def get_expense(expense_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_expense(
+    expense_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     try:
-        exp = await service.get_expense(db, expense_id)
+        exp = await service.get_expense(db, expense_id, business_id=business_id)
     except ExpenseNotFoundError:
         raise HTTPException(status_code=404, detail="Expense not found")
     return _to_read(exp)
@@ -110,18 +124,23 @@ async def update_expense(
     expense_id: uuid.UUID,
     data: ExpenseUpdate,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     try:
-        exp = await service.update_expense(db, expense_id, data)
+        exp = await service.update_expense(db, expense_id, data, business_id=business_id)
     except ExpenseNotFoundError:
         raise HTTPException(status_code=404, detail="Expense not found")
     return _to_read(exp)
 
 
 @expenses_router.delete("/{expense_id}", status_code=204)
-async def delete_expense(expense_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_expense(
+    expense_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     try:
-        await service.delete_expense(db, expense_id)
+        await service.delete_expense(db, expense_id, business_id=business_id)
     except ExpenseNotFoundError:
         raise HTTPException(status_code=404, detail="Expense not found")
 
