@@ -1184,3 +1184,117 @@ async def test_triage_records_isolates_by_business():
     result_b = await get_active_triage(db_b, business_id=business_b_id)
     assert result_a is not None
     assert result_b is None
+
+
+# ---------------------------------------------------------------------------
+# Bug-fix isolation tests: helper functions scoped to business_id
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_calculate_monthly_revenue_accepts_business_id():
+    """_calculate_monthly_revenue must accept and use business_id parameter."""
+    from src.cashflow.service import _calculate_monthly_revenue
+
+    business_id = uuid.uuid4()
+    db = AsyncMock()
+    result_mock = MagicMock()
+    result_mock.scalar.return_value = Decimal("3000000")
+    db.execute = AsyncMock(return_value=result_mock)
+
+    revenue = await _calculate_monthly_revenue(db, business_id)
+    assert revenue == Decimal("1000000.00")  # 3M / 3 months
+
+
+@pytest.mark.asyncio
+async def test_calculate_monthly_revenue_no_cross_tenant_data():
+    """_calculate_monthly_revenue with business_id=B should return 0 when no sales."""
+    from src.cashflow.service import _calculate_monthly_revenue
+
+    business_b_id = uuid.uuid4()
+    db = AsyncMock()
+    result_mock = MagicMock()
+    result_mock.scalar.return_value = None  # no sales for this business
+    db.execute = AsyncMock(return_value=result_mock)
+
+    revenue = await _calculate_monthly_revenue(db, business_b_id)
+    assert revenue == Decimal("0.00")
+
+
+@pytest.mark.asyncio
+async def test_sum_open_order_usd_obligations_accepts_business_id():
+    """_sum_open_order_usd_obligations must accept and use business_id parameter."""
+    from src.cashflow.service import _sum_open_order_usd_obligations
+
+    business_id = uuid.uuid4()
+    db = AsyncMock()
+    result_mock = MagicMock()
+    result_mock.scalar.return_value = Decimal("50000")
+    db.execute = AsyncMock(return_value=result_mock)
+
+    obligations = await _sum_open_order_usd_obligations(db, business_id)
+    assert obligations == Decimal("50000")
+
+
+@pytest.mark.asyncio
+async def test_sum_open_order_usd_obligations_zero_for_unknown_business():
+    """_sum_open_order_usd_obligations returns 0 for a business with no orders."""
+    from src.cashflow.service import _sum_open_order_usd_obligations
+
+    business_id = uuid.uuid4()
+    db = AsyncMock()
+    result_mock = MagicMock()
+    result_mock.scalar.return_value = None
+    db.execute = AsyncMock(return_value=result_mock)
+
+    obligations = await _sum_open_order_usd_obligations(db, business_id)
+    assert obligations == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_trailing_30d_avg_monthly_revenue_accepts_business_id():
+    """_trailing_30d_avg_monthly_revenue_usd must accept and use business_id parameter."""
+    from src.cashflow.service import _trailing_30d_avg_monthly_revenue_usd
+
+    business_id = uuid.uuid4()
+    ngn_usd_rate = Decimal("1500")
+    db = AsyncMock()
+    result_mock = MagicMock()
+    result_mock.scalar.return_value = Decimal("1500000")  # 1500 NGN/USD * 1000 USD
+    db.execute = AsyncMock(return_value=result_mock)
+
+    revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(db, business_id, ngn_usd_rate)
+    assert revenue_usd == Decimal("1000.00")  # 1500000 NGN / 1500
+
+
+@pytest.mark.asyncio
+async def test_trailing_30d_avg_monthly_revenue_zero_for_unknown_business():
+    """_trailing_30d_avg_monthly_revenue_usd returns 0 for business with no sales."""
+    from src.cashflow.service import _trailing_30d_avg_monthly_revenue_usd
+
+    business_id = uuid.uuid4()
+    ngn_usd_rate = Decimal("1500")
+    db = AsyncMock()
+    result_mock = MagicMock()
+    result_mock.scalar.return_value = None
+    db.execute = AsyncMock(return_value=result_mock)
+
+    revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(db, business_id, ngn_usd_rate)
+    assert revenue_usd == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_get_scenarios_accepts_business_id():
+    """get_scenarios must accept and filter by business_id."""
+    from src.cashflow.service import get_scenarios
+
+    business_id = uuid.uuid4()
+    db = AsyncMock()
+    result_mock = MagicMock()
+    scalars_mock = MagicMock()
+    scalars_mock.all.return_value = []
+    result_mock.scalars.return_value = scalars_mock
+    db.execute = AsyncMock(return_value=result_mock)
+
+    scenarios = await get_scenarios(db, business_id)
+    assert scenarios == []

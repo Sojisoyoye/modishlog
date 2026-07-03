@@ -52,6 +52,9 @@ class Sale(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "sales"
 
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("businesses.id"), nullable=True, index=True, default=None
+    )
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
     quantity: Mapped[int] = mapped_column(Integer)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))

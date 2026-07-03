@@ -221,6 +221,9 @@ class StressScenario(UUIDMixin, Base):
 
     __tablename__ = "stress_scenarios"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(255))
     revenue_shock_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
     fx_shock_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))

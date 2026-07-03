@@ -183,9 +183,12 @@ async def run_scenario_endpoint(
 
 
 @router.get("/scenarios", response_model=list[ScenarioRead])
-async def list_scenarios_endpoint(db: AsyncSession = Depends(get_db)):
-    """List saved stress scenario simulations."""
-    return await get_scenarios(db)
+async def list_scenarios_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """List saved stress scenario simulations scoped to the current business."""
+    return await get_scenarios(db, business_id)
 
 
 # ---------------------------------------------------------------------------

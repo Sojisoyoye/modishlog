@@ -186,12 +186,13 @@ async def get_operating_costs(
 
 
 async def _calculate_monthly_revenue(
-    db: AsyncSession, scenario_type: str = "BASE"
+    db: AsyncSession, business_id: uuid.UUID, scenario_type: str = "BASE"
 ) -> Decimal:
     """Calculate baseline monthly revenue from last 90 days of sales."""
     ninety_days_ago = (datetime.now(timezone.utc) - timedelta(days=90)).date()
     result = await db.execute(
         select(func.sum(Sale.total_amount)).where(
+            Sale.business_id == business_id,
             Sale.status == SaleStatus.COMPLETED,
             Sale.sale_date >= ninety_days_ago,
         )
@@ -342,7 +343,7 @@ async def generate_cashflow_projection(
     now = datetime.now(timezone.utc)
     today = now.date()
 
-    monthly_revenue = await _calculate_monthly_revenue(db, scenario_type)
+    monthly_revenue = await _calculate_monthly_revenue(db, business_id, scenario_type)
     monthly_loan = await _calculate_monthly_loan_payment(db, business_id)
     monthly_opex = await _calculate_monthly_operating_costs(db, business_id)
     fx_rate = await _get_latest_fx_rate(db)
@@ -493,7 +494,7 @@ async def calculate_cash_runway(db: AsyncSession, business_id: uuid.UUID) -> dic
 
 async def get_current_dscr(db: AsyncSession, business_id: uuid.UUID) -> dict:
     """Calculate DSCR for current month scoped to the given business."""
-    monthly_revenue = await _calculate_monthly_revenue(db)
+    monthly_revenue = await _calculate_monthly_revenue(db, business_id)
     monthly_opex = await _calculate_monthly_operating_costs(db, business_id)
     monthly_loan = await _calculate_monthly_loan_payment(db, business_id)
 
@@ -566,6 +567,7 @@ async def run_stress_scenario(
 
     params = _get_scenario_params(scenario_type)
     scenario = StressScenario(
+        business_id=business_id,
         name=scenario_type,
         revenue_shock_pct=params["revenue_shock_pct"],
         fx_shock_pct=params["fx_shock_pct"],
@@ -586,10 +588,14 @@ async def run_stress_scenario(
     }
 
 
-async def get_scenarios(db: AsyncSession) -> list[StressScenario]:
-    """List all saved scenarios."""
+async def get_scenarios(
+    db: AsyncSession, business_id: uuid.UUID
+) -> list[StressScenario]:
+    """List saved stress scenarios scoped to the given business."""
     result = await db.execute(
-        select(StressScenario).order_by(StressScenario.created_at.desc())
+        select(StressScenario)
+        .where(StressScenario.business_id == business_id)
+        .order_by(StressScenario.created_at.desc())
     )
     return list(result.scalars().all())
 
@@ -669,10 +675,13 @@ async def check_liquidity_alerts(
 EUR_USD_ALERT_THRESHOLD_PCT = Decimal("3")
 
 
-async def _sum_open_order_usd_obligations(db: AsyncSession) -> Decimal:
+async def _sum_open_order_usd_obligations(
+    db: AsyncSession, business_id: uuid.UUID
+) -> Decimal:
     """Sum outstanding USD balance across open orders (not yet delivered).
 
     Single aggregate query: total_amount - sum(completed payments) per order.
+    Scoped to the given business to prevent cross-tenant data leakage.
     """
 
     paid_subq = (
@@ -697,6 +706,7 @@ async def _sum_open_order_usd_obligations(db: AsyncSession) -> Decimal:
         )
         .outerjoin(paid_subq, PurchaseOrder.id == paid_subq.c.order_id)
         .where(
+            PurchaseOrder.business_id == business_id,
             PurchaseOrder.status.in_(
                 [
                     OrderStatus.PENDING,
@@ -711,12 +721,13 @@ async def _sum_open_order_usd_obligations(db: AsyncSession) -> Decimal:
 
 
 async def _trailing_30d_avg_monthly_revenue_usd(
-    db: AsyncSession, ngn_usd_rate: Decimal
+    db: AsyncSession, business_id: uuid.UUID, ngn_usd_rate: Decimal
 ) -> Decimal:
-    """Calculate trailing 30-day revenue in USD terms."""
+    """Calculate trailing 30-day revenue in USD terms, scoped to the given business."""
     thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).date()
     result = await db.execute(
         select(func.sum(Sale.total_amount)).where(
+            Sale.business_id == business_id,
             Sale.status == SaleStatus.COMPLETED,
             Sale.sale_date >= thirty_days_ago,
         )
@@ -759,7 +770,7 @@ async def calculate_global_exposure(
     eur_loan_balance = result.scalar() or Decimal("0")
 
     # Open USD order obligations
-    usd_obligations = await _sum_open_order_usd_obligations(db)
+    usd_obligations = await _sum_open_order_usd_obligations(db, business_id)
 
     # Total global exposure in NGN
     usd_exposure_ngn = usd_obligations * ngn_usd_rate
@@ -770,7 +781,7 @@ async def calculate_global_exposure(
 
     # Debt-to-trade ratio
     eur_balance_usd_equiv = eur_loan_balance * eur_usd_rate
-    trailing_revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(db, ngn_usd_rate)
+    trailing_revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(db, business_id, ngn_usd_rate)
     if trailing_revenue_usd > 0:
         debt_to_trade = (eur_balance_usd_equiv / trailing_revenue_usd).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
@@ -1222,7 +1233,10 @@ async def generate_triage_recommendations(
         select(
             func.count(Sale.id),
             func.coalesce(func.sum(Sale.total_amount), Decimal("0")),
-        ).where(Sale.status == SaleStatus.PENDING)
+        ).where(
+            Sale.business_id == business_id,
+            Sale.status == SaleStatus.PENDING,
+        )
     )
     row = pending_result.one()
     pending_count = row[0] or 0
