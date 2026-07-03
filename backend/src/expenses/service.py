@@ -13,12 +13,13 @@ from src.expenses.schemas import ExpenseCategoryCreate, ExpenseCreate, ExpenseUp
 
 
 async def create_category(
-    db: AsyncSession, data: ExpenseCategoryCreate, user_id: uuid.UUID
+    db: AsyncSession, data: ExpenseCategoryCreate, user_id: uuid.UUID, business_id: uuid.UUID
 ) -> ExpenseCategory:
     cat = ExpenseCategory(
         name=data.name,
         description=data.description,
         created_by=user_id,
+        business_id=business_id,
     )
     db.add(cat)
     await db.flush()
@@ -32,10 +33,22 @@ async def list_categories(db: AsyncSession) -> list[ExpenseCategory]:
     return result.scalars().all()
 
 
+async def list_expense_categories(
+    db: AsyncSession, *, business_id: uuid.UUID
+) -> list[ExpenseCategory]:
+    result = await db.execute(
+        select(ExpenseCategory)
+        .where(ExpenseCategory.business_id == business_id)
+        .order_by(ExpenseCategory.name)
+    )
+    return result.scalars().all()
+
+
 async def create_expense(
-    db: AsyncSession, data: ExpenseCreate, user_id: uuid.UUID
+    db: AsyncSession, data: ExpenseCreate, user_id: uuid.UUID, business_id: uuid.UUID
 ) -> Expense:
     exp = Expense(
+        business_id=business_id,
         category_id=data.category_id,
         ref_no=data.ref_no,
         amount_ngn=data.amount_ngn,
@@ -50,19 +63,20 @@ async def create_expense(
     )
     db.add(exp)
     await db.flush()
-    return await get_expense(db, exp.id)
+    return await get_expense(db, exp.id, business_id=business_id)
 
 
 async def list_expenses(
     db: AsyncSession,
     *,
+    business_id: uuid.UUID,
     category_id: uuid.UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     page: int = 1,
     page_size: int = 25,
 ) -> tuple[list[Expense], int]:
-    base_q = select(Expense)
+    base_q = select(Expense).where(Expense.business_id == business_id)
     if category_id is not None:
         base_q = base_q.where(Expense.category_id == category_id)
     if date_from is not None:
@@ -84,12 +98,17 @@ async def list_expenses(
     return items_result.scalars().all(), total
 
 
-async def get_expense(db: AsyncSession, expense_id: uuid.UUID) -> Expense:
-    result = await db.execute(
+async def get_expense(
+    db: AsyncSession, expense_id: uuid.UUID, *, business_id: uuid.UUID | None = None
+) -> Expense:
+    q = (
         select(Expense)
         .options(selectinload(Expense.category))
         .where(Expense.id == expense_id)
     )
+    if business_id is not None:
+        q = q.where(Expense.business_id == business_id)
+    result = await db.execute(q)
     exp = result.scalar_one_or_none()
     if exp is None:
         raise ExpenseNotFoundError(expense_id)
@@ -97,17 +116,23 @@ async def get_expense(db: AsyncSession, expense_id: uuid.UUID) -> Expense:
 
 
 async def update_expense(
-    db: AsyncSession, expense_id: uuid.UUID, data: ExpenseUpdate
+    db: AsyncSession,
+    expense_id: uuid.UUID,
+    data: ExpenseUpdate,
+    *,
+    business_id: uuid.UUID,
 ) -> Expense:
-    exp = await get_expense(db, expense_id)
+    exp = await get_expense(db, expense_id, business_id=business_id)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(exp, field, value)
     await db.flush()
-    return await get_expense(db, expense_id)
+    return await get_expense(db, expense_id, business_id=business_id)
 
 
-async def delete_expense(db: AsyncSession, expense_id: uuid.UUID) -> None:
-    exp = await get_expense(db, expense_id)
+async def delete_expense(
+    db: AsyncSession, expense_id: uuid.UUID, *, business_id: uuid.UUID
+) -> None:
+    exp = await get_expense(db, expense_id, business_id=business_id)
     db.delete(exp)
     await db.flush()
 
@@ -115,11 +140,17 @@ async def delete_expense(db: AsyncSession, expense_id: uuid.UUID) -> None:
 async def export_expenses_csv(
     db: AsyncSession,
     *,
+    business_id: uuid.UUID,
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> str:
     items, _ = await list_expenses(
-        db, date_from=date_from, date_to=date_to, page=1, page_size=100_000
+        db,
+        business_id=business_id,
+        date_from=date_from,
+        date_to=date_to,
+        page=1,
+        page_size=100_000,
     )
     buf = io.StringIO()
     writer = csv.writer(buf)

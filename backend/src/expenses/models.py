@@ -11,7 +11,10 @@ from src.core.database import Base, TimestampMixin, UUIDMixin
 class ExpenseCategory(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "expense_categories"
 
-    name: Mapped[str] = mapped_column(String(150), unique=True, index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(150), index=True)
     description: Mapped[str | None] = mapped_column(Text, default=None)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
 
@@ -23,6 +26,9 @@ class ExpenseCategory(UUIDMixin, TimestampMixin, Base):
 class Expense(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "expenses"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     category_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("expense_categories.id"), nullable=True
     )
