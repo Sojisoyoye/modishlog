@@ -23,23 +23,28 @@ jobs:
             BACKEND="${DOCKER_GW}:8003"
             echo "Backend: $BACKEND"
 
-            # Replace the api.modishlog.com block — strip Caddy CORS handling,
-            # let FastAPI's CORSMiddleware handle it (it correctly reflects origin)
-            python3 - <<PYEOF
-            import re, pathlib
-
+            # Replace the api.modishlog.com block using brace counting
+            python3 - "$BACKEND" <<PYEOF
+            import pathlib, sys
+            backend = sys.argv[1]
             path = pathlib.Path("$CADDYFILE")
-            text = path.read_text()
-
-            # Replace the api.modishlog.com block with a simple reverse_proxy
-            new_block = "\napi.modishlog.com {\n    reverse_proxy $BACKEND\n}\n"
-            text = re.sub(
-                r'\napi\.modishlog\.com\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}',
-                new_block,
-                text,
-                flags=re.DOTALL,
-            )
-            path.write_text(text)
+            lines = path.read_text().splitlines(keepends=True)
+            out = []
+            i = 0
+            while i < len(lines):
+                if lines[i].strip().startswith("api.modishlog.com") and "{" in lines[i]:
+                    # Skip lines until we find the matching closing brace
+                    depth = lines[i].count("{") - lines[i].count("}")
+                    i += 1
+                    while i < len(lines) and depth > 0:
+                        depth += lines[i].count("{") - lines[i].count("}")
+                        i += 1
+                    # Write the replacement block
+                    out.append(f"\napi.modishlog.com {{\n    reverse_proxy {backend}\n}}\n")
+                else:
+                    out.append(lines[i])
+                    i += 1
+            path.write_text("".join(out))
             print("Caddyfile updated")
             PYEOF
 
