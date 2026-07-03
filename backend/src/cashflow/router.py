@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.cashflow.exceptions import (
     InvalidScenarioTypeError,
@@ -65,25 +65,30 @@ async def create_loan_endpoint(
     body: LoanCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Register a new loan obligation."""
-    return await create_loan(db, body, current_user.id)
+    return await create_loan(db, body, current_user.id, business_id)
 
 
 @router.get("/loans", response_model=list[LoanRead])
-async def list_loans_endpoint(db: AsyncSession = Depends(get_db)):
+async def list_loans_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """List active loan obligations."""
-    return await get_loans(db)
+    return await get_loans(db, business_id)
 
 
 @router.get("/loans/{loan_id}", response_model=LoanRead)
 async def get_loan_endpoint(
     loan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get a specific loan obligation."""
     try:
-        return await get_loan(db, loan_id)
+        return await get_loan(db, loan_id, business_id)
     except LoanNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -102,15 +107,19 @@ async def create_operating_cost_endpoint(
     body: OperatingCostCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Create a recurring operating cost."""
-    return await create_operating_cost(db, body, current_user.id)
+    return await create_operating_cost(db, body, current_user.id, business_id)
 
 
 @router.get("/operating-costs", response_model=list[OperatingCostRead])
-async def list_operating_costs_endpoint(db: AsyncSession = Depends(get_db)):
+async def list_operating_costs_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """List active operating costs."""
-    return await get_operating_costs(db)
+    return await get_operating_costs(db, business_id)
 
 
 # ---------------------------------------------------------------------------
@@ -122,12 +131,13 @@ async def list_operating_costs_endpoint(db: AsyncSession = Depends(get_db)):
 async def get_projection_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get the latest 6-month cashflow projection (generates if none exists)."""
     try:
-        return await get_latest_projection(db)
+        return await get_latest_projection(db, business_id)
     except ProjectionNotFoundError:
-        return await generate_cashflow_projection(db, current_user.id)
+        return await generate_cashflow_projection(db, current_user.id, business_id)
 
 
 @router.get("/projection/{scenario}", response_model=ProjectionRead)
@@ -135,6 +145,7 @@ async def get_scenario_projection_endpoint(
     scenario: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Generate a cashflow projection for a specific scenario."""
     if scenario.upper() not in VALID_SCENARIO_TYPES:
@@ -143,7 +154,7 @@ async def get_scenario_projection_endpoint(
             detail=str(InvalidScenarioTypeError(scenario)),
         )
     return await generate_cashflow_projection(
-        db, current_user.id, scenario_type=scenario.upper()
+        db, current_user.id, business_id, scenario_type=scenario.upper()
     )
 
 
@@ -157,6 +168,7 @@ async def run_scenario_endpoint(
     body: ScenarioRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Run a stress scenario simulation and compare to base."""
     if body.scenario_type.upper() not in VALID_SCENARIO_TYPES:
@@ -164,14 +176,19 @@ async def run_scenario_endpoint(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(InvalidScenarioTypeError(body.scenario_type)),
         )
-    result = await run_stress_scenario(db, current_user.id, body.scenario_type.upper())
+    result = await run_stress_scenario(
+        db, current_user.id, business_id, body.scenario_type.upper()
+    )
     return ScenarioComparisonResponse(**result)
 
 
 @router.get("/scenarios", response_model=list[ScenarioRead])
-async def list_scenarios_endpoint(db: AsyncSession = Depends(get_db)):
-    """List saved stress scenario simulations."""
-    return await get_scenarios(db)
+async def list_scenarios_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """List saved stress scenario simulations scoped to the current business."""
+    return await get_scenarios(db, business_id)
 
 
 # ---------------------------------------------------------------------------
@@ -180,10 +197,13 @@ async def list_scenarios_endpoint(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/cash-runway", response_model=RunwayResponse)
-async def cash_runway_endpoint(db: AsyncSession = Depends(get_db)):
+async def cash_runway_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get current cash runway in months."""
     try:
-        data = await calculate_cash_runway(db)
+        data = await calculate_cash_runway(db, business_id)
         return RunwayResponse(**data)
     except ProjectionNotFoundError:
         return RunwayResponse(runway_months=0, avg_monthly_burn=0)
@@ -195,9 +215,12 @@ async def cash_runway_endpoint(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/dscr", response_model=DSCRResponse)
-async def dscr_endpoint(db: AsyncSession = Depends(get_db)):
+async def dscr_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get current Debt Service Coverage Ratio."""
-    data = await get_current_dscr(db)
+    data = await get_current_dscr(db, business_id)
     return DSCRResponse(**data)
 
 
@@ -207,9 +230,12 @@ async def dscr_endpoint(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/alerts", response_model=list[AlertResponse])
-async def alerts_endpoint(db: AsyncSession = Depends(get_db)):
+async def alerts_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get liquidity shortage alerts."""
-    alerts = await check_liquidity_alerts(db)
+    alerts = await check_liquidity_alerts(db, business_id)
     return [AlertResponse(**a) for a in alerts]
 
 
@@ -219,9 +245,12 @@ async def alerts_endpoint(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/global-exposure", response_model=GlobalExposureResponse)
-async def global_exposure_endpoint(db: AsyncSession = Depends(get_db)):
+async def global_exposure_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get multi-currency global exposure summary (EUR/USD/NGN)."""
-    data = await calculate_global_exposure(db)
+    data = await calculate_global_exposure(db, business_id)
     return GlobalExposureResponse(**data)
 
 
@@ -234,9 +263,10 @@ async def global_exposure_endpoint(db: AsyncSession = Depends(get_db)):
 async def payment_calendar_endpoint(
     horizon_days: int = 90,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get upcoming payment calendar with shortfall detection."""
-    data = await build_payment_calendar(db, horizon_days)
+    data = await build_payment_calendar(db, business_id, horizon_days)
     return PaymentCalendarResponse(**data)
 
 
@@ -246,9 +276,12 @@ async def payment_calendar_endpoint(
 
 
 @router.get("/triage-status")
-async def triage_status_endpoint(db: AsyncSession = Depends(get_db)):
+async def triage_status_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get active triage status or null."""
-    triage = await get_active_triage(db)
+    triage = await get_active_triage(db, business_id)
     if triage is None:
         return None
     return TriageStatusResponse.model_validate(triage)
@@ -258,9 +291,10 @@ async def triage_status_endpoint(db: AsyncSession = Depends(get_db)):
 async def triage_check_endpoint(
     horizon_days: int = 90,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Trigger triage check: detect shortfalls and activate/resolve triage."""
-    triage = await check_and_activate_triage(db, horizon_days)
+    triage = await check_and_activate_triage(db, business_id, horizon_days)
     if triage is None:
         return TriageCheckResponse(
             triage_active=False,
@@ -275,7 +309,10 @@ async def triage_check_endpoint(
 
 
 @router.get("/triage-recommendations", response_model=TriageRecommendationsResponse)
-async def triage_recommendations_endpoint(db: AsyncSession = Depends(get_db)):
+async def triage_recommendations_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Generate ranked corrective actions for the active triage."""
-    data = await generate_triage_recommendations(db)
+    data = await generate_triage_recommendations(db, business_id)
     return TriageRecommendationsResponse(**data)

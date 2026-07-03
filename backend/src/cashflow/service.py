@@ -82,10 +82,13 @@ VALID_SCENARIO_TYPES = {e.value for e in ScenarioType}
 # ---------------------------------------------------------------------------
 
 
-async def create_loan(db: AsyncSession, data, user_id: uuid.UUID) -> LoanObligation:
+async def create_loan(
+    db: AsyncSession, data, user_id: uuid.UUID, business_id: uuid.UUID
+) -> LoanObligation:
     """Create a loan obligation."""
     end_date = data.start_date + timedelta(days=data.term_months * 30)
     loan = LoanObligation(
+        business_id=business_id,
         lender_name=data.lender_name,
         principal_amount=data.principal_amount,
         outstanding_balance=data.principal_amount,
@@ -104,18 +107,28 @@ async def create_loan(db: AsyncSession, data, user_id: uuid.UUID) -> LoanObligat
     return loan
 
 
-async def get_loans(db: AsyncSession) -> list[LoanObligation]:
-    """List active loans."""
+async def get_loans(
+    db: AsyncSession, business_id: uuid.UUID
+) -> list[LoanObligation]:
+    """List active loans for the given business."""
     result = await db.execute(
-        select(LoanObligation).where(LoanObligation.status == LoanStatus.ACTIVE)
+        select(LoanObligation).where(
+            LoanObligation.business_id == business_id,
+            LoanObligation.status == LoanStatus.ACTIVE,
+        )
     )
     return list(result.scalars().all())
 
 
-async def get_loan(db: AsyncSession, loan_id: uuid.UUID) -> LoanObligation:
-    """Get a specific loan."""
+async def get_loan(
+    db: AsyncSession, loan_id: uuid.UUID, business_id: uuid.UUID
+) -> LoanObligation:
+    """Get a specific loan scoped to the given business."""
     result = await db.execute(
-        select(LoanObligation).where(LoanObligation.id == loan_id)
+        select(LoanObligation).where(
+            LoanObligation.id == loan_id,
+            LoanObligation.business_id == business_id,
+        )
     )
     loan = result.scalar_one_or_none()
     if loan is None:
@@ -135,11 +148,12 @@ def _normalize_to_monthly(amount: Decimal, frequency: str) -> Decimal:
 
 
 async def create_operating_cost(
-    db: AsyncSession, data, user_id: uuid.UUID
+    db: AsyncSession, data, user_id: uuid.UUID, business_id: uuid.UUID
 ) -> OperatingCost:
     """Create an operating cost with frequency normalization."""
     monthly_equivalent = _normalize_to_monthly(data.cost_amount, data.frequency)
     cost = OperatingCost(
+        business_id=business_id,
         cost_name=data.cost_name,
         cost_amount=data.cost_amount,
         frequency=data.frequency,
@@ -153,10 +167,15 @@ async def create_operating_cost(
     return cost
 
 
-async def get_operating_costs(db: AsyncSession) -> list[OperatingCost]:
-    """List active operating costs."""
+async def get_operating_costs(
+    db: AsyncSession, business_id: uuid.UUID
+) -> list[OperatingCost]:
+    """List active operating costs for the given business."""
     result = await db.execute(
-        select(OperatingCost).where(OperatingCost.is_active.is_(True))
+        select(OperatingCost).where(
+            OperatingCost.business_id == business_id,
+            OperatingCost.is_active.is_(True),
+        )
     )
     return list(result.scalars().all())
 
@@ -167,12 +186,13 @@ async def get_operating_costs(db: AsyncSession) -> list[OperatingCost]:
 
 
 async def _calculate_monthly_revenue(
-    db: AsyncSession, scenario_type: str = "BASE"
+    db: AsyncSession, business_id: uuid.UUID, scenario_type: str = "BASE"
 ) -> Decimal:
     """Calculate baseline monthly revenue from last 90 days of sales."""
     ninety_days_ago = (datetime.now(timezone.utc) - timedelta(days=90)).date()
     result = await db.execute(
         select(func.sum(Sale.total_amount)).where(
+            Sale.business_id == business_id,
             Sale.status == SaleStatus.COMPLETED,
             Sale.sale_date >= ninety_days_ago,
         )
@@ -192,21 +212,27 @@ async def _calculate_monthly_revenue(
     return monthly_revenue
 
 
-async def _calculate_monthly_loan_payment(db: AsyncSession) -> Decimal:
-    """Sum monthly payments for all active loans."""
+async def _calculate_monthly_loan_payment(
+    db: AsyncSession, business_id: uuid.UUID
+) -> Decimal:
+    """Sum monthly payments for all active loans scoped to the given business."""
     result = await db.execute(
         select(func.sum(LoanObligation.monthly_payment)).where(
-            LoanObligation.status == LoanStatus.ACTIVE
+            LoanObligation.business_id == business_id,
+            LoanObligation.status == LoanStatus.ACTIVE,
         )
     )
     return result.scalar() or Decimal("0")
 
 
-async def _calculate_monthly_operating_costs(db: AsyncSession) -> Decimal:
-    """Sum monthly equivalent for all active operating costs."""
+async def _calculate_monthly_operating_costs(
+    db: AsyncSession, business_id: uuid.UUID
+) -> Decimal:
+    """Sum monthly equivalent for all active operating costs for the given business."""
     result = await db.execute(
         select(func.sum(OperatingCost.monthly_equivalent)).where(
-            OperatingCost.is_active.is_(True)
+            OperatingCost.business_id == business_id,
+            OperatingCost.is_active.is_(True),
         )
     )
     return result.scalar() or Decimal("0")
@@ -309,6 +335,7 @@ def _assign_risk_rating(dscr: Decimal, runway_months: Decimal) -> str:
 async def generate_cashflow_projection(
     db: AsyncSession,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
     months: int = 6,
     scenario_type: str = "BASE",
 ) -> CashflowProjection:
@@ -316,9 +343,9 @@ async def generate_cashflow_projection(
     now = datetime.now(timezone.utc)
     today = now.date()
 
-    monthly_revenue = await _calculate_monthly_revenue(db, scenario_type)
-    monthly_loan = await _calculate_monthly_loan_payment(db)
-    monthly_opex = await _calculate_monthly_operating_costs(db)
+    monthly_revenue = await _calculate_monthly_revenue(db, business_id, scenario_type)
+    monthly_loan = await _calculate_monthly_loan_payment(db, business_id)
+    monthly_opex = await _calculate_monthly_operating_costs(db, business_id)
     fx_rate = await _get_latest_fx_rate(db)
 
     monthly_buckets = []
@@ -378,6 +405,7 @@ async def generate_cashflow_projection(
     net_total = total_inflows - total_outflows
 
     projection = CashflowProjection(
+        business_id=business_id,
         projection_date=today,
         horizon_months=months,
         monthly_buckets=monthly_buckets,
@@ -404,10 +432,13 @@ async def generate_cashflow_projection(
     return projection
 
 
-async def get_latest_projection(db: AsyncSession) -> CashflowProjection:
-    """Get the most recent cashflow projection."""
+async def get_latest_projection(
+    db: AsyncSession, business_id: uuid.UUID
+) -> CashflowProjection:
+    """Get the most recent cashflow projection for the given business."""
     result = await db.execute(
         select(CashflowProjection)
+        .where(CashflowProjection.business_id == business_id)
         .order_by(CashflowProjection.created_at.desc())
         .limit(1)
     )
@@ -422,9 +453,9 @@ async def get_latest_projection(db: AsyncSession) -> CashflowProjection:
 # ---------------------------------------------------------------------------
 
 
-async def calculate_cash_runway(db: AsyncSession) -> dict:
+async def calculate_cash_runway(db: AsyncSession, business_id: uuid.UUID) -> dict:
     """Calculate current cash runway from latest projection."""
-    projection = await get_latest_projection(db)
+    projection = await get_latest_projection(db, business_id)
     buckets = projection.monthly_buckets or []
 
     if not buckets:
@@ -461,11 +492,11 @@ async def calculate_cash_runway(db: AsyncSession) -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def get_current_dscr(db: AsyncSession) -> dict:
-    """Calculate DSCR for current month."""
-    monthly_revenue = await _calculate_monthly_revenue(db)
-    monthly_opex = await _calculate_monthly_operating_costs(db)
-    monthly_loan = await _calculate_monthly_loan_payment(db)
+async def get_current_dscr(db: AsyncSession, business_id: uuid.UUID) -> dict:
+    """Calculate DSCR for current month scoped to the given business."""
+    monthly_revenue = await _calculate_monthly_revenue(db, business_id)
+    monthly_opex = await _calculate_monthly_operating_costs(db, business_id)
+    monthly_loan = await _calculate_monthly_loan_payment(db, business_id)
 
     dscr = _calculate_dscr(monthly_revenue, monthly_opex, monthly_loan)
 
@@ -523,16 +554,20 @@ def _summarize_projection(proj: CashflowProjection) -> dict:
 async def run_stress_scenario(
     db: AsyncSession,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
     scenario_type: str,
 ) -> dict:
     """Run stress scenario and compare to base."""
-    base_proj = await generate_cashflow_projection(db, user_id, scenario_type="BASE")
+    base_proj = await generate_cashflow_projection(
+        db, user_id, business_id, scenario_type="BASE"
+    )
     stressed_proj = await generate_cashflow_projection(
-        db, user_id, scenario_type=scenario_type
+        db, user_id, business_id, scenario_type=scenario_type
     )
 
     params = _get_scenario_params(scenario_type)
     scenario = StressScenario(
+        business_id=business_id,
         name=scenario_type,
         revenue_shock_pct=params["revenue_shock_pct"],
         fx_shock_pct=params["fx_shock_pct"],
@@ -553,10 +588,14 @@ async def run_stress_scenario(
     }
 
 
-async def get_scenarios(db: AsyncSession) -> list[StressScenario]:
-    """List all saved scenarios."""
+async def get_scenarios(
+    db: AsyncSession, business_id: uuid.UUID
+) -> list[StressScenario]:
+    """List saved stress scenarios scoped to the given business."""
     result = await db.execute(
-        select(StressScenario).order_by(StressScenario.created_at.desc())
+        select(StressScenario)
+        .where(StressScenario.business_id == business_id)
+        .order_by(StressScenario.created_at.desc())
     )
     return list(result.scalars().all())
 
@@ -566,10 +605,12 @@ async def get_scenarios(db: AsyncSession) -> list[StressScenario]:
 # ---------------------------------------------------------------------------
 
 
-async def check_liquidity_alerts(db: AsyncSession) -> list[dict]:
-    """Check for liquidity issues in latest projection."""
+async def check_liquidity_alerts(
+    db: AsyncSession, business_id: uuid.UUID
+) -> list[dict]:
+    """Check for liquidity issues in latest projection for the given business."""
     try:
-        projection = await get_latest_projection(db)
+        projection = await get_latest_projection(db, business_id)
     except ProjectionNotFoundError:
         return []
 
@@ -634,10 +675,13 @@ async def check_liquidity_alerts(db: AsyncSession) -> list[dict]:
 EUR_USD_ALERT_THRESHOLD_PCT = Decimal("3")
 
 
-async def _sum_open_order_usd_obligations(db: AsyncSession) -> Decimal:
+async def _sum_open_order_usd_obligations(
+    db: AsyncSession, business_id: uuid.UUID
+) -> Decimal:
     """Sum outstanding USD balance across open orders (not yet delivered).
 
     Single aggregate query: total_amount - sum(completed payments) per order.
+    Scoped to the given business to prevent cross-tenant data leakage.
     """
 
     paid_subq = (
@@ -662,6 +706,7 @@ async def _sum_open_order_usd_obligations(db: AsyncSession) -> Decimal:
         )
         .outerjoin(paid_subq, PurchaseOrder.id == paid_subq.c.order_id)
         .where(
+            PurchaseOrder.business_id == business_id,
             PurchaseOrder.status.in_(
                 [
                     OrderStatus.PENDING,
@@ -676,12 +721,13 @@ async def _sum_open_order_usd_obligations(db: AsyncSession) -> Decimal:
 
 
 async def _trailing_30d_avg_monthly_revenue_usd(
-    db: AsyncSession, ngn_usd_rate: Decimal
+    db: AsyncSession, business_id: uuid.UUID, ngn_usd_rate: Decimal
 ) -> Decimal:
-    """Calculate trailing 30-day revenue in USD terms."""
+    """Calculate trailing 30-day revenue in USD terms, scoped to the given business."""
     thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).date()
     result = await db.execute(
         select(func.sum(Sale.total_amount)).where(
+            Sale.business_id == business_id,
             Sale.status == SaleStatus.COMPLETED,
             Sale.sale_date >= thirty_days_ago,
         )
@@ -692,7 +738,9 @@ async def _trailing_30d_avg_monthly_revenue_usd(
     return (total_ngn / ngn_usd_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-async def calculate_global_exposure(db: AsyncSession) -> dict:
+async def calculate_global_exposure(
+    db: AsyncSession, business_id: uuid.UUID
+) -> dict:
     """Calculate global multi-currency exposure in NGN terms.
 
     total_global_exposure_ngn =
@@ -713,6 +761,7 @@ async def calculate_global_exposure(db: AsyncSession) -> dict:
     # EUR loan balances
     result = await db.execute(
         select(func.sum(LoanObligation.current_balance)).where(
+            LoanObligation.business_id == business_id,
             LoanObligation.status == LoanStatus.ACTIVE,
             LoanObligation.current_balance_currency == "EUR",
             LoanObligation.current_balance.isnot(None),
@@ -721,7 +770,7 @@ async def calculate_global_exposure(db: AsyncSession) -> dict:
     eur_loan_balance = result.scalar() or Decimal("0")
 
     # Open USD order obligations
-    usd_obligations = await _sum_open_order_usd_obligations(db)
+    usd_obligations = await _sum_open_order_usd_obligations(db, business_id)
 
     # Total global exposure in NGN
     usd_exposure_ngn = usd_obligations * ngn_usd_rate
@@ -732,7 +781,7 @@ async def calculate_global_exposure(db: AsyncSession) -> dict:
 
     # Debt-to-trade ratio
     eur_balance_usd_equiv = eur_loan_balance * eur_usd_rate
-    trailing_revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(db, ngn_usd_rate)
+    trailing_revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(db, business_id, ngn_usd_rate)
     if trailing_revenue_usd > 0:
         debt_to_trade = (eur_balance_usd_equiv / trailing_revenue_usd).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
@@ -872,6 +921,7 @@ def _generate_operating_cost_dates(
 
 async def build_payment_calendar(
     db: AsyncSession,
+    business_id: uuid.UUID,
     horizon_days: int = 90,
     starting_balance: Decimal | None = None,
 ) -> dict:
@@ -890,6 +940,7 @@ async def build_payment_calendar(
         select(LoanPaymentSchedule, LoanObligation.lender_name)
         .join(LoanObligation, LoanPaymentSchedule.loan_id == LoanObligation.id)
         .where(
+            LoanObligation.business_id == business_id,
             LoanPaymentSchedule.is_paid.is_(False),
             LoanPaymentSchedule.due_date >= today,
             LoanPaymentSchedule.due_date <= horizon_end,
@@ -908,7 +959,10 @@ async def build_payment_calendar(
 
     # 2. Operating cost entries (active, within horizon)
     opex_result = await db.execute(
-        select(OperatingCost).where(OperatingCost.is_active.is_(True))
+        select(OperatingCost).where(
+            OperatingCost.business_id == business_id,
+            OperatingCost.is_active.is_(True),
+        )
     )
     for cost in opex_result.scalars().all():
         payment_dates = _generate_operating_cost_dates(cost, today, horizon_end)
@@ -967,7 +1021,7 @@ async def build_payment_calendar(
     if starting_balance is None:
         # Estimate starting balance from latest projection
         try:
-            projection = await get_latest_projection(db)
+            projection = await get_latest_projection(db, business_id)
             buckets = projection.monthly_buckets or []
             if buckets:
                 starting_balance = Decimal(buckets[0]["cumulative_cashflow"])
@@ -1007,11 +1061,16 @@ async def build_payment_calendar(
 # ---------------------------------------------------------------------------
 
 
-async def get_active_triage(db: AsyncSession) -> TriageRecord | None:
-    """Return the active triage record, or None."""
+async def get_active_triage(
+    db: AsyncSession, business_id: uuid.UUID
+) -> TriageRecord | None:
+    """Return the active triage record for the given business, or None."""
     result = await db.execute(
         select(TriageRecord)
-        .where(TriageRecord.status == TriageStatus.ACTIVE)
+        .where(
+            TriageRecord.business_id == business_id,
+            TriageRecord.status == TriageStatus.ACTIVE,
+        )
         .order_by(TriageRecord.created_at.desc())
         .limit(1)
     )
@@ -1020,6 +1079,7 @@ async def get_active_triage(db: AsyncSession) -> TriageRecord | None:
 
 async def check_and_activate_triage(
     db: AsyncSession,
+    business_id: uuid.UUID,
     horizon_days: int = 90,
 ) -> TriageRecord | None:
     """Check for shortfalls and activate triage if needed.
@@ -1027,15 +1087,15 @@ async def check_and_activate_triage(
     Returns the active TriageRecord (existing or newly created), or None
     if no shortfall detected.
     """
-    calendar = await build_payment_calendar(db, horizon_days)
+    calendar = await build_payment_calendar(db, business_id, horizon_days)
 
     if not calendar["has_shortfall"]:
         # Auto-resolve any active triage
-        await auto_resolve_triage(db)
+        await auto_resolve_triage(db, business_id)
         return None
 
     # Check if active triage already exists
-    existing = await get_active_triage(db)
+    existing = await get_active_triage(db, business_id)
     if existing is not None:
         # Update shortfall amount if it changed
         existing.shortfall_amount = calendar["total_shortfall"]
@@ -1050,6 +1110,7 @@ async def check_and_activate_triage(
 
     # Create new triage record
     triage = TriageRecord(
+        business_id=business_id,
         trigger_date=date.today(),
         shortfall_amount=calendar["total_shortfall"],
         horizon_days=horizon_days,
@@ -1067,12 +1128,12 @@ async def check_and_activate_triage(
     return triage
 
 
-async def auto_resolve_triage(db: AsyncSession) -> bool:
+async def auto_resolve_triage(db: AsyncSession, business_id: uuid.UUID) -> bool:
     """Resolve active triage if no shortfall is currently detected.
 
     Returns True if a triage was resolved.
     """
-    active = await get_active_triage(db)
+    active = await get_active_triage(db, business_id)
     if active is None:
         return False
 
@@ -1089,6 +1150,7 @@ async def auto_resolve_triage(db: AsyncSession) -> bool:
 
 async def generate_triage_recommendations(
     db: AsyncSession,
+    business_id: uuid.UUID,
 ) -> dict:
     """Generate ranked corrective actions for the active triage.
 
@@ -1097,7 +1159,7 @@ async def generate_triage_recommendations(
     2. DELAY_PAYMENT - defer operating costs
     3. ACCELERATE_COLLECTION - flag outstanding receivables
     """
-    active = await get_active_triage(db)
+    active = await get_active_triage(db, business_id)
     shortfall = active.shortfall_amount if active else Decimal("0")
     triage_id = active.id if active else None
 
@@ -1136,6 +1198,7 @@ async def generate_triage_recommendations(
     # 2. DELAY_PAYMENT: identify deferrable operating costs
     opex_result = await db.execute(
         select(OperatingCost).where(
+            OperatingCost.business_id == business_id,
             OperatingCost.is_active.is_(True),
             OperatingCost.category.in_(["marketing", "transport", "other"]),
         )
@@ -1170,7 +1233,10 @@ async def generate_triage_recommendations(
         select(
             func.count(Sale.id),
             func.coalesce(func.sum(Sale.total_amount), Decimal("0")),
-        ).where(Sale.status == SaleStatus.PENDING)
+        ).where(
+            Sale.business_id == business_id,
+            Sale.status == SaleStatus.PENDING,
+        )
     )
     row = pending_result.one()
     pending_count = row[0] or 0

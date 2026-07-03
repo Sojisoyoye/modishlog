@@ -75,6 +75,9 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "purchase_orders"
 
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("businesses.id"), nullable=True, index=True, default=None
+    )
     order_number: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     supplier_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("suppliers.id", ondelete="SET NULL"), default=None, index=True
