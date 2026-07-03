@@ -528,19 +528,15 @@ async def _generate_liquidity_recommendations(
 async def generate_all_recommendations(
     db: AsyncSession,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> list[AIRecommendation]:
     """Orchestrate all recommendation generators and store results."""
     now = datetime.now(timezone.utc)
 
-    # Expire old pending recommendations
-    await db.execute(
-        select(AIRecommendation).where(
-            AIRecommendation.status == RecommendationStatus.PENDING,
-            AIRecommendation.expires_at < now,
-        )
-    )
+    # Expire old pending recommendations for this business
     old_result = await db.execute(
         select(AIRecommendation).where(
+            AIRecommendation.business_id == business_id,
             AIRecommendation.status == RecommendationStatus.PENDING,
             AIRecommendation.expires_at < now,
         )
@@ -563,8 +559,9 @@ async def generate_all_recommendations(
     liquidity_recs = await _generate_liquidity_recommendations(db, now)
     all_recs.extend(liquidity_recs)
 
-    # Store all recommendations
+    # Stamp every new recommendation with the business_id before storing
     for rec in all_recs:
+        rec.business_id = business_id
         db.add(rec)
 
     await db.flush()
@@ -599,9 +596,13 @@ async def get_recommendations(
     category: str | None = None,
     status_filter: str | None = None,
     limit: int = 50,
+    business_id: uuid.UUID | None = None,
 ) -> list[AIRecommendation]:
     """Get recommendations with optional filters."""
     query = select(AIRecommendation)
+
+    if business_id is not None:
+        query = query.where(AIRecommendation.business_id == business_id)
 
     if status_filter:
         query = query.where(AIRecommendation.status == status_filter)
@@ -619,11 +620,13 @@ async def get_recommendations(
 async def get_recommendation(
     db: AsyncSession,
     recommendation_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> AIRecommendation:
-    """Get a single recommendation by ID."""
-    result = await db.execute(
-        select(AIRecommendation).where(AIRecommendation.id == recommendation_id)
-    )
+    """Get a single recommendation by ID, scoped to business if provided."""
+    query = select(AIRecommendation).where(AIRecommendation.id == recommendation_id)
+    if business_id is not None:
+        query = query.where(AIRecommendation.business_id == business_id)
+    result = await db.execute(query)
     rec = result.scalar_one_or_none()
     if rec is None:
         raise RecommendationNotFoundError(recommendation_id)
@@ -635,9 +638,10 @@ async def apply_recommendation(
     recommendation_id: uuid.UUID,
     user_id: uuid.UUID,
     notes: str | None = None,
+    business_id: uuid.UUID | None = None,
 ) -> AIRecommendation:
     """Apply a recommendation: update status and route to domain service."""
-    rec = await get_recommendation(db, recommendation_id)
+    rec = await get_recommendation(db, recommendation_id, business_id=business_id)
 
     if rec.status != RecommendationStatus.PENDING:
         raise RecommendationAlreadyProcessedError(recommendation_id, rec.status)
@@ -687,9 +691,10 @@ async def dismiss_recommendation(
     recommendation_id: uuid.UUID,
     user_id: uuid.UUID,
     reason: str,
+    business_id: uuid.UUID | None = None,
 ) -> AIRecommendation:
     """Dismiss a recommendation with a reason."""
-    rec = await get_recommendation(db, recommendation_id)
+    rec = await get_recommendation(db, recommendation_id, business_id=business_id)
 
     if rec.status != RecommendationStatus.PENDING:
         raise RecommendationAlreadyProcessedError(recommendation_id, rec.status)
@@ -710,13 +715,17 @@ async def dismiss_recommendation(
     return rec
 
 
-async def get_impact_summary(db: AsyncSession) -> dict:
+async def get_impact_summary(
+    db: AsyncSession,
+    business_id: uuid.UUID | None = None,
+) -> dict:
     """Aggregate expected impact from pending recommendations."""
-    result = await db.execute(
-        select(AIRecommendation).where(
-            AIRecommendation.status == RecommendationStatus.PENDING
-        )
+    query = select(AIRecommendation).where(
+        AIRecommendation.status == RecommendationStatus.PENDING
     )
+    if business_id is not None:
+        query = query.where(AIRecommendation.business_id == business_id)
+    result = await db.execute(query)
     recs = list(result.scalars().all())
 
     total_revenue_impact = Decimal("0")
@@ -763,9 +772,10 @@ async def get_impact_summary(db: AsyncSession) -> dict:
 async def get_recommendation_history(
     db: AsyncSession,
     limit: int = 50,
+    business_id: uuid.UUID | None = None,
 ) -> list[AIRecommendation]:
     """Get applied/dismissed recommendation history."""
-    result = await db.execute(
+    query = (
         select(AIRecommendation)
         .where(
             AIRecommendation.status.in_(
@@ -775,9 +785,11 @@ async def get_recommendation_history(
                 ]
             )
         )
-        .order_by(AIRecommendation.accepted_at.desc())
-        .limit(limit)
     )
+    if business_id is not None:
+        query = query.where(AIRecommendation.business_id == business_id)
+    query = query.order_by(AIRecommendation.accepted_at.desc()).limit(limit)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 
@@ -934,6 +946,7 @@ async def update_usd_strategy_config(
 
 async def generate_reorder_suggestions(
     db: AsyncSession,
+    business_id: uuid.UUID,
 ) -> list[ReorderSuggestion]:
     """Generate reorder suggestions for products at or below reorder point."""
     # Get all products with inventory
@@ -1009,6 +1022,7 @@ async def generate_reorder_suggestions(
         )
 
         suggestion = ReorderSuggestion(
+            business_id=business_id,
             product_id=product.id,
             current_stock=inv.quantity_on_hand,
             reorder_point=reorder_point,
@@ -1039,30 +1053,37 @@ async def generate_reorder_suggestions(
 
 async def get_reorder_suggestions(
     db: AsyncSession,
+    business_id: uuid.UUID | None = None,
 ) -> list[ReorderSuggestion]:
     """Get all pending reorder suggestions."""
-    result = await db.execute(
+    query = (
         select(ReorderSuggestion)
         .where(ReorderSuggestion.status == ReorderStatus.PENDING)
-        .order_by(ReorderSuggestion.estimated_stockout_date.asc())
     )
+    if business_id is not None:
+        query = query.where(ReorderSuggestion.business_id == business_id)
+    query = query.order_by(ReorderSuggestion.estimated_stockout_date.asc())
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 
 async def get_reorder_suggestion(
     db: AsyncSession,
     product_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> ReorderSuggestion:
     """Get reorder suggestion for a specific product."""
-    result = await db.execute(
+    query = (
         select(ReorderSuggestion)
         .where(
             ReorderSuggestion.product_id == product_id,
             ReorderSuggestion.status == ReorderStatus.PENDING,
         )
-        .order_by(ReorderSuggestion.created_at.desc())
-        .limit(1)
     )
+    if business_id is not None:
+        query = query.where(ReorderSuggestion.business_id == business_id)
+    query = query.order_by(ReorderSuggestion.created_at.desc()).limit(1)
+    result = await db.execute(query)
     suggestion = result.scalar_one_or_none()
     if suggestion is None:
         raise ReorderSuggestionNotFoundError(product_id)
@@ -1072,9 +1093,10 @@ async def get_reorder_suggestion(
 async def approve_reorder(
     db: AsyncSession,
     product_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> ReorderSuggestion:
     """Approve a reorder suggestion (mark as approved for manual order creation)."""
-    suggestion = await get_reorder_suggestion(db, product_id)
+    suggestion = await get_reorder_suggestion(db, product_id, business_id=business_id)
     suggestion.status = ReorderStatus.APPROVED
     await db.flush()
 
@@ -1091,15 +1113,21 @@ async def approve_reorder(
 # ---------------------------------------------------------------------------
 
 
-async def get_reorder_config(db: AsyncSession) -> ReorderConfig:
-    """Get global reorder configuration."""
-    result = await db.execute(
-        select(ReorderConfig).order_by(ReorderConfig.updated_at.desc()).limit(1)
-    )
+async def get_reorder_config(
+    db: AsyncSession,
+    business_id: uuid.UUID | None = None,
+) -> ReorderConfig:
+    """Get reorder configuration, scoped to business if provided."""
+    query = select(ReorderConfig)
+    if business_id is not None:
+        query = query.where(ReorderConfig.business_id == business_id)
+    query = query.order_by(ReorderConfig.updated_at.desc()).limit(1)
+    result = await db.execute(query)
     config = result.scalar_one_or_none()
     if config is None:
-        # Return defaults
+        # Return defaults (business_id may be None for backward compat)
         return ReorderConfig(
+            business_id=business_id or uuid.UUID("00000000-0000-0000-0000-000000000000"),
             default_lead_time_days=DEFAULT_LEAD_TIME_DAYS,
             safety_stock_multiplier=SAFETY_STOCK_MULTIPLIER,
             service_level_target=Decimal("95.00"),

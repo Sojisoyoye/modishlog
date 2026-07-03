@@ -412,10 +412,12 @@ class TestAIEngineEndpoints:
         app.dependency_overrides = self._original_overrides
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
 
         fake_user = MagicMock()
+        fake_business_id = uuid.uuid4()
         app.dependency_overrides[get_current_active_user] = lambda: fake_user
+        app.dependency_overrides[get_current_business_id] = lambda: fake_business_id
 
     @pytest.mark.anyio
     async def test_list_recommendations_empty(self):
@@ -573,3 +575,201 @@ class TestAIEngineEndpoints:
         ) as client:
             resp = await client.get(f"/api/v1/ai/usd-accumulation/{uuid.uuid4()}")
         assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Business Isolation Tests (TDD - written before implementation)
+# ---------------------------------------------------------------------------
+
+
+class TestBusinessIsolation:
+    @pytest.mark.anyio
+    async def test_ai_recommendations_query_includes_business_id_filter(self):
+        """Verify get_recommendations builds a WHERE clause containing the business_id."""
+        from sqlalchemy import String
+        from src.ai_engine.service import get_recommendations
+
+        business_id = uuid.uuid4()
+        captured_queries: list[str] = []
+
+        async def capture_execute(query):
+            # Compile query to string and capture it for assertion
+            compiled = str(query.compile(compile_kwargs={"literal_binds": False}))
+            captured_queries.append(compiled)
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            return r
+
+        db = AsyncMock()
+        db.execute = capture_execute
+
+        await get_recommendations(db, business_id=business_id)
+
+        assert len(captured_queries) == 1, "Expected exactly one DB query"
+        query_str = captured_queries[0].lower()
+        # The WHERE clause must reference business_id column
+        assert "business_id" in query_str, (
+            f"business_id filter missing from query: {captured_queries[0]}"
+        )
+
+    @pytest.mark.anyio
+    async def test_reorder_suggestions_query_includes_business_id_filter(self):
+        """Verify get_reorder_suggestions builds a WHERE clause containing the business_id."""
+        from src.ai_engine.service import get_reorder_suggestions
+
+        business_id = uuid.uuid4()
+        captured_queries: list[str] = []
+
+        async def capture_execute(query):
+            compiled = str(query.compile(compile_kwargs={"literal_binds": False}))
+            captured_queries.append(compiled)
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            return r
+
+        db = AsyncMock()
+        db.execute = capture_execute
+
+        await get_reorder_suggestions(db, business_id=business_id)
+
+        assert len(captured_queries) == 1, "Expected exactly one DB query"
+        query_str = captured_queries[0].lower()
+        assert "business_id" in query_str, (
+            f"business_id filter missing from query: {captured_queries[0]}"
+        )
+
+    @pytest.mark.anyio
+    async def test_get_recommendation_query_includes_business_id_filter(self):
+        """Verify get_recommendation (single) scopes the WHERE to business_id."""
+        from src.ai_engine.service import get_recommendation
+
+        business_id = uuid.uuid4()
+        captured_queries: list[str] = []
+
+        async def capture_execute(query):
+            compiled = str(query.compile(compile_kwargs={"literal_binds": False}))
+            captured_queries.append(compiled)
+            r = MagicMock()
+            r.scalar_one_or_none.return_value = None
+            return r
+
+        db = AsyncMock()
+        db.execute = capture_execute
+
+        with pytest.raises(RecommendationNotFoundError):
+            await get_recommendation(db, uuid.uuid4(), business_id=business_id)
+
+        assert len(captured_queries) == 1
+        query_str = captured_queries[0].lower()
+        assert "business_id" in query_str, (
+            f"business_id filter missing from get_recommendation query: {captured_queries[0]}"
+        )
+
+    @pytest.mark.anyio
+    async def test_generate_reorder_suggestions_requires_business_id(self):
+        """generate_reorder_suggestions must require business_id to avoid nullable FK crash."""
+        import inspect
+        from src.ai_engine.service import generate_reorder_suggestions
+
+        sig = inspect.signature(generate_reorder_suggestions)
+        param = sig.parameters.get("business_id")
+        assert param is not None, "generate_reorder_suggestions must have business_id param"
+        # Must NOT have a None default — the column is nullable=False
+        assert param.default is inspect.Parameter.empty, (
+            "business_id must be required (no default None) to prevent NOT NULL DB crash"
+        )
+
+    @pytest.mark.anyio
+    async def test_generate_recommendations_stamps_business_id_on_records(self):
+        """generate_all_recommendations must stamp every new record with business_id."""
+        from src.ai_engine.service import generate_all_recommendations
+
+        business_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        added_records: list = []
+
+        db = AsyncMock()
+        db.add = lambda obj: added_records.append(obj)
+        db.flush = AsyncMock()
+
+        # Return empty for the expire-old query
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_result.scalar_one_or_none.return_value = None
+        mock_result.scalar.return_value = None
+        db.execute = AsyncMock(return_value=mock_result)
+
+        # Fake generators that return a recommendation without business_id set
+        fake_rec = _make_recommendation()
+        fake_rec.business_id = None  # not yet set
+
+        with (
+            patch("src.ai_engine.service._generate_price_recommendations", new_callable=AsyncMock, return_value=[fake_rec]),
+            patch("src.ai_engine.service._generate_order_timing_recommendations", new_callable=AsyncMock, return_value=[]),
+            patch("src.ai_engine.service._generate_usd_hedge_recommendations", new_callable=AsyncMock, return_value=[]),
+            patch("src.ai_engine.service._generate_liquidity_recommendations", new_callable=AsyncMock, return_value=[]),
+        ):
+            result = await generate_all_recommendations(db, user_id, business_id=business_id)
+
+        # The record must have been stamped with business_id before db.add()
+        assert len(added_records) == 1
+        assert added_records[0].business_id == business_id, (
+            "generate_all_recommendations must stamp rec.business_id before db.add()"
+        )
+
+    @pytest.mark.anyio
+    async def test_recommendation_not_found_respects_business_id(self):
+        """get_recommendation should 404 if rec belongs to a different business."""
+        db = _mock_db_with_execute(return_val=None)
+        with pytest.raises(RecommendationNotFoundError):
+            await get_recommendation(db, uuid.uuid4(), business_id=uuid.uuid4())
+
+    @pytest.mark.anyio
+    async def test_impact_summary_query_includes_business_id_filter(self):
+        """get_impact_summary must scope the query to the provided business_id."""
+        from src.ai_engine.service import get_impact_summary
+
+        business_id = uuid.uuid4()
+        captured_queries: list[str] = []
+
+        async def capture_execute(query):
+            compiled = str(query.compile(compile_kwargs={"literal_binds": False}))
+            captured_queries.append(compiled)
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            return r
+
+        db = AsyncMock()
+        db.execute = capture_execute
+
+        result = await get_impact_summary(db, business_id=business_id)
+        assert result["total_pending"] == 0
+        assert len(captured_queries) == 1
+        assert "business_id" in captured_queries[0].lower(), (
+            f"business_id filter missing from get_impact_summary query: {captured_queries[0]}"
+        )
+
+    @pytest.mark.anyio
+    async def test_recommendation_history_query_includes_business_id_filter(self):
+        """get_recommendation_history must scope the query to the provided business_id."""
+        from src.ai_engine.service import get_recommendation_history
+
+        business_id = uuid.uuid4()
+        captured_queries: list[str] = []
+
+        async def capture_execute(query):
+            compiled = str(query.compile(compile_kwargs={"literal_binds": False}))
+            captured_queries.append(compiled)
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            return r
+
+        db = AsyncMock()
+        db.execute = capture_execute
+
+        result = await get_recommendation_history(db, business_id=business_id)
+        assert result == []
+        assert len(captured_queries) == 1
+        assert "business_id" in captured_queries[0].lower(), (
+            f"business_id filter missing from get_recommendation_history query: {captured_queries[0]}"
+        )

@@ -41,7 +41,7 @@ from src.ai_engine.service import (
     get_usd_strategy_config,
     update_usd_strategy_config,
 )
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
 
@@ -63,9 +63,10 @@ router = APIRouter(dependencies=[Depends(get_current_active_user)])
 async def generate_recommendations_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Generate unified AI recommendations across all domains."""
-    recs = await generate_all_recommendations(db, current_user.id)
+    recs = await generate_all_recommendations(db, current_user.id, business_id=business_id)
     return recs
 
 
@@ -75,9 +76,10 @@ async def list_recommendations_endpoint(
     status_filter: str | None = Query(None, alias="status"),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get recommendations with optional category and status filters."""
-    recs = await get_recommendations(db, category, status_filter, limit)
+    recs = await get_recommendations(db, category, status_filter, limit, business_id=business_id)
 
     by_category: dict[str, int] = {}
     by_priority: dict[str, int] = {}
@@ -99,9 +101,12 @@ async def list_recommendations_endpoint(
     "/recommendations/impact",
     response_model=ImpactSummary,
 )
-async def impact_summary_endpoint(db: AsyncSession = Depends(get_db)):
+async def impact_summary_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get projected impact summary of all pending recommendations."""
-    data = await get_impact_summary(db)
+    data = await get_impact_summary(db, business_id=business_id)
     return ImpactSummary(**data)
 
 
@@ -112,9 +117,10 @@ async def impact_summary_endpoint(db: AsyncSession = Depends(get_db)):
 async def recommendation_history_endpoint(
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get applied/dismissed recommendation history."""
-    return await get_recommendation_history(db, limit)
+    return await get_recommendation_history(db, limit, business_id=business_id)
 
 
 @router.get(
@@ -124,10 +130,11 @@ async def recommendation_history_endpoint(
 async def get_recommendation_endpoint(
     recommendation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get a specific recommendation by ID."""
     try:
-        return await get_recommendation(db, recommendation_id)
+        return await get_recommendation(db, recommendation_id, business_id=business_id)
     except RecommendationNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -141,11 +148,14 @@ async def apply_recommendation_endpoint(
     body: RecommendationAccept | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Apply a recommendation."""
     try:
         notes = body.notes if body else None
-        return await apply_recommendation(db, recommendation_id, current_user.id, notes)
+        return await apply_recommendation(
+            db, recommendation_id, current_user.id, notes, business_id=business_id
+        )
     except RecommendationNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except RecommendationAlreadyProcessedError as e:
@@ -163,11 +173,12 @@ async def dismiss_recommendation_endpoint(
     body: RecommendationDismiss,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Dismiss a recommendation with a reason."""
     try:
         return await dismiss_recommendation(
-            db, recommendation_id, current_user.id, body.reason
+            db, recommendation_id, current_user.id, body.reason, business_id=business_id
         )
     except RecommendationNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -238,17 +249,19 @@ async def update_usd_strategy_config_endpoint(
 async def generate_reorder_suggestions_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Generate reorder suggestions for all products."""
-    return await generate_reorder_suggestions(db)
+    return await generate_reorder_suggestions(db, business_id=business_id)
 
 
 @router.get("/reorder", response_model=ReorderSuggestionListResponse)
 async def list_reorder_suggestions_endpoint(
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get all pending reorder suggestions."""
-    suggestions = await get_reorder_suggestions(db)
+    suggestions = await get_reorder_suggestions(db, business_id=business_id)
     critical_count = sum(
         1
         for s in suggestions
@@ -269,10 +282,11 @@ async def list_reorder_suggestions_endpoint(
 async def get_reorder_suggestion_endpoint(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get reorder suggestion for a specific product."""
     try:
-        return await get_reorder_suggestion(db, product_id)
+        return await get_reorder_suggestion(db, product_id, business_id=business_id)
     except ReorderSuggestionNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -285,9 +299,10 @@ async def approve_reorder_endpoint(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Approve a reorder suggestion."""
     try:
-        return await approve_reorder(db, product_id)
+        return await approve_reorder(db, product_id, business_id=business_id)
     except ReorderSuggestionNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

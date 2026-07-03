@@ -90,6 +90,9 @@ class AIRecommendation(UUIDMixin, Base):
 
     __tablename__ = "ai_recommendations"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     category: Mapped[RecommendationCategory] = mapped_column(
         Enum(RecommendationCategory)
     )
@@ -173,6 +176,9 @@ class ReorderSuggestion(UUIDMixin, Base):
 
     __tablename__ = "reorder_suggestions"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
     current_stock: Mapped[int] = mapped_column(Integer)
     reorder_point: Mapped[int] = mapped_column(Integer)
@@ -202,6 +208,9 @@ class ReorderConfig(UUIDMixin, Base):
 
     __tablename__ = "reorder_configs"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     default_lead_time_days: Mapped[int] = mapped_column(Integer, default=30)
     safety_stock_multiplier: Mapped[Decimal] = mapped_column(
         Numeric(4, 2), default=Decimal("1.50")
