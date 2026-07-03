@@ -1,0 +1,21 @@
+name: Patch CORS www
+
+on:
+  workflow_dispatch:
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            cd /root/modishlog-prod
+            sed -i 's|CORS_ORIGINS=\["https://modishlog.com"\]|CORS_ORIGINS=["https://modishlog.com","https://www.modishlog.com"]|g' .env.production
+            grep CORS_ORIGINS .env.production
+            docker compose --env-file .env.production up -d --no-deps backend
+            sleep 3
+            docker compose --env-file .env.production ps backend

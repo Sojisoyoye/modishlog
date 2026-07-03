@@ -44,7 +44,7 @@ services:
       ALGORITHM: ${ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
       REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-30}
-      CORS_ORIGINS: ${CORS_ORIGINS:-["https://modishlog.com"]}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["https://modishlog.com","https://www.modishlog.com"]}
       ENVIRONMENT: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
       APP_VERSION: ${APP_VERSION:-1.0.0}
