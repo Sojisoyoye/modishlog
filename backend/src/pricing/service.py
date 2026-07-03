@@ -776,8 +776,12 @@ async def upsert_mix_targets(
         category_id = t["category_id"]
         target_pct = Decimal(str(t["target_pct"]))
 
+        lookup_filters = [ProductMixTarget.category_id == category_id]
+        if business_id is not None:
+            lookup_filters.append(ProductMixTarget.business_id == business_id)
+
         result = await db.execute(
-            select(ProductMixTarget).where(ProductMixTarget.category_id == category_id)
+            select(ProductMixTarget).where(*lookup_filters)
         )
         existing = result.scalar_one_or_none()
 
@@ -788,6 +792,7 @@ async def upsert_mix_targets(
             new_target = ProductMixTarget(
                 category_id=category_id,
                 target_pct=target_pct,
+                **({"business_id": business_id} if business_id is not None else {}),
             )
             db.add(new_target)
             result_targets.append(new_target)
@@ -837,8 +842,13 @@ async def get_mix_status(
 
     total_revenue = sum(row[2] for row in revenue_rows)
 
-    # Get targets
-    target_result = await db.execute(select(ProductMixTarget))
+    # Get targets scoped to the business
+    target_filters = []
+    if business_id is not None:
+        target_filters.append(ProductMixTarget.business_id == business_id)
+    target_result = await db.execute(
+        select(ProductMixTarget).where(*target_filters) if target_filters else select(ProductMixTarget)
+    )
     targets = {t.category_id: t.target_pct for t in target_result.scalars().all()}
 
     statuses: list[dict] = []
