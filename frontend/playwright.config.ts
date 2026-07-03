@@ -3,6 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts', // only files inside e2e/
+  testIgnore: '**/business-isolation-verify.spec.ts', // requires live dev DB — run via isolation-verify.config.ts
   fullyParallel: false, // sequential — tests share the same backend DB
   retries: 0,
   timeout: 30_000,
