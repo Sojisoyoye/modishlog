@@ -91,6 +91,7 @@ def _make_fx_rate(pair="USDNGN", rate=Decimal("1650.250000"), **overrides):
 
 def _make_alert(pair="USDNGN", **overrides):
     defaults = dict(
+        business_id=uuid.uuid4(),
         pair=pair,
         direction=AlertDirection.ABOVE,
         threshold_rate=Decimal("1700.000000"),
@@ -256,17 +257,19 @@ class TestAlerts:
             direction="above",
             threshold_rate=Decimal("1700"),
         )
-        alert = await create_alert(db, data, uuid.uuid4())
+        business_id = uuid.uuid4()
+        alert = await create_alert(db, data, uuid.uuid4(), business_id)
         assert alert.pair == "USDNGN"
         assert alert.direction == AlertDirection.ABOVE
         assert alert.is_enabled is True
         assert alert.is_triggered is False
+        assert alert.business_id == business_id
 
     @pytest.mark.asyncio
     async def test_list_alerts(self):
         alerts = [_make_alert(), _make_alert(pair="EURNGN")]
         db = _mock_db_with_execute(scalars_result=alerts)
-        result = await list_alerts(db)
+        result = await list_alerts(db, business_id=uuid.uuid4())
         assert len(result) == 2
 
     @pytest.mark.asyncio
@@ -274,7 +277,7 @@ class TestAlerts:
         alert = _make_alert()
         db = _mock_db_with_execute(scalar_result=alert)
         data = FXAlertUpdate(threshold_rate=Decimal("1800"))
-        result = await update_alert(db, alert.id, data)
+        result = await update_alert(db, alert.id, data, business_id=uuid.uuid4())
         assert result.threshold_rate == Decimal("1800")
 
     @pytest.mark.asyncio
@@ -282,13 +285,13 @@ class TestAlerts:
         db = _mock_db_with_execute(scalar_result=None)
         data = FXAlertUpdate(is_enabled=False)
         with pytest.raises(FXAlertNotFoundError):
-            await update_alert(db, uuid.uuid4(), data)
+            await update_alert(db, uuid.uuid4(), data, business_id=uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_delete_alert(self):
         alert = _make_alert()
         db = _mock_db_with_execute(scalar_result=alert)
-        await delete_alert(db, alert.id)
+        await delete_alert(db, alert.id, business_id=uuid.uuid4())
         db.delete.assert_called_once_with(alert)
 
     @pytest.mark.asyncio
@@ -392,9 +395,11 @@ class TestExposure:
             locked_pct=Decimal("40"),
             floating_pct=Decimal("60"),
         )
-        config = await update_exposure_config(db, data, uuid.uuid4())
+        business_id = uuid.uuid4()
+        config = await update_exposure_config(db, data, uuid.uuid4(), business_id)
         assert config.locked_pct == Decimal("40")
         assert config.floating_pct == Decimal("60")
+        assert config.business_id == business_id
 
     @pytest.mark.asyncio
     async def test_update_exposure_config_invalid(self):
@@ -404,7 +409,7 @@ class TestExposure:
             floating_pct=Decimal("60"),
         )
         with pytest.raises(ExposureConfigError):
-            await update_exposure_config(db, data, uuid.uuid4())
+            await update_exposure_config(db, data, uuid.uuid4(), uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -612,6 +617,14 @@ class TestFXEndpoints:
             return u
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
 
+    def _override_business_id(self, business_id=None):
+        from src.auth.dependencies import get_current_business_id
+        bid = business_id or uuid.uuid4()
+        async def _fake_business_id():
+            return bid
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
+        return bid
+
     def test_ingest_requires_auth(self):
         db = _mock_db()
         self._override_db(db)
@@ -664,6 +677,7 @@ class TestFXEndpoints:
 
     def test_list_alerts_empty(self):
         self._override_auth()
+        self._override_business_id()
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
         with TestClient(self.app) as client:
@@ -1034,6 +1048,104 @@ class TestGetForecastRange:
         db = _mock_db_with_execute(scalars_result=[])
         result = await get_forecast_range(db, "USDNGN", date(2026, 6, 1), date(2026, 6, 30))
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Business isolation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fx_alerts_isolates_by_business():
+    import uuid
+    from unittest.mock import AsyncMock, MagicMock
+    from src.fx.service import list_alerts
+
+    business_a_id = uuid.uuid4()
+    business_b_id = uuid.uuid4()
+
+    async def fake_execute_a(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = [MagicMock()]
+        return r
+
+    async def fake_execute_b(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = []
+        return r
+
+    db_a, db_b = AsyncMock(), AsyncMock()
+    db_a.execute = fake_execute_a
+    db_b.execute = fake_execute_b
+
+    result_a = await list_alerts(db_a, business_id=business_a_id)
+    result_b = await list_alerts(db_b, business_id=business_b_id)
+    items_a = result_a if isinstance(result_a, list) else result_a[0]
+    items_b = result_b if isinstance(result_b, list) else result_b[0]
+    assert len(items_a) > 0
+    assert len(items_b) == 0
+
+
+@pytest.mark.asyncio
+async def test_check_alerts_with_business_id_scopes_to_business():
+    """check_alerts with business_id only fires alerts for that business."""
+    from src.fx.service import check_alerts
+
+    business_id = uuid.uuid4()
+    alert = _make_alert(
+        business_id=business_id,
+        direction=AlertDirection.ABOVE,
+        threshold_rate=Decimal("1700"),
+    )
+    db = _mock_db_with_execute(scalars_result=[alert])
+
+    triggered = await check_alerts(db, "USDNGN", Decimal("1750"), business_id=business_id)
+    assert len(triggered) == 1
+    assert alert.is_triggered is True
+
+
+@pytest.mark.asyncio
+async def test_check_alerts_without_business_id_checks_all_businesses():
+    """check_alerts without business_id (system sync) processes all businesses' alerts."""
+    from src.fx.service import check_alerts
+
+    alert_biz_a = _make_alert(
+        business_id=uuid.uuid4(),
+        direction=AlertDirection.ABOVE,
+        threshold_rate=Decimal("1700"),
+    )
+    alert_biz_b = _make_alert(
+        business_id=uuid.uuid4(),
+        direction=AlertDirection.ABOVE,
+        threshold_rate=Decimal("1700"),
+    )
+    db = _mock_db_with_execute(scalars_result=[alert_biz_a, alert_biz_b])
+
+    # No business_id — system call, should process both
+    triggered = await check_alerts(db, "USDNGN", Decimal("1750"))
+    assert len(triggered) == 2
+    assert alert_biz_a.is_triggered is True
+    assert alert_biz_b.is_triggered is True
+
+
+@pytest.mark.asyncio
+async def test_ingest_rate_passes_business_id_to_check_alerts():
+    """ingest_rate must call check_alerts with the caller's business_id."""
+    from unittest.mock import patch, AsyncMock as _AsyncMock
+
+    business_id = uuid.uuid4()
+    db = _mock_db()
+    result_mock = MagicMock()
+    scalars_mock = MagicMock()
+    scalars_mock.all.return_value = []
+    result_mock.scalars.return_value = scalars_mock
+    db.execute = _AsyncMock(return_value=result_mock)
+
+    data = FXRateIngest(pair="USDNGN", rate=Decimal("1650.25"), source="manual")
+
+    with patch("src.fx.service.check_alerts", new=_AsyncMock(return_value=[])) as mock_check:
+        await ingest_rate(db, data, uuid.uuid4(), business_id=business_id)
+        mock_check.assert_awaited_once_with(db, "USDNGN", Decimal("1650.25"), business_id=business_id)
 
 
 class TestUpdateForecastAccuracy:

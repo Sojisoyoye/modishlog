@@ -73,6 +73,9 @@ class FXExposureConfig(UUIDMixin, Base):
 
     __tablename__ = "fx_exposure_configs"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     locked_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("30.00"))
     floating_pct: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), default=Decimal("70.00")
@@ -89,6 +92,9 @@ class FXAlert(UUIDMixin, Base):
 
     __tablename__ = "fx_alerts"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     pair: Mapped[str] = mapped_column(String(6))
     direction: Mapped[AlertDirection] = mapped_column(Enum(AlertDirection))
     threshold_rate: Mapped[Decimal] = mapped_column(Numeric(18, 6))

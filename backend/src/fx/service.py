@@ -60,8 +60,13 @@ async def ingest_rate(
     db: AsyncSession,
     data: FXRateIngest,
     user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> FXRate:
-    """Ingest a single FX rate observation and check alerts."""
+    """Ingest a single FX rate observation and check alerts.
+
+    ``business_id`` should be supplied from the authenticated user context so
+    that alert checking is scoped to the user's business only.
+    """
     ts = data.timestamp or datetime.now(timezone.utc)
 
     rate = FXRate(
@@ -74,8 +79,8 @@ async def ingest_rate(
     db.add(rate)
     await db.flush()
 
-    # Check alerts asynchronously
-    await check_alerts(db, data.pair, data.rate)
+    # Check alerts scoped to this business (user-triggered ingestion)
+    await check_alerts(db, data.pair, data.rate, business_id=business_id)
 
     # Check EUR/USD threshold alert on ingestion
     if data.pair == "EURUSD":
@@ -658,10 +663,15 @@ async def lock_exposure(
     return exposure
 
 
-async def get_exposure_config(db: AsyncSession) -> FXExposureConfig | None:
-    """Get the current exposure split configuration."""
+async def get_exposure_config(
+    db: AsyncSession, business_id: uuid.UUID
+) -> FXExposureConfig | None:
+    """Get the current exposure split configuration for the given business."""
     result = await db.execute(
-        select(FXExposureConfig).order_by(FXExposureConfig.updated_at.desc()).limit(1)
+        select(FXExposureConfig)
+        .where(FXExposureConfig.business_id == business_id)
+        .order_by(FXExposureConfig.updated_at.desc())
+        .limit(1)
     )
     return result.scalar_one_or_none()
 
@@ -670,6 +680,7 @@ async def update_exposure_config(
     db: AsyncSession,
     data: ExposureConfigUpdate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> FXExposureConfig:
     """Update exposure config. locked_pct + floating_pct must equal 100."""
     if data.locked_pct + data.floating_pct != Decimal("100"):
@@ -680,6 +691,7 @@ async def update_exposure_config(
         )
 
     config = FXExposureConfig(
+        business_id=business_id,
         locked_pct=data.locked_pct,
         floating_pct=data.floating_pct,
         updated_by=user_id,
@@ -692,6 +704,7 @@ async def update_exposure_config(
         "fx_exposure_config_updated",
         locked_pct=str(data.locked_pct),
         floating_pct=str(data.floating_pct),
+        business_id=str(business_id),
     )
     return config
 
@@ -705,9 +718,11 @@ async def create_alert(
     db: AsyncSession,
     data: FXAlertCreate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> FXAlert:
     """Create a new rate threshold alert."""
     alert = FXAlert(
+        business_id=business_id,
         pair=data.pair,
         direction=AlertDirection(data.direction),
         threshold_rate=data.threshold_rate,
@@ -724,19 +739,31 @@ async def create_alert(
         pair=data.pair,
         direction=data.direction,
         threshold=str(data.threshold_rate),
+        business_id=str(business_id),
     )
     return alert
 
 
-async def list_alerts(db: AsyncSession) -> list[FXAlert]:
-    """List all FX alerts."""
-    result = await db.execute(select(FXAlert).order_by(FXAlert.created_at.desc()))
+async def list_alerts(db: AsyncSession, business_id: uuid.UUID) -> list[FXAlert]:
+    """List FX alerts for the given business."""
+    result = await db.execute(
+        select(FXAlert)
+        .where(FXAlert.business_id == business_id)
+        .order_by(FXAlert.created_at.desc())
+    )
     return list(result.scalars().all())
 
 
-async def get_alert(db: AsyncSession, alert_id: uuid.UUID) -> FXAlert:
-    """Get a specific alert by ID."""
-    result = await db.execute(select(FXAlert).where(FXAlert.id == alert_id))
+async def get_alert(
+    db: AsyncSession, alert_id: uuid.UUID, business_id: uuid.UUID
+) -> FXAlert:
+    """Get a specific alert by ID, scoped to the given business."""
+    result = await db.execute(
+        select(FXAlert).where(
+            FXAlert.id == alert_id,
+            FXAlert.business_id == business_id,
+        )
+    )
     alert = result.scalar_one_or_none()
     if not alert:
         raise FXAlertNotFoundError(alert_id)
@@ -747,9 +774,10 @@ async def update_alert(
     db: AsyncSession,
     alert_id: uuid.UUID,
     data: FXAlertUpdate,
+    business_id: uuid.UUID,
 ) -> FXAlert:
     """Update an alert's threshold or enabled status."""
-    alert = await get_alert(db, alert_id)
+    alert = await get_alert(db, alert_id, business_id)
 
     update_fields = data.model_dump(exclude_unset=True)
     for field, value in update_fields.items():
@@ -760,19 +788,26 @@ async def update_alert(
     return alert
 
 
-async def delete_alert(db: AsyncSession, alert_id: uuid.UUID) -> None:
+async def delete_alert(
+    db: AsyncSession, alert_id: uuid.UUID, business_id: uuid.UUID
+) -> None:
     """Delete an alert."""
-    alert = await get_alert(db, alert_id)
+    alert = await get_alert(db, alert_id, business_id)
     await db.delete(alert)
     await db.flush()
     await logger.ainfo("fx_alert_deleted", alert_id=str(alert_id))
 
 
-async def get_triggered_alerts(db: AsyncSession) -> list[FXAlert]:
-    """List recently triggered alerts."""
+async def get_triggered_alerts(
+    db: AsyncSession, business_id: uuid.UUID
+) -> list[FXAlert]:
+    """List recently triggered alerts for the given business."""
     result = await db.execute(
         select(FXAlert)
-        .where(FXAlert.is_triggered.is_(True))
+        .where(
+            FXAlert.business_id == business_id,
+            FXAlert.is_triggered.is_(True),
+        )
         .order_by(FXAlert.triggered_at.desc())
     )
     return list(result.scalars().all())
@@ -782,15 +817,23 @@ async def check_alerts(
     db: AsyncSession,
     pair: str,
     current_rate: Decimal,
+    business_id: uuid.UUID | None = None,
 ) -> list[FXAlert]:
-    """Check all enabled alerts for a pair and trigger those that cross the threshold."""
-    result = await db.execute(
-        select(FXAlert).where(
-            FXAlert.pair == pair,
-            FXAlert.is_enabled.is_(True),
-            FXAlert.is_triggered.is_(False),
-        )
+    """Check enabled alerts for a pair and trigger those that cross the threshold.
+
+    When ``business_id`` is provided (user-triggered ingestion), only that
+    business's alerts are evaluated.  When ``business_id`` is ``None``
+    (background system sync), all businesses' alerts for the pair are checked —
+    this is intentional: rate movements are global events.
+    """
+    query = select(FXAlert).where(
+        FXAlert.pair == pair,
+        FXAlert.is_enabled.is_(True),
+        FXAlert.is_triggered.is_(False),
     )
+    if business_id is not None:
+        query = query.where(FXAlert.business_id == business_id)
+    result = await db.execute(query)
     alerts = list(result.scalars().all())
     triggered: list[FXAlert] = []
 

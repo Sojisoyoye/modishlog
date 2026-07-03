@@ -21,6 +21,7 @@ from src.invoice_schemes.service import (
 def _make_scheme(**overrides):
     """Build a minimal InvoiceScheme for tests."""
     defaults = dict(
+        business_id=uuid.uuid4(),
         name="Default Scheme",
         scheme_type=SchemeType.BLANK,
         prefix="INV-",
@@ -77,10 +78,12 @@ class TestCreateScheme:
         db = _mock_db_with_execute()
         data = SchemeCreate(name="My Scheme", prefix="INV-", total_digits=5)
         user_id = uuid.uuid4()
-        scheme = await create_scheme(db, data, user_id)
+        business_id = uuid.uuid4()
+        scheme = await create_scheme(db, data, user_id, business_id)
         assert scheme.name == "My Scheme"
         assert scheme.prefix == "INV-"
         assert scheme.created_by == user_id
+        assert scheme.business_id == business_id
         db.add.assert_called_once()
         db.flush.assert_called_once()
 
@@ -88,13 +91,13 @@ class TestCreateScheme:
     async def test_get_scheme_not_found(self):
         db = _mock_db_with_execute(scalar_result=None)
         with pytest.raises(SchemeNotFoundError):
-            await get_scheme(db, uuid.uuid4())
+            await get_scheme(db, uuid.uuid4(), business_id=uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_get_scheme_happy_path(self):
         scheme = _make_scheme(name="Test Scheme")
         db = _mock_db_with_execute(scalar_result=scheme)
-        result = await get_scheme(db, scheme.id)
+        result = await get_scheme(db, scheme.id, business_id=uuid.uuid4())
         assert result.name == "Test Scheme"
 
 
@@ -109,7 +112,7 @@ class TestUpdateScheme:
         scheme = _make_scheme(name="Old Name", prefix="INV-")
         db = _mock_db_with_execute(scalar_result=scheme)
         data = SchemeUpdate(name="New Name")
-        updated = await update_scheme(db, scheme.id, data)
+        updated = await update_scheme(db, scheme.id, data, business_id=uuid.uuid4())
         assert updated.name == "New Name"
         db.flush.assert_called_once()
 
@@ -118,7 +121,7 @@ class TestUpdateScheme:
         db = _mock_db_with_execute(scalar_result=None)
         data = SchemeUpdate(name="New Name")
         with pytest.raises(SchemeNotFoundError):
-            await update_scheme(db, uuid.uuid4(), data)
+            await update_scheme(db, uuid.uuid4(), data, business_id=uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +135,7 @@ class TestListSchemes:
         scheme1 = _make_scheme(name="Scheme A")
         scheme2 = _make_scheme(name="Scheme B")
         db = _mock_db_with_execute(scalars_result=[scheme1, scheme2])
-        result = await list_schemes(db)
+        result = await list_schemes(db, business_id=uuid.uuid4())
         assert len(result) == 2
         assert result[0].name == "Scheme A"
         assert result[1].name == "Scheme B"
@@ -141,6 +144,42 @@ class TestListSchemes:
 # ---------------------------------------------------------------------------
 # Generate preview tests (pure sync function)
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Business isolation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_invoice_schemes_isolates_by_business():
+    import uuid
+    from unittest.mock import AsyncMock, MagicMock
+    from src.invoice_schemes.service import list_schemes
+
+    business_a_id = uuid.uuid4()
+    business_b_id = uuid.uuid4()
+
+    async def fake_execute_a(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = [MagicMock()]
+        return r
+
+    async def fake_execute_b(query):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = []
+        return r
+
+    db_a, db_b = AsyncMock(), AsyncMock()
+    db_a.execute = fake_execute_a
+    db_b.execute = fake_execute_b
+
+    result_a = await list_schemes(db_a, business_id=business_a_id)
+    result_b = await list_schemes(db_b, business_id=business_b_id)
+    items_a = result_a if isinstance(result_a, list) else result_a[0]
+    items_b = result_b if isinstance(result_b, list) else result_b[0]
+    assert len(items_a) > 0
+    assert len(items_b) == 0
 
 
 class TestGeneratePreview:

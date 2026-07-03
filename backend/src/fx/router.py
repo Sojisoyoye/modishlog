@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.csv_utils import csv_safe
 from src.core.database import get_db
@@ -89,9 +89,10 @@ async def ingest_rate_endpoint(
     body: FXRateIngest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Manually ingest an FX rate observation."""
-    return await ingest_rate(db, body, current_user.id)
+    return await ingest_rate(db, body, current_user.id, business_id=business_id)
 
 
 @router.get("/rates/current", response_model=list[FXRateRead])
@@ -295,9 +296,12 @@ async def lock_exposure_endpoint(
 
 
 @router.get("/exposure/config", response_model=ExposureConfigRead | None)
-async def get_exposure_config_endpoint(db: AsyncSession = Depends(get_db)):
+async def get_exposure_config_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get current exposure split configuration."""
-    return await get_exposure_config(db)
+    return await get_exposure_config(db, business_id)
 
 
 @router.put("/exposure/config", response_model=ExposureConfigRead)
@@ -305,10 +309,11 @@ async def update_exposure_config_endpoint(
     body: ExposureConfigUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update exposure split config (locked_pct + floating_pct must = 100)."""
     try:
-        return await update_exposure_config(db, body, current_user.id)
+        return await update_exposure_config(db, body, current_user.id, business_id)
     except ExposureConfigError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -323,15 +328,28 @@ async def create_alert_endpoint(
     body: FXAlertCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Create a rate threshold alert."""
-    return await create_alert(db, body, current_user.id)
+    return await create_alert(db, body, current_user.id, business_id)
 
 
 @router.get("/alerts", response_model=list[FXAlertRead])
-async def list_alerts_endpoint(db: AsyncSession = Depends(get_db)):
-    """List all FX alerts."""
-    return await list_alerts(db)
+async def list_alerts_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """List FX alerts for the current business."""
+    return await list_alerts(db, business_id)
+
+
+@router.get("/alerts/triggered", response_model=list[FXAlertRead])
+async def triggered_alerts_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """List recently triggered alerts for the current business."""
+    return await get_triggered_alerts(db, business_id)
 
 
 @router.put("/alerts/{alert_id}", response_model=FXAlertRead)
@@ -340,10 +358,11 @@ async def update_alert_endpoint(
     body: FXAlertUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update an alert."""
     try:
-        return await update_alert(db, alert_id, body)
+        return await update_alert(db, alert_id, body, business_id)
     except FXAlertNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -353,18 +372,13 @@ async def delete_alert_endpoint(
     alert_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Delete an alert."""
     try:
-        await delete_alert(db, alert_id)
+        await delete_alert(db, alert_id, business_id)
     except FXAlertNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-
-
-@router.get("/alerts/triggered", response_model=list[FXAlertRead])
-async def triggered_alerts_endpoint(db: AsyncSession = Depends(get_db)):
-    """List recently triggered alerts."""
-    return await get_triggered_alerts(db)
 
 
 # ---------------------------------------------------------------------------

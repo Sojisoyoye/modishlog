@@ -11,6 +11,7 @@ from src.auth.models import User, UserRole
 from src.core.database import get_db
 from src.core.security import decode_access_token
 
+
 logger = structlog.get_logger()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
