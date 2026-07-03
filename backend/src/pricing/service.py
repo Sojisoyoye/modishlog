@@ -256,6 +256,7 @@ async def update_elasticity_config(
 async def calculate_portfolio_margin(
     db: AsyncSession,
     target_margin: Decimal = DEFAULT_TARGET_MARGIN,
+    business_id: uuid.UUID | None = None,
 ) -> dict:
     """Calculate blended portfolio margin and per-product breakdown.
 
@@ -264,8 +265,20 @@ async def calculate_portfolio_margin(
     - Products with recent sales: actual (revenue − COGS) / revenue margin.
     - Products without recent sales: theoretical (selling_price − unit_cost) /
       selling_price margin, so they are never invisible to the user.
+
+    When business_id is provided all queries are scoped to that tenant.
     """
     thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).date()
+
+    # Build base filters for sales query
+    sales_filters = [
+        Product.is_active.is_(True),
+        Sale.status == SaleStatus.COMPLETED,
+        Sale.sale_date >= thirty_days_ago,
+    ]
+    if business_id is not None:
+        sales_filters.append(Product.business_id == business_id)
+        sales_filters.append(Sale.business_id == business_id)
 
     # Query 1: aggregate sales per product over the last 30 days (for blended margin)
     sales_result = await db.execute(
@@ -275,17 +288,18 @@ async def calculate_portfolio_margin(
             func.sum(Sale.total_amount).label("revenue"),
         )
         .join(Sale, Sale.product_id == Product.id)
-        .where(
-            Product.is_active.is_(True),
-            Sale.status == SaleStatus.COMPLETED,
-            Sale.sale_date >= thirty_days_ago,
-        )
+        .where(*sales_filters)
         .group_by(Product.id)
     )
     sales_by_product: dict = {
         pid: {"qty": qty, "revenue": revenue}
         for pid, qty, revenue in sales_result.all()
     }
+
+    # Build base filters for products query
+    products_filters = [Product.is_active.is_(True)]
+    if business_id is not None:
+        products_filters.append(Product.business_id == business_id)
 
     # Query 2: every active product (for the per-product table)
     all_products_result = await db.execute(
@@ -295,7 +309,7 @@ async def calculate_portfolio_margin(
             Product.unit_cost,
             Product.selling_price,
         )
-        .where(Product.is_active.is_(True))
+        .where(*products_filters)
         .order_by(Product.name)
     )
 
@@ -364,9 +378,11 @@ async def set_margin_target(
     db: AsyncSession,
     data,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> MarginTarget:
     """Create a margin target."""
     target = MarginTarget(
+        business_id=business_id,
         product_id=data.product_id,
         category_id=data.category_id,
         target_margin_pct=data.target_margin_pct,
@@ -379,10 +395,15 @@ async def set_margin_target(
     return target
 
 
-async def get_margin_targets(db: AsyncSession) -> list[MarginTarget]:
-    """List all margin targets."""
+async def get_margin_targets(
+    db: AsyncSession,
+    business_id: uuid.UUID,
+) -> list[MarginTarget]:
+    """List all margin targets for the given business."""
     result = await db.execute(
-        select(MarginTarget).order_by(MarginTarget.priority.desc())
+        select(MarginTarget)
+        .where(MarginTarget.business_id == business_id)
+        .order_by(MarginTarget.priority.desc())
     )
     return list(result.scalars().all())
 
@@ -473,10 +494,11 @@ def _optimize_prices(
 
 async def generate_recommendations(
     db: AsyncSession,
+    business_id: uuid.UUID,
     target_margin: Decimal = DEFAULT_TARGET_MARGIN,
 ) -> list[PricingRecommendation]:
     """Generate pricing recommendations for products below target margin."""
-    portfolio = await calculate_portfolio_margin(db, target_margin)
+    portfolio = await calculate_portfolio_margin(db, target_margin, business_id=business_id)
 
     # Get products below target margin
     below_target = [
@@ -554,6 +576,7 @@ async def generate_recommendations(
         )
 
         rec = PricingRecommendation(
+            business_id=business_id,
             product_id=opt["product_id"],
             current_price=current,
             recommended_price=recommended,
@@ -580,11 +603,15 @@ async def generate_recommendations(
 
 async def get_recommendations(
     db: AsyncSession,
+    business_id: uuid.UUID,
 ) -> list[PricingRecommendation]:
-    """Get all pending recommendations."""
+    """Get all pending recommendations for the given business."""
     result = await db.execute(
         select(PricingRecommendation)
-        .where(PricingRecommendation.status == RecommendationStatus.PENDING)
+        .where(
+            PricingRecommendation.business_id == business_id,
+            PricingRecommendation.status == RecommendationStatus.PENDING,
+        )
         .order_by(PricingRecommendation.created_at.desc())
     )
     return list(result.scalars().all())
@@ -594,11 +621,13 @@ async def apply_recommendation(
     db: AsyncSession,
     recommendation_id: uuid.UUID,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> PricingRecommendation:
     """Apply a pricing recommendation: update product price."""
     result = await db.execute(
         select(PricingRecommendation).where(
-            PricingRecommendation.id == recommendation_id
+            PricingRecommendation.id == recommendation_id,
+            PricingRecommendation.business_id == business_id,
         )
     )
     rec = result.scalar_one_or_none()
@@ -651,11 +680,13 @@ async def apply_recommendation(
 async def dismiss_recommendation(
     db: AsyncSession,
     recommendation_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> PricingRecommendation:
     """Dismiss a recommendation."""
     result = await db.execute(
         select(PricingRecommendation).where(
-            PricingRecommendation.id == recommendation_id
+            PricingRecommendation.id == recommendation_id,
+            PricingRecommendation.business_id == business_id,
         )
     )
     rec = result.scalar_one_or_none()
@@ -674,9 +705,10 @@ async def dismiss_recommendation(
 
 async def analyze_cross_subsidization(
     db: AsyncSession,
+    business_id: uuid.UUID | None = None,
 ) -> CrossSubsidyAnalysis:
     """Analyze portfolio cross-subsidization patterns."""
-    portfolio = await calculate_portfolio_margin(db)
+    portfolio = await calculate_portfolio_margin(db, business_id=business_id)
 
     if len(portfolio["products"]) < 2:
         from src.pricing.exceptions import CrossSubsidyAnalysisError
@@ -732,6 +764,7 @@ MIX_DRIFT_THRESHOLD = Decimal("5.00")
 async def upsert_mix_targets(
     db: AsyncSession,
     targets: list[dict],
+    business_id: uuid.UUID | None = None,
 ) -> list[ProductMixTarget]:
     """Bulk upsert product-mix targets. Sum of target_pct must equal 100."""
     total = sum(Decimal(str(t["target_pct"])) for t in targets)
@@ -743,8 +776,12 @@ async def upsert_mix_targets(
         category_id = t["category_id"]
         target_pct = Decimal(str(t["target_pct"]))
 
+        lookup_filters = [ProductMixTarget.category_id == category_id]
+        if business_id is not None:
+            lookup_filters.append(ProductMixTarget.business_id == business_id)
+
         result = await db.execute(
-            select(ProductMixTarget).where(ProductMixTarget.category_id == category_id)
+            select(ProductMixTarget).where(*lookup_filters)
         )
         existing = result.scalar_one_or_none()
 
@@ -755,6 +792,7 @@ async def upsert_mix_targets(
             new_target = ProductMixTarget(
                 category_id=category_id,
                 target_pct=target_pct,
+                **({"business_id": business_id} if business_id is not None else {}),
             )
             db.add(new_target)
             result_targets.append(new_target)
@@ -772,9 +810,19 @@ async def upsert_mix_targets(
 async def get_mix_status(
     db: AsyncSession,
     days: int = 90,
+    business_id: uuid.UUID | None = None,
 ) -> list[dict]:
     """Compare actual revenue % by category against mix targets."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date()
+
+    # Build filters for revenue query
+    mix_filters = [
+        Sale.status == SaleStatus.COMPLETED,
+        Sale.sale_date >= cutoff,
+    ]
+    if business_id is not None:
+        mix_filters.append(Sale.business_id == business_id)
+        mix_filters.append(Product.business_id == business_id)
 
     # Get actual revenue per category
     result = await db.execute(
@@ -787,18 +835,20 @@ async def get_mix_status(
         )
         .join(Product, Product.category_id == ProductCategory.id)
         .join(Sale, Sale.product_id == Product.id)
-        .where(
-            Sale.status == SaleStatus.COMPLETED,
-            Sale.sale_date >= cutoff,
-        )
+        .where(*mix_filters)
         .group_by(ProductCategory.id, ProductCategory.name)
     )
     revenue_rows = result.all()
 
     total_revenue = sum(row[2] for row in revenue_rows)
 
-    # Get targets
-    target_result = await db.execute(select(ProductMixTarget))
+    # Get targets scoped to the business
+    target_filters = []
+    if business_id is not None:
+        target_filters.append(ProductMixTarget.business_id == business_id)
+    target_result = await db.execute(
+        select(ProductMixTarget).where(*target_filters) if target_filters else select(ProductMixTarget)
+    )
     targets = {t.category_id: t.target_pct for t in target_result.scalars().all()}
 
     statuses: list[dict] = []
@@ -845,7 +895,7 @@ async def get_mix_status(
     return statuses
 
 
-async def check_mix_drift_alert(db: AsyncSession) -> None:
+async def check_mix_drift_alert(db: AsyncSession, business_id: uuid.UUID | None = None) -> None:
     """Create INVENTORY AI recommendation if any category drifts > 5%."""
     from src.ai_engine.models import (
         AIRecommendation,
@@ -855,7 +905,7 @@ async def check_mix_drift_alert(db: AsyncSession) -> None:
         RecommendationStatus as AIRecommendationStatus,
     )
 
-    statuses = await get_mix_status(db)
+    statuses = await get_mix_status(db, business_id=business_id)
     drifted = [s for s in statuses if abs(s["variance_pct"]) > MIX_DRIFT_THRESHOLD]
 
     if not drifted:
@@ -976,17 +1026,19 @@ async def save_scenario(
     db: AsyncSession,
     name: str,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
     selling_price: Decimal,
     fx_rate: Decimal,
     quantity: int,
     product_id: uuid.UUID | None = None,
     results: dict | None = None,
 ) -> PricingScenario:
-    """Save a pricing scenario (max 10 per user, archive oldest)."""
-    # Count existing scenarios for user
+    """Save a pricing scenario (max 10 per user per business, archive oldest)."""
+    # Count existing scenarios for user within this business
     count_result = await db.execute(
         select(func.count(PricingScenario.id)).where(
-            PricingScenario.created_by == user_id
+            PricingScenario.business_id == business_id,
+            PricingScenario.created_by == user_id,
         )
     )
     count = count_result.scalar() or 0
@@ -996,7 +1048,10 @@ async def save_scenario(
         excess = count - MAX_SAVED_SCENARIOS + 1
         oldest_result = await db.execute(
             select(PricingScenario)
-            .where(PricingScenario.created_by == user_id)
+            .where(
+                PricingScenario.business_id == business_id,
+                PricingScenario.created_by == user_id,
+            )
             .order_by(PricingScenario.created_at.asc())
             .limit(excess)
         )
@@ -1006,6 +1061,7 @@ async def save_scenario(
 
     now = datetime.now(timezone.utc)
     scenario = PricingScenario(
+        business_id=business_id,
         name=name,
         product_id=product_id,
         selling_price=selling_price,
@@ -1023,6 +1079,7 @@ async def save_scenario(
         scenario_id=str(scenario.id),
         name=name,
         user_id=str(user_id),
+        business_id=str(business_id),
     )
     return scenario
 
@@ -1030,11 +1087,15 @@ async def save_scenario(
 async def list_scenarios(
     db: AsyncSession,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> list[PricingScenario]:
-    """List saved scenarios for a user, newest first."""
+    """List saved scenarios for a user within the given business, newest first."""
     result = await db.execute(
         select(PricingScenario)
-        .where(PricingScenario.created_by == user_id)
+        .where(
+            PricingScenario.business_id == business_id,
+            PricingScenario.created_by == user_id,
+        )
         .order_by(PricingScenario.created_at.desc())
     )
     return list(result.scalars().all())

@@ -15,6 +15,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -56,6 +57,9 @@ class MarginTarget(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "margin_targets"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     product_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("products.id"), default=None
     )
@@ -76,6 +80,9 @@ class PricingRecommendation(UUIDMixin, Base):
 
     __tablename__ = "pricing_recommendations"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
     current_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     recommended_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
@@ -103,9 +110,15 @@ class ProductMixTarget(UUIDMixin, TimestampMixin, Base):
     """Target revenue-mix percentage per product category."""
 
     __tablename__ = "product_mix_targets"
+    __table_args__ = (
+        UniqueConstraint("category_id", "business_id", name="uq_mix_target_category_business"),
+    )
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     category_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("product_categories.id"), unique=True
+        ForeignKey("product_categories.id")
     )
     target_pct: Mapped[Decimal] = mapped_column(Numeric(5, 2))
 
@@ -135,6 +148,9 @@ class PricingScenario(UUIDMixin, Base):
 
     __tablename__ = "pricing_scenarios"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(255))
     product_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("products.id"), default=None
