@@ -109,6 +109,9 @@ class Sale(UUIDMixin, TimestampMixin, Base):
     pos_id: Mapped[str | None] = mapped_column(
         String(50), nullable=True, default=None, index=True
     )
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
 
     def __repr__(self) -> str:
         return f"<Sale(id={self.id}, product_id={self.product_id}, total={self.total_amount})>"
@@ -129,6 +132,9 @@ class SaleBulkUploadJob(UUIDMixin, Base):
     failed_rows: Mapped[int] = mapped_column(Integer, default=0)
     error_details: Mapped[dict | None] = mapped_column(JSON, default=None)
     uploaded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
@@ -170,6 +176,9 @@ class SellReturn(UUIDMixin, TimestampMixin, Base):
     ref_no: Mapped[str | None] = mapped_column(String(100), default=None, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
 
     def __repr__(self) -> str:
         return f"<SellReturn(id={self.id}, sale_id={self.sale_id}, amount={self.total_amount})>"

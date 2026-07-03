@@ -126,6 +126,47 @@ def _mock_db_sequence(results: list):
 # ---------------------------------------------------------------------------
 
 
+class TestCreateSellReturnBusinessIsolation:
+    """Bug 1 — CRITICAL: create_sell_return must scope the Sale lookup to business_id."""
+
+    @pytest.mark.asyncio
+    async def test_create_sell_return_wrong_business_raises_not_found(self):
+        """Sale belonging to a different business must not be accessible."""
+        from src.sales.exceptions import SaleNotFoundError
+        from src.sales.service import create_sell_return
+
+        # db returns None (sale not found for this business_id scope)
+        db = _mock_db_scalar(scalar_result=None)
+
+        with pytest.raises(SaleNotFoundError):
+            await create_sell_return(
+                db,
+                sale_id=uuid.uuid4(),
+                data=_make_sell_return_create(),
+                user_id=uuid.uuid4(),
+                business_id=uuid.uuid4(),  # different business
+            )
+
+    @pytest.mark.asyncio
+    async def test_create_sell_return_correct_business_succeeds(self):
+        """Sale belonging to the same business should succeed."""
+        from src.sales.service import create_sell_return
+
+        business_id = uuid.uuid4()
+        sale = _make_sale(business_id=business_id)
+        db = _mock_db_scalar(scalar_result=sale)
+
+        result = await create_sell_return(
+            db,
+            sale_id=sale.id,
+            data=_make_sell_return_create(),
+            user_id=uuid.uuid4(),
+            business_id=business_id,
+        )
+        assert result is not None
+        assert result.business_id == business_id
+
+
 class TestCreateSellReturnService:
     @pytest.mark.asyncio
     async def test_create_sell_return_happy_path(self):
@@ -139,6 +180,7 @@ class TestCreateSellReturnService:
             sale_id=sale.id,
             data=_make_sell_return_create(),
             user_id=uuid.uuid4(),
+            business_id=uuid.uuid4(),
         )
 
         db.add.assert_called_once()
@@ -158,6 +200,7 @@ class TestCreateSellReturnService:
                 sale_id=uuid.uuid4(),
                 data=_make_sell_return_create(),
                 user_id=uuid.uuid4(),
+                business_id=uuid.uuid4(),
             )
 
     @pytest.mark.asyncio
@@ -174,6 +217,7 @@ class TestCreateSellReturnService:
                 sale_id=voided_sale.id,
                 data=_make_sell_return_create(),
                 user_id=uuid.uuid4(),
+                business_id=uuid.uuid4(),
             )
 
 
@@ -253,10 +297,17 @@ class TestSellReturnsEndpoints:
         self.app.dependency_overrides[get_db] = _fake_db
 
     def _override_auth(self, user=None):
-        from src.auth.dependencies import get_current_active_user
+        import uuid as _uuid
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
 
         u = user or _make_user()
+        _business_id = _uuid.uuid4()
         self.app.dependency_overrides[get_current_active_user] = lambda: u
+
+        async def _fake_business_id():
+            return _business_id
+
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
         return u
 
     def test_create_sell_return_endpoint_created(self):
