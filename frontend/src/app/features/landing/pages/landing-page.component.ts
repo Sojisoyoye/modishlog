@@ -34,7 +34,7 @@ import { RouterLink } from '@angular/router';
               routerLink="/register"
               class="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
             >
-              Launch My POS →
+              Get Started →
             </a>
             <button
               class="md:hidden flex h-10 w-10 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
@@ -80,7 +80,7 @@ import { RouterLink } from '@angular/router';
                 routerLink="/register"
                 class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-8 py-4 text-base font-bold text-white shadow-md hover:bg-emerald-700 transition-colors min-h-[52px]"
               >
-                Launch My POS →
+                Get Started →
               </a>
             </div>
             <p class="mt-6 text-sm text-gray-500">
