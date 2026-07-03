@@ -3,7 +3,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Boolean, Enum, ForeignKey, String
+from sqlalchemy import Boolean, Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -19,9 +19,16 @@ class BusinessLocation(UUIDMixin, TimestampMixin, Base):
     """A physical or virtual business location."""
 
     __tablename__ = "business_locations"
+    __table_args__ = (
+        UniqueConstraint(
+            "location_code",
+            "business_id",
+            name="uq_business_locations_code_business",
+        ),
+    )
 
     name: Mapped[str] = mapped_column(String(255), index=True)
-    location_code: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    location_code: Mapped[str] = mapped_column(String(20), index=True)
     mobile: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
     alternate_number: Mapped[str | None] = mapped_column(
         String(50), nullable=True, default=None
@@ -43,6 +50,9 @@ class BusinessLocation(UUIDMixin, TimestampMixin, Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     timezone: Mapped[str] = mapped_column(
         String(60),
         nullable=False,

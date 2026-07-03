@@ -89,10 +89,10 @@ async def require_any_role(
 async def get_current_business_id(
     current_user: User = Depends(get_current_active_user),
 ) -> uuid.UUID:
-    """Extract business_id from the authenticated user. Raises 403 if not set."""
+    """Extract business_id from the authenticated user. Raises 400 if not set."""
     if current_user.business_id is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="User is not associated with a business",
         )
     return current_user.business_id

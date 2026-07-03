@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
 from src.dashboard.schemas import DashboardSummaryResponse
@@ -25,6 +25,7 @@ async def dashboard_summary(
     date_to: date | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> DashboardSummaryResponse:
     """Return aggregated KPI totals for the authenticated user's business."""
     if date_from and date_to and date_from > date_to:
@@ -35,7 +36,7 @@ async def dashboard_summary(
         owned = await db.scalar(
             select(BusinessLocation.id).where(
                 BusinessLocation.id == location_id,
-                BusinessLocation.created_by == current_user.id,
+                BusinessLocation.business_id == business_id,
             )
         )
         if owned is None:
