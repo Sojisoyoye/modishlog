@@ -280,9 +280,10 @@ async def update_sale(
     sale_id: uuid.UUID,
     data: SaleUpdate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> Sale:
     """Update a sale. Adjusts inventory if quantity changes."""
-    sale = await get_sale(db, sale_id)
+    sale = await get_sale(db, sale_id, business_id=business_id)
 
     if sale.status == SaleStatus.VOIDED:
         raise SaleAlreadyVoidedError(sale_id)
@@ -357,11 +358,14 @@ async def update_transaction(
     data: SaleTransactionUpdate,
     user_id: uuid.UUID,
     is_admin: bool = False,
+    business_id: uuid.UUID | None = None,
 ) -> list[Sale]:
     """Update transaction-level fields (payment_method, payment_status, notes) across all Sale records in a group."""
-    result = await db.execute(
-        select(Sale).where(Sale.transaction_id == transaction_id).order_by(Sale.created_at)
-    )
+    stmt = select(Sale).where(Sale.transaction_id == transaction_id)
+    if business_id is not None:
+        stmt = stmt.where(Sale.business_id == business_id)
+    stmt = stmt.order_by(Sale.created_at)
+    result = await db.execute(stmt)
     sales = list(result.scalars().all())
 
     if not sales:
@@ -410,9 +414,10 @@ async def void_sale(
     sale_id: uuid.UUID,
     reason: str,
     user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> Sale:
     """Void a sale and restore inventory."""
-    sale = await get_sale(db, sale_id)
+    sale = await get_sale(db, sale_id, business_id=business_id)
 
     if sale.status == SaleStatus.VOIDED:
         raise SaleAlreadyVoidedError(sale_id)
@@ -924,7 +929,9 @@ async def create_sell_return(
     business_id: uuid.UUID,
 ) -> SellReturn:
     """Create a sell return record against an existing completed sale."""
-    result = await db.execute(select(Sale).where(Sale.id == sale_id))
+    result = await db.execute(
+        select(Sale).where(Sale.id == sale_id, Sale.business_id == business_id)
+    )
     sale = result.scalar_one_or_none()
     if sale is None:
         raise SaleNotFoundError(sale_id)

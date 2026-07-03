@@ -314,6 +314,7 @@ async def update_transaction_endpoint(
         await update_transaction(
             db, transaction_id, body, current_user.id,
             is_admin=(current_user.role == UserRole.ADMIN),
+            business_id=business_id,
         )
         return await get_transaction(db, transaction_id, business_id=business_id)
     except SaleNotFoundError as e:
@@ -494,7 +495,7 @@ async def update_sale_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(existing.recorded_by, current_user)
     try:
-        return await update_sale(db, sale_id, body, current_user.id)
+        return await update_sale(db, sale_id, body, current_user.id, business_id=business_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except SaleAlreadyVoidedError as e:
@@ -518,7 +519,7 @@ async def void_sale_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     _check_ownership(existing.recorded_by, current_user)
     try:
-        return await void_sale(db, sale_id, reason, current_user.id)
+        return await void_sale(db, sale_id, reason, current_user.id, business_id=business_id)
     except SaleNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except SaleAlreadyVoidedError as e:

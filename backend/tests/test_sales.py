@@ -1677,6 +1677,57 @@ class TestUpdateTransaction:
         await update_transaction(db, txn_id, SaleTransactionUpdate(payment_method="transfer"), admin_id, is_admin=True)
         assert sale.payment_method == "transfer"
 
+    @pytest.mark.asyncio
+    async def test_business_id_scoping_returns_not_found_for_wrong_business(self):
+        """Bug 2 — update_transaction with business_id must scope the Sale lookup."""
+        from src.sales.schemas import SaleTransactionUpdate
+        from src.sales.service import update_transaction
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        # Empty result simulates no sales matching (transaction_id + wrong business_id)
+        scalars_mock.all.return_value = []
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        with pytest.raises(SaleNotFoundError):
+            await update_transaction(
+                db,
+                uuid.uuid4(),
+                SaleTransactionUpdate(payment_method="cash"),
+                uuid.uuid4(),
+                business_id=uuid.uuid4(),
+            )
+
+    @pytest.mark.asyncio
+    async def test_business_id_scoping_succeeds_for_correct_business(self):
+        """Bug 2 — update_transaction with matching business_id should update sales."""
+        from src.sales.schemas import SaleTransactionUpdate
+        from src.sales.service import update_transaction
+
+        txn_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        business_id = uuid.uuid4()
+        sale = _make_sale(transaction_id=txn_id, payment_method="cash", recorded_by=user_id, business_id=business_id)
+
+        db = _mock_db()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [sale]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        updated = await update_transaction(
+            db,
+            txn_id,
+            SaleTransactionUpdate(payment_method="transfer"),
+            user_id,
+            business_id=business_id,
+        )
+        assert sale.payment_method == "transfer"
+        assert len(updated) == 1
+
 
 # ---------------------------------------------------------------------------
 # HTTP endpoint tests - update_transaction_endpoint
