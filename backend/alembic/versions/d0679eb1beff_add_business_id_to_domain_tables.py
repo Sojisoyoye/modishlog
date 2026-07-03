@@ -98,9 +98,9 @@ def upgrade() -> None:
     )
 
     # products.sku and products.slug were globally unique; scope them per-business.
-    # ix_products_sku was created as a unique index in the initial schema migration.
+    # Both were created as unique indexes (not named constraints) in the initial schema.
     op.drop_index("ix_products_sku", table_name="products")
-    op.drop_constraint("uq_products_slug", "products", type_="unique")
+    op.drop_index("ix_products_slug", table_name="products")
     op.create_unique_constraint(
         "uq_products_sku_business", "products", ["sku", "business_id"]
     )
@@ -110,16 +110,12 @@ def upgrade() -> None:
     # Re-create non-unique index on sku for query performance.
     op.create_index("ix_products_sku", "products", ["sku"], unique=False)
 
-    # business_locations.location_code was globally unique; make it per-business instead.
+    # business_locations.location_code: the unique enforcement was a unique index,
+    # not a named constraint. Drop the index and replace with a composite one.
     op.drop_index(
         "ix_business_locations_location_code",
         table_name="business_locations",
         if_exists=True,
-    )
-    op.drop_constraint(
-        "uq_business_locations_location_code",
-        "business_locations",
-        type_="unique",
     )
     # Non-unique index for query performance.
     op.create_index(
