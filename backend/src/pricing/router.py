@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
 from src.fx.exceptions import FXPairNotFoundError
@@ -73,9 +73,12 @@ router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
 
 @router.get("/portfolio-margin", response_model=PortfolioMarginResponse)
-async def portfolio_margin_endpoint(db: AsyncSession = Depends(get_db)):
+async def portfolio_margin_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get current blended margin and per-product breakdown."""
-    data = await calculate_portfolio_margin(db)
+    data = await calculate_portfolio_margin(db, business_id=business_id)
     return PortfolioMarginResponse(**data)
 
 
@@ -85,9 +88,12 @@ async def portfolio_margin_endpoint(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/recommendations", response_model=list[RecommendationRead])
-async def list_recommendations_endpoint(db: AsyncSession = Depends(get_db)):
+async def list_recommendations_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get active pricing recommendations."""
-    return await get_recommendations(db)
+    return await get_recommendations(db, business_id=business_id)
 
 
 @router.post(
@@ -99,10 +105,11 @@ async def generate_recommendations_endpoint(
     body: GenerateRecommendationsRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Generate pricing recommendations based on target margin."""
     try:
-        return await generate_recommendations(db, body.target_margin)
+        return await generate_recommendations(db, business_id=business_id, target_margin=body.target_margin)
     except OptimizationInfeasibleError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -115,10 +122,11 @@ async def apply_recommendation_endpoint(
     rec_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Apply a pricing recommendation."""
     try:
-        return await apply_recommendation(db, rec_id, current_user.id)
+        return await apply_recommendation(db, rec_id, current_user.id, business_id=business_id)
     except RecommendationNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except RecommendationExpiredError as e:
@@ -133,10 +141,11 @@ async def dismiss_recommendation_endpoint(
     rec_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Dismiss a pricing recommendation."""
     try:
-        return await dismiss_recommendation(db, rec_id)
+        return await dismiss_recommendation(db, rec_id, business_id=business_id)
     except RecommendationNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -225,15 +234,19 @@ async def create_margin_target_endpoint(
     body: MarginTargetCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Set a target margin for a product or category."""
-    return await set_margin_target(db, body, current_user.id)
+    return await set_margin_target(db, body, current_user.id, business_id=business_id)
 
 
 @router.get("/margins/target", response_model=list[MarginTargetRead])
-async def list_margin_targets_endpoint(db: AsyncSession = Depends(get_db)):
+async def list_margin_targets_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """View current margin targets."""
-    return await get_margin_targets(db)
+    return await get_margin_targets(db, business_id=business_id)
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +263,7 @@ async def upsert_mix_targets_endpoint(
     body: MixTargetBulkCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Bulk upsert product mix targets (must sum to 100%)."""
     try:
@@ -257,7 +271,7 @@ async def upsert_mix_targets_endpoint(
             {"category_id": t.category_id, "target_pct": t.target_pct}
             for t in body.targets
         ]
-        return await upsert_mix_targets(db, targets_data)
+        return await upsert_mix_targets(db, targets_data, business_id=business_id)
     except MixTargetSumError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -266,9 +280,10 @@ async def upsert_mix_targets_endpoint(
 async def mix_status_endpoint(
     days: int = 90,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get actual vs target product mix status."""
-    statuses = await get_mix_status(db, days)
+    statuses = await get_mix_status(db, days, business_id=business_id)
     return MixStatusResponse(categories=statuses)
 
 
@@ -280,10 +295,11 @@ async def mix_status_endpoint(
 @router.get("/cross-subsidy", response_model=CrossSubsidyRead)
 async def cross_subsidy_endpoint(
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Analyze cross-subsidization across portfolio."""
     try:
-        return await analyze_cross_subsidization(db)
+        return await analyze_cross_subsidization(db, business_id=business_id)
     except CrossSubsidyAnalysisError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -347,12 +363,14 @@ async def save_scenario_endpoint(
     body: ScenarioCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Save a pricing scenario (max 10 per user)."""
     return await save_scenario(
         db,
         name=body.name,
         user_id=current_user.id,
+        business_id=business_id,
         selling_price=body.selling_price,
         fx_rate=body.fx_rate,
         quantity=body.quantity,
@@ -365,9 +383,10 @@ async def save_scenario_endpoint(
 async def list_scenarios_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """List saved pricing scenarios for the current user."""
-    return await list_scenarios(db, current_user.id)
+    return await list_scenarios(db, current_user.id, business_id=business_id)
 
 
 # ---------------------------------------------------------------------------
