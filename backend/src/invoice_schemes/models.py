@@ -19,6 +19,9 @@ class InvoiceScheme(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "invoice_schemes"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(255))
     scheme_type: Mapped[SchemeType] = mapped_column(
         Enum(SchemeType, values_callable=lambda x: [e.value for e in x]),

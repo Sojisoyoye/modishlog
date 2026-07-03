@@ -18,9 +18,11 @@ async def create_scheme(
     db: AsyncSession,
     data: SchemeCreate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> InvoiceScheme:
     """Create a new invoice numbering scheme."""
     scheme = InvoiceScheme(
+        business_id=business_id,
         name=data.name,
         scheme_type=data.scheme_type,
         prefix=data.prefix,
@@ -32,7 +34,10 @@ async def create_scheme(
     db.add(scheme)
     await db.flush()
     await logger.ainfo(
-        "invoice_scheme_created", scheme_id=str(scheme.id), name=scheme.name
+        "invoice_scheme_created",
+        scheme_id=str(scheme.id),
+        name=scheme.name,
+        business_id=str(business_id),
     )
     return scheme
 
@@ -40,10 +45,14 @@ async def create_scheme(
 async def get_scheme(
     db: AsyncSession,
     scheme_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> InvoiceScheme:
-    """Fetch a single invoice scheme by ID."""
+    """Fetch a single invoice scheme by ID, scoped to the given business."""
     result = await db.execute(
-        select(InvoiceScheme).where(InvoiceScheme.id == scheme_id)
+        select(InvoiceScheme).where(
+            InvoiceScheme.id == scheme_id,
+            InvoiceScheme.business_id == business_id,
+        )
     )
     scheme = result.scalar_one_or_none()
     if not scheme:
@@ -51,9 +60,15 @@ async def get_scheme(
     return scheme
 
 
-async def list_schemes(db: AsyncSession) -> list[InvoiceScheme]:
-    """List all invoice numbering schemes."""
-    result = await db.execute(select(InvoiceScheme).order_by(InvoiceScheme.name.asc()))
+async def list_schemes(
+    db: AsyncSession, business_id: uuid.UUID
+) -> list[InvoiceScheme]:
+    """List invoice numbering schemes for the given business."""
+    result = await db.execute(
+        select(InvoiceScheme)
+        .where(InvoiceScheme.business_id == business_id)
+        .order_by(InvoiceScheme.name.asc())
+    )
     return list(result.scalars().all())
 
 
@@ -61,9 +76,10 @@ async def update_scheme(
     db: AsyncSession,
     scheme_id: uuid.UUID,
     data: SchemeUpdate,
+    business_id: uuid.UUID,
 ) -> InvoiceScheme:
     """Update an invoice scheme."""
-    scheme = await get_scheme(db, scheme_id)
+    scheme = await get_scheme(db, scheme_id, business_id)
     update_fields = data.model_dump(exclude_unset=True)
     for field, value in update_fields.items():
         setattr(scheme, field, value)

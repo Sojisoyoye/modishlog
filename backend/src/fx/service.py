@@ -658,10 +658,15 @@ async def lock_exposure(
     return exposure
 
 
-async def get_exposure_config(db: AsyncSession) -> FXExposureConfig | None:
-    """Get the current exposure split configuration."""
+async def get_exposure_config(
+    db: AsyncSession, business_id: uuid.UUID
+) -> FXExposureConfig | None:
+    """Get the current exposure split configuration for the given business."""
     result = await db.execute(
-        select(FXExposureConfig).order_by(FXExposureConfig.updated_at.desc()).limit(1)
+        select(FXExposureConfig)
+        .where(FXExposureConfig.business_id == business_id)
+        .order_by(FXExposureConfig.updated_at.desc())
+        .limit(1)
     )
     return result.scalar_one_or_none()
 
@@ -670,6 +675,7 @@ async def update_exposure_config(
     db: AsyncSession,
     data: ExposureConfigUpdate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> FXExposureConfig:
     """Update exposure config. locked_pct + floating_pct must equal 100."""
     if data.locked_pct + data.floating_pct != Decimal("100"):
@@ -680,6 +686,7 @@ async def update_exposure_config(
         )
 
     config = FXExposureConfig(
+        business_id=business_id,
         locked_pct=data.locked_pct,
         floating_pct=data.floating_pct,
         updated_by=user_id,
@@ -692,6 +699,7 @@ async def update_exposure_config(
         "fx_exposure_config_updated",
         locked_pct=str(data.locked_pct),
         floating_pct=str(data.floating_pct),
+        business_id=str(business_id),
     )
     return config
 
@@ -705,9 +713,11 @@ async def create_alert(
     db: AsyncSession,
     data: FXAlertCreate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> FXAlert:
     """Create a new rate threshold alert."""
     alert = FXAlert(
+        business_id=business_id,
         pair=data.pair,
         direction=AlertDirection(data.direction),
         threshold_rate=data.threshold_rate,
@@ -724,19 +734,31 @@ async def create_alert(
         pair=data.pair,
         direction=data.direction,
         threshold=str(data.threshold_rate),
+        business_id=str(business_id),
     )
     return alert
 
 
-async def list_alerts(db: AsyncSession) -> list[FXAlert]:
-    """List all FX alerts."""
-    result = await db.execute(select(FXAlert).order_by(FXAlert.created_at.desc()))
+async def list_alerts(db: AsyncSession, business_id: uuid.UUID) -> list[FXAlert]:
+    """List FX alerts for the given business."""
+    result = await db.execute(
+        select(FXAlert)
+        .where(FXAlert.business_id == business_id)
+        .order_by(FXAlert.created_at.desc())
+    )
     return list(result.scalars().all())
 
 
-async def get_alert(db: AsyncSession, alert_id: uuid.UUID) -> FXAlert:
-    """Get a specific alert by ID."""
-    result = await db.execute(select(FXAlert).where(FXAlert.id == alert_id))
+async def get_alert(
+    db: AsyncSession, alert_id: uuid.UUID, business_id: uuid.UUID
+) -> FXAlert:
+    """Get a specific alert by ID, scoped to the given business."""
+    result = await db.execute(
+        select(FXAlert).where(
+            FXAlert.id == alert_id,
+            FXAlert.business_id == business_id,
+        )
+    )
     alert = result.scalar_one_or_none()
     if not alert:
         raise FXAlertNotFoundError(alert_id)
@@ -747,9 +769,10 @@ async def update_alert(
     db: AsyncSession,
     alert_id: uuid.UUID,
     data: FXAlertUpdate,
+    business_id: uuid.UUID,
 ) -> FXAlert:
     """Update an alert's threshold or enabled status."""
-    alert = await get_alert(db, alert_id)
+    alert = await get_alert(db, alert_id, business_id)
 
     update_fields = data.model_dump(exclude_unset=True)
     for field, value in update_fields.items():
@@ -760,19 +783,26 @@ async def update_alert(
     return alert
 
 
-async def delete_alert(db: AsyncSession, alert_id: uuid.UUID) -> None:
+async def delete_alert(
+    db: AsyncSession, alert_id: uuid.UUID, business_id: uuid.UUID
+) -> None:
     """Delete an alert."""
-    alert = await get_alert(db, alert_id)
+    alert = await get_alert(db, alert_id, business_id)
     await db.delete(alert)
     await db.flush()
     await logger.ainfo("fx_alert_deleted", alert_id=str(alert_id))
 
 
-async def get_triggered_alerts(db: AsyncSession) -> list[FXAlert]:
-    """List recently triggered alerts."""
+async def get_triggered_alerts(
+    db: AsyncSession, business_id: uuid.UUID
+) -> list[FXAlert]:
+    """List recently triggered alerts for the given business."""
     result = await db.execute(
         select(FXAlert)
-        .where(FXAlert.is_triggered.is_(True))
+        .where(
+            FXAlert.business_id == business_id,
+            FXAlert.is_triggered.is_(True),
+        )
         .order_by(FXAlert.triggered_at.desc())
     )
     return list(result.scalars().all())
