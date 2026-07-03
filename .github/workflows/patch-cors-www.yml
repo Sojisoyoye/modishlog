@@ -13,4 +13,13 @@ jobs:
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
-            cat /opt/modish/Caddyfile | cat -A | head -100
+            set -e
+            # Back up before overwriting
+            cp /opt/modish/Caddyfile /opt/modish/Caddyfile.bak
+            # Write the correct Caddyfile from scratch
+            echo "bjhuLm1vZGlzaHN0YW5kYXJkLmNvbSB7Cn0KCn0KCmFwaS5oZWltcGF0aC5jb20gewp9CgphcGkuc3RhZ2luZy5oZWltcGF0aC5jb20gewp9CgphcGkudHJhZGluZ3RlZGR5LmNvbSB7Cn0KCmFwaS1tb2Rpc2hsb2cubW9kaXNoc3RhbmRhcmQuY29tIHsKICAgIEBjb3JzX3ByZWZsaWdodCB7CiAgICAgICAgbWV0aG9kIE9QVElPTlMKICAgIH0KICAgIGhhbmRsZSBAY29yc19wcmVmbGlnaHQgewogICAgICAgIGhlYWRlciBBY2Nlc3MtQ29udHJvbC1BbGxvdy1PcmlnaW4gImh0dHBzOi8vbW9kaXNobG9nLXN0YWdpbmcudmVyY2VsLmFwcCIKICAgICAgICBoZWFkZXIgQWNjZXNzLUNvbnRyb2wtQWxsb3ctQ3JlZGVudGlhbHMgInRydWUiCiAgICAgICAgaGVhZGVyIEFjY2Vzcy1Db250cm9sLUFsbG93LU1ldGhvZHMgIkdFVCwgUE9TVCwgUFVULCBQQVRDSCwgREVMRVRFLCBPUFRJT05TIgogICAgICAgIGhlYWRlciBBY2Nlc3MtQ29udHJvbC1BbGxvdy1IZWFkZXJzICJDb250ZW50LVR5cGUsIEF1dGhvcml6YXRpb24sIFgtUmVxdWVzdGVkLVdpdGgiCiAgICAgICAgaGVhZGVyIEFjY2Vzcy1Db250cm9sLU1heC1BZ2UgIjM2MDAiCiAgICAgICAgcmVzcG9uZCAyMDQKICAgIH0KCiAgICBoYW5kbGUgewogICAgICAgIHJldmVyc2VfcHJveHkgMTcyLjE3LjAuMTo4MDAyIHsKICAgICAgICAgICAgaGVhZGVyX2Rvd24gLUFjY2Vzcy1Db250cm9sLUFsbG93LU9yaWdpbgogICAgICAgICAgICBoZWFkZXJfZG93biAtQWNjZXNzLUNvbnRyb2wtQWxsb3ctQ3JlZGVudGlhbHMKICAgICAgICAgICAgaGVhZGVyX2Rvd24gLUFjY2Vzcy1Db250cm9sLUFsbG93LU1ldGhvZHMKICAgICAgICAgICAgaGVhZGVyX2Rvd24gLUFjY2Vzcy1Db250cm9sLUFsbG93LUhlYWRlcnMKICAgICAgICB9CiAgICAgICAgaGVhZGVyIEFjY2Vzcy1Db250cm9sLUFsbG93LU9yaWdpbiAiaHR0cHM6Ly9tb2Rpc2hsb2ctc3RhZ2luZy52ZXJjZWwuYXBwIgogICAgICAgIGhlYWRlciBBY2Nlc3MtQ29udHJvbC1BbGxvdy1DcmVkZW50aWFscyAidHJ1ZSIKICAgIH0KfQoKZ3Jvd3Rob3MuaGVpbXBhdGguY29tIHsKfQoKYXBpLm1vZGlzaGxvZy5jb20gewogICAgcmV2ZXJzZV9wcm94eSAxNzIuMTcuMC4xOjgwMDMKfQo=" | base64 -d > /opt/modish/Caddyfile
+            echo "=== New api.modishlog.com block ==="
+            grep -A 3 "api.modishlog.com {" /opt/modish/Caddyfile | tail -4
+            docker exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+            docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+            echo "Caddy reloaded successfully"
