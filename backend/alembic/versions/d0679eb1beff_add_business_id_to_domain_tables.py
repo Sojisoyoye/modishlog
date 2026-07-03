@@ -97,6 +97,44 @@ def upgrade() -> None:
         ["name", "business_id"],
     )
 
+    # products.sku and products.slug were globally unique; scope them per-business.
+    # ix_products_sku was created as a unique index in the initial schema migration.
+    op.drop_index("ix_products_sku", table_name="products")
+    op.drop_constraint("uq_products_slug", "products", type_="unique")
+    op.create_unique_constraint(
+        "uq_products_sku_business", "products", ["sku", "business_id"]
+    )
+    op.create_unique_constraint(
+        "uq_products_slug_business", "products", ["slug", "business_id"]
+    )
+    # Re-create non-unique index on sku for query performance.
+    op.create_index("ix_products_sku", "products", ["sku"], unique=False)
+
+    # business_locations.location_code was globally unique; make it per-business instead.
+    op.drop_index(
+        "ix_business_locations_location_code",
+        table_name="business_locations",
+        if_exists=True,
+    )
+    op.drop_constraint(
+        "uq_business_locations_location_code",
+        "business_locations",
+        type_="unique",
+    )
+    # Non-unique index for query performance.
+    op.create_index(
+        "ix_business_locations_location_code",
+        "business_locations",
+        ["location_code"],
+        unique=False,
+    )
+    # Composite unique: same code can be reused across different businesses.
+    op.create_unique_constraint(
+        "uq_business_locations_code_business",
+        "business_locations",
+        ["location_code", "business_id"],
+    )
+
     # business_profile: enforce one row per business.
     op.create_unique_constraint(
         "uq_business_profile_business_id",
@@ -126,6 +164,29 @@ def downgrade() -> None:
     op.drop_constraint("app_settings_pkey", "app_settings", type_="primary")
     op.create_primary_key("app_settings_pkey", "app_settings", ["key"])
     op.drop_constraint("uq_business_profile_business_id", "business_profile", type_="unique")
+
+    # Restore business_locations.location_code to global unique.
+    op.drop_constraint(
+        "uq_business_locations_code_business", "business_locations", type_="unique"
+    )
+    op.drop_index("ix_business_locations_location_code", table_name="business_locations")
+    op.create_index(
+        "ix_business_locations_location_code",
+        "business_locations",
+        ["location_code"],
+        unique=True,
+    )
+    op.create_unique_constraint(
+        "uq_business_locations_location_code", "business_locations", ["location_code"]
+    )
+
+    # Restore products.sku / products.slug to global unique.
+    op.drop_constraint("uq_products_sku_business", "products", type_="unique")
+    op.drop_constraint("uq_products_slug_business", "products", type_="unique")
+    op.drop_index("ix_products_sku", table_name="products")
+    op.create_index("ix_products_sku", "products", ["sku"], unique=True)
+    op.create_unique_constraint("uq_products_slug", "products", ["slug"])
+
     op.drop_constraint(
         "uq_product_categories_name_business", "product_categories", type_="unique"
     )
