@@ -140,27 +140,27 @@ async def update_fiscal_year_start(
     )
 
 
-async def get_business_profile(db: AsyncSession) -> BusinessProfile:
-    result = await db.execute(select(BusinessProfile).limit(1))
-    profile = result.scalar_one_or_none()
-    if profile is None:
-        # Use pg_insert with on_conflict_do_nothing to prevent duplicate rows
-        # from concurrent first-time requests (SELECT-then-INSERT race).
-        new_id = uuid.uuid4()
-        stmt = pg_insert(BusinessProfile).values(id=new_id).on_conflict_do_nothing()
-        await db.execute(stmt)
-        await db.flush()
-        result2 = await db.execute(select(BusinessProfile).limit(1))
-        profile = result2.scalar_one()
-    return profile
+async def get_business_profile(
+    db: AsyncSession, business_id: uuid.UUID
+) -> BusinessProfile | None:
+    """Return the BusinessProfile for the given business_id, or None if not found."""
+    result = await db.execute(
+        select(BusinessProfile).where(BusinessProfile.business_id == business_id)
+    )
+    return result.scalar_one_or_none()
 
 
 async def update_business_profile(
     db: AsyncSession,
     data: BusinessProfileUpdate,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> BusinessProfile:
-    profile = await get_business_profile(db)
+    """Upsert a BusinessProfile for the given business_id."""
+    profile = await get_business_profile(db, business_id)
+    if profile is None:
+        profile = BusinessProfile(business_id=business_id)
+        db.add(profile)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(profile, field, value)
     profile.updated_by = user_id
@@ -168,8 +168,26 @@ async def update_business_profile(
     return profile
 
 
-async def get_app_settings(db: AsyncSession) -> dict[str, str | None]:
-    result = await db.execute(select(AppSetting))
+async def get_app_setting(
+    db: AsyncSession, key: str, business_id: uuid.UUID
+) -> AppSetting | None:
+    """Return a single AppSetting row for the given key and business_id."""
+    result = await db.execute(
+        select(AppSetting).where(
+            AppSetting.key == key,
+            AppSetting.business_id == business_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_app_settings(
+    db: AsyncSession, business_id: uuid.UUID
+) -> dict[str, str | None]:
+    """Return all app settings for the given business, merged with defaults."""
+    result = await db.execute(
+        select(AppSetting).where(AppSetting.business_id == business_id)
+    )
     rows = result.scalars().all()
     merged = dict(APP_SETTING_DEFAULTS)
     for row in rows:
@@ -182,14 +200,15 @@ async def update_app_setting(
     key: str,
     value: str,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> None:
-    result = await db.execute(select(AppSetting).where(AppSetting.key == key))
-    existing = result.scalar_one_or_none()
+    """Upsert an app setting for the given business_id."""
+    existing = await get_app_setting(db, key, business_id)
     if existing:
         existing.value = value
         existing.updated_by = user_id
     else:
-        db.add(AppSetting(key=key, value=value, updated_by=user_id))
+        db.add(AppSetting(key=key, business_id=business_id, value=value, updated_by=user_id))
     await db.flush()
 
 
