@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.csv_utils import csv_safe
 from src.core.database import get_db
@@ -42,12 +42,14 @@ async def export_profit_loss_csv(
     location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> StreamingResponse:
     """Download the Profit & Loss report as a CSV file."""
     if start_date is None and end_date is None:
         start_date, end_date = await resolve_default_date_range(db, current_user.id)
     report = await get_profit_loss_report(
-        db, start_date=start_date, end_date=end_date, location_id=location_id
+        db, start_date=start_date, end_date=end_date, location_id=location_id,
+        business_id=business_id,
     )
 
     output = io.StringIO()
@@ -82,12 +84,14 @@ async def profit_loss_endpoint(
     location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> ProfitLossReport:
     """Return profit and loss report for an optional date range."""
     if start_date is None and end_date is None:
         start_date, end_date = await resolve_default_date_range(db, current_user.id)
     return await get_profit_loss_report(
-        db, start_date=start_date, end_date=end_date, location_id=location_id
+        db, start_date=start_date, end_date=end_date, location_id=location_id,
+        business_id=business_id,
     )
 
 
@@ -98,12 +102,14 @@ async def export_stock_csv(
     location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> StreamingResponse:
     """Download the stock report as a CSV file."""
     report = await get_stock_report(
         db,
         category_id=str(category_id) if category_id else None,
         location_id=location_id,
+        business_id=business_id,
     )
 
     output = io.StringIO()
@@ -151,12 +157,14 @@ async def stock_report_endpoint(
     location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> StockReport:
     """Return the current stock report."""
     return await get_stock_report(
         db,
         category_id=str(category_id) if category_id else None,
         location_id=location_id,
+        business_id=business_id,
     )
 
 
@@ -168,12 +176,14 @@ async def export_purchase_sale_csv(
     location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> StreamingResponse:
     """Download the Purchase & Sale report as a CSV file."""
     if start_date is None and end_date is None:
         start_date, end_date = await resolve_default_date_range(db, current_user.id)
     report = await get_purchase_sale_report(
-        db, start_date=start_date, end_date=end_date, location_id=location_id
+        db, start_date=start_date, end_date=end_date, location_id=location_id,
+        business_id=business_id,
     )
 
     output = io.StringIO()
@@ -202,12 +212,14 @@ async def purchase_sale_endpoint(
     location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> PurchaseSaleReport:
     """Return purchase and sale summary for an optional date range."""
     if start_date is None and end_date is None:
         start_date, end_date = await resolve_default_date_range(db, current_user.id)
     return await get_purchase_sale_report(
-        db, start_date=start_date, end_date=end_date, location_id=location_id
+        db, start_date=start_date, end_date=end_date, location_id=location_id,
+        business_id=business_id,
     )
 
 
@@ -221,6 +233,7 @@ async def product_sales_endpoint(
     page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> ProductSalesReport:
     """Return per-product sales report grouped by product."""
     return await get_product_sales_report(
@@ -229,6 +242,7 @@ async def product_sales_endpoint(
         end_date=end_date,
         category_id=category_id,
         location_id=location_id,
+        business_id=business_id,
         page=page,
         page_size=page_size,
     )
@@ -242,6 +256,7 @@ async def trending_products_endpoint(
     sort_by: Literal["revenue", "quantity"] = "revenue",
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> TrendingProductsReport:
     """Return top-N trending products sorted by revenue or quantity."""
     return await get_trending_products(
@@ -250,4 +265,5 @@ async def trending_products_endpoint(
         end_date=end_date,
         limit=limit,
         sort_by=sort_by,
+        business_id=business_id,
     )

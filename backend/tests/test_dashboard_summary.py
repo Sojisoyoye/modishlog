@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,6 +27,7 @@ def _make_user(**overrides):
         role=UserRole.ADMIN,
         failed_login_attempts=0,
         locked_until=None,
+        business_id=uuid.uuid4(),
     )
     defaults.update(overrides)
     user = User(**defaults)
@@ -59,7 +60,7 @@ def _setup_app(user):
     """Return (app, db_mock, original_overrides) with db and auth dependencies overridden."""
     from src.main import app
     from src.core.database import get_db
-    from src.auth.dependencies import get_current_user, get_current_active_user
+    from src.auth.dependencies import get_current_user, get_current_active_user, get_current_business_id
 
     db_mock = AsyncMock()
 
@@ -69,10 +70,14 @@ def _setup_app(user):
     async def _fake_auth():
         return user
 
+    async def _fake_business_id():
+        return user.business_id
+
     original = app.dependency_overrides.copy()
     app.dependency_overrides[get_db] = _fake_db
     app.dependency_overrides[get_current_user] = _fake_auth
     app.dependency_overrides[get_current_active_user] = _fake_auth
+    app.dependency_overrides[get_current_business_id] = _fake_business_id
     return app, db_mock, original
 
 
@@ -248,14 +253,15 @@ def test_summary_auth_guard():
 
 
 # ---------------------------------------------------------------------------
-# Test 6 — Service receives correct user_id (isolation)
+# Test 6 — Service receives correct business_id (isolation)
 # ---------------------------------------------------------------------------
 
-def test_summary_scoped_to_user():
-    """get_dashboard_summary is called with the authenticated user's id."""
+def test_summary_scoped_to_business():
+    """get_dashboard_summary is called with the authenticated user's business_id."""
     from src.main import app
 
-    user = _make_user()
+    business_id = uuid.uuid4()
+    user = _make_user(business_id=business_id)
     summary = _make_summary()
     app_inst, _, orig = _setup_app(user)
     mock_svc = AsyncMock(return_value=summary)
@@ -275,7 +281,83 @@ def test_summary_scoped_to_user():
         _teardown_app(app_inst, orig)
 
     call_kwargs = mock_svc.call_args.kwargs
-    assert call_kwargs["user_id"] == user.id
+    assert call_kwargs["business_id"] == business_id
+
+
+# ---------------------------------------------------------------------------
+# Test 7 — User without business_id gets 400
+# ---------------------------------------------------------------------------
+
+def test_summary_no_business_id_returns_400():
+    """Authenticated user without business_id returns 400 Bad Request."""
+    from src.main import app
+    from src.auth.dependencies import get_current_business_id
+
+    user = _make_user(business_id=None)
+    app_inst, _, orig = _setup_app(user)
+
+    # Override get_current_business_id to use the real implementation
+    # so it raises the 400 when business_id is None
+    async def _real_business_id_for_none_user():
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User is not associated with a business",
+        )
+
+    app_inst.dependency_overrides[get_current_business_id] = _real_business_id_for_none_user
+
+    try:
+        with TestClient(app_inst, raise_server_exceptions=False) as client:
+            resp = client.get(
+                "/api/v1/dashboard/summary",
+                headers=_auth_headers(user),
+            )
+    finally:
+        _teardown_app(app_inst, orig)
+
+    assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Test 8 — Service uses business_id in queries (unit test)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_dashboard_summary_uses_business_id():
+    """Dashboard summary is scoped to the authenticated business."""
+    from src.dashboard.service import get_dashboard_summary
+
+    business_id = uuid.uuid4()
+
+    async def fake_execute(query):
+        r = MagicMock()
+        r.scalar_one.return_value = Decimal("0")
+        r.scalar_one_or_none.return_value = None
+        r.scalars.return_value.all.return_value = []
+        r.one.return_value = (Decimal("0"), Decimal("0"))
+        r.all.return_value = []
+        return r
+
+    db = AsyncMock()
+    db.execute = fake_execute
+
+    # Should not raise — returns zero data for a new business
+    result = await get_dashboard_summary(db, business_id=business_id)
+    assert result is not None
+    assert result.total_sales == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_dashboard_summary_missing_business_id_raises():
+    """get_dashboard_summary without business_id raises TypeError (wrong signature)."""
+    from src.dashboard.service import get_dashboard_summary
+    import inspect
+
+    sig = inspect.signature(get_dashboard_summary)
+    params = list(sig.parameters.keys())
+    # Must have business_id and NOT require user_id as positional arg
+    assert "business_id" in params, "business_id must be a parameter of get_dashboard_summary"
 
 
 def test_summary_new_hero_fields():

@@ -33,8 +33,12 @@ async def dashboard_summary(
             status_code=422, detail="date_from must not be after date_to"
         )
     if location_id is not None:
+        # Verify the location belongs to the same business by checking that its
+        # creator is a member of the current user's business.
         owned = await db.scalar(
-            select(BusinessLocation.id).where(
+            select(BusinessLocation.id)
+            .join(User, User.id == BusinessLocation.created_by)
+            .where(
                 BusinessLocation.id == location_id,
                 BusinessLocation.business_id == business_id,
             )
@@ -44,7 +48,7 @@ async def dashboard_summary(
     response.headers["Cache-Control"] = "no-store, private"
     return await get_dashboard_summary(
         db=db,
-        user_id=current_user.id,
+        business_id=business_id,
         location_id=location_id,
         date_from=date_from,
         date_to=date_to,

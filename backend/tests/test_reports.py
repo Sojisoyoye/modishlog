@@ -20,6 +20,9 @@ VALID_PASSWORD = "Str0ng!Pass#99"
 # ---------------------------------------------------------------------------
 
 
+_DEFAULT_BUSINESS_ID = uuid.uuid4()
+
+
 def _make_user(**overrides):
     from src.auth.models import User, UserRole
 
@@ -31,6 +34,7 @@ def _make_user(**overrides):
         role=UserRole.ADMIN,
         failed_login_attempts=0,
         locked_until=None,
+        business_id=_DEFAULT_BUSINESS_ID,
     )
     defaults.update(overrides)
     user = User(**defaults)
@@ -618,7 +622,7 @@ class TestReportsEndpoints:
         app.dependency_overrides = self._original_overrides
 
     def _override_db(self, db_mock):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         from src.core.database import get_db
 
         async def _fake_db():
@@ -627,8 +631,12 @@ class TestReportsEndpoints:
         def _fake_user():
             return _make_user()
 
+        async def _fake_business_id():
+            return _DEFAULT_BUSINESS_ID
+
         self.app.dependency_overrides[get_db] = _fake_db
         self.app.dependency_overrides[get_current_active_user] = _fake_user
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def _auth_headers(self):
         user = _make_user()
@@ -946,7 +954,7 @@ class TestLocationFilter:
     async def test_profit_loss_location_filter_passes_to_service(self):
         """GET /reports/profit-loss?location_id=... forwards location_id to service."""
         from src.main import app
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         from src.core.database import get_db
 
         db = _mock_db()
@@ -967,8 +975,12 @@ class TestLocationFilter:
         async def _fake_db():
             yield db
 
+        async def _fake_business_id():
+            return _DEFAULT_BUSINESS_ID
+
         app.dependency_overrides[get_db] = _fake_db
         app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        app.dependency_overrides[get_current_business_id] = _fake_business_id
         location_id = str(uuid.uuid4())
         try:
             with TestClient(app) as client:
@@ -984,12 +996,13 @@ class TestLocationFilter:
         finally:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_current_business_id, None)
 
     @pytest.mark.asyncio
     async def test_purchase_sale_location_filter_accepted(self):
         """GET /reports/purchase-sale?location_id=... returns 200."""
         from src.main import app
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         from src.core.database import get_db
 
         db = _mock_db()
@@ -1006,8 +1019,12 @@ class TestLocationFilter:
         async def _fake_db():
             yield db
 
+        async def _fake_business_id():
+            return _DEFAULT_BUSINESS_ID
+
         app.dependency_overrides[get_db] = _fake_db
         app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        app.dependency_overrides[get_current_business_id] = _fake_business_id
         location_id = str(uuid.uuid4())
         try:
             with TestClient(app) as client:
@@ -1023,12 +1040,13 @@ class TestLocationFilter:
         finally:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_current_business_id, None)
 
     @pytest.mark.asyncio
     async def test_stock_location_filter_accepted(self):
         """GET /reports/stock?location_id=... returns 200."""
         from src.main import app
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         from src.core.database import get_db
 
         db = _mock_db()
@@ -1039,8 +1057,12 @@ class TestLocationFilter:
         async def _fake_db():
             yield db
 
+        async def _fake_business_id():
+            return _DEFAULT_BUSINESS_ID
+
         app.dependency_overrides[get_db] = _fake_db
         app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        app.dependency_overrides[get_current_business_id] = _fake_business_id
         location_id = str(uuid.uuid4())
         try:
             with TestClient(app) as client:
@@ -1052,6 +1074,7 @@ class TestLocationFilter:
         finally:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_current_business_id, None)
 
     @pytest.mark.asyncio
     async def test_profit_loss_location_filter_service(self):
@@ -1233,7 +1256,7 @@ class TestProductSalesReport:
     def test_product_sales_endpoint_ok(self):
         """GET /reports/product-sales returns 200."""
         from src.main import app
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         from src.core.database import get_db
 
         db = _mock_db()
@@ -1248,8 +1271,12 @@ class TestProductSalesReport:
         async def _fake_db():
             yield db
 
+        async def _fake_business_id():
+            return _DEFAULT_BUSINESS_ID
+
         app.dependency_overrides[get_db] = _fake_db
         app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        app.dependency_overrides[get_current_business_id] = _fake_business_id
         try:
             with TestClient(app) as client:
                 resp = client.get("/api/v1/reports/product-sales")
@@ -1261,11 +1288,12 @@ class TestProductSalesReport:
         finally:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_current_business_id, None)
 
     def test_product_sales_endpoint_with_filters(self):
         """GET /reports/product-sales?start_date=...&category_id=... returns 200."""
         from src.main import app
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         from src.core.database import get_db
 
         db = _mock_db()
@@ -1280,8 +1308,12 @@ class TestProductSalesReport:
         async def _fake_db():
             yield db
 
+        async def _fake_business_id():
+            return _DEFAULT_BUSINESS_ID
+
         app.dependency_overrides[get_db] = _fake_db
         app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        app.dependency_overrides[get_current_business_id] = _fake_business_id
         try:
             with TestClient(app) as client:
                 resp = client.get(
@@ -1297,6 +1329,7 @@ class TestProductSalesReport:
         finally:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_current_business_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -1378,7 +1411,7 @@ class TestTrendingProducts:
     def test_trending_products_endpoint_ok(self):
         """GET /reports/trending-products returns 200."""
         from src.main import app
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         from src.core.database import get_db
 
         db = _mock_db()
@@ -1389,8 +1422,12 @@ class TestTrendingProducts:
         async def _fake_db():
             yield db
 
+        async def _fake_business_id():
+            return _DEFAULT_BUSINESS_ID
+
         app.dependency_overrides[get_db] = _fake_db
         app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        app.dependency_overrides[get_current_business_id] = _fake_business_id
         try:
             with TestClient(app) as client:
                 resp = client.get("/api/v1/reports/trending-products")
@@ -1400,11 +1437,12 @@ class TestTrendingProducts:
         finally:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_current_business_id, None)
 
     def test_trending_products_endpoint_with_params(self):
         """GET /reports/trending-products?limit=5&sort_by=quantity returns 200."""
         from src.main import app
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
         from src.core.database import get_db
 
         db = _mock_db()
@@ -1415,8 +1453,12 @@ class TestTrendingProducts:
         async def _fake_db():
             yield db
 
+        async def _fake_business_id():
+            return _DEFAULT_BUSINESS_ID
+
         app.dependency_overrides[get_db] = _fake_db
         app.dependency_overrides[get_current_active_user] = lambda: _make_user()
+        app.dependency_overrides[get_current_business_id] = _fake_business_id
         try:
             with TestClient(app) as client:
                 resp = client.get(
@@ -1432,3 +1474,4 @@ class TestTrendingProducts:
         finally:
             app.dependency_overrides.pop(get_db, None)
             app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_current_business_id, None)
