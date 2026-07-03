@@ -164,6 +164,9 @@ class OperatingCost(UUIDMixin, TimestampMixin, Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    business_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("businesses.id"), nullable=True, default=None, index=True
+    )
 
     def __repr__(self) -> str:
         return f"<OperatingCost(id={self.id}, name={self.cost_name})>"

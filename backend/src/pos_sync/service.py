@@ -6,7 +6,8 @@ subsequent runs only fetch records newer than the last-seen POS ID.
 
 Design notes
 ------------
-- Watermarks are stored in the ``pos_sync_state`` table (key-value).
+- Watermarks are stored in the ``pos_sync_state`` table (key-value), scoped
+  to a ``business_id`` for multi-tenant isolation.
 - Deduplication is done via the ``pos_id`` column on Sale / PurchaseOrder:
   if a record with that pos_id already exists we skip it.
 - Product matching uses name-based lookup (the same approach as pos_migrate).
@@ -51,9 +52,15 @@ class SyncResult:
 class POSSyncService:
     """Stateful per-request sync service wrapping a DB session and POS client."""
 
-    def __init__(self, db: AsyncSession, pos_client: Any) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        pos_client: Any,
+        business_id: uuid.UUID | None = None,
+    ) -> None:
         self._db = db
         self._pos_client = pos_client
+        self._business_id = business_id
         # In-memory watermark cache — pre-populated by tests or loaded from DB
         self._watermark_cache: dict[str, int] = {}
 
@@ -155,20 +162,32 @@ class POSSyncService:
     async def _get_watermark(self, key: str) -> int:
         if key in self._watermark_cache:
             return self._watermark_cache[key]
-        result = await self._db.execute(select(SyncState).where(SyncState.key == key))
+        q = select(SyncState).where(SyncState.key == key)
+        if self._business_id is not None:
+            q = q.where(SyncState.business_id == self._business_id)
+        result = await self._db.execute(q)
         row = result.scalar_one_or_none()
         val = int(row.value) if row else 0
         self._watermark_cache[key] = val
         return val
 
     async def _save_watermark(self, key: str, value: int) -> None:
-        result = await self._db.execute(select(SyncState).where(SyncState.key == key))
+        q = select(SyncState).where(SyncState.key == key)
+        if self._business_id is not None:
+            q = q.where(SyncState.business_id == self._business_id)
+        result = await self._db.execute(q)
         row = result.scalar_one_or_none()
         if row:
             row.value = str(value)
             row.updated_at = datetime.now(timezone.utc)
         else:
-            self._db.add(SyncState(key=key, value=str(value)))
+            self._db.add(
+                SyncState(
+                    key=key,
+                    value=str(value),
+                    business_id=self._business_id,
+                )
+            )
         await self._db.flush()
         self._watermark_cache[key] = value
 
@@ -177,15 +196,19 @@ class POSSyncService:
     # ------------------------------------------------------------------
 
     async def _sale_pos_id_exists(self, pos_id: str) -> bool:
-        result = await self._db.execute(
-            select(Sale.id).where(Sale.pos_id == pos_id).limit(1)
-        )
+        q = select(Sale.id).where(Sale.pos_id == pos_id)
+        if self._business_id is not None:
+            q = q.where(Sale.business_id == self._business_id)
+        q = q.limit(1)
+        result = await self._db.execute(q)
         return result.scalar_one_or_none() is not None
 
     async def _purchase_pos_id_exists(self, pos_id: str) -> bool:
-        result = await self._db.execute(
-            select(PurchaseOrder.id).where(PurchaseOrder.pos_id == pos_id).limit(1)
-        )
+        q = select(PurchaseOrder.id).where(PurchaseOrder.pos_id == pos_id)
+        if self._business_id is not None:
+            q = q.where(PurchaseOrder.business_id == self._business_id)
+        q = q.limit(1)
+        result = await self._db.execute(q)
         return result.scalar_one_or_none() is not None
 
     # ------------------------------------------------------------------
@@ -241,6 +264,7 @@ class POSSyncService:
                 pos_id=pos_id,
                 invoice_number=sell.get("invoice_no"),
                 payment_status=sell.get("payment_status"),
+                business_id=self._business_id,
             )
             self._db.add(sale)
             rows += 1
@@ -273,6 +297,7 @@ class POSSyncService:
             order_date=order_date or date.today(),
             created_by=system_user_id,
             pos_id=pos_id,
+            business_id=self._business_id,
         )
         self._db.add(po)
         await self._db.flush()

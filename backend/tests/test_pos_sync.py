@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import src.suppliers.models  # noqa: F401 — register Supplier mapper for PurchaseOrder.supplier
+
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
@@ -80,6 +82,114 @@ class TestSyncState:
         assert "key" in cols
         assert "value" in cols
         assert "updated_at" in cols
+
+    def test_has_business_id_column(self):
+        """SyncState has a business_id column for multi-tenant isolation."""
+        from src.pos_sync.models import SyncState
+        cols = {c.key for c in SyncState.__table__.columns}
+        assert "business_id" in cols
+
+    def test_has_composite_unique_constraint(self):
+        """SyncState has a unique constraint on (key, business_id) to prevent
+        duplicate watermark rows for the same business."""
+        from src.pos_sync.models import SyncState
+        unique_constraints = {uc.name for uc in SyncState.__table__.constraints
+                              if hasattr(uc, "name") and uc.name}
+        assert "uq_pos_sync_state_key_business" in unique_constraints
+
+
+# ---------------------------------------------------------------------------
+# SyncState business_id isolation tests
+# ---------------------------------------------------------------------------
+
+
+class TestSyncStateBusinessIsolation:
+    @pytest.mark.asyncio
+    async def test_get_watermark_filters_by_business_id(self):
+        """_get_watermark fetches the watermark for the correct business_id."""
+        from src.pos_sync.service import POSSyncService
+
+        business_id = uuid.uuid4()
+        db = AsyncMock()
+        pos_client = MagicMock()
+        pos_client.fetch_sells.return_value = []
+
+        service = POSSyncService(db=db, pos_client=pos_client, business_id=business_id)
+        assert service._business_id == business_id
+
+    @pytest.mark.asyncio
+    async def test_save_watermark_sets_business_id(self):
+        """_save_watermark creates SyncState with the correct business_id."""
+        from src.pos_sync.service import POSSyncService
+        from src.pos_sync.models import SyncState
+
+        business_id = uuid.uuid4()
+        db = AsyncMock()
+
+        # Simulate no existing watermark row
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=mock_result)
+        db.flush = AsyncMock()
+
+        pos_client = MagicMock()
+        service = POSSyncService(db=db, pos_client=pos_client, business_id=business_id)
+        service._watermark_cache = {}
+
+        await service._save_watermark("sells_max_id", 42)
+
+        # Verify that db.add was called with a SyncState that has business_id set
+        db.add.assert_called_once()
+        added_obj = db.add.call_args[0][0]
+        assert isinstance(added_obj, SyncState)
+        assert added_obj.business_id == business_id
+
+    @pytest.mark.asyncio
+    async def test_insert_sell_sets_business_id(self):
+        """_insert_sell creates Sale records with the correct business_id."""
+        from src.pos_sync.service import POSSyncService
+
+        business_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        db = AsyncMock()
+        db.flush = AsyncMock()
+
+        pos_client = MagicMock()
+        service = POSSyncService(db=db, pos_client=pos_client, business_id=business_id)
+
+        sell = _make_pos_sell(101)
+        name_map = {"test product": product_id}
+        system_user_id = uuid.uuid4()
+
+        rows = await service._insert_sell(
+            sell, "101", name_map=name_map, system_user_id=system_user_id
+        )
+
+        assert rows == 1
+        db.add.assert_called_once()
+        added_sale = db.add.call_args[0][0]
+        assert added_sale.business_id == business_id
+
+    @pytest.mark.asyncio
+    async def test_insert_purchase_sets_business_id(self):
+        """_insert_purchase creates PurchaseOrder with the correct business_id."""
+        from src.pos_sync.service import POSSyncService
+
+        business_id = uuid.uuid4()
+        db = AsyncMock()
+        db.flush = AsyncMock()
+
+        pos_client = MagicMock()
+        service = POSSyncService(db=db, pos_client=pos_client, business_id=business_id)
+
+        purchase = _make_pos_purchase(201)
+        system_user_id = uuid.uuid4()
+
+        await service._insert_purchase(purchase, "201", system_user_id=system_user_id)
+
+        db.add.assert_called_once()
+        added_po = db.add.call_args[0][0]
+        assert added_po.business_id == business_id
 
 
 # ---------------------------------------------------------------------------

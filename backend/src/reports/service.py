@@ -61,12 +61,15 @@ async def _sum_sell_returns(
     start_date: date | None,
     end_date: date | None,
     location_id: uuid.UUID | None = None,
+    business_id: uuid.UUID | None = None,
 ) -> Decimal:
     q = select(func.sum(SellReturn.total_amount))
-    if location_id:
-        q = q.join(Sale, Sale.id == SellReturn.sale_id).where(
-            Sale.location_id == location_id
-        )
+    if location_id or business_id:
+        q = q.join(Sale, Sale.id == SellReturn.sale_id)
+        if location_id:
+            q = q.where(Sale.location_id == location_id)
+        if business_id:
+            q = q.where(Sale.business_id == business_id)
     if start_date:
         q = q.where(SellReturn.return_date >= start_date)
     if end_date:
@@ -80,6 +83,7 @@ async def get_profit_loss_report(
     start_date: date | None = None,
     end_date: date | None = None,
     location_id: uuid.UUID | None = None,
+    business_id: uuid.UUID | None = None,
 ) -> ProfitLossReport:
     """Calculate profit and loss report for an optional date range.
 
@@ -87,16 +91,20 @@ async def get_profit_loss_report(
         db: Async database session.
         start_date: Start of reporting period (inclusive). None means all time.
         end_date: End of reporting period (inclusive). None means all time.
+        business_id: Restrict report to this business's data.
 
     Returns:
         ProfitLossReport with all computed fields.
     """
     logger.info(
-        "generating profit_loss_report", start_date=start_date, end_date=end_date
+        "generating profit_loss_report", start_date=start_date, end_date=end_date,
+        business_id=business_id,
     )
 
     # -- Total purchases (sum of all purchase orders in period) --
     purchase_query = select(func.sum(PurchaseOrder.total_amount))
+    if business_id:
+        purchase_query = purchase_query.where(PurchaseOrder.business_id == business_id)
     if start_date:
         purchase_query = purchase_query.where(PurchaseOrder.created_at >= start_date)
     if end_date:
@@ -110,6 +118,8 @@ async def get_profit_loss_report(
     sales_query = select(func.sum(Sale.total_amount)).where(
         Sale.status == SaleStatus.COMPLETED
     )
+    if business_id:
+        sales_query = sales_query.where(Sale.business_id == business_id)
     if start_date:
         sales_query = sales_query.where(Sale.sale_date >= start_date)
     if end_date:
@@ -119,8 +129,10 @@ async def get_profit_loss_report(
     sales_result = await db.execute(sales_query)
     total_sales = sales_result.scalar() or Decimal("0")
 
-    # -- Operating costs (active only) --
+    # -- Operating costs (active only, scoped to business) --
     opex_query = select(OperatingCost).where(OperatingCost.is_active == True)  # noqa: E712
+    if business_id:
+        opex_query = opex_query.where(OperatingCost.business_id == business_id)
     opex_result = await db.execute(opex_query)
     operating_costs = opex_result.scalars().all()
 
@@ -150,10 +162,14 @@ async def get_profit_loss_report(
 
     # -- Purchase returns in period --
     returns_query = select(func.sum(PurchaseReturn.total_amount))
-    if location_id:
+    if location_id or business_id:
         returns_query = returns_query.join(
             PurchaseOrder, PurchaseOrder.id == PurchaseReturn.original_order_id
-        ).where(PurchaseOrder.location_id == location_id)
+        )
+        if location_id:
+            returns_query = returns_query.where(PurchaseOrder.location_id == location_id)
+        if business_id:
+            returns_query = returns_query.where(PurchaseOrder.business_id == business_id)
     if start_date:
         returns_query = returns_query.where(PurchaseReturn.return_date >= start_date)
     if end_date:
@@ -162,7 +178,9 @@ async def get_profit_loss_report(
     purchase_returns_total = returns_result.scalar() or Decimal("0")
 
     # -- Sell returns in period --
-    total_sales_returns = await _sum_sell_returns(db, start_date, end_date, location_id)
+    total_sales_returns = await _sum_sell_returns(
+        db, start_date, end_date, location_id, business_id
+    )
 
     # -- Purchase due: sum of outstanding balances on UNPAID/PARTIAL orders --
     paid_subq = (
@@ -187,6 +205,10 @@ async def get_profit_loss_report(
             )
         )
     )
+    if business_id:
+        purchase_due_query = purchase_due_query.where(
+            PurchaseOrder.business_id == business_id
+        )
     if start_date:
         purchase_due_query = purchase_due_query.where(PurchaseOrder.created_at >= start_date)
     if end_date:
@@ -212,6 +234,8 @@ async def get_profit_loss_report(
             )
         )
     )
+    if business_id:
+        sales_due_query = sales_due_query.where(Sale.business_id == business_id)
     if start_date:
         sales_due_query = sales_due_query.where(Sale.sale_date >= start_date)
     if end_date:
@@ -243,17 +267,19 @@ async def get_stock_report(
     db: AsyncSession,
     category_id: str | None = None,
     location_id: uuid.UUID | None = None,
+    business_id: uuid.UUID | None = None,
 ) -> StockReport:
     """Generate a stock report showing inventory levels and valuations.
 
     Args:
         db: Async database session.
         category_id: Optional UUID string to filter by product category.
+        business_id: Restrict report to this business's data.
 
     Returns:
         StockReport with per-product rows and aggregated totals.
     """
-    logger.info("generating stock_report", category_id=category_id)
+    logger.info("generating stock_report", category_id=category_id, business_id=business_id)
 
     # Build the query: products JOIN inventory_levels LEFT JOIN sales aggregate
     # Using a subquery for total_sold per product
@@ -263,6 +289,8 @@ async def get_stock_report(
     ).where(Sale.status == SaleStatus.COMPLETED)
     if location_id:
         sold_subq_base = sold_subq_base.where(Sale.location_id == location_id)
+    if business_id:
+        sold_subq_base = sold_subq_base.where(Sale.business_id == business_id)
     sold_subq = sold_subq_base.group_by(Sale.product_id).subquery()
 
     query = (
@@ -330,6 +358,7 @@ async def get_purchase_sale_report(
     start_date: date | None = None,
     end_date: date | None = None,
     location_id: uuid.UUID | None = None,
+    business_id: uuid.UUID | None = None,
 ) -> PurchaseSaleReport:
     """Generate a purchase and sale summary report.
 
@@ -337,16 +366,20 @@ async def get_purchase_sale_report(
         db: Async database session.
         start_date: Start of reporting period (inclusive). None means all time.
         end_date: End of reporting period (inclusive). None means all time.
+        business_id: Restrict report to this business's data.
 
     Returns:
         PurchaseSaleReport with purchase and sales totals.
     """
     logger.info(
-        "generating purchase_sale_report", start_date=start_date, end_date=end_date
+        "generating purchase_sale_report", start_date=start_date, end_date=end_date,
+        business_id=business_id,
     )
 
     # -- Total purchases --
     purchase_query = select(func.sum(PurchaseOrder.total_amount))
+    if business_id:
+        purchase_query = purchase_query.where(PurchaseOrder.business_id == business_id)
     if start_date:
         purchase_query = purchase_query.where(PurchaseOrder.created_at >= start_date)
     if end_date:
@@ -358,6 +391,10 @@ async def get_purchase_sale_report(
 
     # -- Purchase returns in period --
     purchase_returns_query = select(func.sum(PurchaseReturn.total_amount))
+    if business_id:
+        purchase_returns_query = purchase_returns_query.join(
+            PurchaseOrder, PurchaseOrder.id == PurchaseReturn.original_order_id
+        ).where(PurchaseOrder.business_id == business_id)
     if start_date:
         purchase_returns_query = purchase_returns_query.where(
             PurchaseReturn.return_date >= start_date
@@ -373,6 +410,8 @@ async def get_purchase_sale_report(
     sales_query = select(func.sum(Sale.total_amount)).where(
         Sale.status == SaleStatus.COMPLETED
     )
+    if business_id:
+        sales_query = sales_query.where(Sale.business_id == business_id)
     if start_date:
         sales_query = sales_query.where(Sale.sale_date >= start_date)
     if end_date:
@@ -383,7 +422,9 @@ async def get_purchase_sale_report(
     total_sales = sales_result.scalar() or Decimal("0")
 
     # -- Sell returns in period --
-    total_sales_returns = await _sum_sell_returns(db, start_date, end_date)
+    total_sales_returns = await _sum_sell_returns(
+        db, start_date, end_date, business_id=business_id
+    )
 
     net_position = total_sales - total_purchase
 
@@ -402,6 +443,7 @@ async def get_product_sales_report(
     end_date: date | None = None,
     category_id: uuid.UUID | None = None,
     location_id: uuid.UUID | None = None,
+    business_id: uuid.UUID | None = None,
     page: int = 1,
     page_size: int = 20,
 ) -> ProductSalesReport:
@@ -411,6 +453,7 @@ async def get_product_sales_report(
         start_date=start_date,
         end_date=end_date,
         page=page,
+        business_id=business_id,
     )
 
     # Returns subquery: count of sell_returns per product (via sale join)
@@ -450,6 +493,8 @@ async def get_product_sales_report(
         )
     )
 
+    if business_id:
+        base_q = base_q.where(Sale.business_id == business_id)
     if start_date:
         base_q = base_q.where(Sale.sale_date >= start_date)
     if end_date:
@@ -513,6 +558,7 @@ async def get_trending_products(
     end_date: date | None = None,
     limit: int = 10,
     sort_by: Literal["revenue", "quantity"] = "revenue",
+    business_id: uuid.UUID | None = None,
 ) -> TrendingProductsReport:
     """Return top-N products sorted by revenue or quantity."""
     logger.info(
@@ -521,6 +567,7 @@ async def get_trending_products(
         end_date=end_date,
         limit=limit,
         sort_by=sort_by,
+        business_id=business_id,
     )
 
     order_col = (
@@ -544,6 +591,8 @@ async def get_trending_products(
         .group_by(Product.id, Product.sku, Product.name, ProductCategory.name)
     )
 
+    if business_id:
+        q = q.where(Sale.business_id == business_id)
     if start_date:
         q = q.where(Sale.sale_date >= start_date)
     if end_date:

@@ -28,10 +28,24 @@ logger = structlog.get_logger()
 
 async def _pos_sync_loop(interval_seconds: int = 600) -> None:
     """Background task: run incremental POS sync every N seconds."""
+    import uuid as _uuid
+
     pos_user = os.environ.get("POS_USERNAME")
     pos_pass = os.environ.get("POS_PASSWORD")
     if not pos_user or not pos_pass:
         logger.info("pos_sync_disabled", reason="POS_USERNAME/POS_PASSWORD not set")
+        return
+
+    # POS_BUSINESS_ID must be set to the UUID of the business that owns the POS
+    # data. Without it, synced records cannot be scoped to a tenant.
+    pos_business_id_raw = os.environ.get("POS_BUSINESS_ID")
+    if not pos_business_id_raw:
+        logger.info("pos_sync_disabled", reason="POS_BUSINESS_ID not set")
+        return
+    try:
+        pos_business_id = _uuid.UUID(pos_business_id_raw)
+    except ValueError:
+        await logger.aerror("pos_sync_invalid_business_id", raw=pos_business_id_raw)
         return
 
     from scripts.pos_migrate import POSClient
@@ -44,7 +58,7 @@ async def _pos_sync_loop(interval_seconds: int = 600) -> None:
             client = POSClient()
             client.login()
             async with async_session_factory() as db:
-                service = POSSyncService(db=db, pos_client=client)
+                service = POSSyncService(db=db, pos_client=client, business_id=pos_business_id)
                 result = await service.run_incremental_sync()
                 await db.commit()
                 await logger.ainfo(

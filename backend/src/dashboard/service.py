@@ -25,7 +25,7 @@ _ZERO = Decimal("0")
 
 async def get_dashboard_summary(
     db: AsyncSession,
-    user_id: uuid.UUID,
+    business_id: uuid.UUID,
     location_id: uuid.UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
@@ -34,7 +34,7 @@ async def get_dashboard_summary(
 
     # -- Build all queries ------------------------------------------------
     q = select(func.coalesce(func.sum(Sale.total_amount), _ZERO)).where(
-        Sale.recorded_by == user_id,
+        Sale.business_id == business_id,
         Sale.status == SaleStatus.COMPLETED,
     )
     if location_id is not None:
@@ -45,7 +45,7 @@ async def get_dashboard_summary(
         q = q.where(Sale.sale_date <= date_to)
 
     q_cogs = select(func.coalesce(func.sum(Sale.fifo_cogs), _ZERO)).where(
-        Sale.recorded_by == user_id,
+        Sale.business_id == business_id,
         Sale.status == SaleStatus.COMPLETED,
         Sale.fifo_cogs.isnot(None),
     )
@@ -59,16 +59,16 @@ async def get_dashboard_summary(
     # OperatingCost stores a normalised monthly rate; pro-rate when a bounded
     # date range is given to avoid over-subtracting from net.
     # NOTE: OperatingCost has no location_id column, so this aggregation is
-    # always user-scope regardless of the location filter.
+    # always business-scope regardless of the location filter.
     q_exp = select(
         func.coalesce(func.sum(OperatingCost.monthly_equivalent), _ZERO)
     ).where(
-        OperatingCost.created_by == user_id,
+        OperatingCost.business_id == business_id,
         OperatingCost.is_active.is_(True),
     )
 
     q_inv = select(func.coalesce(func.sum(Sale.total_amount), _ZERO)).where(
-        Sale.recorded_by == user_id,
+        Sale.business_id == business_id,
         Sale.status == SaleStatus.COMPLETED,
         or_(Sale.payment_status.is_(None), Sale.payment_status != "paid"),
     )
@@ -87,7 +87,7 @@ async def get_dashboard_summary(
         )
         .join(Sale, SellReturn.sale_id == Sale.id)
         .where(
-            Sale.recorded_by == user_id,
+            Sale.business_id == business_id,
             Sale.status == SaleStatus.COMPLETED,
         )
     )
@@ -99,7 +99,7 @@ async def get_dashboard_summary(
         q_sr = q_sr.where(SellReturn.return_date <= date_to)
 
     q_po = select(func.coalesce(func.sum(PurchaseOrder.total_amount), _ZERO)).where(
-        PurchaseOrder.created_by == user_id,
+        PurchaseOrder.business_id == business_id,
     )
     if location_id is not None:
         q_po = q_po.where(PurchaseOrder.location_id == location_id)
@@ -131,7 +131,7 @@ async def get_dashboard_summary(
         )
         .outerjoin(_paid_subq, _paid_subq.c.order_id == PurchaseOrder.id)
         .where(
-            PurchaseOrder.created_by == user_id,
+            PurchaseOrder.business_id == business_id,
             PurchaseOrder.payment_status.in_(
                 [OrderPaymentStatus.UNPAID, OrderPaymentStatus.PARTIAL]
             ),
@@ -151,7 +151,7 @@ async def get_dashboard_summary(
             func.coalesce(func.sum(PurchaseReturn.amount_paid), _ZERO),
         )
         .join(PurchaseOrder, PurchaseReturn.original_order_id == PurchaseOrder.id)
-        .where(PurchaseOrder.created_by == user_id)
+        .where(PurchaseOrder.business_id == business_id)
     )
     if location_id is not None:
         q_pr = q_pr.where(PurchaseOrder.location_id == location_id)
@@ -162,7 +162,7 @@ async def get_dashboard_summary(
 
     # -- transaction count for the selected period -------------------------
     q_count = select(func.count(Sale.id)).where(
-        Sale.recorded_by == user_id,
+        Sale.business_id == business_id,
         Sale.status == SaleStatus.COMPLETED,
     )
     if location_id is not None:
@@ -175,7 +175,7 @@ async def get_dashboard_summary(
     # -- yesterday's revenue (always calendar yesterday, same location) ----
     _yesterday = date.today() - timedelta(days=1)
     q_yesterday = select(func.coalesce(func.sum(Sale.total_amount), _ZERO)).where(
-        Sale.recorded_by == user_id,
+        Sale.business_id == business_id,
         Sale.status == SaleStatus.COMPLETED,
         Sale.sale_date == _yesterday,
     )
@@ -187,7 +187,7 @@ async def get_dashboard_summary(
         select(Product.name, Sale.quantity, Sale.total_amount, Sale.fifo_cogs)
         .join(Product, Sale.product_id == Product.id)
         .where(
-            Sale.recorded_by == user_id,
+            Sale.business_id == business_id,
             Sale.status == SaleStatus.COMPLETED,
         )
         .order_by(Sale.created_at.desc())
