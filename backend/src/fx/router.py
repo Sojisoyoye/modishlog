@@ -89,9 +89,10 @@ async def ingest_rate_endpoint(
     body: FXRateIngest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Manually ingest an FX rate observation."""
-    return await ingest_rate(db, body, current_user.id)
+    return await ingest_rate(db, body, current_user.id, business_id=business_id)
 
 
 @router.get("/rates/current", response_model=list[FXRateRead])

@@ -60,8 +60,13 @@ async def ingest_rate(
     db: AsyncSession,
     data: FXRateIngest,
     user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> FXRate:
-    """Ingest a single FX rate observation and check alerts."""
+    """Ingest a single FX rate observation and check alerts.
+
+    ``business_id`` should be supplied from the authenticated user context so
+    that alert checking is scoped to the user's business only.
+    """
     ts = data.timestamp or datetime.now(timezone.utc)
 
     rate = FXRate(
@@ -74,8 +79,8 @@ async def ingest_rate(
     db.add(rate)
     await db.flush()
 
-    # Check alerts asynchronously
-    await check_alerts(db, data.pair, data.rate)
+    # Check alerts scoped to this business (user-triggered ingestion)
+    await check_alerts(db, data.pair, data.rate, business_id=business_id)
 
     # Check EUR/USD threshold alert on ingestion
     if data.pair == "EURUSD":
@@ -812,15 +817,23 @@ async def check_alerts(
     db: AsyncSession,
     pair: str,
     current_rate: Decimal,
+    business_id: uuid.UUID | None = None,
 ) -> list[FXAlert]:
-    """Check all enabled alerts for a pair and trigger those that cross the threshold."""
-    result = await db.execute(
-        select(FXAlert).where(
-            FXAlert.pair == pair,
-            FXAlert.is_enabled.is_(True),
-            FXAlert.is_triggered.is_(False),
-        )
+    """Check enabled alerts for a pair and trigger those that cross the threshold.
+
+    When ``business_id`` is provided (user-triggered ingestion), only that
+    business's alerts are evaluated.  When ``business_id`` is ``None``
+    (background system sync), all businesses' alerts for the pair are checked —
+    this is intentional: rate movements are global events.
+    """
+    query = select(FXAlert).where(
+        FXAlert.pair == pair,
+        FXAlert.is_enabled.is_(True),
+        FXAlert.is_triggered.is_(False),
     )
+    if business_id is not None:
+        query = query.where(FXAlert.business_id == business_id)
+    result = await db.execute(query)
     alerts = list(result.scalars().all())
     triggered: list[FXAlert] = []
 
