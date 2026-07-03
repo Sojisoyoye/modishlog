@@ -20,6 +20,7 @@ from src.inventory.models import (
     StockMovement,
 )
 from src.inventory.schemas import DepletionForecastRead
+from src.products.models import Product
 
 logger = structlog.get_logger()
 
@@ -75,8 +76,23 @@ async def initialize_inventory(
 async def get_inventory_level(
     db: AsyncSession,
     product_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> InventoryLevel:
-    """Get the current inventory level for a product."""
+    """Get the current inventory level for a product.
+
+    If business_id is provided, verifies the product belongs to that business
+    before returning its inventory level.
+    """
+    if business_id is not None:
+        product_result = await db.execute(
+            select(Product).where(
+                Product.id == product_id,
+                Product.business_id == business_id,
+            )
+        )
+        if product_result.scalar_one_or_none() is None:
+            raise ProductStockNotFoundError(product_id)
+
     result = await db.execute(
         select(InventoryLevel).where(InventoryLevel.product_id == product_id)
     )
@@ -89,12 +105,24 @@ async def get_inventory_level(
 async def list_inventory_levels(
     db: AsyncSession,
     *,
+    business_id: uuid.UUID | None = None,
     low_stock_only: bool = False,
     page: int = 1,
     page_size: int = 200,
 ) -> tuple[list[InventoryLevel], int]:
-    """List inventory levels with pagination. Returns (items, total)."""
+    """List inventory levels with pagination. Returns (items, total).
+
+    If business_id is provided, only returns inventory for products belonging
+    to that business (scoped through the products table).
+    """
     base_query = select(InventoryLevel)
+    if business_id is not None:
+        scoped_product_ids = select(Product.id).where(
+            Product.business_id == business_id
+        )
+        base_query = base_query.where(
+            InventoryLevel.product_id.in_(scoped_product_ids)
+        )
     if low_stock_only:
         base_query = base_query.where(
             InventoryLevel.quantity_on_hand <= InventoryLevel.low_stock_threshold
@@ -119,9 +147,10 @@ async def update_threshold(
     db: AsyncSession,
     product_id: uuid.UUID,
     low_stock_threshold: int,
+    business_id: uuid.UUID | None = None,
 ) -> InventoryLevel:
     """Update the low-stock threshold for a product."""
-    inventory = await get_inventory_level(db, product_id)
+    inventory = await get_inventory_level(db, product_id, business_id=business_id)
     inventory.low_stock_threshold = low_stock_threshold
     await db.flush()
     await logger.ainfo(
@@ -146,8 +175,19 @@ async def adjust_stock(
     user_id: uuid.UUID,
     reference_id: uuid.UUID | None = None,
     reference_type: str | None = None,
+    business_id: uuid.UUID | None = None,
 ) -> InventoryLevel:
     """Adjust stock and create a StockMovement audit record."""
+    if business_id is not None:
+        product_result = await db.execute(
+            select(Product).where(
+                Product.id == product_id,
+                Product.business_id == business_id,
+            )
+        )
+        if product_result.scalar_one_or_none() is None:
+            raise ProductStockNotFoundError(product_id)
+
     result = await db.execute(
         select(InventoryLevel)
         .where(InventoryLevel.product_id == product_id)
@@ -200,8 +240,22 @@ async def adjust_stock(
 async def get_stock_movements(
     db: AsyncSession,
     product_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> list[StockMovement]:
-    """Get stock movement history for a product."""
+    """Get stock movement history for a product.
+
+    If business_id is provided, verifies the product belongs to that business.
+    """
+    if business_id is not None:
+        product_result = await db.execute(
+            select(Product).where(
+                Product.id == product_id,
+                Product.business_id == business_id,
+            )
+        )
+        if product_result.scalar_one_or_none() is None:
+            raise ProductStockNotFoundError(product_id)
+
     result = await db.execute(
         select(StockMovement)
         .where(StockMovement.product_id == product_id)
@@ -213,11 +267,21 @@ async def get_stock_movements(
 async def list_all_movements(
     db: AsyncSession,
     limit: int = 50,
+    business_id: uuid.UUID | None = None,
 ) -> list[StockMovement]:
-    """Return the most recent stock movements across all products."""
-    result = await db.execute(
-        select(StockMovement).order_by(StockMovement.created_at.desc()).limit(limit)
-    )
+    """Return the most recent stock movements across all products.
+
+    If business_id is provided, only returns movements for products belonging
+    to that business (scoped through the products table).
+    """
+    query = select(StockMovement)
+    if business_id is not None:
+        scoped_product_ids = select(Product.id).where(
+            Product.business_id == business_id
+        )
+        query = query.where(StockMovement.product_id.in_(scoped_product_ids))
+    query = query.order_by(StockMovement.created_at.desc()).limit(limit)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 
@@ -229,9 +293,10 @@ async def list_all_movements(
 async def calculate_depletion_forecast(
     db: AsyncSession,
     product_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> DepletionForecastRead:
     """Compute predicted stock-out date based on 30-day sales velocity."""
-    inventory = await get_inventory_level(db, product_id)
+    inventory = await get_inventory_level(db, product_id, business_id=business_id)
 
     # Sum all sale depletions for velocity estimate
     result = await db.execute(
@@ -323,8 +388,22 @@ async def create_batch(
 async def get_batches_for_product(
     db: AsyncSession,
     product_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
 ) -> list[InventoryBatch]:
-    """List batches for a product ordered by received_at ASC (oldest first)."""
+    """List batches for a product ordered by received_at ASC (oldest first).
+
+    If business_id is provided, verifies the product belongs to that business.
+    """
+    if business_id is not None:
+        product_result = await db.execute(
+            select(Product).where(
+                Product.id == product_id,
+                Product.business_id == business_id,
+            )
+        )
+        if product_result.scalar_one_or_none() is None:
+            raise ProductStockNotFoundError(product_id)
+
     result = await db.execute(
         select(InventoryBatch)
         .where(InventoryBatch.product_id == product_id)
@@ -380,13 +459,21 @@ async def fifo_deduct(
 async def get_liquidation_candidates(
     db: AsyncSession,
     target_ngn: Decimal,
+    business_id: uuid.UUID | None = None,
 ) -> list[dict]:
-    """Return batches ordered by cheapest landed cost with discount needed."""
-    result = await db.execute(
-        select(InventoryBatch)
-        .where(InventoryBatch.quantity_remaining > 0)
-        .order_by(InventoryBatch.landed_cost_per_unit.asc())
-    )
+    """Return batches ordered by cheapest landed cost with discount needed.
+
+    If business_id is provided, only returns batches for products belonging
+    to that business (scoped through the products table).
+    """
+    query = select(InventoryBatch).where(InventoryBatch.quantity_remaining > 0)
+    if business_id is not None:
+        scoped_product_ids = select(Product.id).where(
+            Product.business_id == business_id
+        )
+        query = query.where(InventoryBatch.product_id.in_(scoped_product_ids))
+    query = query.order_by(InventoryBatch.landed_cost_per_unit.asc())
+    result = await db.execute(query)
     batches = list(result.scalars().all())
 
     candidates = []

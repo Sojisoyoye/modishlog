@@ -494,11 +494,14 @@ class TestProductEndpoints:
         return {"Authorization": f"Bearer {token}"}, user
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
-        u = _make_user()
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+        u = _make_user(business_id=uuid.uuid4())
         async def _fake_auth():
             return u
+        async def _fake_business_id():
+            return u.business_id
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def test_list_categories_empty(self):
         db = _mock_db_with_execute(scalars_result=[])

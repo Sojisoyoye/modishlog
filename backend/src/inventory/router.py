@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
 from src.inventory.exceptions import (
@@ -43,18 +43,26 @@ async def list_inventory_endpoint(
     page: int = 1,
     page_size: int = 200,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """List inventory levels with pagination."""
     items, total = await list_inventory_levels(
-        db, low_stock_only=low_stock_only, page=page, page_size=page_size
+        db,
+        business_id=business_id,
+        low_stock_only=low_stock_only,
+        page=page,
+        page_size=page_size,
     )
     return InventoryListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/low-stock", response_model=list[InventoryLevelRead])
-async def low_stock_endpoint(db: AsyncSession = Depends(get_db)):
+async def low_stock_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """List products at or below their low-stock threshold."""
-    items, _ = await list_inventory_levels(db, low_stock_only=True)
+    items, _ = await list_inventory_levels(db, business_id=business_id, low_stock_only=True)
     return items
 
 
@@ -62,9 +70,13 @@ async def low_stock_endpoint(db: AsyncSession = Depends(get_db)):
 async def list_batches_endpoint(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """List inventory batches for a product ordered by received_at."""
-    return await get_batches_for_product(db, product_id)
+    try:
+        return await get_batches_for_product(db, product_id, business_id=business_id)
+    except ProductStockNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get(
@@ -73,11 +85,12 @@ async def list_batches_endpoint(
 async def liquidation_candidates_endpoint(
     target_ngn: float = 500000,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get cheapest batches with discount needed to generate target NGN amount."""
     from decimal import Decimal
 
-    data = await get_liquidation_candidates(db, Decimal(str(target_ngn)))
+    data = await get_liquidation_candidates(db, Decimal(str(target_ngn)), business_id=business_id)
     return [LiquidationCandidate(**d) for d in data]
 
 
@@ -85,19 +98,21 @@ async def liquidation_candidates_endpoint(
 async def list_all_movements_endpoint(
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """List the most recent stock movements across all products."""
-    return await list_all_movements(db, limit=limit)
+    return await list_all_movements(db, limit=limit, business_id=business_id)
 
 
 @router.get("/{product_id}", response_model=InventoryLevelRead)
 async def get_inventory_endpoint(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get inventory level for a specific product."""
     try:
-        return await get_inventory_level(db, product_id)
+        return await get_inventory_level(db, product_id, business_id=business_id)
     except ProductStockNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -108,10 +123,11 @@ async def update_threshold_endpoint(
     body: ThresholdUpdateRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update the low-stock threshold for a product."""
     try:
-        return await update_threshold(db, product_id, body.low_stock_threshold)
+        return await update_threshold(db, product_id, body.low_stock_threshold, business_id=business_id)
     except ProductStockNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -122,6 +138,7 @@ async def adjust_stock_endpoint(
     body: StockAdjustmentRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Manually adjust stock for a product."""
     try:
@@ -132,6 +149,7 @@ async def adjust_stock_endpoint(
             movement_type=body.movement_type,
             reason=body.reason,
             user_id=current_user.id,
+            business_id=business_id,
         )
     except ProductStockNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -143,18 +161,23 @@ async def adjust_stock_endpoint(
 async def get_movements_endpoint(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get stock movement history for a product."""
-    return await get_stock_movements(db, product_id)
+    try:
+        return await get_stock_movements(db, product_id, business_id=business_id)
+    except ProductStockNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get("/{product_id}/depletion-forecast", response_model=DepletionForecastRead)
 async def depletion_forecast_endpoint(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get predicted stock-out date for a product."""
     try:
-        return await calculate_depletion_forecast(db, product_id)
+        return await calculate_depletion_forecast(db, product_id, business_id=business_id)
     except ProductStockNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
