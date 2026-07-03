@@ -23,30 +23,10 @@ jobs:
             BACKEND="${DOCKER_GW}:8003"
             echo "Backend: $BACKEND"
 
-            # Replace the api.modishlog.com block using brace counting
-            python3 - "$BACKEND" <<PYEOF
-            import pathlib, sys
-            backend = sys.argv[1]
-            path = pathlib.Path("$CADDYFILE")
-            lines = path.read_text().splitlines(keepends=True)
-            out = []
-            i = 0
-            while i < len(lines):
-                if lines[i].strip().startswith("api.modishlog.com") and "{" in lines[i]:
-                    # Skip lines until we find the matching closing brace
-                    depth = lines[i].count("{") - lines[i].count("}")
-                    i += 1
-                    while i < len(lines) and depth > 0:
-                        depth += lines[i].count("{") - lines[i].count("}")
-                        i += 1
-                    # Write the replacement block
-                    out.append(f"\napi.modishlog.com {{\n    reverse_proxy {backend}\n}}\n")
-                else:
-                    out.append(lines[i])
-                    i += 1
-            path.write_text("".join(out))
-            print("Caddyfile updated")
-            PYEOF
+            # Use base64-encoded Python script to avoid heredoc escaping issues
+            echo "CmltcG9ydCBwYXRobGliLCBzeXMKYmFja2VuZCA9IHN5cy5hcmd2WzFdCnBhdGggPSBwYXRobGliLlBhdGgoIi9vcHQvbW9kaXNoL0NhZGR5ZmlsZSIpCmxpbmVzID0gcGF0aC5yZWFkX3RleHQoKS5zcGxpdGxpbmVzKGtlZXBlbmRzPVRydWUpCm91dCA9IFtdCmkgPSAwCndoaWxlIGkgPCBsZW4obGluZXMpOgogICAgbGluZSA9IGxpbmVzW2ldCiAgICBpZiAiYXBpLm1vZGlzaGxvZy5jb20iIGluIGxpbmUgYW5kICJ7IiBpbiBsaW5lIGFuZCAiQCIgbm90IGluIGxpbmU6CiAgICAgICAgIyBGb3VuZCB0aGUgYXBpLm1vZGlzaGxvZy5jb20gYmxvY2sgLSBjb3VudCBicmFjZXMgdG8gZmluZCBpdHMgZW5kCiAgICAgICAgZGVwdGggPSBsaW5lLmNvdW50KCJ7IikgLSBsaW5lLmNvdW50KCJ9IikKICAgICAgICBpICs9IDEKICAgICAgICB3aGlsZSBpIDwgbGVuKGxpbmVzKSBhbmQgZGVwdGggPiAwOgogICAgICAgICAgICBkZXB0aCArPSBsaW5lc1tpXS5jb3VudCgieyIpIC0gbGluZXNbaV0uY291bnQoIn0iKQogICAgICAgICAgICBpICs9IDEKICAgICAgICAjIFdyaXRlIHJlcGxhY2VtZW50IGJsb2NrCiAgICAgICAgb3V0LmFwcGVuZChmIlxuYXBpLm1vZGlzaGxvZy5jb20ge3tcbiAgICByZXZlcnNlX3Byb3h5IHtiYWNrZW5kfVxufX1cbiIpCiAgICBlbHNlOgogICAgICAgIG91dC5hcHBlbmQobGluZSkKICAgICAgICBpICs9IDEKcGF0aC53cml0ZV90ZXh0KCIiLmpvaW4ob3V0KSkKcHJpbnQoIkRvbmUuIEJsb2NrIHJlcGxhY2VkLiIpCg==" | base64 -d > /tmp/patch_caddy.py
+            python3 /tmp/patch_caddy.py "$BACKEND"
+            rm /tmp/patch_caddy.py
 
             echo "=== Updated api.modishlog.com block ==="
             grep -A 5 "api.modishlog.com" $CADDYFILE
