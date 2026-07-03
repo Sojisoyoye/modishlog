@@ -206,7 +206,8 @@ class TestLoanCRUD:
             currency = "NGN"
             notes = None
 
-        result = await create_loan(db, LoanData(), uuid.uuid4())
+        biz_id = uuid.uuid4()
+        result = await create_loan(db, LoanData(), uuid.uuid4(), biz_id)
         assert result.lender_name == "Access Bank"
         assert result.outstanding_balance == Decimal("500000")
         assert db.add.called
@@ -217,7 +218,7 @@ class TestLoanCRUD:
 
         loans = [_make_loan()]
         db = _mock_db_with_execute(scalars_result=loans)
-        result = await get_loans(db)
+        result = await get_loans(db, uuid.uuid4())
         assert len(result) == 1
 
     @pytest.mark.asyncio
@@ -226,7 +227,7 @@ class TestLoanCRUD:
 
         db = _mock_db_with_execute(scalar_result=None)
         with pytest.raises(LoanNotFoundError):
-            await get_loan(db, uuid.uuid4())
+            await get_loan(db, uuid.uuid4(), uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_get_loan_success(self):
@@ -234,7 +235,7 @@ class TestLoanCRUD:
 
         loan = _make_loan()
         db = _mock_db_with_execute(scalar_result=loan)
-        result = await get_loan(db, loan.id)
+        result = await get_loan(db, loan.id, uuid.uuid4())
         assert result.lender_name == "Test Bank"
 
 
@@ -257,7 +258,8 @@ class TestOperatingCostCRUD:
             frequency = CostFrequency.MONTHLY
             category = CostCategory.UTILITIES
 
-        result = await create_operating_cost(db, CostData(), uuid.uuid4())
+        biz_id = uuid.uuid4()
+        result = await create_operating_cost(db, CostData(), uuid.uuid4(), biz_id)
         assert result.cost_name == "Internet"
         assert result.monthly_equivalent == Decimal("15000.00")
         assert db.add.called
@@ -275,7 +277,8 @@ class TestOperatingCostCRUD:
             frequency = CostFrequency.WEEKLY
             category = CostCategory.TRANSPORT
 
-        result = await create_operating_cost(db, CostData(), uuid.uuid4())
+        biz_id = uuid.uuid4()
+        result = await create_operating_cost(db, CostData(), uuid.uuid4(), biz_id)
         assert result.monthly_equivalent == Decimal("21650.00")
 
     @pytest.mark.asyncio
@@ -284,7 +287,7 @@ class TestOperatingCostCRUD:
 
         costs = [_make_operating_cost()]
         db = _mock_db_with_execute(scalars_result=costs)
-        result = await get_operating_costs(db)
+        result = await get_operating_costs(db, uuid.uuid4())
         assert len(result) == 1
 
 
@@ -331,7 +334,7 @@ class TestDSCR:
 
         db.execute = AsyncMock(side_effect=[rev_result, opex_result, loan_result])
 
-        result = await get_current_dscr(db)
+        result = await get_current_dscr(db, uuid.uuid4())
         assert result["dscr"] == Decimal("3.500")  # (1M - 300k) / 200k
         assert result["color"] == "green"
 
@@ -413,7 +416,7 @@ class TestCashRunway:
 
         db = _mock_db_with_execute(scalar_result=None)
         with pytest.raises(ProjectionNotFoundError):
-            await calculate_cash_runway(db)
+            await calculate_cash_runway(db, uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_runway_all_positive(self):
@@ -421,7 +424,7 @@ class TestCashRunway:
 
         proj = _make_projection()
         db = _mock_db_with_execute(scalar_result=proj)
-        result = await calculate_cash_runway(db)
+        result = await calculate_cash_runway(db, uuid.uuid4())
         assert result["runway_months"] == Decimal("999.0")
         assert result["avg_monthly_burn"] == Decimal("0")
 
@@ -458,7 +461,7 @@ class TestCashRunway:
             ],
         )
         db = _mock_db_with_execute(scalar_result=proj)
-        result = await calculate_cash_runway(db)
+        result = await calculate_cash_runway(db, uuid.uuid4())
         assert result["runway_months"] == Decimal("3.0")
         assert result["avg_monthly_burn"] == Decimal("-100000.00")
 
@@ -474,7 +477,7 @@ class TestLiquidityAlerts:
         from src.cashflow.service import check_liquidity_alerts
 
         db = _mock_db_with_execute(scalar_result=None)
-        result = await check_liquidity_alerts(db)
+        result = await check_liquidity_alerts(db, uuid.uuid4())
         assert result == []
 
     @pytest.mark.asyncio
@@ -498,7 +501,7 @@ class TestLiquidityAlerts:
             ],
         )
         db = _mock_db_with_execute(scalar_result=proj)
-        result = await check_liquidity_alerts(db)
+        result = await check_liquidity_alerts(db, uuid.uuid4())
         # Should have: negative_cashflow (WARNING), dscr_below_1 (CRITICAL),
         # low_runway (WARNING)
         types = [a["type"] for a in result]
@@ -527,7 +530,7 @@ class TestLiquidityAlerts:
             ],
         )
         db = _mock_db_with_execute(scalar_result=proj)
-        result = await check_liquidity_alerts(db)
+        result = await check_liquidity_alerts(db, uuid.uuid4())
         severities = [a["severity"] for a in result]
         assert "CRITICAL" in severities
         types = [a["type"] for a in result]
@@ -596,11 +599,19 @@ class TestCashflowEndpoints:
         return {"Authorization": f"Bearer {token}"}, user
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+        biz_id = uuid.uuid4()
         u = _make_user()
+        u.business_id = biz_id
+
         async def _fake_auth():
             return u
+
+        async def _fake_business_id():
+            return biz_id
+
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def test_list_loans_empty(self):
         self._override_auth()
@@ -835,7 +846,7 @@ class TestTriageFunctions:
         from src.cashflow.service import get_active_triage
 
         db = _mock_db_with_execute(scalar_result=None)
-        result = await get_active_triage(db)
+        result = await get_active_triage(db, uuid.uuid4())
         assert result is None
 
     @pytest.mark.asyncio
@@ -844,7 +855,7 @@ class TestTriageFunctions:
 
         triage = _make_triage()
         db = _mock_db_with_execute(scalar_result=triage)
-        result = await get_active_triage(db)
+        result = await get_active_triage(db, uuid.uuid4())
         assert result is not None
         assert result.status == TriageStatus.ACTIVE
 
@@ -853,7 +864,7 @@ class TestTriageFunctions:
         from src.cashflow.service import auto_resolve_triage
 
         db = _mock_db_with_execute(scalar_result=None)
-        result = await auto_resolve_triage(db)
+        result = await auto_resolve_triage(db, uuid.uuid4())
         assert result is False
 
     @pytest.mark.asyncio
@@ -862,7 +873,7 @@ class TestTriageFunctions:
 
         triage = _make_triage()
         db = _mock_db_with_execute(scalar_result=triage)
-        result = await auto_resolve_triage(db)
+        result = await auto_resolve_triage(db, uuid.uuid4())
         assert result is True
         assert triage.status == TriageStatus.RESOLVED
         assert triage.resolution_date == date.today()
@@ -905,7 +916,7 @@ class TestTriageFunctions:
             ]
         )
 
-        result = await check_and_activate_triage(db, horizon_days=30)
+        result = await check_and_activate_triage(db, uuid.uuid4(), horizon_days=30)
         assert result is None
 
     @pytest.mark.asyncio
@@ -946,7 +957,7 @@ class TestTriageFunctions:
             ]
         )
 
-        result = await generate_triage_recommendations(db)
+        result = await generate_triage_recommendations(db, uuid.uuid4())
         assert result["shortfall_amount"] == Decimal("200000.000000")
         assert result["triage_id"] == triage.id
         # LIQUIDATE should be present (even with empty candidates)
@@ -986,7 +997,7 @@ class TestTriageFunctions:
             ]
         )
 
-        result = await generate_triage_recommendations(db)
+        result = await generate_triage_recommendations(db, uuid.uuid4())
         action_types = [r["action_type"] for r in result["recommendations"]]
         assert "ACCELERATE_COLLECTION" in action_types
         accel = next(r for r in result["recommendations"] if r["action_type"] == "ACCELERATE_COLLECTION")
@@ -1031,8 +1042,145 @@ class TestTriageFunctions:
             ]
         )
 
-        result = await generate_triage_recommendations(db)
+        result = await generate_triage_recommendations(db, uuid.uuid4())
         action_types = [r["action_type"] for r in result["recommendations"]]
         assert "DELAY_PAYMENT" in action_types
         delay = next(r for r in result["recommendations"] if r["action_type"] == "DELAY_PAYMENT")
         assert delay["estimated_impact"] == Decimal("50000.00")
+
+
+# ---------------------------------------------------------------------------
+# Business Isolation Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cashflow_projections_isolates_by_business():
+    """get_latest_projection returns only record for the given business_id."""
+    from src.cashflow.service import get_latest_projection
+
+    business_a_id = uuid.uuid4()
+    business_b_id = uuid.uuid4()
+
+    proj_a = _make_projection()
+
+    async def fake_execute_a(query):
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = proj_a
+        r.scalar.return_value = proj_a
+        return r
+
+    async def fake_execute_b(query):
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = None
+        r.scalar.return_value = None
+        return r
+
+    db_a, db_b = AsyncMock(), AsyncMock()
+    db_a.execute = fake_execute_a
+    db_b.execute = fake_execute_b
+
+    result_a = await get_latest_projection(db_a, business_id=business_a_id)
+    assert result_a is not None
+
+    from src.cashflow.exceptions import ProjectionNotFoundError
+    with pytest.raises(ProjectionNotFoundError):
+        await get_latest_projection(db_b, business_id=business_b_id)
+
+
+@pytest.mark.asyncio
+async def test_operating_costs_isolates_by_business():
+    """get_operating_costs returns only records for the given business_id."""
+    from src.cashflow.service import get_operating_costs
+
+    business_a_id = uuid.uuid4()
+    business_b_id = uuid.uuid4()
+
+    cost_a = _make_operating_cost()
+
+    async def fake_execute_a(query):
+        r = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [cost_a]
+        r.scalars.return_value = scalars_mock
+        return r
+
+    async def fake_execute_b(query):
+        r = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        r.scalars.return_value = scalars_mock
+        return r
+
+    db_a, db_b = AsyncMock(), AsyncMock()
+    db_a.execute = fake_execute_a
+    db_b.execute = fake_execute_b
+
+    result_a = await get_operating_costs(db_a, business_id=business_a_id)
+    result_b = await get_operating_costs(db_b, business_id=business_b_id)
+    assert len(result_a) > 0
+    assert len(result_b) == 0
+
+
+@pytest.mark.asyncio
+async def test_loan_obligations_isolates_by_business():
+    """get_loans returns only records for the given business_id."""
+    from src.cashflow.service import get_loans
+
+    business_a_id = uuid.uuid4()
+    business_b_id = uuid.uuid4()
+
+    loan_a = _make_loan()
+
+    async def fake_execute_a(query):
+        r = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [loan_a]
+        r.scalars.return_value = scalars_mock
+        return r
+
+    async def fake_execute_b(query):
+        r = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        r.scalars.return_value = scalars_mock
+        return r
+
+    db_a, db_b = AsyncMock(), AsyncMock()
+    db_a.execute = fake_execute_a
+    db_b.execute = fake_execute_b
+
+    result_a = await get_loans(db_a, business_id=business_a_id)
+    result_b = await get_loans(db_b, business_id=business_b_id)
+    assert len(result_a) > 0
+    assert len(result_b) == 0
+
+
+@pytest.mark.asyncio
+async def test_triage_records_isolates_by_business():
+    """get_active_triage returns only records for the given business_id."""
+    from src.cashflow.service import get_active_triage
+
+    business_a_id = uuid.uuid4()
+    business_b_id = uuid.uuid4()
+
+    triage_a = _make_triage()
+
+    async def fake_execute_a(query):
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = triage_a
+        return r
+
+    async def fake_execute_b(query):
+        r = MagicMock()
+        r.scalar_one_or_none.return_value = None
+        return r
+
+    db_a, db_b = AsyncMock(), AsyncMock()
+    db_a.execute = fake_execute_a
+    db_b.execute = fake_execute_b
+
+    result_a = await get_active_triage(db_a, business_id=business_a_id)
+    result_b = await get_active_triage(db_b, business_id=business_b_id)
+    assert result_a is not None
+    assert result_b is None

@@ -42,6 +42,9 @@ class CashflowProjection(UUIDMixin, Base):
 
     __tablename__ = "cashflow_projections"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     projection_date: Mapped[date] = mapped_column(Date)
     horizon_months: Mapped[int] = mapped_column(Integer, default=6)
     monthly_buckets: Mapped[dict | None] = mapped_column(JSON, default=None)
@@ -95,6 +98,9 @@ class LoanObligation(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "loan_obligations"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     lender_name: Mapped[str] = mapped_column(String(255))
     principal_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     outstanding_balance: Mapped[Decimal] = mapped_column(Numeric(18, 6))
@@ -146,6 +152,9 @@ class OperatingCost(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "operating_costs"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     cost_name: Mapped[str] = mapped_column(String(255))
     cost_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     frequency: Mapped[CostFrequency] = mapped_column(Enum(CostFrequency))
@@ -189,6 +198,9 @@ class TriageRecord(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "triage_records"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     trigger_date: Mapped[date] = mapped_column(Date)
     shortfall_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     horizon_days: Mapped[int] = mapped_column(Integer)
