@@ -17,9 +17,11 @@ async def create_location(
     db: AsyncSession,
     data: LocationCreate,
     user_id: uuid.UUID,
+    *,
+    business_id: uuid.UUID,
 ) -> BusinessLocation:
-    """Create a new business location record."""
-    # Check for duplicate location_code within the same business
+    """Create a new business location record scoped to a business."""
+    # Check for duplicate location_code scoped to this business
     existing_result = await db.execute(
         select(BusinessLocation).where(
             BusinessLocation.location_code == data.location_code,
@@ -47,6 +49,7 @@ async def create_location(
         tax_number=data.tax_number,
         location_type=data.location_type,
         created_by=user_id,
+        business_id=business_id,
     )
     db.add(location)
     await db.flush()
@@ -55,6 +58,7 @@ async def create_location(
         location_id=str(location.id),
         name=location.name,
         code=location.location_code,
+        business_id=str(business_id),
     )
     return location
 
@@ -62,10 +66,15 @@ async def create_location(
 async def get_location(
     db: AsyncSession,
     location_id: uuid.UUID,
+    *,
+    business_id: uuid.UUID,
 ) -> BusinessLocation:
-    """Fetch a single location by ID."""
+    """Fetch a single location by ID, scoped to the given business."""
     result = await db.execute(
-        select(BusinessLocation).where(BusinessLocation.id == location_id)
+        select(BusinessLocation).where(
+            BusinessLocation.id == location_id,
+            BusinessLocation.business_id == business_id,
+        )
     )
     location = result.scalar_one_or_none()
     if not location:
@@ -76,19 +85,19 @@ async def get_location(
 async def list_locations(
     db: AsyncSession,
     *,
-    user_id: uuid.UUID | None = None,
+    business_id: uuid.UUID,
     search: str | None = None,
     active_only: bool = False,
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[BusinessLocation], int]:
-    """List locations owned by user_id with optional search and active filter."""
-    query = select(BusinessLocation)
-    count_query = select(func.count()).select_from(BusinessLocation)
-
-    if user_id is not None:
-        query = query.where(BusinessLocation.created_by == user_id)
-        count_query = count_query.where(BusinessLocation.created_by == user_id)
+    """List locations for a business with optional search and active filter."""
+    query = select(BusinessLocation).where(
+        BusinessLocation.business_id == business_id
+    )
+    count_query = select(func.count()).select_from(BusinessLocation).where(
+        BusinessLocation.business_id == business_id
+    )
 
     if search:
         like = f"%{search}%"
@@ -114,12 +123,18 @@ async def update_location(
     db: AsyncSession,
     location_id: uuid.UUID,
     data: LocationUpdate,
+    *,
+    business_id: uuid.UUID,
 ) -> BusinessLocation:
-    """Update a business location record."""
-    location = await get_location(db, location_id)
+    """Update a business location record, scoped to the given business."""
+    location = await get_location(db, location_id, business_id=business_id)
     update_fields = data.model_dump(exclude_unset=True)
     for field, value in update_fields.items():
         setattr(location, field, value)
     await db.flush()
-    await logger.ainfo("location_updated", location_id=str(location_id))
+    await logger.ainfo(
+        "location_updated",
+        location_id=str(location_id),
+        business_id=str(business_id),
+    )
     return location

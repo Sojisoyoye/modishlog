@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
 from src.locations.exceptions import DuplicateLocationCodeError, LocationNotFoundError
@@ -30,10 +30,13 @@ async def create_location_endpoint(
     body: LocationCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Create a new business location."""
     try:
-        location = await create_location(db, body, current_user.id)
+        location = await create_location(
+            db, body, current_user.id, business_id=business_id
+        )
         return location
     except DuplicateLocationCodeError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
@@ -46,11 +49,16 @@ async def list_locations_endpoint(
     page: int = 1,
     page_size: int = 50,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """List business locations, optionally filtered by name search."""
     items, total = await list_locations(
-        db, user_id=current_user.id, search=search, active_only=active_only, page=page, page_size=page_size
+        db,
+        business_id=business_id,
+        search=search,
+        active_only=active_only,
+        page=page,
+        page_size=page_size,
     )
     return LocationListResponse(items=items, total=total)
 
@@ -59,11 +67,11 @@ async def list_locations_endpoint(
 async def get_location_endpoint(
     location_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get a single business location by ID."""
     try:
-        return await get_location(db, location_id)
+        return await get_location(db, location_id, business_id=business_id)
     except LocationNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -73,10 +81,10 @@ async def update_location_endpoint(
     location_id: uuid.UUID,
     body: LocationUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update a business location record."""
     try:
-        return await update_location(db, location_id, body)
+        return await update_location(db, location_id, body, business_id=business_id)
     except LocationNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
