@@ -946,7 +946,7 @@ async def update_usd_strategy_config(
 
 async def generate_reorder_suggestions(
     db: AsyncSession,
-    business_id: uuid.UUID | None = None,
+    business_id: uuid.UUID,
 ) -> list[ReorderSuggestion]:
     """Generate reorder suggestions for products at or below reorder point."""
     # Get all products with inventory
