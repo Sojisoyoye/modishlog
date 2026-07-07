@@ -24,7 +24,7 @@ jobs:
             docker exec modishlog-backend python3 /tmp/fix_staging_admin.py
             rm /tmp/fix_staging_admin.py
 
-      - name: Pull latest config and restart backend with correct CORS
+      - name: Inject correct CORS and restart backend
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.HETZNER_HOST }}
@@ -32,7 +32,13 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
             cd /root/modishlog
-            git pull origin main
+            cat > docker-compose.override.yml << 'EOF'
+            version: '3.8'
+            services:
+              backend:
+                environment:
+                  CORS_ORIGINS: '["https://modishlog-staging.vercel.app","https://modishlog-git-main-sojisoyoye.vercel.app","http://localhost:4200"]'
+            EOF
             docker-compose up -d --no-deps backend
             echo "Waiting for backend to come up..."
             for i in $(seq 1 12); do
