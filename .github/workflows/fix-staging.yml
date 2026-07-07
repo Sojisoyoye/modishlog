@@ -24,6 +24,15 @@ jobs:
             docker exec modishlog-backend python3 /tmp/fix_staging_admin.py
             rm /tmp/fix_staging_admin.py
 
+      - name: Run pending Alembic migrations on Neon
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            docker exec modishlog-backend alembic upgrade head
+
       - name: Inject correct CORS and restart backend
         uses: appleboy/ssh-action@v1.0.3
         with:
