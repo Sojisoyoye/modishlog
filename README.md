@@ -262,11 +262,11 @@ Every push to `main` automatically deploys to staging.
 |-----------|---------|-----|
 | Frontend | Vercel (`modishlog-staging` project) | https://modishlog-staging.vercel.app |
 | Backend API | Hetzner VPS — same server, container `modishlog-backend` | https://api-modishlog.modishstandard.com |
-| Database | Neon PostgreSQL (staging, SSL required) | `ep-polished-hill-alvgbs6m-pooler.c-3.eu-central-1.aws.neon.tech` |
+| Database | Neon PostgreSQL (staging, SSL required) | connection string in `STAGING_DATABASE_URL` GitHub Secret |
 | Registry | GHCR | `ghcr.io/sojisoyoye/modishlog/backend:staging` |
 | CI/CD | GitHub Actions — auto on push to `main` | `.github/workflows/deploy-staging.yml` |
 
-**Staging admin:** `admin@modishlog.com` / `ModishAdmin@2024!`
+**Staging admin:** `admin@modishlog.com` — password in GitHub Secret `ADMIN_PASSWORD`
 
 **Staging deploy pipeline:**
 1. Backend tests — `pytest` against a temporary PostgreSQL container

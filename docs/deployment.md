@@ -156,7 +156,7 @@ ssh root@178.104.122.53 "
 |-----------|---------|
 | Frontend | Vercel (`modishlog-staging` project) — always runs `npm run build:staging` |
 | Backend API | Hetzner VPS, container `modishlog-backend`, image `ghcr.io/sojisoyoye/modishlog/backend:staging` |
-| Database | Neon PostgreSQL (`ep-polished-hill-alvgbs6m-pooler.c-3.eu-central-1.aws.neon.tech`, DB `neondb`, SSL required) |
+| Database | Neon PostgreSQL (connection string in `STAGING_DATABASE_URL` GitHub Secret, SSL required) |
 | Config | `/root/modishlog/.env` + `/root/modishlog/docker-compose.override.yml` on server |
 
 ### Staging credentials
@@ -166,7 +166,7 @@ ssh root@178.104.122.53 "
 | Frontend URL | https://modishlog-staging.vercel.app |
 | API URL | https://api-modishlog.modishstandard.com |
 | Admin email | `admin@modishlog.com` |
-| Admin password | `ModishAdmin@2024!` |
+| Admin password | See GitHub Secret `ADMIN_PASSWORD` — or run the **Admin Password Reset** workflow to set a known value |
 
 ### CI pipeline (triggered on every push to `main`)
 
