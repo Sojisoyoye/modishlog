@@ -324,7 +324,10 @@ class POSSyncService:
         return None
 
     async def _build_product_name_map(self) -> dict[str, uuid.UUID]:
-        result = await self._db.execute(select(Product.id, Product.name))
+        q = select(Product.id, Product.name)
+        if self._business_id is not None:
+            q = q.where(Product.business_id == self._business_id)
+        result = await self._db.execute(q)
         return {name.lower().strip(): pid for pid, name in result.all()}
 
     async def _get_system_user_id(self) -> uuid.UUID:

@@ -147,14 +147,17 @@ jobs:
             # Restart backend with new image
             docker-compose up -d --no-deps backend
 
-            # Health-check on port 8000 (backend container host port)
+            # Wait for Docker's built-in container health check to go green.
+            # The Dockerfile HEALTHCHECK probes http://localhost:8000/health inside
+            # the container, so this is more reliable than curling the host port.
+            CONTAINER=$(docker-compose ps -q backend)
             for i in $(seq 1 24); do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
-              if [ "$STATUS" = "200" ]; then
+              HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo "unknown")
+              if [ "$HEALTH" = "healthy" ]; then
                 echo "✅ Backend healthy"
                 exit 0
               fi
-              echo "Waiting for backend... attempt $i/24 ($STATUS)"
+              echo "Waiting for backend... attempt $i/24 (status: $HEALTH)"
               sleep 5
             done
             echo "❌ Backend health check failed after 2 min"

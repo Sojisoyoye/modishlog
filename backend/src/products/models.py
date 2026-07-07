@@ -68,14 +68,8 @@ class Product(UUIDMixin, TimestampMixin, Base):
     sku: Mapped[str] = mapped_column(String(100), index=True)
     slug: Mapped[str] = mapped_column(String(255), index=True)
     description: Mapped[str | None] = mapped_column(Text, default=None)
-    business_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey("businesses.id", ondelete="SET NULL"),
-        nullable=True,
-        default=None,
-        index=True,
-    )
-    category_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("product_categories.id"),
+    category_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("product_categories.id"), nullable=True
     )
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     selling_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
@@ -86,11 +80,6 @@ class Product(UUIDMixin, TimestampMixin, Base):
     )
     barcode: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
-    # Multi-tenant scoping: set by the Foundation PR migration.
-    # Nullable to allow backward compatibility until all rows are backfilled.
-    business_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("businesses.id"), nullable=True, index=True, default=None
-    )
 
     category: Mapped["ProductCategory"] = relationship(back_populates="products")
     price_history: Mapped[list["PriceHistory"]] = relationship(back_populates="product")

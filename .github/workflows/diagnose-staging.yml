@@ -1,0 +1,57 @@
+name: Diagnose Staging
+
+on:
+  workflow_dispatch:
+
+env:
+  HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+
+jobs:
+  diagnose:
+    name: Dump backend logs and query products table
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch backend logs and products data
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            echo "=== Last 80 backend log lines ==="
+            docker logs modishlog-backend --tail 80 2>&1
+
+            echo ""
+            echo "=== Products table schema + data ==="
+            docker exec modishlog-backend python3 - << 'PYEOF'
+import asyncio, os, re
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
+
+db_url = os.environ["DATABASE_URL"]
+ssl_required = "sslmode=require" in db_url
+db_url = re.sub(r"[?&]sslmode=[^&]*", "", db_url).rstrip("?&")
+engine = create_async_engine(db_url, connect_args={"ssl": True} if ssl_required else {})
+
+async def main():
+    async with engine.begin() as conn:
+        rows = await conn.execute(text("""
+            SELECT id, name, sku, slug, business_id, category_id,
+                   (slug IS NULL) AS slug_null,
+                   (business_id IS NULL) AS biz_null
+            FROM products
+            LIMIT 20
+        """))
+        results = rows.fetchall()
+        print(f"Products count: {len(results)}")
+        for r in results:
+            print(f"  id={r[0]} name={r[1]!r} slug_null={r[6]} biz_null={r[7]} cat_id={r[5]}")
+
+        # Check alembic version
+        ver = await conn.execute(text("SELECT version_num FROM alembic_version"))
+        print(f"\nAlembic head: {ver.scalar()}")
+
+    await engine.dispose()
+
+asyncio.run(main())
+PYEOF
