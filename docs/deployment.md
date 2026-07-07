@@ -154,18 +154,29 @@ ssh root@178.104.122.53 "
 
 | Component | Service |
 |-----------|---------|
-| Frontend | Vercel (`modishlog-staging` project) — `npm run build:staging` |
-| Backend API | Hetzner VPS, port 8002, image `ghcr.io/sojisoyoye/modishlog/backend:staging` |
-| Database | Neon PostgreSQL staging branch (SSL required) |
-| Config | `/root/modishlog/.env` on server |
+| Frontend | Vercel (`modishlog-staging` project) — always runs `npm run build:staging` |
+| Backend API | Hetzner VPS, container `modishlog-backend`, image `ghcr.io/sojisoyoye/modishlog/backend:staging` |
+| Database | Neon PostgreSQL (`ep-polished-hill-alvgbs6m-pooler.c-3.eu-central-1.aws.neon.tech`, DB `neondb`, SSL required) |
+| Config | `/root/modishlog/.env` + `/root/modishlog/docker-compose.override.yml` on server |
+
+### Staging credentials
+
+| | Value |
+|---|---|
+| Frontend URL | https://modishlog-staging.vercel.app |
+| API URL | https://api-modishlog.modishstandard.com |
+| Admin email | `admin@modishlog.com` |
+| Admin password | `ModishAdmin@2024!` |
 
 ### CI pipeline (triggered on every push to `main`)
 
 1. **Backend tests** — `pytest` against a temporary PostgreSQL 16 container
 2. **CVE scan** — `pip-audit 2.10.1`; blocks both frontend and backend deploys
 3. **Build & push** (requires scan pass) — `staging-<sha>` + `staging` tags to GHCR
-4. **Deploy frontend** (parallel with backend) — `npx vercel --prod`; `STAGING_API_URL` substituted via `sed` in `environment.staging.ts` at Vercel build time
+4. **Deploy frontend** (parallel with backend) — `npx vercel --prod`; always runs `npm run build:staging`; API URL is hardcoded in `frontend/src/environments/environment.staging.ts`
 5. **Deploy backend** (requires image push) — SSH into Hetzner: pull, `alembic upgrade head`, restart, health-check
+
+> **Note on health-check false negative:** The pipeline health-check hits `http://localhost:8000/health` on the Hetzner host. Port 8000 on the host is Nginx (not the backend directly), so the check returns 404 and the pipeline reports failure — even though the backend is running correctly. The backend IS healthy; the health check URL is wrong. This is a known issue; use `docker logs modishlog-backend --tail 50` to verify actual status.
 
 ### GitHub secrets required (staging)
 
@@ -174,7 +185,6 @@ ssh root@178.104.122.53 "
 | `STAGING_DATABASE_URL` | Neon connection string (`postgresql+asyncpg://...@ep-xxx.neon.tech/neondb?sslmode=require`) |
 | `STAGING_SECRET_KEY` | JWT signing key (`openssl rand -hex 32`) |
 | `STAGING_CORS_ORIGINS` | Allowed frontend origins |
-| `STAGING_API_URL` | Backend base URL — also set in Vercel dashboard env vars |
 | `HETZNER_HOST` | Hetzner VPS IP (`178.104.122.53`) |
 | `HETZNER_SSH_KEY` | Private SSH key for root access |
 | `GHCR_TOKEN` | GitHub PAT (`packages:read` + `packages:write`) |
@@ -182,19 +192,42 @@ ssh root@178.104.122.53 "
 | `VERCEL_ORG_ID` | Vercel org ID |
 | `VERCEL_PROJECT_ID` | Staging project ID (`prj_m67UC2flGknEZWabTkwIoCLiJomw`) |
 
-> **POS migration on staging:** SSH into the Hetzner server, `export POS_USERNAME=... POS_PASSWORD=...`, then run:
-> `docker compose exec backend python scripts/pos_migrate.py --step=all`
+### Staging recovery (if login breaks)
+
+Run the **Fix Staging** workflow from GitHub Actions UI (workflow_dispatch). It does everything in one run:
+1. Resets the admin password and clears any lockout on Neon
+2. Creates a `Business` record and links `admin@modishlog.com` to it (idempotent — skips if already linked)
+3. Runs `alembic upgrade head` on Neon to apply any pending migrations
+4. Writes a `docker-compose.override.yml` with correct CORS origins and restarts the backend container
+
+```
+GitHub → Actions → "Fix Staging (Admin + Business Link)" → Run workflow
+```
+
+### POS migration on staging
+
+SSH into the Hetzner server and run the migration inside the backend container:
+```bash
+ssh root@178.104.122.53
+docker exec -e POS_USERNAME=<user> -e POS_PASSWORD=<pass> modishlog-backend \
+  python scripts/pos_migrate.py --step=all
+```
+
+> **Note:** Neon staging only has data from the incremental POS sync (task #153, runs every 5–15 min). The full historical dataset (150+ products, 800+ sales) must be seeded manually via `pos_migrate.py`. The sync watermark is stored in `pos_sync_state` on Neon.
 
 ### Troubleshooting
 
 | Symptom | Check |
 |---------|-------|
 | CVE scan blocks deploy | Run `pip-audit -r backend/requirements.txt` locally; upgrade the flagged package |
-| Backend health-check times out | `ssh root@178.104.122.53 "docker logs modishlog-backend --tail 50"` |
-| Staging Vercel build fails | Confirm `STAGING_API_URL` is set in the `modishlog-staging` Vercel project → Environment Variables |
+| Backend not responding | `ssh root@178.104.122.53 "docker logs modishlog-backend --tail 50"` |
+| Deploy pipeline shows failed (health check) | Usually a false negative — check `docker logs modishlog-backend` directly; the 404 is Nginx, not the backend |
+| Login works but dashboard shows no data | Check the date filter — it defaults to today; change to a broader range |
+| Login fails / CORS error / 400 on API calls | Run the "Fix Staging" workflow_dispatch (see Staging recovery above) |
+| Staging frontend calling wrong API | Check `frontend/src/environments/environment.staging.ts` — `apiBaseUrl` should be `https://api-modishlog.modishstandard.com/api/v1` |
 | Production Vercel build fails | Confirm `PRODUCTION_VERCEL_PROJECT_ID` GitHub secret matches `prj_vo4UE6aXYIG2Mrtc24ZZbykYzc2r` |
 | GHCR pull denied on server | `echo $GHCR_TOKEN \| docker login ghcr.io -u sojisoyoye --password-stdin` |
-| Alembic fails on migration | Check `DATABASE_URL` in `.env.production`; confirm the DB container is healthy |
+| Alembic fails on migration | Check `DATABASE_URL` in `.env`; run `docker exec modishlog-backend alembic upgrade head` directly |
 | Production backend crash-loops | `docker logs modishlog-prod-backend --tail 50`; common cause: uploads volume permissions |
 | `PermissionError: /app/uploads/products` | `docker run --rm -v modishlog-prod_modishlog_uploads:/app/uploads alpine chmod -R 777 /app/uploads` |
 

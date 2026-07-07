@@ -261,17 +261,21 @@ Every push to `main` automatically deploys to staging.
 | Component | Service | URL |
 |-----------|---------|-----|
 | Frontend | Vercel (`modishlog-staging` project) | https://modishlog-staging.vercel.app |
-| Backend API | Hetzner VPS — same server, port 8002 | https://api-modishlog.modishstandard.com |
-| Database | Neon PostgreSQL (staging branch, SSL) | — |
+| Backend API | Hetzner VPS — same server, container `modishlog-backend` | https://api-modishlog.modishstandard.com |
+| Database | Neon PostgreSQL (staging, SSL required) | `ep-polished-hill-alvgbs6m-pooler.c-3.eu-central-1.aws.neon.tech` |
 | Registry | GHCR | `ghcr.io/sojisoyoye/modishlog/backend:staging` |
 | CI/CD | GitHub Actions — auto on push to `main` | `.github/workflows/deploy-staging.yml` |
+
+**Staging admin:** `admin@modishlog.com` / `ModishAdmin@2024!`
 
 **Staging deploy pipeline:**
 1. Backend tests — `pytest` against a temporary PostgreSQL container
 2. CVE scan — `pip-audit 2.10.1`; blocks deploy if any CVE is found
 3. Build backend image — push `staging-<sha>` + `staging` to GHCR
-4. Deploy frontend — `npx vercel --prod` with `STAGING_API_URL` substituted at build time
+4. Deploy frontend — `npx vercel --prod`; always runs `npm run build:staging`; API URL hardcoded in `environment.staging.ts`
 5. Deploy backend — SSH into Hetzner, pull image, run `alembic upgrade head`, restart container, health-check
+
+**If staging breaks:** run the **Fix Staging (Admin + Business Link)** workflow_dispatch from GitHub Actions. See `docs/deployment.md` for full details.
 
 **GitHub secrets required** (staging):
 
@@ -280,7 +284,6 @@ Every push to `main` automatically deploys to staging.
 | `STAGING_DATABASE_URL` | Neon connection string |
 | `STAGING_SECRET_KEY` | JWT signing key |
 | `STAGING_CORS_ORIGINS` | Allowed frontend origins |
-| `STAGING_API_URL` | Backend URL (also set in Vercel dashboard env vars) |
 | `HETZNER_HOST` | Hetzner VPS IP |
 | `HETZNER_SSH_KEY` | Private SSH key |
 | `GHCR_TOKEN` | GitHub PAT |
@@ -383,7 +386,7 @@ npx ng build   # 0 errors, 0 warnings
 - **TDD enforced** -- tests written before implementation. Every function has at least 2 tests (happy path + error case).
 - **Lazy ML imports** -- heavy libraries (Prophet/Stan) are imported inside the functions that use them, not at module level. This keeps app startup time under 2 s and avoids OOM on containers with limited memory (e.g. 0.5 Gi).
 - **SSL via connect_args** -- asyncpg does not accept `sslmode` as a URL query param. SSL is enabled by passing `connect_args={"ssl": True}` to `create_async_engine` and `async_engine_from_config` (alembic). The raw `DATABASE_URL` is normalised at startup: libpq params are stripped, and `DATABASE_SSL` is auto-derived from the original `sslmode` value.
-- **HttpOnly cookie JWT** — access tokens are set as HttpOnly, SameSite=Lax cookies. The auth interceptor reads the cookie transparently; `localStorage` is never used for tokens. This eliminates XSS token theft.
+- **HttpOnly cookie JWT** — access tokens are set as HttpOnly, SameSite=Lax cookies. `localStorage` is never used for tokens. The refresh token is saved to `sessionStorage` (key `ml_rt`) only to survive the forced full-page reload after login — necessary because `SameSite=Lax` cookies are not sent on cross-origin XHR requests (e.g. staging frontend on Vercel → staging API on Hetzner). `sessionStorage` is cleared when the tab closes.
 - **Self-hosted fonts** — Inter is served via `@fontsource/inter` (bundled in the Angular build). No external font CDN requests; satisfies the Content-Security-Policy `default-src 'self'` rule.
 - **Content-Security-Policy** — nginx serves `default-src 'self'` with narrowed directives for scripts, styles, images, and connections. `frame-ancestors 'none'` replaces the legacy `X-Frame-Options: DENY` header.
 - **PrimeNG v21 dialog footer** — PrimeNG v21 removed the `pTemplate="footer"` string-keyed template API. Dialog footers must use the `#footer` local reference syntax instead. Any dialog missing this will render with no footer buttons.
