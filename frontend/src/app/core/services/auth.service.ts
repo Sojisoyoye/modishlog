@@ -49,10 +49,16 @@ export class AuthService {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
 
-  // In-memory only — not persisted to localStorage/sessionStorage.
-  // XSS cannot reach this; the HttpOnly cookie is the durable credential.
+  private static readonly REFRESH_KEY = 'ml_rt';
+
   private _accessToken: string | null = null;
-  private _refreshToken: string | null = null;
+  // Refresh token is kept in sessionStorage so it survives forced full-page
+  // reloads (cross-site staging: SameSite=Lax cookie won't travel, so the
+  // interceptor must use the refresh token to re-issue the access token).
+  private _refreshToken: string | null =
+    typeof sessionStorage !== 'undefined'
+      ? sessionStorage.getItem(AuthService.REFRESH_KEY)
+      : null;
 
   private readonly _isAuthenticated = signal<boolean>(false);
   readonly isAuthenticated = this._isAuthenticated.asReadonly();
@@ -62,6 +68,9 @@ export class AuthService {
       tap((tokens) => {
         this._accessToken = tokens.access_token;
         this._refreshToken = tokens.refresh_token ?? null;
+        if (this._refreshToken) {
+          sessionStorage.setItem(AuthService.REFRESH_KEY, this._refreshToken);
+        }
         this._isAuthenticated.set(true);
       }),
     );
@@ -72,6 +81,9 @@ export class AuthService {
       tap((res) => {
         this._accessToken = res.access_token;
         this._refreshToken = res.refresh_token;
+        if (this._refreshToken) {
+          sessionStorage.setItem(AuthService.REFRESH_KEY, this._refreshToken);
+        }
         this._isAuthenticated.set(true);
       }),
     );
@@ -79,15 +91,12 @@ export class AuthService {
 
   logout(): void {
     const refreshToken = this._refreshToken;
+    sessionStorage.removeItem(AuthService.REFRESH_KEY);
     if (refreshToken) {
-      // Best-effort server-side revocation; do not block the UI on this
       this.api.post<{ message: string }>('/auth/logout', { refresh_token: refreshToken }).subscribe({
-        error: () => {
-          // ignore errors -- token will expire naturally
-        },
+        error: () => {},
       });
     } else {
-      // No refresh token in memory; still tell server to clear the cookie
       this.api.post<{ message: string }>('/auth/logout', {}).subscribe({
         error: () => {},
       });
@@ -114,6 +123,7 @@ export class AuthService {
   clearTokens(): void {
     this._accessToken = null;
     this._refreshToken = null;
+    sessionStorage.removeItem(AuthService.REFRESH_KEY);
     this._isAuthenticated.set(false);
   }
 
