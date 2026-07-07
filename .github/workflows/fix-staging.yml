@@ -24,6 +24,23 @@ jobs:
             docker exec modishlog-backend python3 /tmp/fix_staging_admin.py
             rm /tmp/fix_staging_admin.py
 
+      - name: Pull latest config and restart backend with correct CORS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            cd /root/modishlog
+            git pull origin main
+            docker-compose up -d --no-deps backend
+            echo "Waiting for backend to come up..."
+            for i in $(seq 1 12); do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
+              if [ "$STATUS" = "200" ]; then echo "Backend healthy"; break; fi
+              echo "attempt $i/12 ($STATUS)"; sleep 5
+            done
+
       - name: Verify login works
         run: |
           curl -s -w "\nHTTP %{http_code}\n" \
