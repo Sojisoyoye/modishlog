@@ -56,9 +56,22 @@ jobs:
               echo "attempt $i/12 ($STATUS)"; sleep 5
             done
 
-      - name: Verify login works
+      - name: Verify login works and dump backend logs
         run: |
-          curl -s -w "\nHTTP %{http_code}\n" \
-            -X POST "${{ env.API_URL }}/api/v1/auth/login" \
+          TOKEN=$(curl -s -X POST "${{ env.API_URL }}/api/v1/auth/login" \
             -H "Content-Type: application/json" \
-            -d '{"email":"admin@modishlog.com","password":"ModishAdmin@2024!"}'
+            -d '{"email":"admin@modishlog.com","password":"ModishAdmin@2024!"}' \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('access_token','FAIL'))")
+          echo "Login OK, hitting products..."
+          curl -sL -w "\nHTTP %{http_code}\n" \
+            -H "Authorization: Bearer $TOKEN" \
+            "${{ env.API_URL }}/api/v1/products/"
+
+      - name: Dump backend container logs
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            docker logs modishlog-backend --tail 60 2>&1
