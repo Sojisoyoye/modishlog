@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.resilience import retry_with_fallback
 from src.fx.exceptions import (
     ExposureConfigError,
     ExposureLockExceededError,
@@ -21,6 +22,7 @@ from src.fx.exceptions import (
     FXAlertNotFoundError,
     FXPairNotFoundError,
     FXRateNotFoundError,
+    ForecastTimeoutError,
     InsufficientRateDataError,
     SimulationNotFoundError,
 )
@@ -49,6 +51,18 @@ logger = structlog.get_logger()
 
 # Minimum historical data points required for simulation
 MIN_SIMULATION_DAYS = 30
+
+# E2 — Volatility multiplier for emerging-market FX pairs with fat-tail risk
+VOLATILITY_MULTIPLIER: dict[str, float] = {
+    "USDNGN": 1.5,
+    "EURNGN": 1.5,
+    "default": 1.0,
+}
+_NGN_FORECAST_DISCLAIMER = (
+    "NGN/USD forecast applies 1.5× volatility multiplier for emerging market tail risk. "
+    "FX forecasts are indicative only. CBN interventions and political events can cause "
+    "moves outside any statistical model."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -225,10 +239,32 @@ async def get_rate_for_date(
     raise FXPairNotFoundError(pair)
 
 
+@retry_with_fallback(
+    max_attempts=3,
+    wait=1.0,
+    exception_types=(httpx.RequestError, httpx.HTTPStatusError),
+)
+async def _fetch_live_usdngn_rate_from_api() -> Decimal:
+    """HTTP call to ExchangeRate-API with retry (3 attempts, exponential back-off).
+
+    Separated from get_live_usdngn_rate so that only the network call is retried,
+    not the DB write. Raises on all failures so the caller can fall back to cache.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(settings.FX_LIVE_API_URL, timeout=10.0)
+        response.raise_for_status()
+        data = response.json()
+    return Decimal(str(data["rates"]["NGN"]))
+
+
 async def get_live_usdngn_rate(
     db: AsyncSession,
 ) -> tuple[Decimal, datetime, bool]:
-    """Return (rate, fetched_at, cached). Serves from DB if < FX_CACHE_TTL_HOURS old."""
+    """Return (rate, fetched_at, cached). Serves from DB if < FX_CACHE_TTL_HOURS old.
+
+    When the live API is unavailable, falls back to the most-recent cached rate
+    with cached=True to signal staleness to callers.
+    """
     result = await db.execute(
         select(FXRate)
         .where(FXRate.pair == "USDNGN")
@@ -243,12 +279,7 @@ async def get_live_usdngn_rate(
         return recent.rate, recent.timestamp, True
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(settings.FX_LIVE_API_URL, timeout=10.0)
-            response.raise_for_status()
-            data = response.json()
-
-        ngn_rate = Decimal(str(data["rates"]["NGN"]))
+        ngn_rate = await _fetch_live_usdngn_rate_from_api()
         now = datetime.now(timezone.utc)
         fx_rate = FXRate(
             pair="USDNGN",
@@ -875,41 +906,37 @@ async def check_alerts(
 # ---------------------------------------------------------------------------
 
 
-async def run_simulation(
-    db: AsyncSession,
-    data: SimulationRequest,
-    user_id: uuid.UUID,
-) -> FXSimulationRun:
-    """Run a Monte Carlo simulation for FX rate projection."""
-    # Fetch historical rates
-    result = await db.execute(
-        select(FXRate)
-        .where(FXRate.pair == data.pair)
-        .order_by(FXRate.timestamp.desc())
-        .limit(252)  # ~1 year of trading days
-    )
-    rates = list(result.scalars().all())
-    rates.reverse()  # Oldest first
+_MONTE_CARLO_TIMEOUT = 30.0  # seconds — configurable for testing
 
-    if len(rates) < MIN_SIMULATION_DAYS:
-        raise InsufficientRateDataError(data.pair, len(rates), MIN_SIMULATION_DAYS)
 
-    # Compute daily log returns
-    rate_values = [float(r.rate) for r in rates]
+def _run_monte_carlo_sync(
+    rate_values: list[float],
+    num_simulations: int,
+    horizon_days: int,
+    confidence_level: float,
+    volatility_mult: float = 1.0,
+) -> dict:
+    """CPU-bound Monte Carlo simulation (runs in a thread via asyncio.to_thread).
+
+    E2: volatility_mult applies a fat-tail multiplier to sigma before simulation.
+    Returns a dict with all computed statistics so the async caller can build the ORM model.
+    """
     daily_returns: list[float] = []
     for i in range(1, len(rate_values)):
         if rate_values[i - 1] > 0:
             daily_returns.append(math.log(rate_values[i] / rate_values[i - 1]))
 
     mu = statistics.mean(daily_returns)
-    sigma = statistics.stdev(daily_returns)
+    raw_sigma = statistics.stdev(daily_returns)
+    # E2: Apply volatility multiplier for emerging market tail risk
+    sigma = raw_sigma * volatility_mult
     current_rate_val = rate_values[-1]
 
     # Run simulations using geometric Brownian motion
     final_rates: list[float] = []
-    for _ in range(data.num_simulations):
+    for _ in range(num_simulations):
         price = current_rate_val
-        for _ in range(data.horizon_days):
+        for _ in range(horizon_days):
             drift = mu - 0.5 * sigma**2
             shock = sigma * random.gauss(0, 1)
             price *= math.exp(drift + shock)
@@ -924,7 +951,7 @@ async def run_simulation(
     p95 = final_rates[int(n * 0.95)]
 
     # VaR at confidence level
-    conf = float(data.confidence_level) / 100.0
+    conf = confidence_level / 100.0
     var_idx = int(n * (1 - conf))
     var_rate = final_rates[var_idx]
     var_amount = abs(current_rate_val - var_rate)
@@ -949,18 +976,81 @@ async def run_simulation(
             }
         )
 
+    return {
+        "current_rate_val": current_rate_val,
+        "mean_rate": mean_rate,
+        "p5": p5,
+        "p50": p50,
+        "p95": p95,
+        "var_amount": var_amount,
+        "buckets": buckets,
+        "raw_sigma": raw_sigma,
+        "sigma": sigma,
+        "volatility_mult": volatility_mult,
+    }
+
+
+async def run_simulation(
+    db: AsyncSession,
+    data: SimulationRequest,
+    user_id: uuid.UUID,
+) -> FXSimulationRun:
+    """Run a Monte Carlo simulation for FX rate projection.
+
+    The CPU-bound simulation loop is offloaded to a thread via asyncio.to_thread
+    so it does not block the async event loop.
+    """
+    # Fetch historical rates
+    result = await db.execute(
+        select(FXRate)
+        .where(FXRate.pair == data.pair)
+        .order_by(FXRate.timestamp.desc())
+        .limit(252)  # ~1 year of trading days
+    )
+    rates = list(result.scalars().all())
+    rates.reverse()  # Oldest first
+
+    if len(rates) < MIN_SIMULATION_DAYS:
+        raise InsufficientRateDataError(data.pair, len(rates), MIN_SIMULATION_DAYS)
+
+    rate_values = [float(r.rate) for r in rates]
+
+    # E2: Look up volatility multiplier for this pair
+    vol_mult = VOLATILITY_MULTIPLIER.get(data.pair, VOLATILITY_MULTIPLIER["default"])
+
+    # Run the CPU-bound Monte Carlo in a thread to avoid blocking the event loop
+    try:
+        stats = await asyncio.wait_for(
+            asyncio.to_thread(
+                _run_monte_carlo_sync,
+                rate_values,
+                data.num_simulations,
+                data.horizon_days,
+                float(data.confidence_level),
+                vol_mult,
+            ),
+            timeout=_MONTE_CARLO_TIMEOUT,
+        )
+    except asyncio.TimeoutError as exc:
+        raise ForecastTimeoutError("Monte Carlo simulation", _MONTE_CARLO_TIMEOUT) from exc
+
+    # E2: Build disclaimer for NGN pairs
+    forecast_disclaimer = (
+        _NGN_FORECAST_DISCLAIMER if vol_mult > 1.0 else None
+    )
+
     sim = FXSimulationRun(
         pair=data.pair,
         horizon_days=data.horizon_days,
         num_simulations=data.num_simulations,
         confidence_level=data.confidence_level,
-        current_rate=Decimal(str(round(current_rate_val, 6))),
-        mean_projected_rate=Decimal(str(round(mean_rate, 6))),
-        p5_rate=Decimal(str(round(p5, 6))),
-        p50_rate=Decimal(str(round(p50, 6))),
-        p95_rate=Decimal(str(round(p95, 6))),
-        var_amount=Decimal(str(round(var_amount, 6))),
-        distribution_data=buckets,
+        current_rate=Decimal(str(round(stats["current_rate_val"], 6))),
+        mean_projected_rate=Decimal(str(round(stats["mean_rate"], 6))),
+        p5_rate=Decimal(str(round(stats["p5"], 6))),
+        p50_rate=Decimal(str(round(stats["p50"], 6))),
+        p95_rate=Decimal(str(round(stats["p95"], 6))),
+        var_amount=Decimal(str(round(stats["var_amount"], 6))),
+        distribution_data=stats["buckets"],
         run_by=user_id,
         created_at=datetime.now(timezone.utc),
     )
@@ -972,8 +1062,15 @@ async def run_simulation(
         pair=data.pair,
         horizon=data.horizon_days,
         simulations=data.num_simulations,
-        mean_rate=str(round(mean_rate, 4)),
+        mean_rate=str(round(stats["mean_rate"], 4)),
+        volatility_multiplier=vol_mult,
     )
+
+    # Attach disclaimer and multiplier to the ORM object as transient attributes
+    # so the router can include them in the SimulationResult response schema.
+    sim.__dict__["forecast_disclaimer"] = forecast_disclaimer
+    sim.__dict__["volatility_multiplier"] = vol_mult
+
     return sim
 
 

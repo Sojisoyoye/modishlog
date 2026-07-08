@@ -90,14 +90,45 @@ def _init_sentry() -> None:
     )
 
 
+_PII_FIELDS = frozenset(
+    {
+        "password",
+        "hashed_password",
+        "email",
+        "phone",
+        "token",
+        "refresh_token",
+        "api_key",
+        "secret",
+        "encrypted_value",
+        "DATABASE_URL",
+        "SECRET_KEY",
+        "ANTHROPIC_API_KEY",
+    }
+)
+
+
 def _scrub_pii(event: dict, hint: dict) -> dict:
-    """Strip PII fields from Sentry events before they leave the process."""
-    _PII_FIELDS = {"password", "hashed_password", "email", "phone", "token", "refresh_token"}
+    """Strip PII fields from Sentry events before they leave the process.
+
+    Removes:
+    - All fields in _PII_FIELDS from event["extra"]
+    - The entire request body (event["request"]["data"]) which may contain
+      credentials, personal data, or financial details
+    - Sensitive fields from event["user"]
+    """
     if "request" in event:
+        # Remove the full request body to avoid capturing POST payloads with PII
         event["request"].pop("data", None)
+
     if "extra" in event:
         for field in _PII_FIELDS:
             event["extra"].pop(field, None)
+
+    if "user" in event and isinstance(event["user"], dict):
+        for field in _PII_FIELDS:
+            event["user"].pop(field, None)
+
     return event
 
 

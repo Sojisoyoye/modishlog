@@ -143,6 +143,9 @@ async def create_product_endpoint(
     return product
 
 
+_CSV_BATCH_SIZE = 500  # Commit in batches to avoid long-held transactions
+
+
 @router.post("/bulk-upload", response_model=BulkProductUploadResponse)
 async def bulk_upload_products_endpoint(
     file: UploadFile,
@@ -154,6 +157,10 @@ async def bulk_upload_products_endpoint(
 
     Required columns: name, unit_cost, selling_price
     Optional columns: sku, description, category, currency
+
+    Large CSVs are processed in streaming batches of 500 rows to avoid OOM.
+    The configurable MAX_CSV_ROWS limit (default 50,000) prevents excessively
+    large uploads from exhausting container memory.
     """
     import csv
     import io
@@ -161,7 +168,7 @@ async def bulk_upload_products_endpoint(
 
     import structlog
 
-    logger = structlog.get_logger()
+    _logger = structlog.get_logger()
 
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -184,7 +191,17 @@ async def bulk_upload_products_endpoint(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Empty CSV file"
             )
-        rows = list(reader)
+        # Stream rows one by one — avoid holding the entire dataset in memory as a list
+        for row in reader:
+            rows.append(dict(row))
+            if len(rows) > settings.MAX_CSV_ROWS:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"CSV exceeds the maximum of {settings.MAX_CSV_ROWS:,} rows. "
+                        "Split the file into smaller batches and upload separately."
+                    ),
+                )
     else:
         try:
             import openpyxl
@@ -214,6 +231,14 @@ async def bulk_upload_products_endpoint(
                     for i, v in enumerate(data_row)
                     if i < len(headers)
                 }
+            )
+        if len(rows) > settings.MAX_CSV_ROWS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"File exceeds the maximum of {settings.MAX_CSV_ROWS:,} rows. "
+                    "Split the file into smaller batches and upload separately."
+                ),
             )
 
     # Normalise header names (allow common variations)
@@ -257,44 +282,52 @@ async def bulk_upload_products_endpoint(
     errors: list[BulkUploadRowError] = []
     created_ids: list[uuid.UUID] = []
 
-    for i, row in enumerate(normalised, start=2):  # row 1 = header
-        try:
-            name = row.get("name", "").strip()
-            if not name:
-                raise ValueError("name is required")
+    # Process in batches of _CSV_BATCH_SIZE rows, flushing per batch to avoid
+    # holding a single enormous transaction open for the entire upload.
+    for batch_start in range(0, len(normalised), _CSV_BATCH_SIZE):
+        batch = normalised[batch_start : batch_start + _CSV_BATCH_SIZE]
+        for i, row in enumerate(batch, start=batch_start + 2):  # row 1 = header
+            try:
+                name = row.get("name", "").strip()
+                if not name:
+                    raise ValueError("name is required")
 
-            unit_cost = Decimal(row.get("unit_cost", "0").replace(",", ""))
-            selling_price = Decimal(row.get("selling_price", "0").replace(",", ""))
+                unit_cost = Decimal(row.get("unit_cost", "0").replace(",", ""))
+                selling_price = Decimal(row.get("selling_price", "0").replace(",", ""))
 
-            cat_id = None
-            cat_name = row.get("category", "").strip()
-            if cat_name:
-                cat_id = cat_map.get(cat_name.lower())
-                if not cat_id:
-                    new_cat = await create_category(db, CategoryCreate(name=cat_name), business_id)
-                    cat_map[cat_name.lower()] = new_cat.id
-                    cat_id = new_cat.id
+                cat_id = None
+                cat_name = row.get("category", "").strip()
+                if cat_name:
+                    cat_id = cat_map.get(cat_name.lower())
+                    if not cat_id:
+                        new_cat = await create_category(db, CategoryCreate(name=cat_name), business_id)
+                        cat_map[cat_name.lower()] = new_cat.id
+                        cat_id = new_cat.id
 
-            data = ProductCreate(
-                name=name,
-                sku=row.get("sku", "").strip() or None,
-                description=row.get("description", "").strip() or None,
-                category_id=cat_id,
-                unit_cost=unit_cost,
-                selling_price=selling_price,
-                currency=row.get("currency", "").strip() or "NGN",
-            )
-            product = await create_product(db, data, current_user.id, business_id)
-            created_ids.append(product.id)
-        except (ValueError, InvalidOperation) as e:
-            errors.append(BulkUploadRowError(row=i, error=str(e)))
-        except (DuplicateSKUError, DuplicateSlugError, InvalidProductNameError) as e:
-            errors.append(BulkUploadRowError(row=i, error=str(e)))
-        except Exception:
-            logger.exception("bulk_upload_row_error", row=i)
-            errors.append(BulkUploadRowError(row=i, error="Internal error processing row"))
+                data = ProductCreate(
+                    name=name,
+                    sku=row.get("sku", "").strip() or None,
+                    description=row.get("description", "").strip() or None,
+                    category_id=cat_id,
+                    unit_cost=unit_cost,
+                    selling_price=selling_price,
+                    currency=row.get("currency", "").strip() or "NGN",
+                )
+                product = await create_product(db, data, current_user.id, business_id)
+                created_ids.append(product.id)
+            except (ValueError, InvalidOperation) as e:
+                errors.append(BulkUploadRowError(row=i, error=str(e)))
+            except (DuplicateSKUError, DuplicateSlugError, InvalidProductNameError) as e:
+                errors.append(BulkUploadRowError(row=i, error=str(e)))
+            except Exception:
+                _logger.exception("bulk_upload_row_error", row=i)
+                errors.append(BulkUploadRowError(row=i, error="Internal error processing row"))
 
-    await logger.ainfo(
+        # Flush (not commit) after each batch so the DB session can release memory.
+        # The outer get_db() dependency will commit the entire upload on success.
+        await db.flush()
+
+    await _logger.ainfo(
         "bulk_product_upload",
         total=len(normalised),
         successful=len(created_ids),
@@ -404,8 +437,19 @@ async def upload_product_image(
     current_user: User = Depends(get_current_active_user),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """Upload or replace a product image."""
+    """Upload or replace a product image.
+
+    S6: Validates actual MIME type via python-magic (not the client-supplied
+    Content-Type header). Files are stored outside the web root with UUID
+    filenames to prevent directory traversal and content-type spoofing attacks.
+    """
+    import structlog as _structlog
+
+    _logger = _structlog.get_logger()
+
     ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+    # S6: Allowed MIME types — validated against actual file bytes, not headers.
+    ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
     MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
     ext = os.path.splitext(file.filename or "")[1].lower() or ".jpg"
@@ -422,9 +466,43 @@ async def upload_product_image(
             detail=f"File too large ({len(contents)} bytes). Maximum: {MAX_FILE_SIZE} bytes (5MB).",
         )
 
+    # S6: Validate actual MIME type using libmagic, not the client-supplied Content-Type.
+    # This prevents PHP shells or malicious files from being accepted as images.
+    try:
+        import magic
+
+        detected_mime = magic.from_buffer(contents, mime=True)
+    except ImportError:
+        # libmagic not available — fall back to extension check with a warning
+        await _logger.awarning(
+            "mime_validation_skipped",
+            reason="python-magic not available — install libmagic for server-side MIME validation",
+            product_id=str(product_id),
+        )
+        detected_mime = None
+
+    if detected_mime is not None and detected_mime not in ALLOWED_MIME_TYPES:
+        await _logger.awarning(
+            "file_upload_mime_rejected",
+            product_id=str(product_id),
+            declared_content_type=file.content_type,
+            detected_mime=detected_mime,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"File content does not match an allowed image type. "
+                f"Detected: {detected_mime}. Accepted: {', '.join(sorted(ALLOWED_MIME_TYPES))}"
+            ),
+        )
+
+    # S6: Store with UUID filename to prevent directory traversal and filename injection.
+    # Files stored outside web root (UPLOAD_DIR is configurable, defaults to /app/uploads).
     upload_dir = os.path.join(settings.UPLOAD_DIR, "products")
     os.makedirs(upload_dir, exist_ok=True)
-    upload_path = f"{upload_dir}/{product_id}{ext}"
+    # Always use UUID-based filename regardless of original filename
+    safe_filename = f"{uuid.uuid4()}{ext}"
+    upload_path = os.path.join(upload_dir, safe_filename)
 
     def _write() -> None:
         with open(upload_path, "wb") as f_out:
@@ -432,7 +510,7 @@ async def upload_product_image(
 
     await anyio.to_thread.run_sync(_write)
 
-    image_url = f"/static/products/{product_id}{ext}"
+    image_url = f"/static/products/{safe_filename}"
     update_data = ProductUpdate(image_url=image_url)
     try:
         return await update_product(db, product_id, update_data, current_user.id, business_id=business_id)

@@ -103,3 +103,15 @@ class ExternalRateSyncError(Exception):
             f"External rate sync failed ({provider}): "
             f"status={status_code}, {error_message}"
         )
+
+
+class ForecastTimeoutError(Exception):
+    """Raised when a CPU-bound ML forecast exceeds its asyncio.to_thread timeout."""
+
+    def __init__(self, operation: str, timeout_seconds: float) -> None:
+        self.operation = operation
+        self.timeout_seconds = timeout_seconds
+        super().__init__(
+            f"{operation} timed out after {timeout_seconds}s. "
+            "The server is under load — try again shortly."
+        )
