@@ -10,7 +10,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
   imports: [FormsModule, RouterLink, NgClass],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="flex min-h-screen">
+    <div class="flex h-screen overflow-hidden">
       <!-- Left brand panel (hidden on mobile) -->
       <div class="hidden lg:flex lg:w-[45%] flex-col justify-between bg-gradient-to-br from-gray-900 via-emerald-950 to-gray-900 p-12 text-white">
         <!-- Top: logo + tagline -->
@@ -34,9 +34,10 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
         </div>
       </div>
 
-      <!-- Right form panel -->
-      <div class="flex flex-1 flex-col items-center justify-center px-6 py-12 lg:px-16 bg-white">
-        <div class="w-full max-w-md">
+      <!-- Right form panel: scrolls when content exceeds viewport height -->
+      <div class="flex flex-1 overflow-y-auto bg-white">
+        <div class="flex flex-col items-center justify-center w-full min-h-full px-6 py-12 lg:px-16">
+          <div class="w-full max-w-md">
           <!-- Mobile logo (shown only on small screens) -->
           <div class="mb-6 text-center lg:hidden">
             <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-xl font-bold text-white shadow-lg">
@@ -45,10 +46,10 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
             <span class="text-2xl font-bold text-gray-900">ModishLog</span>
           </div>
 
-          <h2 class="mb-6 text-2xl font-bold text-gray-900">Create your account</h2>
+          <h2 class="mb-6 text-2xl font-bold text-gray-900 text-center lg:text-left">Create your account</h2>
 
           <!-- Step progress pills -->
-          <div class="mb-6 flex items-center gap-3">
+          <div class="mb-6 flex items-center gap-3 justify-center lg:justify-start">
             <span
               [ngClass]="{
                 'bg-emerald-600 text-white': currentStep() === 1,
@@ -319,6 +320,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
             Already have an account?
             <a routerLink="/login" class="text-emerald-600 hover:underline">Log in</a>
           </p>
+          </div>
         </div>
       </div>
     </div>
