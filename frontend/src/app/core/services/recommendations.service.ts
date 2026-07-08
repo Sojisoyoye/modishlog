@@ -17,6 +17,13 @@ export interface Recommendation {
   status: string;
   created_at: string;
   expires_at: string;
+  data_points_used: number;
+  confidence_reliable: boolean;
+  under_trained_model?: string | null;
+  requires_human_review: boolean;
+  human_review_reason?: string | null;
+  reason_summary: string;
+  evidence: string[];
 }
 
 export interface RecommendationListResponse {
@@ -49,8 +56,8 @@ export class RecommendationsService {
     return this.api.post<Recommendation[]>('/ai/recommendations/generate', {});
   }
 
-  apply(id: string, notes?: string): Observable<Recommendation> {
-    return this.api.post<Recommendation>(`/ai/recommendations/${id}/apply`, { notes });
+  apply(id: string, notes?: string, confirmed?: boolean): Observable<Recommendation> {
+    return this.api.post<Recommendation>(`/ai/recommendations/${id}/apply`, { notes, confirmed });
   }
 
   dismiss(id: string, reason: string): Observable<Recommendation> {
