@@ -36,7 +36,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-eval'; "
-            "style-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "  # Angular ViewEncapsulation.Emulated requires unsafe-inline; nonce migration post-MVP
             "img-src 'self' data: blob:; "
             "font-src 'self'; "
             "connect-src 'self'; "

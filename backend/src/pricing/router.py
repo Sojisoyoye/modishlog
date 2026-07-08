@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
-from src.fx.exceptions import FXPairNotFoundError
+from src.fx.exceptions import FXPairNotFoundError, ForecastTimeoutError
 from src.pricing.exceptions import (
     CrossSubsidyAnalysisError,
     ElasticityNotFoundError,
@@ -168,6 +168,8 @@ async def demand_forecast_endpoint(
     try:
         data = await calculate_demand_forecast(db, product_id, horizon_days)
         return DemandForecastResponse(**data)
+    except ForecastTimeoutError as e:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(e))
     except InsufficientPriceDataError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 

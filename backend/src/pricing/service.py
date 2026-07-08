@@ -123,7 +123,7 @@ async def calculate_demand_forecast(
             timeout=30.0,
         )
     except asyncio.TimeoutError as e:
-        raise ForecastTimeoutError("Prophet training exceeded 30s timeout") from e
+        raise ForecastTimeoutError("Prophet training", 30.0) from e
 
     # Apply price elasticity adjustment if proposed_price given
     multiplier = 1.0

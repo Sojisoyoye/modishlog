@@ -212,14 +212,19 @@ async def refresh(
 
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
-    body: LogoutRequest, response: Response, db: AsyncSession = Depends(get_db)
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    cookie_refresh_token: str | None = Cookie(default=None, alias="refresh_token"),
+    body: LogoutRequest | None = None,
 ):
     """Revoke the refresh token (logout).
 
     Always returns 200 -- never reveals whether the token existed.
-    Clears the access_token HttpOnly cookie.
+    Clears both the access_token and refresh_token HttpOnly cookies.
+    Reads the refresh token from the HttpOnly cookie (preferred) or body fallback.
     """
-    await revoke_refresh_token(db, body.refresh_token)
+    token_to_revoke = cookie_refresh_token or (body.refresh_token if body else None)
+    await revoke_refresh_token(db, token_to_revoke)
     response.delete_cookie(key="access_token", path="/")
     # S2: Also clear the refresh_token cookie so an attacker cannot call /auth/refresh post-logout.
     response.delete_cookie(
