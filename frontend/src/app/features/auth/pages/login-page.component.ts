@@ -44,7 +44,7 @@ import { AuthService } from '../../../core/services/auth.service';
             <span class="text-2xl font-bold text-gray-900">ModishLog</span>
           </div>
 
-          <h2 class="mb-8 text-2xl font-bold text-gray-900">Sign in to your account</h2>
+          <h2 class="mb-8 text-2xl font-bold text-gray-900 text-center lg:text-left">Sign in to your account</h2>
 
           @if (lockoutDisplay()) {
             <div
