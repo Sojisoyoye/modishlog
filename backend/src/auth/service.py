@@ -338,12 +338,18 @@ async def revoke_refresh_token(db: AsyncSession, raw_token: str | None) -> None:
 
 async def list_users(
     db: AsyncSession,
+    business_id: uuid.UUID,
     page: int = 1,
     page_size: int = 20,
     search: str | None = None,
 ) -> tuple[list[User], int]:
-    """Return a paginated list of users with optional search."""
-    query = select(User)
+    """Return a paginated list of users scoped to the given business.
+
+    S4: business_id filter is mandatory to prevent cross-tenant user enumeration.
+    An admin from Business A must never see users belonging to Business B.
+    """
+    # S4: Always filter by business_id — cross-tenant user enumeration is an NDPR violation.
+    query = select(User).where(User.business_id == business_id)
     if search:
         term = f"%{search}%"
         query = query.where(

@@ -545,9 +545,21 @@ async def generate_recommendations(
     for opt in optimized:
         current = Decimal(str(opt["current_price"]))
         recommended = opt["optimized_price"]
+        unit_cost = Decimal(str(opt["unit_cost"]))
 
         if current == recommended:
             continue
+
+        # E5 — Pricing floor: skip any recommendation below FIFO landed cost
+        # Skip (don't raise) so other products' recommendations are still returned.
+        if recommended < unit_cost:
+            await logger.awarning(
+                "pricing_recommendation_below_cost",
+                product_id=str(opt["product_id"]),
+                recommended=str(recommended),
+                unit_cost=str(unit_cost),
+            )
+            continue  # Skip this product; never recommend a loss-making price
 
         price_change_pct = float((recommended - current) / current * 100)
         elasticity = await _get_elasticity_coefficient(db, opt["product_id"])
@@ -1241,6 +1253,14 @@ async def compute_suggestion(
     # Suggested price
     margin_factor = Decimal("1") - target_margin
     suggested_price = (avg_cost_ngn / margin_factor).quantize(Decimal("0.000001"))
+
+    # E5 — Pricing floor: never return a price below FIFO landed cost
+    if suggested_price < avg_cost_ngn:
+        raise PricingSuggestionError(
+            product_id,
+            f"Suggested price {suggested_price} is below FIFO landed cost {avg_cost_ngn}. "
+            "Cannot recommend a loss-making price.",
+        )
 
     # Catalog price for context
     catalog_price: Decimal | None = None

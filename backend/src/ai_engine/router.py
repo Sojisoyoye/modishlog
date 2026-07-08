@@ -150,11 +150,15 @@ async def apply_recommendation_endpoint(
     current_user: User = Depends(get_current_active_user),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """Apply a recommendation."""
+    """Apply a recommendation.
+
+    E4: For DELAY_PAYMENT and LIQUIDATE recommendations, include confirmed=true in request body.
+    """
     try:
         notes = body.notes if body else None
+        confirmed = body.confirmed if body else False
         return await apply_recommendation(
-            db, recommendation_id, current_user.id, notes, business_id=business_id
+            db, recommendation_id, current_user.id, notes, business_id=business_id, confirmed=confirmed
         )
     except RecommendationNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

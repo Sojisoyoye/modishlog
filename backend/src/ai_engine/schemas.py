@@ -4,12 +4,22 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ---------------------------------------------------------------------------
 # Recommendation schemas
 # ---------------------------------------------------------------------------
+
+_UNDER_TRAINED_DISCLAIMER = (
+    "Recommendation is based on limited historical data (<30 data points). "
+    "Treat with caution and validate against your own business knowledge."
+)
+_HUMAN_REVIEW_REASON = (
+    "This action has irreversible financial or supplier-relationship consequences. "
+    "Review carefully before applying."
+)
+_HIGH_CONSEQUENCE_ACTIONS = {"DELAY_PAYMENT", "LIQUIDATE", "delay_payment", "liquidate"}
 
 
 class RecommendationRead(BaseModel):
@@ -29,6 +39,42 @@ class RecommendationRead(BaseModel):
     status: str
     created_at: datetime
     expires_at: datetime
+    # E1 — AI confidence disclosure
+    data_points_used: int = 0
+    confidence_reliable: bool = False
+    under_trained_model: str | None = None
+    # E4 — Human review gate
+    requires_human_review: bool = False
+    human_review_reason: str | None = None
+    # E7 — Explainability
+    reason_summary: str = ""
+    evidence: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _populate_ethical_fields(self) -> "RecommendationRead":
+        """Populate ethical disclosure fields from expected_impact metadata."""
+        impact = self.expected_impact or {}
+        # E1 — confidence disclosure
+        if self.data_points_used == 0 and "data_points_used" in impact:
+            self.data_points_used = int(impact["data_points_used"])
+        self.confidence_reliable = self.data_points_used >= 30
+        if not self.confidence_reliable and self.under_trained_model is None:
+            self.under_trained_model = _UNDER_TRAINED_DISCLAIMER
+        # E4 — human review gate
+        action_str = (
+            self.action_type.value
+            if hasattr(self.action_type, "value")
+            else str(self.action_type)
+        )
+        if action_str in _HIGH_CONSEQUENCE_ACTIONS:
+            self.requires_human_review = True
+            self.human_review_reason = _HUMAN_REVIEW_REASON
+        # E7 — explainability
+        if not self.reason_summary and "reason_summary" in impact:
+            self.reason_summary = impact["reason_summary"]
+        if not self.evidence and "evidence" in impact:
+            self.evidence = impact["evidence"]
+        return self
 
 
 class RecommendationListResponse(BaseModel):
@@ -40,6 +86,7 @@ class RecommendationListResponse(BaseModel):
 
 class RecommendationAccept(BaseModel):
     notes: str | None = None
+    confirmed: bool = False  # E4: required for DELAY_PAYMENT / LIQUIDATE
 
 
 class RecommendationDismiss(BaseModel):

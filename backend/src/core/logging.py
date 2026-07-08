@@ -1,10 +1,46 @@
 """Structured logging configuration using structlog."""
 
 import logging
+import re
 
 import structlog
 
 from src.core.config import settings
+
+# S7: Pattern to detect and redact passwords in database/service URLs.
+# Matches postgresql://user:password@host/db and similar schemes.
+_URL_PASSWORD_PATTERN = re.compile(
+    r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+\-.]*://)"
+    r"(?P<userinfo>[^:@/]+)"
+    r":(?P<password>[^@/]+)"
+    r"(?P<rest>@.*)"
+)
+
+
+def sanitize_url(url: str) -> str:
+    """Mask the password portion of a database connection URL.
+
+    S7: Prevents credentials from being written to log files when logging
+    database connection strings (e.g., in Alembic env.py or startup logs).
+
+    Examples:
+        postgresql+asyncpg://user:SuperSecret@host:5432/db
+        → postgresql+asyncpg://user:***@host:5432/db
+
+        postgresql+asyncpg://localhost/modishlog  (no password)
+        → postgresql+asyncpg://localhost/modishlog  (unchanged)
+    """
+    if not url:
+        return url
+    match = _URL_PASSWORD_PATTERN.search(url)
+    if match:
+        return (
+            match.group("scheme")
+            + match.group("userinfo")
+            + ":***"
+            + match.group("rest")
+        )
+    return url
 
 
 def setup_logging() -> None:

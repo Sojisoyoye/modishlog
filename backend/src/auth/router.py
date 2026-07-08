@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,18 +74,29 @@ async def onboard_business(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except UserAlreadyExistsError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    _secure = settings.ENVIRONMENT != "development"
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         samesite="lax",
-        secure=settings.ENVIRONMENT != "development",
+        secure=_secure,
         path="/",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
+    # S2: Refresh token moved to HttpOnly cookie to prevent XSS theft from JSON body.
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        samesite="strict",
+        secure=_secure,
+        path="/api/v1/auth/refresh",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
     return OnboardResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
+        # S2: refresh_token is not returned in JSON body; it is set as HttpOnly cookie above.
         user_id=str(user.id),
         business_id=str(business.id),
     )
@@ -137,29 +148,66 @@ async def login(
         )
     access_token = build_token(user)
     raw_refresh_token = await create_refresh_token(db, user)
+    _secure = settings.ENVIRONMENT != "development"
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         samesite="lax",
-        secure=settings.ENVIRONMENT != "development",
+        secure=_secure,
         path="/",
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
-    return TokenResponse(access_token=access_token, refresh_token=raw_refresh_token)
+    # S2: Refresh token moved to HttpOnly cookie to prevent XSS theft from JSON body.
+    response.set_cookie(
+        key="refresh_token",
+        value=raw_refresh_token,
+        httponly=True,
+        samesite="strict",
+        secure=_secure,
+        path="/api/v1/auth/refresh",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+    return TokenResponse(access_token=access_token, refresh_token="")  # S2: not in JSON
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
-    """Issue a new access token given a valid refresh token."""
+async def refresh(
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    # S2: Accept refresh_token from HttpOnly cookie (preferred) or request body (fallback).
+    cookie_refresh_token: str | None = Cookie(default=None, alias="refresh_token"),
+    body: RefreshRequest | None = None,
+):
+    """Issue a new access token given a valid refresh token.
+
+    Reads refresh_token from the HttpOnly cookie set at login.
+    Falls back to the request body for backwards compatibility with existing clients.
+    """
+    token_value = cookie_refresh_token or (body.refresh_token if body else None)
+    if not token_value:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token is required",
+        )
     try:
-        new_access_token = await refresh_access_token(db, body.refresh_token)
+        new_access_token = await refresh_access_token(db, token_value)
     except InvalidRefreshTokenError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
         )
-    return TokenResponse(access_token=new_access_token)
+    _secure = settings.ENVIRONMENT != "development"
+    response.set_cookie(
+        key="access_token",
+        value=new_access_token,
+        httponly=True,
+        samesite="lax",
+        secure=_secure,
+        path="/",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    return TokenResponse(access_token=new_access_token, refresh_token="")
 
 
 @router.post("/logout", response_model=MessageResponse)
@@ -173,6 +221,13 @@ async def logout(
     """
     await revoke_refresh_token(db, body.refresh_token)
     response.delete_cookie(key="access_token", path="/")
+    # S2: Also clear the refresh_token cookie so an attacker cannot call /auth/refresh post-logout.
+    response.delete_cookie(
+        key="refresh_token",
+        path="/api/v1/auth/refresh",
+        httponly=True,
+        samesite="strict",
+    )
     return MessageResponse(message="Logged out successfully.")
 
 
@@ -239,10 +294,25 @@ async def admin_list_users(
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
-    """List all users with pagination and optional search. Admin only."""
-    items, total = await list_users(db, page=page, page_size=page_size, search=search)
+    """List all users within the admin's business. Admin only.
+
+    S4: Results are scoped to the admin's own business — cross-tenant enumeration
+    is prevented at the service layer.
+    """
+    if admin.business_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin user is not associated with a business",
+        )
+    items, total = await list_users(
+        db,
+        business_id=admin.business_id,
+        page=page,
+        page_size=page_size,
+        search=search,
+    )
     return UserListResponse(
         items=items,
         total=total,
