@@ -34,6 +34,7 @@ export interface RegisterRequest {
   phone?: string;
   tax_number?: string;
   fiscal_year_start_month: number;
+  ndpr_consent: boolean;
 }
 
 export interface RegisterResponse {
