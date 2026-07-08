@@ -14,50 +14,7 @@ jobs:
           username: root
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           script: |
-            cat << 'PYEOF' > /tmp/check_prod_schema.py
-import asyncio, os, re
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy import text
-
-db_url = os.environ.get("DATABASE_URL", "")
-ssl_required = "sslmode=require" in db_url
-db_url = re.sub(r"[?&]sslmode=[^&]*", "", db_url).rstrip("?&")
-engine = create_async_engine(db_url, connect_args={"ssl": True} if ssl_required else {})
-
-CHECKS = [
-    # alembic state
-    ("alembic_version", "SELECT version_num FROM alembic_version"),
-    # products columns added in later migrations
-    ("products.image_url", "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name='image_url'"),
-    ("products.barcode",   "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name='barcode'"),
-    ("products.unit",      "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name='unit'"),
-    # sales columns
-    ("sales.invoice_number",  "SELECT column_name FROM information_schema.columns WHERE table_name='sales' AND column_name='invoice_number'"),
-    ("sales.sell_price_ngn",  "SELECT column_name FROM information_schema.columns WHERE table_name='sales' AND column_name='sell_price_ngn'"),
-    ("sales.payment_amount",  "SELECT column_name FROM information_schema.columns WHERE table_name='sales' AND column_name='payment_amount'"),
-    ("sales.customer_id",     "SELECT column_name FROM information_schema.columns WHERE table_name='sales' AND column_name='customer_id'"),
-    # movementtype enum
-    ("enum.stock_adjustment", "SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='movementtype' AND e.enumlabel='stock_adjustment'"),
-    ("enum.opening_stock",    "SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='movementtype' AND e.enumlabel='opening_stock'"),
-    # new tables from PR #270 era
-    ("table.refresh_tokens",  "SELECT to_regclass('public.refresh_tokens')"),
-    ("table.app_settings",    "SELECT to_regclass('public.app_settings')"),
-]
-
-async def main():
-    async with engine.connect() as conn:
-        for label, sql in CHECKS:
-            try:
-                r = await conn.execute(text(sql))
-                val = r.scalar()
-                status = "PRESENT" if val else "MISSING"
-                print(f"  {status:8} {label}  (value={val!r})")
-            except Exception as e:
-                print(f"  ERROR    {label}  ({e})")
-    await engine.dispose()
-
-asyncio.run(main())
-PYEOF
+            echo aW1wb3J0IGFzeW5jaW8sIG9zLCByZQpmcm9tIHNxbGFsY2hlbXkuZXh0LmFzeW5jaW8gaW1wb3J0IGNyZWF0ZV9hc3luY19lbmdpbmUKZnJvbSBzcWxhbGNoZW15IGltcG9ydCB0ZXh0CgpkYl91cmwgPSBvcy5lbnZpcm9uLmdldCgiREFUQUJBU0VfVVJMIiwgIiIpCnNzbF9yZXF1aXJlZCA9ICJzc2xtb2RlPXJlcXVpcmUiIGluIGRiX3VybApkYl91cmwgPSByZS5zdWIociJbPyZdc3NsbW9kZT1bXiZdKiIsICIiLCBkYl91cmwpLnJzdHJpcCgiPyYiKQplbmdpbmUgPSBjcmVhdGVfYXN5bmNfZW5naW5lKGRiX3VybCwgY29ubmVjdF9hcmdzPXsic3NsIjogVHJ1ZX0gaWYgc3NsX3JlcXVpcmVkIGVsc2Uge30pCgpDSEVDS1MgPSBbCiAgICAoImFsZW1iaWNfdmVyc2lvbiIsICAgICAgICAiU0VMRUNUIHZlcnNpb25fbnVtIEZST00gYWxlbWJpY192ZXJzaW9uIiksCiAgICAoInByb2R1Y3RzLmltYWdlX3VybCIsICAgICAiU0VMRUNUIGNvbHVtbl9uYW1lIEZST00gaW5mb3JtYXRpb25fc2NoZW1hLmNvbHVtbnMgV0hFUkUgdGFibGVfbmFtZT0ncHJvZHVjdHMnIEFORCBjb2x1bW5fbmFtZT0naW1hZ2VfdXJsJyIpLAogICAgKCJwcm9kdWN0cy5iYXJjb2RlIiwgICAgICAgIlNFTEVDVCBjb2x1bW5fbmFtZSBGUk9NIGluZm9ybWF0aW9uX3NjaGVtYS5jb2x1bW5zIFdIRVJFIHRhYmxlX25hbWU9J3Byb2R1Y3RzJyBBTkQgY29sdW1uX25hbWU9J2JhcmNvZGUnIiksCiAgICAoInByb2R1Y3RzLnVuaXQiLCAgICAgICAgICAiU0VMRUNUIGNvbHVtbl9uYW1lIEZST00gaW5mb3JtYXRpb25fc2NoZW1hLmNvbHVtbnMgV0hFUkUgdGFibGVfbmFtZT0ncHJvZHVjdHMnIEFORCBjb2x1bW5fbmFtZT0ndW5pdCciKSwKICAgICgic2FsZXMuaW52b2ljZV9udW1iZXIiLCAgICJTRUxFQ1QgY29sdW1uX25hbWUgRlJPTSBpbmZvcm1hdGlvbl9zY2hlbWEuY29sdW1ucyBXSEVSRSB0YWJsZV9uYW1lPSdzYWxlcycgQU5EIGNvbHVtbl9uYW1lPSdpbnZvaWNlX251bWJlciciKSwKICAgICgic2FsZXMuc2VsbF9wcmljZV9uZ24iLCAgICJTRUxFQ1QgY29sdW1uX25hbWUgRlJPTSBpbmZvcm1hdGlvbl9zY2hlbWEuY29sdW1ucyBXSEVSRSB0YWJsZV9uYW1lPSdzYWxlcycgQU5EIGNvbHVtbl9uYW1lPSdzZWxsX3ByaWNlX25nbiciKSwKICAgICgic2FsZXMucGF5bWVudF9hbW91bnQiLCAgICJTRUxFQ1QgY29sdW1uX25hbWUgRlJPTSBpbmZvcm1hdGlvbl9zY2hlbWEuY29sdW1ucyBXSEVSRSB0YWJsZV9uYW1lPSdzYWxlcycgQU5EIGNvbHVtbl9uYW1lPSdwYXltZW50X2Ftb3VudCciKSwKICAgICgic2FsZXMuY3VzdG9tZXJfaWQiLCAgICAgICJTRUxFQ1QgY29sdW1uX25hbWUgRlJPTSBpbmZvcm1hdGlvbl9zY2hlbWEuY29sdW1ucyBXSEVSRSB0YWJsZV9uYW1lPSdzYWxlcycgQU5EIGNvbHVtbl9uYW1lPSdjdXN0b21lcl9pZCciKSwKICAgICgiZW51bS5zdG9ja19hZGp1c3RtZW50IiwgICJTRUxFQ1QgMSBGUk9NIHBnX2VudW0gZSBKT0lOIHBnX3R5cGUgdCBPTiB0Lm9pZD1lLmVudW10eXBpZCBXSEVSRSB0LnR5cG5hbWU9J21vdmVtZW50dHlwZScgQU5EIGUuZW51bWxhYmVsPSdzdG9ja19hZGp1c3RtZW50JyIpLAogICAgKCJlbnVtLm9wZW5pbmdfc3RvY2siLCAgICAgIlNFTEVDVCAxIEZST00gcGdfZW51bSBlIEpPSU4gcGdfdHlwZSB0IE9OIHQub2lkPWUuZW51bXR5cGlkIFdIRVJFIHQudHlwbmFtZT0nbW92ZW1lbnR0eXBlJyBBTkQgZS5lbnVtbGFiZWw9J29wZW5pbmdfc3RvY2snIiksCiAgICAoInRhYmxlLnJlZnJlc2hfdG9rZW5zIiwgICAiU0VMRUNUIHRvX3JlZ2NsYXNzKCdwdWJsaWMucmVmcmVzaF90b2tlbnMnKSIpLAogICAgKCJ0YWJsZS5hcHBfc2V0dGluZ3MiLCAgICAgIlNFTEVDVCB0b19yZWdjbGFzcygncHVibGljLmFwcF9zZXR0aW5ncycpIiksCiAgICAoInRhYmxlLnBvc19zeW5jX3N0YXRlIiwgICAiU0VMRUNUIHRvX3JlZ2NsYXNzKCdwdWJsaWMucG9zX3N5bmNfc3RhdGUnKSIpLApdCgphc3luYyBkZWYgbWFpbigpOgogICAgYXN5bmMgd2l0aCBlbmdpbmUuY29ubmVjdCgpIGFzIGNvbm46CiAgICAgICAgZm9yIGxhYmVsLCBzcWwgaW4gQ0hFQ0tTOgogICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICByID0gYXdhaXQgY29ubi5leGVjdXRlKHRleHQoc3FsKSkKICAgICAgICAgICAgICAgIHZhbCA9IHIuc2NhbGFyKCkKICAgICAgICAgICAgICAgIHN0YXR1cyA9ICJQUkVTRU5UIiBpZiB2YWwgZWxzZSAiTUlTU0lORyIKICAgICAgICAgICAgICAgIHByaW50KGYiICB7c3RhdHVzOjh9IHtsYWJlbH0gICg9e3ZhbCFyfSkiKQogICAgICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICAgICAgICAgICAgICBwcmludChmIiAgRVJST1IgICAge2xhYmVsfSAgKHtlfSkiKQogICAgYXdhaXQgZW5naW5lLmRpc3Bvc2UoKQogICAgcHJpbnQoIkRvbmUuIikKCmFzeW5jaW8ucnVuKG1haW4oKSkK | base64 -d > /tmp/check_prod_schema.py
             docker cp /tmp/check_prod_schema.py modishlog-prod-backend:/tmp/check_prod_schema.py
             docker exec modishlog-prod-backend python3 /tmp/check_prod_schema.py
             rm /tmp/check_prod_schema.py
