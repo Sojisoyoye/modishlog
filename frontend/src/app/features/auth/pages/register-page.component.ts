@@ -37,7 +37,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
       <!-- Right form panel: scrolls when content exceeds viewport height -->
       <div class="flex flex-1 overflow-y-auto bg-white">
         <div class="flex flex-col items-center justify-center w-full min-h-full px-6 py-12 lg:px-16">
-        <div class="w-full max-w-md">
+          <div class="w-full max-w-md">
           <!-- Mobile logo (shown only on small screens) -->
           <div class="mb-6 text-center lg:hidden">
             <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-xl font-bold text-white shadow-lg">
@@ -320,7 +320,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
             Already have an account?
             <a routerLink="/login" class="text-emerald-600 hover:underline">Log in</a>
           </p>
-        </div>
+          </div>
         </div>
       </div>
     </div>
