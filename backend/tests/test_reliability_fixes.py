@@ -574,7 +574,7 @@ class TestDBExceptionPropagation:
         with patch("src.auth.service.logger") as mock_log:
             mock_log.exception = MagicMock()
             try:
-                await list_users(mock_db)
+                await list_users(mock_db, business_id=uuid.uuid4())
             except Exception:
                 pass
             # logger.exception should be called when DB fails

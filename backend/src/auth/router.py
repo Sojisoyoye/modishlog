@@ -225,13 +225,17 @@ async def logout(
     """
     token_to_revoke = cookie_refresh_token or (body.refresh_token if body else None)
     await revoke_refresh_token(db, token_to_revoke)
-    response.delete_cookie(key="access_token", path="/")
+    _secure = settings.ENVIRONMENT != "development"
+    response.delete_cookie(key="access_token", path="/", secure=_secure)
     # S2: Also clear the refresh_token cookie so an attacker cannot call /auth/refresh post-logout.
+    # secure= must match the flag used when the cookie was set, otherwise browsers on HTTPS
+    # will ignore the deletion directive and leave the Secure cookie alive post-logout.
     response.delete_cookie(
         key="refresh_token",
         path="/api/v1/auth/refresh",
         httponly=True,
         samesite="strict",
+        secure=_secure,
     )
     return MessageResponse(message="Logged out successfully.")
 

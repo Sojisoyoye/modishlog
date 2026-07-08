@@ -195,6 +195,17 @@ async def calculate_price_elasticity_impact(
 ) -> dict:
     """Calculate demand impact for a proposed price change."""
     product = await _get_product(db, product_id)
+
+    # E5 — Pricing floor: reject any proposed price at or below unit cost.
+    # This mirrors the floor in compute_suggestion so that any user-submitted
+    # price passes through the same loss-making guard before being used.
+    if product.unit_cost is not None and proposed_price <= product.unit_cost:
+        raise PricingSuggestionError(
+            product_id,
+            f"Proposed price {proposed_price} is at or below unit cost {product.unit_cost}. "
+            "Cannot evaluate a loss-making price.",
+        )
+
     elasticity = await _get_elasticity_coefficient(db, product_id)
 
     current_price = product.selling_price
@@ -1261,11 +1272,15 @@ async def compute_suggestion(
     margin_factor = Decimal("1") - target_margin
     suggested_price = (avg_cost_ngn / margin_factor).quantize(Decimal("0.000001"))
 
-    # E5 — Pricing floor: never return a price below FIFO landed cost
-    if suggested_price < avg_cost_ngn:
+    # E5 — Pricing floor: never return a price at or below FIFO landed cost.
+    # Note: the formula avg_cost_ngn / (1 - target_margin) always produces a
+    # value above avg_cost_ngn when target_margin ∈ (0, 1), so this guard
+    # catches edge cases where target_margin is 0 (break-even) or rounding
+    # produces an exact match — both represent zero-margin or loss-making prices.
+    if suggested_price <= avg_cost_ngn:
         raise PricingSuggestionError(
             product_id,
-            f"Suggested price {suggested_price} is below FIFO landed cost {avg_cost_ngn}. "
+            f"Suggested price {suggested_price} is at or below FIFO landed cost {avg_cost_ngn}. "
             "Cannot recommend a loss-making price.",
         )
 

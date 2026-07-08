@@ -23,13 +23,20 @@ async def check_db() -> str:
 
 
 async def check_fx_api() -> str:
-    """Check ExchangeRate-API reachability with a HEAD request (2 s timeout).
+    """Check ExchangeRate-API reachability with a GET request (2 s timeout).
+
+    Uses GET rather than HEAD because ExchangeRate-API returns 405 on HEAD,
+    which would mark the API as permanently down even when it is healthy.
+    Any response with status < 500 is treated as reachable (the API is up
+    even if it returns 4xx for a missing API key). Only network errors or
+    5xx responses are treated as failures.
 
     Returns 'ok' or raises on failure.
     """
     async with httpx.AsyncClient(timeout=2.0) as client:
-        response = await client.head(settings.FX_LIVE_API_URL)
-        response.raise_for_status()
+        response = await client.get(settings.FX_LIVE_API_URL)
+        if response.status_code >= 500:
+            response.raise_for_status()
     return "ok"
 
 

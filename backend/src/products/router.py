@@ -473,15 +473,14 @@ async def upload_product_image(
 
         detected_mime = magic.from_buffer(contents, mime=True)
     except ImportError:
-        # libmagic not available — fall back to extension check with a warning
-        await _logger.awarning(
-            "mime_validation_skipped",
-            reason="python-magic not available — install libmagic for server-side MIME validation",
-            product_id=str(product_id),
+        # libmagic is a hard runtime requirement — fail loudly rather than silently
+        # bypassing MIME validation and accepting arbitrary file types.
+        raise RuntimeError(
+            "python-magic/libmagic is required for file upload validation but is not installed. "
+            "Install libmagic via: apt-get install libmagic1 && pip install python-magic"
         )
-        detected_mime = None
 
-    if detected_mime is not None and detected_mime not in ALLOWED_MIME_TYPES:
+    if detected_mime not in ALLOWED_MIME_TYPES:
         await _logger.awarning(
             "file_upload_mime_rejected",
             product_id=str(product_id),
