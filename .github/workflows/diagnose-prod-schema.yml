@@ -1,0 +1,63 @@
+name: Diagnose Prod Schema (one-shot, delete after use)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check prod PostgreSQL schema
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: root
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            cat << 'PYEOF' > /tmp/check_prod_schema.py
+import asyncio, os, re
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import text
+
+db_url = os.environ.get("DATABASE_URL", "")
+ssl_required = "sslmode=require" in db_url
+db_url = re.sub(r"[?&]sslmode=[^&]*", "", db_url).rstrip("?&")
+engine = create_async_engine(db_url, connect_args={"ssl": True} if ssl_required else {})
+
+CHECKS = [
+    # alembic state
+    ("alembic_version", "SELECT version_num FROM alembic_version"),
+    # products columns added in later migrations
+    ("products.image_url", "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name='image_url'"),
+    ("products.barcode",   "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name='barcode'"),
+    ("products.unit",      "SELECT column_name FROM information_schema.columns WHERE table_name='products' AND column_name='unit'"),
+    # sales columns
+    ("sales.invoice_number",  "SELECT column_name FROM information_schema.columns WHERE table_name='sales' AND column_name='invoice_number'"),
+    ("sales.sell_price_ngn",  "SELECT column_name FROM information_schema.columns WHERE table_name='sales' AND column_name='sell_price_ngn'"),
+    ("sales.payment_amount",  "SELECT column_name FROM information_schema.columns WHERE table_name='sales' AND column_name='payment_amount'"),
+    ("sales.customer_id",     "SELECT column_name FROM information_schema.columns WHERE table_name='sales' AND column_name='customer_id'"),
+    # movementtype enum
+    ("enum.stock_adjustment", "SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='movementtype' AND e.enumlabel='stock_adjustment'"),
+    ("enum.opening_stock",    "SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='movementtype' AND e.enumlabel='opening_stock'"),
+    # new tables from PR #270 era
+    ("table.refresh_tokens",  "SELECT to_regclass('public.refresh_tokens')"),
+    ("table.app_settings",    "SELECT to_regclass('public.app_settings')"),
+]
+
+async def main():
+    async with engine.connect() as conn:
+        for label, sql in CHECKS:
+            try:
+                r = await conn.execute(text(sql))
+                val = r.scalar()
+                status = "PRESENT" if val else "MISSING"
+                print(f"  {status:8} {label}  (value={val!r})")
+            except Exception as e:
+                print(f"  ERROR    {label}  ({e})")
+    await engine.dispose()
+
+asyncio.run(main())
+PYEOF
+            docker cp /tmp/check_prod_schema.py modishlog-prod-backend:/tmp/check_prod_schema.py
+            docker exec modishlog-prod-backend python3 /tmp/check_prod_schema.py
+            rm /tmp/check_prod_schema.py
