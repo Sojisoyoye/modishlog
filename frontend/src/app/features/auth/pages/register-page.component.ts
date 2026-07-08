@@ -176,8 +176,28 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                 </div>
               </div>
 
+              <!-- NDPR consent -->
+              <div class="mb-6">
+                <label class="flex items-start gap-3 cursor-pointer">
+                  <input
+                    id="ndpr-consent"
+                    type="checkbox"
+                    [(ngModel)]="ndprConsent"
+                    name="ndprConsent"
+                    class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary"
+                  />
+                  <span class="text-sm text-gray-700">
+                    I consent to ModishLog processing my business data as required by the
+                    Nigeria Data Protection Regulation (NDPR).
+                    <a href="/privacy" target="_blank" rel="noopener noreferrer" class="text-emerald-600 hover:underline">Privacy Policy</a>
+                    <span class="text-danger">*</span>
+                  </span>
+                </label>
+              </div>
+
               <button
                 type="submit"
+                [disabled]="!ndprConsent"
                 class="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-secondary disabled:opacity-50 min-h-[44px] flex items-center justify-center gap-2"
               >
                 Next &rarr;
@@ -340,6 +360,7 @@ export class RegisterPageComponent {
   password = '';
   confirmPassword = '';
   showPassword = signal(false);
+  ndprConsent = false;
 
   // Step 2 fields
   businessName = '';
@@ -350,6 +371,10 @@ export class RegisterPageComponent {
   phone = '';
 
   goToStep2(): void {
+    if (!this.ndprConsent) {
+      this.errorMsg.set('You must accept the NDPR data processing terms to continue.');
+      return;
+    }
     if (!this.fullName.trim() || !this.email.trim() || !this.password) {
       this.errorMsg.set('Please fill in all required fields.');
       return;
@@ -383,6 +408,7 @@ export class RegisterPageComponent {
       currency: this.currency,
       timezone: this.timezone,
       fiscal_year_start_month: 1,
+      ndpr_consent: this.ndprConsent,
     };
 
     if (this.country) payload.country = this.country;

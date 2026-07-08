@@ -38,6 +38,7 @@ test.describe('Register page — step navigation', () => {
     await page.locator('#reg-email').fill(`step2-${Date.now()}@modishlogtest.com`);
     await page.locator('#reg-password').fill(REG_PASSWORD);
     await page.locator('#reg-confirm-password').fill(REG_PASSWORD);
+    await page.locator('#ndpr-consent').check();
 
     await page.getByRole('button', { name: /next/i }).click();
 
@@ -53,6 +54,7 @@ test.describe('Register page — step navigation', () => {
     await page.locator('#reg-email').fill(`back-${Date.now()}@modishlogtest.com`);
     await page.locator('#reg-password').fill(REG_PASSWORD);
     await page.locator('#reg-confirm-password').fill(REG_PASSWORD);
+    await page.locator('#ndpr-consent').check();
     await page.getByRole('button', { name: /next/i }).click();
 
     // Wait for step 2 to appear
@@ -68,6 +70,8 @@ test.describe('Register page — step navigation', () => {
 
   test('Next button shows error when required fields are empty', async ({ page }) => {
     await page.goto('/register');
+    // Check consent so the button is enabled, then submit empty fields
+    await page.locator('#ndpr-consent').check();
     await page.getByRole('button', { name: /next/i }).click();
     await expect(page.getByRole('alert')).toBeVisible({ timeout: 5_000 });
   });
@@ -79,6 +83,7 @@ test.describe('Register page — step navigation', () => {
     await page.locator('#reg-email').fill(`mismatch-${Date.now()}@modishlogtest.com`);
     await page.locator('#reg-password').fill(REG_PASSWORD);
     await page.locator('#reg-confirm-password').fill('WrongConfirm!999');
+    await page.locator('#ndpr-consent').check();
 
     await page.getByRole('button', { name: /next/i }).click();
     await expect(page.getByText(/passwords do not match/i)).toBeVisible({ timeout: 5_000 });
@@ -97,6 +102,7 @@ test.describe('Register page — full happy path', () => {
     await page.locator('#reg-email').fill(uniqueEmail);
     await page.locator('#reg-password').fill(REG_PASSWORD);
     await page.locator('#reg-confirm-password').fill(REG_PASSWORD);
+    await page.locator('#ndpr-consent').check();
     await page.getByRole('button', { name: /next/i }).click();
 
     // Step 2
@@ -127,6 +133,7 @@ test.describe('Register page — duplicate email error', () => {
           currency: 'NGN',
           timezone: 'Africa/Lagos',
           fiscal_year_start_month: 1,
+          ndpr_consent: true,
         },
       });
     } finally {
@@ -140,6 +147,7 @@ test.describe('Register page — duplicate email error', () => {
     await page.locator('#reg-email').fill(duplicateEmail);
     await page.locator('#reg-password').fill(REG_PASSWORD);
     await page.locator('#reg-confirm-password').fill(REG_PASSWORD);
+    await page.locator('#ndpr-consent').check();
     await page.getByRole('button', { name: /next/i }).click();
 
     await expect(page.locator('#reg-business-name')).toBeVisible({ timeout: 5_000 });
@@ -159,5 +167,30 @@ test.describe('Register page — footer link', () => {
     const loginLink = page.getByRole('link', { name: /log in/i });
     await expect(loginLink).toBeVisible();
     await expect(loginLink).toHaveAttribute('href', '/login');
+  });
+});
+
+test.describe('Register page — NDPR consent', () => {
+  test('Next button is disabled when consent is not checked', async ({ page }) => {
+    await page.goto('/register');
+    // The Next button should be disabled when checkbox is unchecked
+    const nextBtn = page.getByRole('button', { name: /next/i });
+    await expect(nextBtn).toBeDisabled();
+  });
+
+  test('Next button becomes enabled after checking consent', async ({ page }) => {
+    await page.goto('/register');
+    const nextBtn = page.getByRole('button', { name: /next/i });
+    await expect(nextBtn).toBeDisabled();
+    await page.locator('#ndpr-consent').check();
+    await expect(nextBtn).toBeEnabled();
+  });
+
+  test('consent checkbox is present and required on step 1', async ({ page }) => {
+    await page.goto('/register');
+    await expect(page.locator('#ndpr-consent')).toBeVisible();
+    await expect(page.locator('#ndpr-consent')).not.toBeChecked();
+    // Text content mentions NDPR
+    await expect(page.getByText(/Nigeria Data Protection Regulation/i)).toBeVisible();
   });
 });
