@@ -410,14 +410,18 @@ class TestE4HumanReviewGate:
 
     @pytest.mark.anyio
     async def test_apply_delay_payment_without_confirmed_raises_422(self):
-        """Applying a DELAY_PAYMENT recommendation without confirmed=True raises HTTP 422."""
+        """Applying a fx_lock recommendation without confirmed=True raises HTTP 422.
+
+        HIGH_CONSEQUENCE_ACTIONS was updated from {DELAY_PAYMENT, LIQUIDATE} to
+        {fx_lock, usd_purchase} to match ActionType enum values exactly.
+        """
         from src.ai_engine.service import apply_recommendation
-        from src.ai_engine.models import ActionType, RecommendationStatus
+        from src.ai_engine.models import RecommendationStatus
         from fastapi import HTTPException
 
-        # Create a mock DELAY_PAYMENT recommendation
+        # fx_lock is a high-consequence action (replaces legacy DELAY_PAYMENT)
         rec = _make_ai_recommendation(
-            action_type=MagicMock(value="DELAY_PAYMENT"),
+            action_type=MagicMock(value="fx_lock"),
             status=RecommendationStatus.PENDING,
             expires_at=NOW + timedelta(days=30),
         )
@@ -437,13 +441,18 @@ class TestE4HumanReviewGate:
 
     @pytest.mark.anyio
     async def test_apply_liquidate_without_confirmed_raises_422(self):
-        """Applying a LIQUIDATE recommendation without confirmed=True raises HTTP 422."""
+        """Applying a usd_purchase recommendation without confirmed=True raises HTTP 422.
+
+        HIGH_CONSEQUENCE_ACTIONS was updated from {DELAY_PAYMENT, LIQUIDATE} to
+        {fx_lock, usd_purchase} to match ActionType enum values exactly.
+        """
         from src.ai_engine.service import apply_recommendation
         from src.ai_engine.models import RecommendationStatus
         from fastapi import HTTPException
 
+        # usd_purchase is a high-consequence action (replaces legacy LIQUIDATE)
         rec = _make_ai_recommendation(
-            action_type=MagicMock(value="LIQUIDATE"),
+            action_type=MagicMock(value="usd_purchase"),
             status=RecommendationStatus.PENDING,
             expires_at=NOW + timedelta(days=30),
         )
@@ -548,7 +557,7 @@ class TestE5PricingFloor:
         assert "below FIFO landed cost" in source, (
             "E5 pricing floor check not found in compute_suggestion"
         )
-        assert "suggested_price < avg_cost_ngn" in source, (
+        assert "suggested_price <= avg_cost_ngn" in source, (
             "E5 floor comparison not found in compute_suggestion"
         )
 
@@ -812,8 +821,9 @@ class TestE8BiasAuditLogging:
         # expected behaviour for empty portfolio).
         # The key test is that the constants exist and the format is correct.
         from src.ai_engine.service import HIGH_CONSEQUENCE_ACTIONS, HUMAN_REVIEW_REASON
-        assert "DELAY_PAYMENT" in HIGH_CONSEQUENCE_ACTIONS
-        assert "LIQUIDATE" in HIGH_CONSEQUENCE_ACTIONS
+        # HIGH_CONSEQUENCE_ACTIONS uses ActionType enum .value strings
+        assert "fx_lock" in HIGH_CONSEQUENCE_ACTIONS
+        assert "usd_purchase" in HIGH_CONSEQUENCE_ACTIONS
 
     def test_model_version_constant_exists(self):
         """MODEL_VERSION constant must be defined in ai_engine/service.py."""

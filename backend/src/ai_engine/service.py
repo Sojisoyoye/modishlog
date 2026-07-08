@@ -1,6 +1,5 @@
 """AI Engine service: unified recommendations, USD accumulation, reorder suggestions."""
 
-import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
@@ -29,6 +28,7 @@ from src.ai_engine.models import (
     USDStrategyConfig,
 )
 from src.cashflow.models import LoanObligation, LoanStatus
+from src.core.ai_safety import contains_pii_check  # noqa: F401  re-exported; E6 PII guard
 from src.inventory.models import InventoryLevel, MovementType, StockMovement
 from src.orders.models import (
     OrderPayment,
@@ -54,35 +54,19 @@ UNDER_TRAINED_DISCLAIMER = (
 )
 
 # E4 — High-consequence action types that require human review
-# These are string values used in triage (cashflow domain) and ai_engine alike
-HIGH_CONSEQUENCE_ACTIONS = {"DELAY_PAYMENT", "LIQUIDATE", "delay_payment", "liquidate"}
+# These must match ActionType enum .value strings (see ai_engine/models.py).
+# fx_lock commits FX capital; usd_purchase is a large USD commitment — both
+# are irreversible financial actions that require explicit human confirmation.
+HIGH_CONSEQUENCE_ACTIONS = {"fx_lock", "usd_purchase"}
 HUMAN_REVIEW_REASON = (
     "This action has irreversible financial or supplier-relationship consequences. "
     "Review carefully before applying."
 )
 
-# E6 — PII detection pattern (email, phone, name-like text)
-_PII_PATTERN = re.compile(
-    r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"  # email
-    r"|(?:\+?234|0)[789]\d{9}"  # Nigerian phone
-    r"|\b(?:full_name|phone_number|email_address|nin)\s*[:=]\s*\S+",  # field=value
-    re.IGNORECASE,
-)
+# E6 — PII guard re-exported above (src.core.ai_safety.contains_pii_check).
+# IMPORTANT: call contains_pii_check(prompt) before every Anthropic API call.
 
 MODEL_VERSION = "rule-based-v1"
-
-
-def contains_pii_check(prompt: str) -> None:
-    """Raise ValueError if PII patterns are detected in a prompt string.
-
-    E6 — Call this before every Anthropic API call.
-    """
-    match = _PII_PATTERN.search(prompt)
-    if match:
-        raise ValueError(
-            f"PII detected in prompt at position {match.start()}: "
-            f"'{match.group()[:20]}...'. Remove PII before sending to external API."
-        )
 
 
 # ---------------------------------------------------------------------------

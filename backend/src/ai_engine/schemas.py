@@ -6,6 +6,9 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+# Single source of truth — import from service to avoid divergence
+from src.ai_engine.service import HIGH_CONSEQUENCE_ACTIONS, HUMAN_REVIEW_REASON
+
 
 # ---------------------------------------------------------------------------
 # Recommendation schemas
@@ -15,11 +18,6 @@ _UNDER_TRAINED_DISCLAIMER = (
     "Recommendation is based on limited historical data (<30 data points). "
     "Treat with caution and validate against your own business knowledge."
 )
-_HUMAN_REVIEW_REASON = (
-    "This action has irreversible financial or supplier-relationship consequences. "
-    "Review carefully before applying."
-)
-_HIGH_CONSEQUENCE_ACTIONS = {"DELAY_PAYMENT", "LIQUIDATE", "delay_payment", "liquidate"}
 
 
 class RecommendationRead(BaseModel):
@@ -60,15 +58,17 @@ class RecommendationRead(BaseModel):
         self.confidence_reliable = self.data_points_used >= 30
         if not self.confidence_reliable and self.under_trained_model is None:
             self.under_trained_model = _UNDER_TRAINED_DISCLAIMER
+        else:
+            self.under_trained_model = None  # clear stale disclaimer when model is reliable
         # E4 — human review gate
         action_str = (
             self.action_type.value
             if hasattr(self.action_type, "value")
             else str(self.action_type)
         )
-        if action_str in _HIGH_CONSEQUENCE_ACTIONS:
+        if action_str in HIGH_CONSEQUENCE_ACTIONS:
             self.requires_human_review = True
-            self.human_review_reason = _HUMAN_REVIEW_REASON
+            self.human_review_reason = HUMAN_REVIEW_REASON
         # E7 — explainability
         if not self.reason_summary and "reason_summary" in impact:
             self.reason_summary = impact["reason_summary"]
