@@ -238,6 +238,13 @@ export const routes: Routes = [
     canActivate: [noAuthGuard],
   },
   {
+    path: 'privacy',
+    loadComponent: () =>
+      import('./features/legal/pages/privacy-policy-page.component').then(
+        (m) => m.PrivacyPolicyPageComponent,
+      ),
+  },
+  {
     path: '**',
     redirectTo: 'dashboard',
   },
