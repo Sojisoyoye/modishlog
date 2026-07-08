@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from src.fx.service import get_live_usdngn_rate
 from src.orders.models import OrderLineItem, PurchaseOrder
+from src.fx.exceptions import ForecastTimeoutError
 from src.pricing.exceptions import (
     ElasticityNotFoundError,
     InsufficientPriceDataError,
@@ -113,10 +114,16 @@ async def calculate_demand_forecast(
     """Generate demand forecast with optional price elasticity adjustment."""
     df = await _fetch_sales_history(db, product_id)
 
-    model = await asyncio.to_thread(_train_demand_model, df)
-    forecast_df = await asyncio.to_thread(
-        _generate_demand_forecast, model, horizon_days
-    )
+    try:
+        model = await asyncio.wait_for(
+            asyncio.to_thread(_train_demand_model, df), timeout=30.0
+        )
+        forecast_df = await asyncio.wait_for(
+            asyncio.to_thread(_generate_demand_forecast, model, horizon_days),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError as e:
+        raise ForecastTimeoutError("Prophet training exceeded 30s timeout") from e
 
     # Apply price elasticity adjustment if proposed_price given
     multiplier = 1.0
