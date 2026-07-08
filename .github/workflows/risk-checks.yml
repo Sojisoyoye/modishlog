@@ -1,0 +1,337 @@
+name: Risk Checks
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'nginx/**'
+      - 'docker-compose*.yml'
+      - '.github/workflows/**'
+
+jobs:
+  # ─── 1. Static code risk checks (no runtime required) ──────────────────────
+  static-risk-checks:
+    name: Static risk checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # S2 — No raw SQL outside alembic/
+      - name: "[S2] No raw SQL in src/"
+        run: |
+          HITS=$(grep -rn "text(" backend/src/ --include="*.py" \
+                 | grep -v "# risk-ok" || true)
+          if [ -n "$HITS" ]; then
+            echo "FAIL [S2]: raw SQL text() found in src/ (forbidden outside alembic/):"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "PASS [S2]: no raw SQL found"
+
+      # G1 — No print() statements
+      - name: "[G1] No print() statements in src/"
+        run: |
+          HITS=$(grep -rn "^\s*print(" backend/src/ --include="*.py" \
+                 | grep -v "# risk-ok" || true)
+          if [ -n "$HITS" ]; then
+            echo "FAIL [G1]: print() found — use structlog:"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "PASS [G1]: no print() statements"
+
+      # F1 — No float() for monetary values in financial service files
+      - name: "[F1] No float() for money in financial service files"
+        run: |
+          FINANCIAL_FILES="backend/src/sales backend/src/orders backend/src/pricing \
+                           backend/src/cashflow backend/src/inventory backend/src/products \
+                           backend/src/ai_engine backend/src/fx backend/src/expenses \
+                           backend/src/stockcount backend/src/data_import"
+          HITS=$(grep -rn "float(" $FINANCIAL_FILES --include="*.py" \
+                 | grep -v "# financial-float-ok\|test_\|pandas\|numpy\|df\[" || true)
+          if [ -n "$HITS" ]; then
+            echo "FAIL [F1]: float() found in financial code — use Decimal:"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "PASS [F1]: no float() in financial service files"
+
+      # S3 — No secrets in log calls
+      - name: "[S3] No secrets in log calls"
+        run: |
+          HITS=$(grep -rn \
+            -e "log.*password\b" \
+            -e "log.*secret\b" \
+            -e "log.*api_key\b" \
+            -e "log.*encrypted_value\b" \
+            -e "logger.*token\b" \
+            -e "logger.*credential" \
+            backend/src/ --include="*.py" \
+            | grep -v "# risk-ok\|test_" || true)
+          if [ -n "$HITS" ]; then
+            echo "FAIL [S3]: potential secret in log call:"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "PASS [S3]: no secrets found in log calls"
+
+      # G2 — Static routes before parameterised (detect common pattern violation)
+      - name: "[G2] Static routes before parameterised routes"
+        run: |
+          python3 - <<'PYEOF'
+          import re, sys, pathlib, ast
+
+          violations = []
+          for path in pathlib.Path("backend/src").rglob("router.py"):
+              content = path.read_text()
+              routes = re.findall(r'@router\.\w+\("([^"]+)"', content)
+              last_param = -1
+              for i, route in enumerate(routes):
+                  has_param = "{" in route
+                  if has_param:
+                      last_param = i
+                  elif last_param > -1 and i > last_param:
+                      # Static route after a parameterised one
+                      violations.append(f"{path}: static route '{route}' at position {i} "
+                                        f"comes after a parameterised route at position {last_param}")
+
+          if violations:
+              print("FAIL [G2]: static routes declared after parameterised routes:")
+              for v in violations:
+                  print(" ", v)
+              sys.exit(1)
+          print("PASS [G2]: route ordering correct")
+          PYEOF
+
+      # G3 — Enum columns must use values_callable
+      - name: "[G3] Enum columns use values_callable"
+        run: |
+          python3 - <<'PYEOF'
+          import re, sys, pathlib
+
+          violations = []
+          for path in pathlib.Path("backend/src").rglob("models.py"):
+              content = path.read_text()
+              # Find Enum( usages in mapped_column that lack values_callable
+              lines = content.split("\n")
+              for i, line in enumerate(lines, 1):
+                  if "Enum(" in line and "mapped_column" in line:
+                      # Check surrounding context (up to 3 lines) for values_callable
+                      context = "\n".join(lines[max(0,i-2):i+3])
+                      if "values_callable" not in context:
+                          violations.append(f"{path}:{i}: {line.strip()}")
+
+          if violations:
+              print("FAIL [G3]: Enum column missing values_callable:")
+              for v in violations:
+                  print(" ", v)
+              sys.exit(1)
+          print("PASS [G3]: all Enum columns have values_callable")
+          PYEOF
+
+      # E3 — No PII field names in AI prompt construction
+      - name: "[E3] No PII fields in Anthropic prompt strings"
+        run: |
+          HITS=$(grep -rn \
+            -e "\.email\b" \
+            -e "\.full_name\b" \
+            -e "\.phone\b" \
+            backend/src/ai_engine/ --include="*.py" \
+            | grep -i "prompt\|message\|content\|anthropic\|claude" \
+            | grep -v "# risk-ok\|test_" || true)
+          if [ -n "$HITS" ]; then
+            echo "FAIL [E3]: possible PII in Anthropic prompt context — verify manually:"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "PASS [E3]: no obvious PII field access near Anthropic prompt construction"
+
+      # F2 — asyncio.to_thread() required for CPU-bound ML
+      - name: "[F2] CPU-bound ML runs in asyncio.to_thread()"
+        run: |
+          python3 - <<'PYEOF'
+          import re, sys, pathlib
+
+          ML_CALLS = [
+              r"Prophet\(\)",
+              r"\.fit\(df\)",
+              r"scipy\.optimize\.minimize",
+              r"np\.random\.",
+              r"simulate_paths",
+          ]
+          violations = []
+          for path in pathlib.Path("backend/src").rglob("*.py"):
+              content = path.read_text()
+              for pattern in ML_CALLS:
+                  for m in re.finditer(pattern, content):
+                      start = content.rfind("\n", 0, m.start()) + 1
+                      line_no = content[:m.start()].count("\n") + 1
+                      line = content[start:content.find("\n", m.start())]
+                      # Check if call is inside to_thread or run_in_executor context
+                      # (simplified: check if "to_thread" appears within 10 lines above)
+                      surrounding = content[max(0, m.start()-400):m.start()]
+                      if "to_thread" not in surrounding and "run_in_executor" not in surrounding:
+                          if "# risk-ok" not in line and "test_" not in str(path):
+                              violations.append(f"{path}:{line_no}: {pattern} — wrap in asyncio.to_thread()")
+
+          if violations:
+              print("FAIL [F2]: CPU-bound ML call outside asyncio.to_thread():")
+              for v in violations:
+                  print(" ", v)
+              sys.exit(1)
+          print("PASS [F2]: CPU-bound ML calls appear wrapped in asyncio.to_thread()")
+          PYEOF
+
+  # ─── 2. Business isolation test (requires running DB) ──────────────────────
+  cross-tenant-isolation:
+    name: Cross-tenant isolation tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: modishlog_test
+          POSTGRES_USER: modishlog
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-retries 5
+        ports: ['5432:5432']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r backend/requirements.txt
+        working-directory: backend
+      - name: "[S1] Run cross-tenant isolation tests"
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://modishlog:test@localhost/modishlog_test
+          SECRET_KEY: test-secret-key-for-ci-risk-checks-32chars
+          ENVIRONMENT: test
+          UPLOAD_DIR: /tmp/uploads
+        run: |
+          pytest tests/ -k "cross_tenant or business_isolation or tenant_isolation" \
+            -v --tb=short 2>&1
+          EXIT=$?
+          if [ $EXIT -ne 0 ]; then
+            echo "FAIL [S1]: cross-tenant isolation tests failed — a query may be"
+            echo "           missing a business_id filter. Fix before merging."
+            exit 1
+          fi
+          echo "PASS [S1]: all cross-tenant isolation tests passed"
+
+  # ─── 3. AI schema compliance (requires Python, no DB) ──────────────────────
+  ai-schema-compliance:
+    name: AI recommendation schema compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r backend/requirements.txt
+        working-directory: backend
+
+      # E1 — AI recommendation schemas include confidence fields
+      - name: "[E1] AI recommendation schemas have confidence fields"
+        run: |
+          python3 - <<'PYEOF'
+          import sys, pathlib, ast, re
+
+          schema_file = pathlib.Path("backend/src/ai_engine/schemas.py")
+          if not schema_file.exists():
+              print("SKIP [E1]: ai_engine/schemas.py not found")
+              sys.exit(0)
+
+          content = schema_file.read_text()
+          required_fields = ["data_points_used", "confidence_reliable"]
+          missing = []
+
+          # Find recommendation read/response schemas
+          classes = re.findall(r"class\s+(.*?Read|.*?Response|.*?Recommendation)\b.*?:\n(.*?)(?=\nclass|\Z)",
+                                content, re.DOTALL)
+          for name, body in classes:
+              for field in required_fields:
+                  if field not in body:
+                      missing.append(f"  {name}: missing '{field}'")
+
+          if missing:
+              print("FAIL [E1]: recommendation schemas missing confidence fields:")
+              for m in missing:
+                  print(m)
+              sys.exit(1)
+          print("PASS [E1]: all recommendation schemas include confidence fields")
+          PYEOF
+
+      # E4 — requires_human_review set on high-consequence action types
+      - name: "[E4] High-consequence actions flagged requires_human_review"
+        run: |
+          python3 - <<'PYEOF'
+          import sys, pathlib, re
+
+          HIGH_CONSEQUENCE = ["DELAY_PAYMENT", "LIQUIDATE"]
+          service = pathlib.Path("backend/src/ai_engine/service.py")
+          if not service.exists():
+              print("SKIP [E4]: ai_engine/service.py not found")
+              sys.exit(0)
+
+          content = service.read_text()
+          violations = []
+          for action in HIGH_CONSEQUENCE:
+              # Find where this action type is set and check if requires_human_review
+              # appears within 10 lines of each occurrence
+              for m in re.finditer(action, content):
+                  context = content[m.start():m.start()+500]
+                  if "requires_human_review" not in context:
+                      line_no = content[:m.start()].count("\n") + 1
+                      violations.append(f"  {service}:{line_no}: {action} — "
+                                        f"requires_human_review not set nearby")
+
+          if violations:
+              print("FAIL [E4]: high-consequence action types may be missing requires_human_review:")
+              for v in violations:
+                  print(v)
+              sys.exit(1)
+          print("PASS [E4]: high-consequence action types appear to set requires_human_review")
+          PYEOF
+
+  # ─── 4. CVE dependency scan (blocks on HIGH/CRITICAL) ──────────────────────
+  dependency-scan:
+    name: CVE dependency scan
+    uses: ./.github/workflows/_dependency-scan.yml
+
+  # ─── 5. Risk check gate — all jobs must pass ───────────────────────────────
+  risk-gate:
+    name: Risk gate (all checks must pass)
+    needs:
+      - static-risk-checks
+      - cross-tenant-isolation
+      - ai-schema-compliance
+      - dependency-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: All risk checks passed
+        run: |
+          echo "✅ All risk checks passed. Safe to open PR for human review."
+          echo ""
+          echo "Checks completed:"
+          echo "  [S1] Cross-tenant business isolation"
+          echo "  [S2] No raw SQL in src/"
+          echo "  [S3] No secrets in log calls"
+          echo "  [F1] No float() for monetary values"
+          echo "  [F2] CPU-bound ML in asyncio.to_thread()"
+          echo "  [E1] AI recommendation confidence fields present"
+          echo "  [E3] No PII in Anthropic prompt construction"
+          echo "  [E4] High-consequence actions flagged requires_human_review"
+          echo "  [G1] No print() statements"
+          echo "  [G2] Static routes before parameterised"
+          echo "  [G3] Enum columns use values_callable"
+          echo "  CVE scan: no unfixed HIGH/CRITICAL vulnerabilities"
