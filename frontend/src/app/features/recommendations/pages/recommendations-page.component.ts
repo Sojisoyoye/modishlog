@@ -151,6 +151,12 @@ import {
                     [label]="rec.priority"
                     [status]="priorityStatus(rec.priority)"
                   />
+                  @if (!rec.confidence_reliable) {
+                    <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-medium">Low confidence</span>
+                  }
+                  @if (rec.requires_human_review) {
+                    <span class="text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded-full font-medium">Review required</span>
+                  }
                   <span class="text-xs text-gray-300">&middot;</span>
                   <span class="text-xs text-gray-500">{{ rec.created_at | date: 'short' }}</span>
                 </div>
@@ -171,7 +177,7 @@ import {
               @if (rec.status === 'PENDING') {
                 <div class="flex shrink-0 flex-col gap-2 sm:flex-row">
                   <button
-                    (click)="applyRec(rec.id)"
+                    (click)="applyRec(rec)"
                     class="flex min-h-[44px] items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-emerald-700"
                   >
                     <i class="pi pi-check text-xs"></i> Mark Implemented
@@ -343,18 +349,35 @@ export class RecommendationsPageComponent implements OnInit, OnDestroy {
     });
   }
 
-  applyRec(id: string): void {
-    this.recsService.apply(id).subscribe({
-      next: () => {
-        this.recs.update((recs) => recs.filter((r) => r.id !== id));
-        this.historyRecs.set([]);
-        this.messageService.add({
-          severity: 'success',
-          summary: 'Applied',
-          detail: 'Recommendation applied',
-        });
-      },
-    });
+  applyRec(rec: Recommendation): void {
+    if (rec.requires_human_review) {
+      const reason = rec.human_review_reason ?? 'This recommendation requires human review before applying.';
+      const confirmed = window.confirm(`Human review required:\n\n${reason}\n\nDo you want to proceed?`);
+      if (!confirmed) return;
+      this.recsService.apply(rec.id, undefined, true).subscribe({
+        next: () => {
+          this.recs.update((recs) => recs.filter((r) => r.id !== rec.id));
+          this.historyRecs.set([]);
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Applied',
+            detail: 'Recommendation applied',
+          });
+        },
+      });
+    } else {
+      this.recsService.apply(rec.id).subscribe({
+        next: () => {
+          this.recs.update((recs) => recs.filter((r) => r.id !== rec.id));
+          this.historyRecs.set([]);
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Applied',
+            detail: 'Recommendation applied',
+          });
+        },
+      });
+    }
   }
 
   openDismiss(rec: Recommendation): void {

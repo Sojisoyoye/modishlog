@@ -632,8 +632,22 @@ class TestProductEndpoints:
         assert "too large" in resp.json()["detail"].lower()
 
     def test_upload_product_image_sets_image_url(self):
-        """POST /products/{id}/image persists image_url on the returned product."""
+        """POST /products/{id}/image persists image_url on the returned product.
+
+        S6: Image filenames are now UUID-based (not product-id-based) to prevent
+        enumeration attacks. The image_url must start with /static/products/ and
+        end with .jpg, but the exact filename is a UUID.
+        """
         from unittest.mock import patch
+
+        # Minimal valid JPEG bytes to pass MIME validation
+        jpeg_bytes = (
+            b"\xff\xd8\xff\xe0"
+            + b"\x00\x10"
+            + b"JFIF\x00"
+            + b"\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+            + b"\xff\xd9"
+        )
 
         user = _make_user()
         product = _make_product()
@@ -650,12 +664,19 @@ class TestProductEndpoints:
             with TestClient(self.app) as client:
                 resp = client.post(
                     f"/api/v1/products/{product.id}/image",
-                    files={"file": ("photo.jpg", b"fake-image-bytes", "image/jpeg")},
+                    files={"file": ("photo.jpg", jpeg_bytes, "image/jpeg")},
                     headers=headers,
                 )
 
         assert resp.status_code == 200
-        assert resp.json()["image_url"] == f"/static/products/{product.id}.jpg"
+        # S6: image_url now uses a UUID-based filename for security (not product_id-based)
+        image_url = resp.json()["image_url"]
+        assert image_url.startswith("/static/products/"), (
+            f"image_url must start with /static/products/. Got: {image_url}"
+        )
+        assert image_url.endswith(".jpg"), (
+            f"image_url must end with .jpg extension. Got: {image_url}"
+        )
 
     def test_inventory_adjust_requires_auth(self):
         db = _mock_db_with_execute()

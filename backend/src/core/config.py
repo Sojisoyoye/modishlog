@@ -147,6 +147,19 @@ class Settings(BaseSettings):
 
     # File uploads — /app/uploads is writable by appuser in Docker
     UPLOAD_DIR: str = "/app/uploads"
+    # Maximum number of rows accepted in a single CSV bulk-upload request.
+    # Prevents OOM on maliciously large uploads.
+    MAX_CSV_ROWS: int = 50000
+
+    # Database connection pool — exposed as env vars so they can be tuned per environment.
+    # Neon (serverless Postgres) drops idle connections; pool_recycle and pool_pre_ping
+    # protect against InterfaceError on checkout after a server-side drop.
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+    # Recycle connections after 1800 s (30 min) to protect against Neon serverless
+    # idle-connection drops (~5 min timeout). pool_pre_ping=True provides additional
+    # protection by validating connections before checkout.
+    DB_POOL_RECYCLE: int = 1800  # seconds (30 minutes)
 
     # Environment
     ENVIRONMENT: str = "development"
@@ -160,6 +173,15 @@ class Settings(BaseSettings):
     FX_CACHE_TTL_HOURS: int = 4
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_BASE_URL: str = "https://api.anthropic.com"
+
+    # Redis — used for shared rate-limit state across gunicorn workers.
+    # Empty string = fall back to in-memory (single-worker / dev mode).
+    REDIS_URL: str = ""
+
+    # Fernet key rotation — comma-separated list, newest key first.
+    # If empty, falls back to deriving a key from SECRET_KEY (legacy behaviour).
+    # Example: "key_new,key_old" — decryption tries each in order; encryption uses first.
+    FERNET_KEYS: str = ""
 
     # Error tracking
     SENTRY_DSN: str = ""

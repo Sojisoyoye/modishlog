@@ -38,6 +38,12 @@ FREQUENCY_TO_MONTHLY: dict[str, Decimal] = {
 
 DEFAULT_FX_RATE = Decimal("1500.000000")
 
+# E3 — DSCR threshold configurable constant.
+# Default based on CBN prudential guidelines 2021 for SMBs.
+# To adjust per business, update via AppSettings key "dscr_triage_threshold".
+DSCR_TRIAGE_THRESHOLD = Decimal("1.25")
+DSCR_THRESHOLD_SOURCE = "CBN prudential guidelines 2021"
+
 
 class ScenarioType(str, enum.Enum):
     BASE = "BASE"
@@ -1190,6 +1196,12 @@ async def generate_triage_recommendations(
                     }
                     for c in candidates[:5]
                 ],
+                # E4 — Human review required for LIQUIDATE
+                "requires_human_review": True,
+                "human_review_reason": (
+                    "Liquidating inventory at a discount has irreversible margin and "
+                    "supplier-relationship consequences. Review before executing."
+                ),
             }
         )
     except Exception:
@@ -1225,6 +1237,12 @@ async def generate_triage_recommendations(
                     }
                     for c in deferrable_costs
                 ],
+                # E4 — Human review required for DELAY_PAYMENT
+                "requires_human_review": True,
+                "human_review_reason": (
+                    "Deferring supplier or operating payments can breach contracts and "
+                    "damage trade relationships. Review and confirm before proceeding."
+                ),
             }
         )
 
@@ -1253,6 +1271,8 @@ async def generate_triage_recommendations(
                 ),
                 "estimated_impact": pending_total,
                 "details": None,
+                "requires_human_review": False,
+                "human_review_reason": None,
             }
         )
 
@@ -1260,4 +1280,6 @@ async def generate_triage_recommendations(
         "triage_id": triage_id,
         "shortfall_amount": shortfall,
         "recommendations": recommendations,
+        # E3 — DSCR threshold source
+        "dscr_threshold_source": DSCR_THRESHOLD_SOURCE,
     }

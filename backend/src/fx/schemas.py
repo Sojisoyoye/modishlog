@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +143,15 @@ class SimulationRequest(BaseModel):
     confidence_level: Decimal = Field(default=Decimal("95.00"), ge=1, le=99)
 
 
+_NGN_PAIRS_WITH_MULTIPLIER = {"USDNGN", "EURNGN"}
+_NGN_FORECAST_DISCLAIMER = (
+    "NGN/USD forecast applies 1.5× volatility multiplier for emerging market tail risk. "
+    "FX forecasts are indicative only. CBN interventions and political events can cause "
+    "moves outside any statistical model."
+)
+_NGN_VOLATILITY_MULTIPLIER = 1.5
+
+
 class SimulationResult(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -158,6 +167,24 @@ class SimulationResult(BaseModel):
     p95_rate: Decimal
     var_amount: Decimal
     created_at: datetime
+    # E2 — FX volatility multiplier disclosure
+    # Derived from pair at validation time so it survives DB round-trips.
+    forecast_disclaimer: str | None = None
+    volatility_multiplier: float = 1.0
+
+    @model_validator(mode="after")
+    def _populate_volatility_fields(self) -> "SimulationResult":
+        """E2: Populate disclaimer and multiplier from the pair field.
+
+        This ensures the fields are correct even when the object is loaded from DB,
+        where transient attributes set on the ORM instance are lost.
+        """
+        if self.pair in _NGN_PAIRS_WITH_MULTIPLIER:
+            if self.forecast_disclaimer is None:
+                self.forecast_disclaimer = _NGN_FORECAST_DISCLAIMER
+            if self.volatility_multiplier == 1.0:
+                self.volatility_multiplier = _NGN_VOLATILITY_MULTIPLIER
+        return self
 
 
 class SimulationDistribution(BaseModel):

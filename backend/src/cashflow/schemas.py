@@ -222,12 +222,17 @@ class TriageRecommendation(BaseModel):
     description: str
     estimated_impact: Decimal
     details: list[dict] | None = None
+    # E4 — Human review gate for high-consequence actions
+    requires_human_review: bool = False
+    human_review_reason: str | None = None
 
 
 class TriageRecommendationsResponse(BaseModel):
     triage_id: uuid.UUID | None = None
     shortfall_amount: Decimal
     recommendations: list[TriageRecommendation]
+    # E3 — DSCR threshold source disclosure
+    dscr_threshold_source: str = "CBN prudential guidelines 2021"
 
 
 class TriageCheckResponse(BaseModel):

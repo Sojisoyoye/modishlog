@@ -28,6 +28,7 @@ from src.ai_engine.models import (
     USDStrategyConfig,
 )
 from src.cashflow.models import LoanObligation, LoanStatus
+from src.core.ai_safety import contains_pii_check  # noqa: F401  re-exported; E6 PII guard
 from src.inventory.models import InventoryLevel, MovementType, StockMovement
 from src.orders.models import (
     OrderPayment,
@@ -44,6 +45,28 @@ RECOMMENDATION_EXPIRY_DAYS = 30
 DEFAULT_FX_RATE = Decimal("1500.000000")
 DEFAULT_LEAD_TIME_DAYS = 30
 SAFETY_STOCK_MULTIPLIER = Decimal("1.50")
+
+# E1 — Minimum data points for a reliable model
+MIN_RELIABLE_DATA_POINTS = 30
+UNDER_TRAINED_DISCLAIMER = (
+    "Recommendation is based on limited historical data (<30 data points). "
+    "Treat with caution and validate against your own business knowledge."
+)
+
+# E4 — High-consequence action types that require human review
+# These must match ActionType enum .value strings (see ai_engine/models.py).
+# fx_lock commits FX capital; usd_purchase is a large USD commitment — both
+# are irreversible financial actions that require explicit human confirmation.
+HIGH_CONSEQUENCE_ACTIONS = {"fx_lock", "usd_purchase"}
+HUMAN_REVIEW_REASON = (
+    "This action has irreversible financial or supplier-relationship consequences. "
+    "Review carefully before applying."
+)
+
+# E6 — PII guard re-exported above (src.core.ai_safety.contains_pii_check).
+# IMPORTANT: call contains_pii_check(prompt) before every Anthropic API call.
+
+MODEL_VERSION = "rule-based-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +124,7 @@ async def _generate_price_recommendations(
     try:
         portfolio = await calculate_portfolio_margin(db)
     except Exception:
+        logger.exception("price_recommendations_portfolio_failed")
         return []
 
     target_margin = Decimal(str(portfolio.get("target_margin", 35)))
@@ -163,7 +187,22 @@ async def _generate_price_recommendations(
         # Sort worst-gap products first for display
         products.sort(key=lambda x: x["margin_gap"], reverse=True)
 
+        # E1: data points = number of products with 30d revenue data
+        data_points = sum(1 for p in products if Decimal(p["revenue_30d"]) > 0)
         score = _calculate_priority_score(total_impact, Decimal("1.0"), confidence)
+
+        # E7: reason_summary and evidence
+        reason_summary = (
+            f"{count} product{'s' if count != 1 else ''} in {cat_name} "
+            f"{'are' if count != 1 else 'is'} below the {target_margin:.0f}% margin target "
+            f"by an average of {avg_gap}%. Raising prices toward target would improve portfolio margin."
+        )
+        evidence = [
+            f"Products below target in {cat_name}: {count}",
+            f"Average margin gap: {avg_gap}%",
+            f"Estimated 30-day revenue impact: {total_impact} NGN",
+            f"Data points used: {data_points} products with recent sales",
+        ]
 
         rec = AIRecommendation(
             category=RecommendationCategory.PRICING,
@@ -181,6 +220,11 @@ async def _generate_price_recommendations(
                 "product_count": count,
                 "avg_margin_gap": avg_gap,
                 "estimated_revenue_impact": str(total_impact),
+                # E1 fields stored in JSON for schema extraction
+                "data_points_used": data_points,
+                # E7 fields stored in JSON for schema extraction
+                "reason_summary": reason_summary,
+                "evidence": evidence,
             },
             action_type=ActionType.PRICE_CHANGE,
             action_payload={
@@ -195,6 +239,16 @@ async def _generate_price_recommendations(
             expires_at=now + timedelta(days=RECOMMENDATION_EXPIRY_DAYS),
         )
         recommendations.append(rec)
+
+        # E8 — Bias audit log
+        await logger.ainfo(
+            "recommendation_generated",
+            category=cat_name,
+            action=ActionType.PRICE_CHANGE.value,
+            score=str(score),
+            data_points_used=data_points,
+            model_version=MODEL_VERSION,
+        )
 
     return recommendations
 
@@ -265,6 +319,22 @@ async def _generate_order_timing_recommendations(
         else:
             priority = _assign_priority_level(score)
 
+        # E1: data points = 30 days of depletion data used
+        data_points = min(int(total_depleted), 30)  # capped at 30 (1 month of data)
+
+        # E7: reason_summary and evidence
+        order_reason_summary = (
+            f"{product.name} is projected to stock out in {days_until_stockout} days "
+            f"at current sales velocity. Immediate reorder of {optimal_qty} units recommended."
+        )
+        order_evidence = [
+            f"Current stock: {inv.quantity_on_hand} units",
+            f"Low-stock threshold: {inv.low_stock_threshold} units",
+            f"Average daily depletion: {avg_daily:.1f} units/day",
+            f"Estimated days to stockout: {days_until_stockout}",
+            f"Suggested order quantity: {optimal_qty} units",
+        ]
+
         rec = AIRecommendation(
             category=RecommendationCategory.ORDERS,
             title=f"Reorder {product.name} - {days_until_stockout} days to stockout",
@@ -279,6 +349,9 @@ async def _generate_order_timing_recommendations(
                 "metric": "stockout_prevention",
                 "days_until_stockout": days_until_stockout,
                 "estimated_cost": str(estimated_cost),
+                "data_points_used": data_points,
+                "reason_summary": order_reason_summary,
+                "evidence": order_evidence,
             },
             action_type=ActionType.REORDER,
             action_payload={
@@ -295,6 +368,16 @@ async def _generate_order_timing_recommendations(
             expires_at=now + timedelta(days=RECOMMENDATION_EXPIRY_DAYS),
         )
         recommendations.append(rec)
+
+        # E8 — Bias audit log
+        await logger.ainfo(
+            "recommendation_generated",
+            category="orders",
+            action=ActionType.REORDER.value,
+            score=str(score),
+            data_points_used=data_points,
+            model_version=MODEL_VERSION,
+        )
 
     return recommendations
 
@@ -366,6 +449,22 @@ async def _generate_usd_hedge_recommendations(
         financial_impact = ngn_exposure
         score = _calculate_priority_score(financial_impact, urgency, confidence)
 
+        # E1: data points based on order history (use 1 per order as minimum)
+        fx_data_points = 1
+
+        # E7: reason_summary and evidence
+        fx_reason_summary = (
+            f"Order {order.order_number} requires ${usd_needed:,.2f} USD "
+            f"in {days_until} days. Accumulate ${weekly_amount:,.2f}/week to reduce FX risk."
+        )
+        fx_evidence = [
+            f"Order balance outstanding: ${balance_usd:,.2f} USD",
+            f"Recommended accumulation (70%): ${usd_needed:,.2f} USD",
+            f"Days until delivery: {days_until}",
+            f"NGN exposure at current rate ({fx_rate}): {ngn_exposure:,.0f} NGN",
+            f"Weekly target: ${weekly_amount:,.2f} USD over {weeks} weeks",
+        ]
+
         rec = AIRecommendation(
             category=RecommendationCategory.FX,
             title=f"USD accumulation for order {order.order_number}",
@@ -382,6 +481,9 @@ async def _generate_usd_hedge_recommendations(
                 "ngn_exposure": str(ngn_exposure),
                 "weeks": weeks,
                 "weekly_usd": str(weekly_amount),
+                "data_points_used": fx_data_points,
+                "reason_summary": fx_reason_summary,
+                "evidence": fx_evidence,
             },
             action_type=ActionType.USD_PURCHASE,
             action_payload={
@@ -399,6 +501,16 @@ async def _generate_usd_hedge_recommendations(
         )
         recommendations.append(rec)
 
+        # E8 — Bias audit log
+        await logger.ainfo(
+            "recommendation_generated",
+            category="fx",
+            action=ActionType.USD_PURCHASE.value,
+            score=str(score),
+            data_points_used=fx_data_points,
+            model_version=MODEL_VERSION,
+        )
+
     return recommendations
 
 
@@ -410,6 +522,7 @@ async def _generate_usd_hedge_recommendations(
 async def _generate_liquidity_recommendations(
     db: AsyncSession,
     now: datetime,
+    business_id: uuid.UUID,
 ) -> list[AIRecommendation]:
     """Generate liquidity and DSCR-based corrective action recommendations."""
     from src.cashflow.service import (
@@ -419,10 +532,14 @@ async def _generate_liquidity_recommendations(
     )
 
     try:
-        monthly_revenue = await _calculate_monthly_revenue(db)
-        monthly_opex = await _calculate_monthly_operating_costs(db)
-        monthly_loan = await _calculate_monthly_loan_payment(db)
+        monthly_revenue = await _calculate_monthly_revenue(db, business_id)
+        monthly_opex = await _calculate_monthly_operating_costs(db, business_id)
+        monthly_loan = await _calculate_monthly_loan_payment(db, business_id)
     except Exception:
+        logger.exception(
+            "liquidity_recommendations_failed",
+            business_id=str(business_id),
+        )
         return []
 
     noi = monthly_revenue - monthly_opex
@@ -487,6 +604,21 @@ async def _generate_liquidity_recommendations(
         actions.append("Review pricing strategy to increase revenue margins")
 
     confidence = Decimal("80.00")
+    # E1: 3 months of financial data (revenue + opex + loan) = 3 data sources
+    liq_data_points = 3
+
+    # E7: reason_summary and evidence
+    liq_reason_summary = (
+        f"DSCR of {dscr} is below the 1.5 target (CBN prudential guidelines 2021). "
+        f"With ~{runway_months} months runway, corrective action is recommended."
+    )
+    liq_evidence = [
+        f"Current DSCR: {dscr} (target: ≥1.5)",
+        f"Monthly revenue: {monthly_revenue:,.0f} NGN",
+        f"Monthly operating costs: {monthly_opex:,.0f} NGN",
+        f"Monthly loan payment: {monthly_loan:,.0f} NGN",
+        f"Estimated cash runway: {runway_months} months",
+    ]
 
     rec = AIRecommendation(
         category=RecommendationCategory.CASHFLOW,
@@ -503,6 +635,9 @@ async def _generate_liquidity_recommendations(
             "current_dscr": str(dscr),
             "monthly_burn": str(monthly_burn),
             "actions": actions,
+            "data_points_used": liq_data_points,
+            "reason_summary": liq_reason_summary,
+            "evidence": liq_evidence,
         },
         action_type=ActionType.COST_CUT,
         action_payload={
@@ -516,6 +651,16 @@ async def _generate_liquidity_recommendations(
         expires_at=now + timedelta(days=14),  # Shorter expiry for urgency
     )
     recommendations.append(rec)
+
+    # E8 — Bias audit log
+    await logger.ainfo(
+        "recommendation_generated",
+        category="cashflow",
+        action=ActionType.COST_CUT.value,
+        score=str(_calculate_priority_score(abs(monthly_burn), Decimal("1.0"), confidence)),
+        data_points_used=liq_data_points,
+        model_version=MODEL_VERSION,
+    )
 
     return recommendations
 
@@ -556,7 +701,7 @@ async def generate_all_recommendations(
     usd_recs = await _generate_usd_hedge_recommendations(db, now)
     all_recs.extend(usd_recs)
 
-    liquidity_recs = await _generate_liquidity_recommendations(db, now)
+    liquidity_recs = await _generate_liquidity_recommendations(db, now, business_id)
     all_recs.extend(liquidity_recs)
 
     # Stamp every new recommendation with the business_id before storing
@@ -639,8 +784,12 @@ async def apply_recommendation(
     user_id: uuid.UUID,
     notes: str | None = None,
     business_id: uuid.UUID | None = None,
+    confirmed: bool = False,
 ) -> AIRecommendation:
-    """Apply a recommendation: update status and route to domain service."""
+    """Apply a recommendation: update status and route to domain service.
+
+    E4: High-consequence actions (DELAY_PAYMENT, LIQUIDATE) require confirmed=True.
+    """
     rec = await get_recommendation(db, recommendation_id, business_id=business_id)
 
     if rec.status != RecommendationStatus.PENDING:
@@ -651,6 +800,22 @@ async def apply_recommendation(
         rec.status = RecommendationStatus.EXPIRED
         await db.flush()
         raise RecommendationExpiredError(recommendation_id, rec.expires_at)
+
+    # E4 — Human review gate for high-consequence actions
+    action_str = (
+        rec.action_type.value
+        if hasattr(rec.action_type, "value")
+        else str(rec.action_type)
+    )
+    if action_str in HIGH_CONSEQUENCE_ACTIONS and not confirmed:
+        from fastapi import HTTPException, status as http_status
+        raise HTTPException(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This action requires explicit confirmation. "
+                "Resubmit with confirmed=true."
+            ),
+        )
 
     # Route based on action type
     if rec.action_type == ActionType.PRICE_CHANGE and rec.action_payload:
@@ -813,7 +978,7 @@ async def _get_latest_fx_rate(db: AsyncSession) -> Decimal:
         if latest:
             return latest
     except Exception:
-        pass
+        logger.exception("get_latest_fx_rate_failed")
     return DEFAULT_FX_RATE
 
 

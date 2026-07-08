@@ -70,7 +70,8 @@ class TestListUsersService:
         count_result.scalar_one.return_value = 2
         db.execute.side_effect = [count_result, items_result]
 
-        items, total = await list_users(db, page=1, page_size=20, search=None)
+        business_id = uuid.uuid4()
+        items, total = await list_users(db, business_id=business_id, page=1, page_size=20, search=None)
 
         assert total == 2
         assert len(items) == 2
@@ -88,7 +89,8 @@ class TestListUsersService:
         count_result.scalar_one.return_value = 1
         db.execute.side_effect = [count_result, items_result]
 
-        items, total = await list_users(db, page=1, page_size=20, search="soji")
+        business_id = uuid.uuid4()
+        items, total = await list_users(db, business_id=business_id, page=1, page_size=20, search="soji")
 
         assert total == 1
         assert items[0].email == "soji@example.com"
@@ -280,8 +282,9 @@ class TestAdminUsersEndpoints:
         """GET /admin/users must return items list and total."""
         from src.auth.service import list_users
 
-        admin = _make_user()
-        user2 = _make_user(email="other@example.com", role=UserRole.SALES_MANAGER)
+        biz_id = uuid.uuid4()
+        admin = _make_user(business_id=biz_id)
+        user2 = _make_user(email="other@example.com", role=UserRole.SALES_MANAGER, business_id=biz_id)
         self._override_require_admin(admin)
 
         with patch("src.auth.router.list_users", AsyncMock(return_value=([admin, user2], 2))):

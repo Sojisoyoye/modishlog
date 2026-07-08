@@ -5,8 +5,8 @@ import base64
 import hashlib
 import time
 import uuid
-from functools import lru_cache
 
+import structlog
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -17,6 +17,8 @@ from src.core.config import settings
 from src.settings.models import AppSetting, BusinessProfile, UserApiKey, UserPreferences
 from src.settings.schemas import BusinessProfileUpdate, FiscalYearRead
 
+logger = structlog.get_logger()
+
 APP_SETTING_DEFAULTS: dict[str, str] = {
     "global_low_stock_threshold": "10",
     "default_currency_pair": "USDNGN",
@@ -26,31 +28,60 @@ APP_SETTING_DEFAULTS: dict[str, str] = {
 }
 
 
-@lru_cache(maxsize=1)
-def _fernet() -> Fernet:
-    """Derive a Fernet key from the application SECRET_KEY via SHA-256.
+def _get_fernet_keys() -> list[Fernet]:
+    """Return an ordered list of Fernet instances for key rotation.
 
-    Result is cached for the process lifetime — SECRET_KEY must not change
-    after startup (rotation requires a restart).
-    If a test patches settings.SECRET_KEY it must call _fernet.cache_clear()
-    before and after the patch to avoid stale key cross-contamination.
+    S5: Supports FERNET_KEYS as a comma-separated list of raw key material.
+    The first entry is used for encryption (newest key); all entries are tried
+    for decryption to support seamless key rotation.
+
+    If FERNET_KEYS is empty, falls back to deriving a key from SECRET_KEY
+    (legacy behaviour, maintains backward compatibility).
     """
+    fernet_instances: list[Fernet] = []
+
+    if settings.FERNET_KEYS:
+        raw_keys = [k.strip() for k in settings.FERNET_KEYS.split(",") if k.strip()]
+        if not raw_keys:
+            raise ValueError(
+                "FERNET_KEYS is set but contains no valid keys — "
+                "check for empty strings or whitespace-only values."
+            )
+        for raw in raw_keys:
+            derived = hashlib.sha256(raw.encode()).digest()
+            key = base64.urlsafe_b64encode(derived)
+            fernet_instances.append(Fernet(key))
+        return fernet_instances
+
+    # Legacy: derive from SECRET_KEY
     raw = hashlib.sha256(settings.SECRET_KEY.encode()).digest()
     key = base64.urlsafe_b64encode(raw)
-    return Fernet(key)
+    return [Fernet(key)]
 
 
 def encrypt_api_key(plaintext: str) -> str:
-    return _fernet().encrypt(plaintext.encode()).decode()
+    """Encrypt using the primary (newest) key."""
+    return _get_fernet_keys()[0].encrypt(plaintext.encode()).decode()
 
 
 def decrypt_api_key(ciphertext: str) -> str:
-    try:
-        return _fernet().decrypt(ciphertext.encode()).decode()
-    except InvalidToken as exc:
-        raise ValueError(
-            "API key could not be decrypted — SECRET_KEY may have been rotated"
-        ) from exc
+    """Decrypt by trying each key in rotation order.
+
+    S5: Tries the newest key first; if decryption fails, tries each subsequent
+    key in the rotation list. This allows old ciphertext to be read after
+    key rotation without requiring re-encryption of all existing records.
+    """
+    keys = _get_fernet_keys()
+    last_exc: Exception | None = None
+    for fernet_instance in keys:
+        try:
+            return fernet_instance.decrypt(ciphertext.encode()).decode()
+        except InvalidToken as exc:
+            last_exc = exc
+    raise ValueError(
+        "API key could not be decrypted — no matching Fernet key found in rotation list. "
+        "Check FERNET_KEYS configuration."
+    ) from last_exc
 
 
 async def upsert_api_key(

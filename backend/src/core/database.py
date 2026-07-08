@@ -13,11 +13,15 @@ from src.core.config import settings
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.ENVIRONMENT == "development",
+    # Explicit pool settings — overridable via DB_POOL_SIZE / DB_MAX_OVERFLOW /
+    # DB_POOL_RECYCLE environment variables (see core/config.py).
+    # pool_pre_ping=True protects against stale connections dropped by Neon
+    # (serverless Postgres) or any TCP-level idle timeout.
     pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
     pool_timeout=30,
-    pool_recycle=1800,
+    pool_recycle=settings.DB_POOL_RECYCLE,
     connect_args={"ssl": True} if settings.DATABASE_SSL else {},
 )
 

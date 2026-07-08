@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from src.fx.service import get_live_usdngn_rate
 from src.orders.models import OrderLineItem, PurchaseOrder
+from src.fx.exceptions import ForecastTimeoutError
 from src.pricing.exceptions import (
     ElasticityNotFoundError,
     InsufficientPriceDataError,
@@ -113,10 +114,16 @@ async def calculate_demand_forecast(
     """Generate demand forecast with optional price elasticity adjustment."""
     df = await _fetch_sales_history(db, product_id)
 
-    model = await asyncio.to_thread(_train_demand_model, df)
-    forecast_df = await asyncio.to_thread(
-        _generate_demand_forecast, model, horizon_days
-    )
+    try:
+        model = await asyncio.wait_for(
+            asyncio.to_thread(_train_demand_model, df), timeout=30.0
+        )
+        forecast_df = await asyncio.wait_for(
+            asyncio.to_thread(_generate_demand_forecast, model, horizon_days),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError as e:
+        raise ForecastTimeoutError("Prophet training", 30.0) from e
 
     # Apply price elasticity adjustment if proposed_price given
     multiplier = 1.0
@@ -188,6 +195,17 @@ async def calculate_price_elasticity_impact(
 ) -> dict:
     """Calculate demand impact for a proposed price change."""
     product = await _get_product(db, product_id)
+
+    # E5 — Pricing floor: reject any proposed price at or below unit cost.
+    # This mirrors the floor in compute_suggestion so that any user-submitted
+    # price passes through the same loss-making guard before being used.
+    if product.unit_cost is not None and proposed_price <= product.unit_cost:
+        raise PricingSuggestionError(
+            product_id,
+            f"Proposed price {proposed_price} is at or below unit cost {product.unit_cost}. "
+            "Cannot evaluate a loss-making price.",
+        )
+
     elasticity = await _get_elasticity_coefficient(db, product_id)
 
     current_price = product.selling_price
@@ -545,9 +563,21 @@ async def generate_recommendations(
     for opt in optimized:
         current = Decimal(str(opt["current_price"]))
         recommended = opt["optimized_price"]
+        unit_cost = Decimal(str(opt["unit_cost"]))
 
         if current == recommended:
             continue
+
+        # E5 — Pricing floor: skip any recommendation below FIFO landed cost
+        # Skip (don't raise) so other products' recommendations are still returned.
+        if recommended < unit_cost:
+            await logger.awarning(
+                "pricing_recommendation_below_cost",
+                product_id=str(opt["product_id"]),
+                recommended=str(recommended),
+                unit_cost=str(unit_cost),
+            )
+            continue  # Skip this product; never recommend a loss-making price
 
         price_change_pct = float((recommended - current) / current * 100)
         elasticity = await _get_elasticity_coefficient(db, opt["product_id"])
@@ -1241,6 +1271,18 @@ async def compute_suggestion(
     # Suggested price
     margin_factor = Decimal("1") - target_margin
     suggested_price = (avg_cost_ngn / margin_factor).quantize(Decimal("0.000001"))
+
+    # E5 — Pricing floor: never return a price at or below FIFO landed cost.
+    # Note: the formula avg_cost_ngn / (1 - target_margin) always produces a
+    # value above avg_cost_ngn when target_margin ∈ (0, 1), so this guard
+    # catches edge cases where target_margin is 0 (break-even) or rounding
+    # produces an exact match — both represent zero-margin or loss-making prices.
+    if suggested_price <= avg_cost_ngn:
+        raise PricingSuggestionError(
+            product_id,
+            f"Suggested price {suggested_price} is at or below FIFO landed cost {avg_cost_ngn}. "
+            "Cannot recommend a loss-making price.",
+        )
 
     # Catalog price for context
     catalog_price: Decimal | None = None

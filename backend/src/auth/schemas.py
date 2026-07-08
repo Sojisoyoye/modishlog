@@ -154,7 +154,10 @@ class OnboardResponse(BaseModel):
     """Response after successful business onboarding."""
 
     access_token: str
-    refresh_token: str
+    # S2: refresh_token is no longer returned in the JSON body; it is set as an
+    # HttpOnly cookie only. Field kept as Optional for backwards-compat with
+    # any existing clients but will always be None/absent.
+    refresh_token: str | None = None
     token_type: str = "bearer"
     user_id: str
     business_id: str
