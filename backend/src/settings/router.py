@@ -14,7 +14,6 @@ from src.settings.schemas import (
     ApiKeyStatus,
     ApiKeyTestResult,
     ApiKeyUpsert,
-    AppSettingRead,
     AppSettingWrite,
     BusinessProfileRead,
     BusinessProfileUpdate,

@@ -6,6 +6,7 @@ Written BEFORE implementation (TDD) per project conventions.
 import asyncio
 import csv
 import io
+import os
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -593,33 +594,32 @@ class TestDBExceptionPropagation:
 # ---------------------------------------------------------------------------
 
 
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_RUNBOOK_PATH = os.path.join(_REPO_ROOT, "docs", "ops", "backup-restore-runbook.md")
+
+
 class TestBackupRunbook:
     """Backup runbook documentation must exist."""
 
     def test_backup_runbook_exists(self):
         """docs/ops/backup-restore-runbook.md must exist."""
-        import os
-
-        path = "/Users/sojisoyoye/workspace/modishlog/docs/ops/backup-restore-runbook.md"
-        assert os.path.exists(path), f"Backup runbook not found at {path}"
+        assert os.path.exists(_RUNBOOK_PATH), f"Backup runbook not found at {_RUNBOOK_PATH}"
 
     def test_backup_runbook_has_rto_rpo(self):
         """Runbook must mention RTO and RPO targets."""
-        path = "/Users/sojisoyoye/workspace/modishlog/docs/ops/backup-restore-runbook.md"
         try:
-            with open(path) as f:
+            with open(_RUNBOOK_PATH) as f:
                 content = f.read()
             assert "RTO" in content
             assert "RPO" in content
         except FileNotFoundError:
-            pytest.fail("Backup runbook not found")
+            pytest.fail(f"Backup runbook not found at {_RUNBOOK_PATH}")
 
     def test_backup_runbook_has_restore_procedure(self):
         """Runbook must include a restore procedure section."""
-        path = "/Users/sojisoyoye/workspace/modishlog/docs/ops/backup-restore-runbook.md"
         try:
-            with open(path) as f:
+            with open(_RUNBOOK_PATH) as f:
                 content = f.read()
             assert "restore" in content.lower() or "Restore" in content
         except FileNotFoundError:
-            pytest.fail("Backup runbook not found")
+            pytest.fail(f"Backup runbook not found at {_RUNBOOK_PATH}")

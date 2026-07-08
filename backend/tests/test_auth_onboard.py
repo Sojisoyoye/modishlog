@@ -22,6 +22,7 @@ VALID_ONBOARD = {
     "currency": "NGN",
     "timezone": "Africa/Lagos",
     "fiscal_year_start_month": 1,
+    "ndpr_consent": True,
 }
 
 # ---------------------------------------------------------------------------
@@ -234,3 +235,59 @@ class TestCreateBusinessAndOwnerService:
         assert returned_user.role == UserRole.OWNER
         assert access_token == "access_token"
         assert raw_refresh == "raw_refresh"
+
+
+# ---------------------------------------------------------------------------
+# NDPR consent tests (task #168)
+# ---------------------------------------------------------------------------
+
+
+class TestNDPRConsent(OnboardTestBase):
+    """Tests for NDPR consent capture on the onboard endpoint."""
+
+    def test_onboard_without_ndpr_consent_returns_422(self):
+        """POST /auth/onboard with ndpr_consent=False → 422 (schema validation)."""
+        # Pydantic validation fires before the rate limiter executes the route,
+        # so we don't need to mock Redis here — the 422 comes from schema rejection.
+        payload = {**VALID_ONBOARD, "ndpr_consent": False}
+        with TestClient(self.app) as client:
+            resp = client.post("/api/v1/auth/onboard", json=payload)
+        assert resp.status_code == 422
+
+    def test_onboard_missing_ndpr_consent_returns_422(self):
+        """POST /auth/onboard without ndpr_consent field → 422 (field required)."""
+        # Explicitly omit ndpr_consent to test the missing-field path
+        payload = {k: v for k, v in VALID_ONBOARD.items() if k != "ndpr_consent"}
+        with TestClient(self.app) as client:
+            resp = client.post("/api/v1/auth/onboard", json=payload)
+        assert resp.status_code == 422
+
+    def test_onboard_with_ndpr_consent_stores_timestamp(self):
+        """service sets ndpr_consent_given=True and ndpr_consent_at on the user."""
+        import asyncio
+
+        from src.auth.models import UserRole
+        from src.auth.schemas import OnboardRequest
+        from src.auth.service import create_business_and_owner
+
+        business = _make_business()
+        store_user = _make_user(role=UserRole.OWNER)
+        store_user.business_id = business.id
+
+        onboard_data = OnboardRequest(**{**VALID_ONBOARD, "ndpr_consent": True})
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        with (
+            patch("src.auth.service.Business", return_value=business),
+            patch(
+                "src.auth.service.create_user",
+                new=AsyncMock(return_value=store_user),
+            ),
+            patch("src.auth.service.create_refresh_token", new=AsyncMock(return_value="raw")),
+            patch("src.auth.service.build_token", return_value="access"),
+        ):
+            asyncio.run(create_business_and_owner(db, onboard_data))
+
+        assert store_user.ndpr_consent_given is True
+        assert store_user.ndpr_consent_at is not None

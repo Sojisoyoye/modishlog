@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserRegister(BaseModel):
@@ -148,6 +148,16 @@ class OnboardRequest(BaseModel):
     timezone: str = "Africa/Lagos"
     tax_number: str | None = None
     fiscal_year_start_month: int = Field(default=1, ge=1, le=12)
+
+    # NDPR consent — required by Nigerian data-protection law
+    ndpr_consent: bool
+
+    @field_validator("ndpr_consent")
+    @classmethod
+    def must_accept_ndpr(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("NDPR consent is required to create an account")
+        return v
 
 
 class OnboardResponse(BaseModel):
