@@ -1,0 +1,24 @@
+name: Fix Prod Schema (backfill missing columns)
+
+# One-shot: adds the 2 columns missing from prod PostgreSQL due to schema gap.
+# Run this BEFORE the first production deployment.
+# Safe to re-run (uses IF NOT EXISTS).
+on:
+  workflow_dispatch:
+
+jobs:
+  fix:
+    name: Backfill missing columns on prod DB
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply schema backfill
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: root
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            echo aW1wb3J0IGFzeW5jaW8sIG9zLCByZQpmcm9tIHNxbGFsY2hlbXkuZXh0LmFzeW5jaW8gaW1wb3J0IGNyZWF0ZV9hc3luY19lbmdpbmUKZnJvbSBzcWxhbGNoZW15IGltcG9ydCB0ZXh0CgpkYl91cmwgPSBvcy5lbnZpcm9uLmdldCgiREFUQUJBU0VfVVJMIiwgIiIpCnNzbF9yZXF1aXJlZCA9ICJzc2xtb2RlPXJlcXVpcmUiIGluIGRiX3VybApkYl91cmwgPSByZS5zdWIociJbPyZdc3NsbW9kZT1bXiZdKiIsICIiLCBkYl91cmwpLnJzdHJpcCgiPyYiKQplbmdpbmUgPSBjcmVhdGVfYXN5bmNfZW5naW5lKGRiX3VybCwgY29ubmVjdF9hcmdzPXsic3NsIjogVHJ1ZX0gaWYgc3NsX3JlcXVpcmVkIGVsc2Uge30pCgpEREwgPSBbCiAgICAiQUxURVIgVEFCTEUgcHJvZHVjdHMgQUREIENPTFVNTiBJRiBOT1QgRVhJU1RTIGltYWdlX3VybCBWQVJDSEFSKDUwMCkiLAogICAgIkFMVEVSIFRBQkxFIHNhbGVzIEFERCBDT0xVTU4gSUYgTk9UIEVYSVNUUyBzZWxsX3ByaWNlX25nbiBOVU1FUklDKDE4LDYpIiwKXQoKYXN5bmMgZGVmIG1haW4oKToKICAgIGFzeW5jIHdpdGggZW5naW5lLmJlZ2luKCkgYXMgY29ubjoKICAgICAgICBmb3Igc3RtdCBpbiBEREw6CiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAgICAgIGF3YWl0IGNvbm4uZXhlY3V0ZSh0ZXh0KHN0bXQpKQogICAgICAgICAgICAgICAgcHJpbnQoZiJPSzoge3N0bXR9IikKICAgICAgICAgICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgICAgICAgICAgICAgcHJpbnQoZiJTS0lQOiB7c3RtdFs6NjBdfSAtPiB7ZX0iKQogICAgYXdhaXQgZW5naW5lLmRpc3Bvc2UoKQogICAgcHJpbnQoIlNjaGVtYSBiYWNrZmlsbCBjb21wbGV0ZS4iKQoKYXN5bmNpby5ydW4obWFpbigpKQo= | base64 -d > /tmp/fix_prod_schema.py
+            docker cp /tmp/fix_prod_schema.py modishlog-prod-backend:/tmp/fix_prod_schema.py
+            docker exec modishlog-prod-backend python3 /tmp/fix_prod_schema.py
+            rm /tmp/fix_prod_schema.py
