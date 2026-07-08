@@ -19,7 +19,7 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: pip install pip-audit==2.10.1
-      # S8: --fail-on-vuln blocks merges when unfixed CVEs are present.
-      # Remove --fail-on-vuln only if you have an accepted risk exception documented.
-      - run: pip-audit -r requirements.txt --progress-spinner off --fail-on-vuln
+      # S8: pip-audit exits non-zero by default when CVEs are found (--fail-on-vuln
+      # was removed; it is not a valid flag in pip-audit 2.x and caused CI failures).
+      - run: pip-audit -r requirements.txt --progress-spinner off
         working-directory: backend
