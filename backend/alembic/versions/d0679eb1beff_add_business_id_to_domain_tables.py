@@ -54,6 +54,31 @@ NO_CREATED_AT = {"pos_sync_state", "app_settings"}
 
 
 def upgrade() -> None:
+    # Guard: if no business exists yet (e.g. prod was deployed before the
+    # onboarding flow that creates businesses), synthesise one from the oldest
+    # owner user so the backfill below can always find a valid ID.
+    op.execute("""
+        INSERT INTO businesses (
+            id, name, currency, timezone,
+            fiscal_year_start_month, is_active, created_at, updated_at
+        )
+        SELECT
+            gen_random_uuid(),
+            COALESCE(u.full_name || '''s Business', 'Default Business'),
+            'NGN', 'Africa/Lagos', 1, true, NOW(), NOW()
+        FROM users u
+        WHERE NOT EXISTS (SELECT 1 FROM businesses LIMIT 1)
+        ORDER BY u.created_at
+        LIMIT 1
+    """)
+
+    # Link any users not yet associated with a business (legacy rows).
+    op.execute("""
+        UPDATE users
+        SET business_id = (SELECT id FROM businesses ORDER BY created_at LIMIT 1)
+        WHERE business_id IS NULL
+    """)
+
     for table in DOMAIN_TABLES:
         # Add nullable first so existing rows can be backfilled.
         op.add_column(
