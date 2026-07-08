@@ -157,7 +157,7 @@ async def get_customer_sales(
     customer_id: uuid.UUID,
     page: int = 1,
     page_size: int = 25,
-) -> tuple[list["Sale"], int]:
+) -> tuple[list["Sale"], int]:  # noqa: F821
     """Paginated list of sales for a customer."""
     from src.sales.models import Sale
 
