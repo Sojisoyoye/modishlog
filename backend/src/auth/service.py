@@ -99,6 +99,8 @@ async def create_business_and_owner(
     # create_user() validates password + checks email uniqueness
     user = await create_user(db, data.email, data.password, data.full_name, role=UserRole.OWNER)
     user.business_id = business.id
+    user.ndpr_consent_given = True
+    user.ndpr_consent_at = datetime.now(timezone.utc)
     await db.flush()
 
     raw_refresh = await create_refresh_token(db, user)

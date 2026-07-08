@@ -58,6 +58,8 @@ class User(UUIDMixin, TimestampMixin, Base):
     )
     failed_login_attempts: Mapped[int] = mapped_column(default=0)
     locked_until: Mapped[datetime | None] = mapped_column(default=None)
+    ndpr_consent_given: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    ndpr_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     business_id: Mapped[_uuid.UUID | None] = mapped_column(
         ForeignKey("businesses.id"), nullable=True, index=True
     )
