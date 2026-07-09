@@ -5,7 +5,7 @@ Run these prompts in order at the start of the next session.
 
 ---
 
-## Prompt E — Fix CI/CD gate check (do this first)
+## Prompt E — Fix CI/CD gate check with Playwright E2E (do this first)
 
 ```
 The branch protection on main requires a status check named "gate" before merging.
@@ -13,21 +13,27 @@ The branch protection on main requires a status check named "gate" before mergin
 Frontend-only PRs never trigger backend CI, so "gate" is never created and every
 frontend PR requires --admin to merge, bypassing branch protection.
 
-Fix (recommended): Add a lightweight gate job to the frontend-build workflow
-(.github/workflows/frontend-build.yml) that always passes when the build succeeds:
+Fix: Add a real "gate" job to the frontend-build workflow
+(.github/workflows/frontend-build.yml) that runs the full Playwright/Chromium E2E
+suite. The gate only passes if ALL E2E tests pass — giving frontend PRs meaningful
+protection rather than a rubber stamp.
 
-  gate:
-    name: gate
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "Frontend gate passed"
+The new gate job should:
+1. Depend on the existing "build" job (ng build must pass first)
+2. Spin up the full stack via docker compose (backend + db) and wait for /health → 200
+3. Run: cd frontend && npx playwright test --project=chromium
+4. Be named exactly "gate" so it matches the branch protection requirement
+5. Upload the Playwright HTML report as an artifact on failure for easy debugging
 
-This ensures "gate" is always created on frontend PRs and passes if the build passes.
-Backend PRs already produce "gate" via _dependency-scan.yml.
+Read frontend/playwright.config.ts and the existing e2e setup to match environment
+variables and base URL exactly. Check if there is already a CI step that runs e2e
+tests elsewhere in the workflows and reuse that pattern.
 
-After the fix, open a small frontend-only PR and confirm it merges without --admin.
-Branch: feat/fix-ci-gate. PR it, verify, merge.
+After the fix:
+- Open a small frontend-only PR
+- Confirm "gate" appears in the checks and passes with real Playwright output
+- Confirm the PR merges without --admin once gate is green
+Branch: feat/fix-ci-frontend-gate. PR it, verify, merge.
 ```
 
 ---
