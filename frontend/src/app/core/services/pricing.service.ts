@@ -146,6 +146,8 @@ export interface SellingPriceSuggestionResponse {
   unit_cost_ngn: number;
   min_margin_pct: number;
   min_selling_price: number;
+  fx_rate_stale: boolean;
+  fx_rate_source: string;
 }
 
 @Injectable({ providedIn: 'root' })

@@ -388,8 +388,12 @@ class TestSellingPriceSuggestion:
         """When no fx_rate_override and currency==USD, fetch live USDNGN rate."""
         db = _mock_db()
 
+        from datetime import datetime, timezone
+
         mock_rate = MagicMock()
         mock_rate.rate = Decimal("1650")
+        mock_rate.timestamp = datetime.now(timezone.utc)
+        mock_rate.source.value = "api_provider"
 
         with patch(
             "src.fx.service.get_current_rate",
@@ -407,6 +411,7 @@ class TestSellingPriceSuggestion:
 
         assert result["fx_rate"] == Decimal("1650")
         assert result["unit_cost_ngn"] == Decimal("33000")
+        assert result["fx_rate_stale"] is False
 
 
 class TestScenarioList:
