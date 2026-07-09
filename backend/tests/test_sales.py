@@ -2078,3 +2078,46 @@ async def test_sales_owner_sees_own_data():
     result = await list_sales(db, business_id=business_id)
     items = result[0] if isinstance(result, tuple) else result
     assert len(items) == 1
+
+
+# ---------------------------------------------------------------------------
+# Task #167 — MAX_CSV_ROWS cap on sales bulk upload
+# ---------------------------------------------------------------------------
+
+
+class TestSalesBulkUploadRowCap:
+    """Sales bulk upload must reject CSVs exceeding MAX_CSV_ROWS."""
+
+    def _make_csv(self, n_rows: int) -> bytes:
+        header = "product_id,quantity,unit_price,sale_date,channel\n"
+        rows = "".join(f"{uuid.uuid4()},1,100.00,2024-01-01,POS\n" for _ in range(n_rows))
+        return (header + rows).encode("utf-8")
+
+    @pytest.mark.asyncio
+    async def test_csv_within_limit_is_accepted(self):
+        """A CSV within the row cap must be processed without error."""
+        from unittest.mock import patch
+        from src.sales.exceptions import InvalidCSVFormatError
+
+        db = _mock_db()
+        content = self._make_csv(1)
+        with patch("src.sales.service.settings") as mock_settings:
+            mock_settings.MAX_CSV_ROWS = 5
+            # Should not raise — 1 row < 5 cap
+            try:
+                await process_bulk_upload(db, content, "ok.csv", uuid.uuid4(), business_id=uuid.uuid4())
+            except InvalidCSVFormatError:
+                pytest.fail("Should not raise InvalidCSVFormatError within limit")
+
+    @pytest.mark.asyncio
+    async def test_csv_exceeding_limit_raises_error(self):
+        """A CSV over MAX_CSV_ROWS must raise InvalidCSVFormatError immediately."""
+        from unittest.mock import patch
+        from src.sales.exceptions import InvalidCSVFormatError
+
+        db = _mock_db()
+        content = self._make_csv(6)  # 6 rows > cap of 5
+        with patch("src.sales.service.settings") as mock_settings:
+            mock_settings.MAX_CSV_ROWS = 5
+            with pytest.raises(InvalidCSVFormatError, match="maximum"):
+                await process_bulk_upload(db, content, "big.csv", uuid.uuid4(), business_id=uuid.uuid4())
