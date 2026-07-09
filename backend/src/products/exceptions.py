@@ -82,3 +82,11 @@ class InvalidPriceError(Exception):
         self.value = value
         self.reason = reason
         super().__init__(f"Invalid {field_name}={value}: {reason}")
+
+
+class VariantNotFoundError(Exception):
+    """Raised when a product variant lookup yields no result."""
+
+    def __init__(self, variant_id):
+        super().__init__(f"Variant {variant_id} not found")
+        self.variant_id = variant_id

@@ -68,6 +68,42 @@ class ProductUpdate(BaseModel):
     image_url: str | None = None
 
 
+class ProductVariantCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    sku: str | None = None
+    barcode: str | None = None
+    attributes: dict = {}
+    price_override: Decimal | None = Field(default=None, gt=0)
+    cost_price_override: Decimal | None = Field(default=None, gt=0)
+
+
+class ProductVariantUpdate(BaseModel):
+    name: str | None = None
+    sku: str | None = None
+    barcode: str | None = None
+    attributes: dict | None = None
+    price_override: Decimal | None = Field(default=None, gt=0)
+    cost_price_override: Decimal | None = Field(default=None, gt=0)
+    is_active: bool | None = None
+
+
+class ProductVariantRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    product_id: uuid.UUID
+    business_id: uuid.UUID
+    name: str
+    sku: str | None
+    barcode: str | None
+    attributes: dict
+    price_override: Decimal | None
+    cost_price_override: Decimal | None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
 class ProductRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -82,6 +118,8 @@ class ProductRead(BaseModel):
     currency: str
     is_active: bool
     image_url: str | None = None
+    has_variants: bool = False
+    variants: list[ProductVariantRead] = []
     created_at: datetime
     updated_at: datetime
 

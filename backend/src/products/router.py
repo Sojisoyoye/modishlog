@@ -20,6 +20,7 @@ from src.products.exceptions import (
     InvalidProductNameError,
     ProductNotFoundError,
     SubcategoryDepthError,
+    VariantNotFoundError,
 )
 from src.products.schemas import (
     BulkProductUploadResponse,
@@ -32,18 +33,25 @@ from src.products.schemas import (
     ProductListResponse,
     ProductRead,
     ProductUpdate,
+    ProductVariantCreate,
+    ProductVariantRead,
+    ProductVariantUpdate,
 )
 from src.products.service import (
     create_category,
     create_product,
+    create_variant,
     deactivate_product,
+    deactivate_variant,
     delete_category,
     get_price_history,
     get_product,
     list_categories,
     list_products,
+    list_variants,
     update_category,
     update_product,
+    update_variant,
 )
 
 router = APIRouter()
@@ -128,6 +136,9 @@ async def create_product_endpoint(
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Create a new product."""
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
+    from src.products.models import Product as _Product
     try:
         product = await create_product(db, body, current_user.id, business_id)
     except CategoryNotFoundError as e:
@@ -140,7 +151,16 @@ async def create_product_endpoint(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except DuplicateSlugError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-    return product
+    # Reload with variants to satisfy selectinload requirement
+    result = await db.execute(
+        _select(_Product)
+        .options(
+            _selectinload(_Product.category),
+            _selectinload(_Product.variants),
+        )
+        .where(_Product.id == product.id)
+    )
+    return result.scalar_one()
 
 
 _CSV_BATCH_SIZE = 500  # Commit in batches to avoid long-held transactions
@@ -353,17 +373,114 @@ async def list_products_endpoint(
     db: AsyncSession = Depends(get_db),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """List products with filtering and pagination."""
-    items, total = await list_products(
-        db,
-        business_id,
-        category_id=category_id,
-        is_active=is_active,
-        search=search,
-        page=page,
-        page_size=page_size,
+    """List products with filtering and pagination (includes variants)."""
+    from sqlalchemy import select as _select, func as _func
+    from sqlalchemy.orm import selectinload as _selectinload
+    from src.products.models import Product as _Product
+    query = (
+        _select(_Product)
+        .options(
+            _selectinload(_Product.category),
+            _selectinload(_Product.variants),
+        )
+        .where(_Product.business_id == business_id)
     )
+    count_query = _select(_func.count()).select_from(_Product).where(_Product.business_id == business_id)
+
+    if category_id is not None:
+        query = query.where(_Product.category_id == category_id)
+        count_query = count_query.where(_Product.category_id == category_id)
+    if is_active is not None:
+        query = query.where(_Product.is_active == is_active)
+        count_query = count_query.where(_Product.is_active == is_active)
+    if search:
+        pattern = f"%{search}%"
+        query = query.where(_Product.name.ilike(pattern))
+        count_query = count_query.where(_Product.name.ilike(pattern))
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    offset = (page - 1) * page_size
+    query = query.order_by(_Product.name).offset(offset).limit(page_size)
+    result = await db.execute(query)
+    items = list(result.scalars().all())
+
     return ProductListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+# ---------------------------------------------------------------------------
+# Product Variants (static sub-paths before /{product_id} parameterised routes)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{product_id}/variants",
+    response_model=ProductVariantRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_variant_endpoint(
+    product_id: uuid.UUID,
+    body: ProductVariantCreate,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Create a new variant for a product."""
+    try:
+        return await create_variant(db, product_id, body, business_id)
+    except ProductNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except DuplicateSKUError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+
+@router.get("/{product_id}/variants", response_model=list[ProductVariantRead])
+async def list_variants_endpoint(
+    product_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """List all variants for a product."""
+    return await list_variants(db, product_id, business_id)
+
+
+@router.put(
+    "/{product_id}/variants/{variant_id}",
+    response_model=ProductVariantRead,
+)
+async def update_variant_endpoint(
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID,
+    body: ProductVariantUpdate,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Update a product variant."""
+    try:
+        return await update_variant(db, product_id, variant_id, body, business_id)
+    except VariantNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.delete(
+    "/{product_id}/variants/{variant_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def deactivate_variant_endpoint(
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Soft-delete (deactivate) a product variant."""
+    try:
+        await deactivate_variant(db, product_id, variant_id, business_id)
+    except VariantNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get("/{product_id}", response_model=ProductRead)
@@ -372,9 +489,23 @@ async def get_product_endpoint(
     db: AsyncSession = Depends(get_db),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """Get a single product by ID."""
+    """Get a single product by ID (includes variants)."""
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
+    from src.products.models import Product as _Product
     try:
-        return await get_product(db, product_id, business_id=business_id)
+        result = await db.execute(
+            _select(_Product)
+            .options(
+                _selectinload(_Product.category),
+                _selectinload(_Product.variants),
+            )
+            .where(_Product.id == product_id, _Product.business_id == business_id)
+        )
+        product = result.scalar_one_or_none()
+        if not product:
+            raise ProductNotFoundError(product_id=product_id)
+        return product
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -388,8 +519,11 @@ async def update_product_endpoint(
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update a product."""
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
+    from src.products.models import Product as _Product
     try:
-        return await update_product(db, product_id, body, current_user.id, business_id=business_id)
+        product = await update_product(db, product_id, body, current_user.id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except CategoryNotFoundError as e:
@@ -400,6 +534,16 @@ async def update_product_endpoint(
         )
     except DuplicateSlugError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    # Reload with variants to satisfy selectinload requirement
+    result = await db.execute(
+        _select(_Product)
+        .options(
+            _selectinload(_Product.category),
+            _selectinload(_Product.variants),
+        )
+        .where(_Product.id == product.id)
+    )
+    return result.scalar_one()
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -511,7 +655,20 @@ async def upload_product_image(
 
     image_url = f"/static/products/{safe_filename}"
     update_data = ProductUpdate(image_url=image_url)
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload as _selectinload
+    from src.products.models import Product as _Product
     try:
-        return await update_product(db, product_id, update_data, current_user.id, business_id=business_id)
+        product = await update_product(db, product_id, update_data, current_user.id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    # Reload with variants to satisfy selectinload requirement
+    result = await db.execute(
+        _select(_Product)
+        .options(
+            _selectinload(_Product.category),
+            _selectinload(_Product.variants),
+        )
+        .where(_Product.id == product.id)
+    )
+    return result.scalar_one()
