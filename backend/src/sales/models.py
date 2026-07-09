@@ -112,6 +112,15 @@ class Sale(UUIDMixin, TimestampMixin, Base):
     business_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("businesses.id"), nullable=False, index=True
     )
+    # variant_id: populated when a product with variants is sold.
+    # The FK column is added by Unit 1's migration; the ORM column is declared here
+    # so that service code can set it without needing the migration to be applied first.
+    variant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="SET NULL"),
+        nullable=True,
+        default=None,
+        index=True,
+    )
 
     def __repr__(self) -> str:
         return f"<Sale(id={self.id}, product_id={self.product_id}, total={self.total_amount})>"

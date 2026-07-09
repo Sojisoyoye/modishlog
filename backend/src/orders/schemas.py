@@ -21,6 +21,7 @@ class OrderLineItemCreate(BaseModel):
     unit_cost_ngn: Decimal | None = None
     sell_price_ngn: Decimal | None = Field(None, ge=0)
     notes: str | None = None
+    variant_id: uuid.UUID | None = None
 
 
 class OrderLineItemRead(BaseModel):
@@ -28,6 +29,7 @@ class OrderLineItemRead(BaseModel):
 
     id: uuid.UUID
     product_id: uuid.UUID
+    variant_id: uuid.UUID | None = None
     quantity: int
     unit_cost: Decimal
     unit_cost_ngn: Decimal | None = None
