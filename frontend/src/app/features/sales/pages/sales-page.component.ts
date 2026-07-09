@@ -17,18 +17,10 @@ import {
   BulkUploadResponse,
   QuickQuote,
 } from '../../../core/services/sales.service';
-import { ProductsService, Product } from '../../../core/services/products.service';
+import { ProductsService, Product, ProductVariant } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
 import { CustomerService, Customer } from '../../../core/services/customer.service';
 import { LocationsService, Location } from '../../../core/services/locations.service';
-
-interface ProductVariant {
-  id: string;
-  name: string;
-  price_override: number | null;
-  cost_price_override: number | null;
-  is_active: boolean;
-}
 
 interface EntryRow {
   product_id: string;
@@ -1523,7 +1515,7 @@ export class SalesPageComponent implements OnInit {
       row.unit_price = null;
     } else {
       const product = this.products().find((p) => p.id === row.product_id);
-      if (product && (product as any).has_variants) {
+      if (product && product.has_variants) {
         // Price will come from variant selection — don't pre-populate
         row.unit_price = null;
       } else {
@@ -1535,21 +1527,21 @@ export class SalesPageComponent implements OnInit {
     this.entryRows.update(rows => [...rows]);
   }
 
-  getProductForRow(row: EntryRow): (Product & { has_variants?: boolean; variants?: ProductVariant[] }) | undefined {
-    return this.products().find((p) => p.id === row.product_id) as any;
+  getProductForRow(row: EntryRow): Product | undefined {
+    return this.products().find((p) => p.id === row.product_id);
   }
 
   getVariantsForProduct(productId: string): ProductVariant[] {
-    const product = this.products().find((p) => p.id === productId) as any;
-    return (product?.variants ?? []).filter((v: ProductVariant) => v.is_active);
+    const product = this.products().find((p) => p.id === productId);
+    return (product?.variants ?? []).filter((v) => v.is_active);
   }
 
   onVariantChange(row: EntryRow, variantId: string): void {
     row.variant_id = variantId || null;
-    const product = this.getProductForRow(row) as any;
-    const variant = product?.variants?.find((v: ProductVariant) => v.id === variantId);
+    const product = this.getProductForRow(row);
+    const variant = product?.variants?.find((v) => v.id === variantId);
     if (variant) {
-      row.unit_price = variant.price_override ?? product?.selling_price ?? null;
+      row.unit_price = variant.price_override != null ? parseFloat(variant.price_override) : (product?.selling_price ?? null);
     } else {
       // Variant deselected — clear price so grand total doesn't show stale amount
       row.unit_price = null;
@@ -1557,8 +1549,8 @@ export class SalesPageComponent implements OnInit {
     this.entryRows.update(rows => [...rows]);
   }
 
-  formatMoney(amount: number): string {
-    return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(amount);
+  formatMoney(amount: string | number): string {
+    return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(Number(amount));
   }
 
   refreshRows(): void {
@@ -1617,7 +1609,7 @@ export class SalesPageComponent implements OnInit {
   submitEntries(): void {
     // Validate variant selection before building the payload
     const hasVariantError = this.entryRows().some((row) => {
-      const product = this.getProductForRow(row) as any;
+      const product = this.getProductForRow(row);
       return product?.has_variants && !row.variant_id;
     });
     if (hasVariantError) {

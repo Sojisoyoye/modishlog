@@ -6,6 +6,7 @@ import { environment } from '../../../environments/environment';
 
 export interface DailyEntry {
   product_id: string;
+  variant_id?: string;
   quantity: number;
   sale_date: string;
   discount_amount?: number | null;

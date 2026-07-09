@@ -16,16 +16,8 @@ import {
   ImportRowError,
   ParsedLineItem,
 } from '../../../core/services/orders.service';
-import { ProductsService, Product } from '../../../core/services/products.service';
+import { ProductsService, Product, ProductVariant } from '../../../core/services/products.service';
 import { FxService } from '../../../core/services/fx.service';
-
-interface ProductVariant {
-  id: string;
-  name: string;
-  price_override: number | null;
-  cost_price_override: number | null;
-  is_active: boolean;
-}
 
 @Component({
   selector: 'app-orders-page',
@@ -600,7 +592,7 @@ interface ProductVariant {
                     <option value="">— Select variant —</option>
                     @for (v of getOrderVariantsForProduct(item.product_id); track v.id) {
                       <option [value]="v.id">
-                        {{ v.name }}{{ v.cost_price_override != null ? ' ($' + v.cost_price_override + '/unit)' : '' }}
+                        {{ v.name }}{{ v.cost_price_override != null ? ' (' + formatMoney(v.cost_price_override) + '/unit)' : '' }}
                       </option>
                     }
                   </select>
@@ -1084,7 +1076,7 @@ export class OrdersPageComponent implements OnInit {
 
     // Validate variant selection for products that require it
     const hasVariantError = validItems.some((item) => {
-      const product = this.products().find((p) => p.id === item.product_id) as any;
+      const product = this.products().find((p) => p.id === item.product_id);
       return product?.has_variants && !item.variant_id;
     });
     if (hasVariantError) {
@@ -1172,26 +1164,30 @@ export class OrdersPageComponent implements OnInit {
     };
   }
 
-  getOrderProductForItem(item: { product_id: string }): (Product & { has_variants?: boolean; variants?: ProductVariant[] }) | undefined {
-    return this.products().find((p) => p.id === item.product_id) as any;
+  getOrderProductForItem(item: { product_id: string }): Product | undefined {
+    return this.products().find((p) => p.id === item.product_id);
   }
 
   getOrderVariantsForProduct(productId: string): ProductVariant[] {
-    const product = this.products().find((p) => p.id === productId) as any;
-    return (product?.variants ?? []).filter((v: ProductVariant) => v.is_active);
+    const product = this.products().find((p) => p.id === productId);
+    return (product?.variants ?? []).filter((v) => v.is_active);
   }
 
   onOrderVariantChange(item: { product_id: string; quantity: number; unit_cost: number; variant_id: string | null }, variantId: string): void {
     item.variant_id = variantId || null;
-    const product = this.getOrderProductForItem(item) as any;
-    const variant = product?.variants?.find((v: ProductVariant) => v.id === variantId);
+    const product = this.getOrderProductForItem(item);
+    const variant = product?.variants?.find((v) => v.id === variantId);
     if (variant && variant.cost_price_override != null) {
-      item.unit_cost = variant.cost_price_override;
+      item.unit_cost = parseFloat(variant.cost_price_override);
     } else if (!variantId) {
       // Variant deselected — reset cost so the input doesn't show a stale value
       item.unit_cost = 0;
     }
     this.newOrderItems.update(items => [...items]);
+  }
+
+  formatMoney(amount: string | number): string {
+    return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(Number(amount));
   }
 
   addExpense(): void {
