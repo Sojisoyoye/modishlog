@@ -5,6 +5,38 @@ import { map, switchMap, tap } from 'rxjs/operators';
 import { ApiService } from './api.service';
 import { environment } from '../../../environments/environment';
 
+export interface ProductVariant {
+  id: string;
+  product_id: string;
+  business_id: string;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  attributes: Record<string, string>;
+  price_override: number | null;
+  cost_price_override: number | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductVariantCreate {
+  name: string;
+  sku?: string;
+  attributes?: Record<string, string>;
+  price_override?: number | null;
+  cost_price_override?: number | null;
+}
+
+export interface ProductVariantUpdate {
+  name?: string;
+  sku?: string;
+  attributes?: Record<string, string>;
+  price_override?: number | null;
+  cost_price_override?: number | null;
+  is_active?: boolean;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -16,6 +48,8 @@ export interface Product {
   currency: string;
   is_active: boolean;
   image_url?: string | null;
+  has_variants?: boolean;
+  variants?: ProductVariant[];
 }
 
 export interface Category {
@@ -57,6 +91,7 @@ export interface ProductUpdate {
   unit_cost?: number;
   selling_price?: number;
   is_active?: boolean;
+  has_variants?: boolean;
 }
 
 export interface BulkUploadResult {
@@ -170,5 +205,27 @@ export class ProductsService {
     const formData = new FormData();
     formData.append('file', file);
     return this.http.post<Product>(`${this.baseUrl}/products/${id}/image`, formData);
+  }
+
+  getVariants(productId: string): Observable<ProductVariant[]> {
+    return this.api.get<ProductVariant[]>(`/products/${productId}/variants`);
+  }
+
+  createVariant(productId: string, body: ProductVariantCreate): Observable<ProductVariant> {
+    return this.api.post<ProductVariant>(`/products/${productId}/variants`, body).pipe(
+      tap(() => { this.allCache$ = null; })
+    );
+  }
+
+  updateVariant(productId: string, variantId: string, body: ProductVariantUpdate): Observable<ProductVariant> {
+    return this.api.put<ProductVariant>(`/products/${productId}/variants/${variantId}`, body).pipe(
+      tap(() => { this.allCache$ = null; })
+    );
+  }
+
+  deleteVariant(productId: string, variantId: string): Observable<void> {
+    return this.api.delete<void>(`/products/${productId}/variants/${variantId}`).pipe(
+      tap(() => { this.allCache$ = null; })
+    );
   }
 }
