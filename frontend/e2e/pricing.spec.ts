@@ -263,13 +263,14 @@ test('demand forecast shows insufficient data empty state when product has < 10 
   // Select any product from the forecast dropdown
   const productSelect = page.locator('#forecast-product');
   const optionCount = await productSelect.locator('option').count();
-  if (optionCount > 1) {
-    await productSelect.selectOption({ index: 1 });
-    await page.getByRole('button', { name: /run forecast/i }).click();
+  // Fail explicitly if no products exist — a silent skip would give false confidence
+  expect(optionCount).toBeGreaterThan(1);
 
-    // Should show the insufficient data empty state, not a generic toast error
-    await expect(
-      page.getByText(/record at least 10 sales/i)
-    ).toBeVisible({ timeout: 10_000 });
-  }
+  await productSelect.selectOption({ index: 1 });
+  await page.getByRole('button', { name: /run forecast/i }).click();
+
+  // Should show the insufficient data empty state, not a generic toast error
+  await expect(
+    page.getByText(/record at least 10 sales/i)
+  ).toBeVisible({ timeout: 10_000 });
 });

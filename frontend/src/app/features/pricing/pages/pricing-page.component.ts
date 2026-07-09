@@ -1889,7 +1889,7 @@ export class PricingPageComponent implements OnInit {
       },
       error: (err) => {
         this.forecastLoading.set(false);
-        if (err?.status === 400) {
+        if (err?.status === 400 && err?.error?.detail?.includes('data points')) {
           this.forecastInsufficientData.set(true);
         } else {
           this.messageService.add({ severity: 'error', summary: 'Forecast error', detail: 'Could not generate forecast. Please try again.' });
