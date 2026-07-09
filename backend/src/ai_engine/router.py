@@ -90,10 +90,9 @@ async def list_recommendations_endpoint(
         pri = r.priority if isinstance(r.priority, str) else r.priority.value
         by_priority[pri] = by_priority.get(pri, 0) + 1
 
-    key = settings.ANTHROPIC_API_KEY
-    ai_available = bool(key and key.startswith("sk-ant-"))
+    ai_available = bool(settings.ANTHROPIC_API_KEY)
     degraded_reason = (
-        "Anthropic API key not configured — AI recommendations unavailable"
+        "AI API key not configured — recommendations unavailable"
         if not ai_available
         else None
     )
