@@ -20,7 +20,7 @@ jobs:
       # S2 — No raw SQL outside alembic/
       - name: "[S2] No raw SQL in src/"
         run: |
-          HITS=$(grep -rn "text(" backend/src/ --include="*.py" \
+          HITS=$(grep -rPn "\btext\s*\(" backend/src/ --include="*.py" \
                  | grep -v "# risk-ok" || true)
           if [ -n "$HITS" ]; then
             echo "FAIL [S2]: raw SQL text() found in src/ (forbidden outside alembic/):"
@@ -207,7 +207,6 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r backend/requirements.txt
-        working-directory: backend
       - name: "[S1] Run cross-tenant isolation tests"
         working-directory: backend
         env:
@@ -238,7 +237,6 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r backend/requirements.txt
-        working-directory: backend
 
       # E1 — AI recommendation schemas include confidence fields
       - name: "[E1] AI recommendation schemas have confidence fields"

@@ -18,7 +18,7 @@ router = APIRouter()
 async def check_db() -> str:
     """Ping the database. Returns 'ok' or raises on failure."""
     async with async_session_factory() as session:
-        await session.execute(text("SELECT 1"))
+        await session.execute(text("SELECT 1"))  # risk-ok: health ping, not business logic
     return "ok"
 
 
