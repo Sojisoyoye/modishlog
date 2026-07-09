@@ -4,13 +4,17 @@ import os
 import uuid
 
 import anyio
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.config import settings
 from src.core.database import get_db
+from src.products.models import Product
 from src.products.exceptions import (
     CategoryHasChildrenError,
     CategoryInUseError,
@@ -136,9 +140,6 @@ async def create_product_endpoint(
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Create a new product."""
-    from sqlalchemy import select as _select
-    from sqlalchemy.orm import selectinload as _selectinload
-    from src.products.models import Product as _Product
     try:
         product = await create_product(db, body, current_user.id, business_id)
     except CategoryNotFoundError as e:
@@ -153,12 +154,12 @@ async def create_product_endpoint(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     # Reload with variants to satisfy selectinload requirement
     result = await db.execute(
-        _select(_Product)
+        select(Product)
         .options(
-            _selectinload(_Product.category),
-            _selectinload(_Product.variants),
+            selectinload(Product.category),
+            selectinload(Product.variants),
         )
-        .where(_Product.id == product.id)
+        .where(Product.id == product.id)
     )
     return result.scalar_one()
 
@@ -374,38 +375,16 @@ async def list_products_endpoint(
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """List products with filtering and pagination (includes variants)."""
-    from sqlalchemy import select as _select, func as _func
-    from sqlalchemy.orm import selectinload as _selectinload
-    from src.products.models import Product as _Product
-    query = (
-        _select(_Product)
-        .options(
-            _selectinload(_Product.category),
-            _selectinload(_Product.variants),
-        )
-        .where(_Product.business_id == business_id)
+    items, total = await list_products(
+        db,
+        business_id,
+        category_id=category_id,
+        is_active=is_active,
+        search=search,
+        page=page,
+        page_size=page_size,
+        load_variants=True,
     )
-    count_query = _select(_func.count()).select_from(_Product).where(_Product.business_id == business_id)
-
-    if category_id is not None:
-        query = query.where(_Product.category_id == category_id)
-        count_query = count_query.where(_Product.category_id == category_id)
-    if is_active is not None:
-        query = query.where(_Product.is_active == is_active)
-        count_query = count_query.where(_Product.is_active == is_active)
-    if search:
-        pattern = f"%{search}%"
-        query = query.where(_Product.name.ilike(pattern))
-        count_query = count_query.where(_Product.name.ilike(pattern))
-
-    total_result = await db.execute(count_query)
-    total = total_result.scalar() or 0
-
-    offset = (page - 1) * page_size
-    query = query.order_by(_Product.name).offset(offset).limit(page_size)
-    result = await db.execute(query)
-    items = list(result.scalars().all())
-
     return ProductListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -490,17 +469,14 @@ async def get_product_endpoint(
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get a single product by ID (includes variants)."""
-    from sqlalchemy import select as _select
-    from sqlalchemy.orm import selectinload as _selectinload
-    from src.products.models import Product as _Product
     try:
         result = await db.execute(
-            _select(_Product)
+            select(Product)
             .options(
-                _selectinload(_Product.category),
-                _selectinload(_Product.variants),
+                selectinload(Product.category),
+                selectinload(Product.variants),
             )
-            .where(_Product.id == product_id, _Product.business_id == business_id)
+            .where(Product.id == product_id, Product.business_id == business_id)
         )
         product = result.scalar_one_or_none()
         if not product:
@@ -519,9 +495,6 @@ async def update_product_endpoint(
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update a product."""
-    from sqlalchemy import select as _select
-    from sqlalchemy.orm import selectinload as _selectinload
-    from src.products.models import Product as _Product
     try:
         product = await update_product(db, product_id, body, current_user.id, business_id=business_id)
     except ProductNotFoundError as e:
@@ -536,12 +509,12 @@ async def update_product_endpoint(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     # Reload with variants to satisfy selectinload requirement
     result = await db.execute(
-        _select(_Product)
+        select(Product)
         .options(
-            _selectinload(_Product.category),
-            _selectinload(_Product.variants),
+            selectinload(Product.category),
+            selectinload(Product.variants),
         )
-        .where(_Product.id == product.id)
+        .where(Product.id == product.id)
     )
     return result.scalar_one()
 
@@ -587,9 +560,7 @@ async def upload_product_image(
     Content-Type header). Files are stored outside the web root with UUID
     filenames to prevent directory traversal and content-type spoofing attacks.
     """
-    import structlog as _structlog
-
-    _logger = _structlog.get_logger()
+    _logger = structlog.get_logger()
 
     ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
     # S6: Allowed MIME types — validated against actual file bytes, not headers.
@@ -655,20 +626,17 @@ async def upload_product_image(
 
     image_url = f"/static/products/{safe_filename}"
     update_data = ProductUpdate(image_url=image_url)
-    from sqlalchemy import select as _select
-    from sqlalchemy.orm import selectinload as _selectinload
-    from src.products.models import Product as _Product
     try:
         product = await update_product(db, product_id, update_data, current_user.id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     # Reload with variants to satisfy selectinload requirement
     result = await db.execute(
-        _select(_Product)
+        select(Product)
         .options(
-            _selectinload(_Product.category),
-            _selectinload(_Product.variants),
+            selectinload(Product.category),
+            selectinload(Product.variants),
         )
-        .where(_Product.id == product.id)
+        .where(Product.id == product.id)
     )
     return result.scalar_one()

@@ -116,7 +116,7 @@ class ProductVariant(UUIDMixin, TimestampMixin, Base):
     cost_price_override: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    product: Mapped["Product"] = relationship(back_populates="variants")
+    product: Mapped["Product"] = relationship(back_populates="variants", lazy="raise")
 
     def __repr__(self) -> str:
         return f"<ProductVariant(id={self.id}, product_id={self.product_id}, name={self.name})>"

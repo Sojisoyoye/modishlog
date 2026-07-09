@@ -251,7 +251,7 @@ async def get_product(
     product_id: uuid.UUID,
     business_id: uuid.UUID | None = None,
 ) -> Product:
-    """Get a single product by ID with category loaded.
+    """Get a single product by ID with category and variants loaded.
 
     If business_id is provided, only returns products belonging to that business.
     """
@@ -261,7 +261,7 @@ async def get_product(
 
     result = await db.execute(
         select(Product)
-        .options(selectinload(Product.category))
+        .options(selectinload(Product.category), selectinload(Product.variants))
         .where(*conditions)
     )
     product = result.scalar_one_or_none()
@@ -279,9 +279,13 @@ async def list_products(
     search: str | None = None,
     page: int = 1,
     page_size: int = 20,
+    load_variants: bool = False,
 ) -> tuple[list[Product], int]:
     """List products with filtering and pagination, scoped to a business."""
-    query = select(Product).options(selectinload(Product.category))
+    options = [selectinload(Product.category)]
+    if load_variants:
+        options.append(selectinload(Product.variants))
+    query = select(Product).options(*options)
     count_query = select(func.count()).select_from(Product)
 
     # Always filter by business_id for data isolation
@@ -524,9 +528,29 @@ async def update_variant(
 
     update_fields = data.model_dump(exclude_unset=True)
     for field, value in update_fields.items():
+        if field in ("sku", "barcode") and value == "":
+            value = None
         setattr(variant, field, value)
 
     await db.flush()
+
+    # If is_active was set to False, reset has_variants on parent if no active variants remain
+    if update_fields.get("is_active") is False:
+        active_check = await db.execute(
+            select(func.count())
+            .select_from(ProductVariant)
+            .where(
+                ProductVariant.product_id == variant.product_id,
+                ProductVariant.is_active == True,  # noqa: E712
+            )
+        )
+        active_count = active_check.scalar() or 0
+        if active_count == 0:
+            product = await db.get(Product, variant.product_id)
+            if product:
+                product.has_variants = False
+                await db.flush()
+
     await logger.ainfo("variant_updated", variant_id=str(variant_id))
     return variant
 
@@ -551,4 +575,21 @@ async def deactivate_variant(
 
     variant.is_active = False
     await db.flush()
+
+    # Reset has_variants on the parent product if no active variants remain
+    active_check = await db.execute(
+        select(func.count())
+        .select_from(ProductVariant)
+        .where(
+            ProductVariant.product_id == variant.product_id,
+            ProductVariant.is_active == True,  # noqa: E712
+        )
+    )
+    active_count = active_check.scalar() or 0
+    if active_count == 0:
+        product = await db.get(Product, variant.product_id)
+        if product:
+            product.has_variants = False
+            await db.flush()
+
     await logger.ainfo("variant_deactivated", variant_id=str(variant_id))
