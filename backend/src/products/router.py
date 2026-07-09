@@ -49,7 +49,6 @@ from src.products.service import (
     deactivate_variant,
     delete_category,
     get_price_history,
-    get_product,
     list_categories,
     list_products,
     list_variants,
