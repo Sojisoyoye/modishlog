@@ -79,7 +79,7 @@ async def _wipe_and_seed() -> None:
     log.info("test_db_reset_complete", user=E2E_USER_EMAIL)
 
 
-async def reset() -> None:
+def _configure_logging() -> None:
     structlog.configure(
         processors=[
             structlog.processors.add_log_level,
@@ -90,9 +90,11 @@ async def reset() -> None:
         logger_factory=structlog.PrintLoggerFactory(),
     )
 
-    _run_migrations()
-    await _wipe_and_seed()
-
 
 if __name__ == "__main__":
-    asyncio.run(reset())
+    # _run_migrations calls alembic which internally calls asyncio.run().
+    # It must run OUTSIDE any asyncio.run() call to avoid "cannot be called
+    # from a running event loop" errors.
+    _configure_logging()
+    _run_migrations()
+    asyncio.run(_wipe_and_seed())
