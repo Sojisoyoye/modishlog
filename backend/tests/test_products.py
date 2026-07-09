@@ -26,18 +26,25 @@ from src.products.exceptions import (
     DuplicateSlugError,
     InvalidProductNameError,
     ProductNotFoundError,
+    VariantNotFoundError,
 )
 from src.products.utils import slugify
-from src.products.models import Product, ProductCategory
-from src.products.schemas import CategoryCreate, CategoryUpdate, ProductCreate, ProductUpdate
+from src.products.models import Product, ProductCategory, ProductVariant
+from src.products.schemas import CategoryCreate, CategoryUpdate, ProductCreate, ProductUpdate, ProductVariantCreate, ProductVariantUpdate
 from src.products.service import (
     create_category,
     create_product,
+    create_variant,
     deactivate_product,
+    deactivate_variant,
     get_product,
     list_categories,
+    list_variants,
+    resolve_cost,
+    resolve_price,
     update_category,
     update_product,
+    update_variant,
 )
 
 VALID_PASSWORD = "Str0ng!Pass#99"
@@ -85,6 +92,7 @@ def _make_product(category_id=None, **overrides):
         selling_price=Decimal("150.000000"),
         currency="NGN",
         is_active=True,
+        has_variants=False,
         business_id=uuid.uuid4(),
     )
     defaults.update(overrides)
@@ -93,6 +101,26 @@ def _make_product(category_id=None, **overrides):
     product.created_at = datetime.now(timezone.utc)
     product.updated_at = datetime.now(timezone.utc)
     return product
+
+
+def _make_variant(product_id=None, business_id=None, **overrides):
+    defaults = dict(
+        product_id=product_id or uuid.uuid4(),
+        business_id=business_id or uuid.uuid4(),
+        name="Red / Large",
+        sku="VAR-001",
+        barcode=None,
+        attributes={"color": "Red", "size": "Large"},
+        price_override=Decimal("180.000000"),
+        cost_price_override=Decimal("110.000000"),
+        is_active=True,
+    )
+    defaults.update(overrides)
+    variant = ProductVariant(**defaults)
+    variant.id = overrides.get("id", uuid.uuid4())
+    variant.created_at = datetime.now(timezone.utc)
+    variant.updated_at = datetime.now(timezone.utc)
+    return variant
 
 
 def _make_inventory(product_id=None, **overrides):
@@ -1373,3 +1401,309 @@ async def test_products_owner_sees_own_data():
     items, total = await list_products(db, business_id=business_id)
     assert total == 1
     assert items[0] is mock_product
+
+
+# ---------------------------------------------------------------------------
+# Product variant tests (task #160)
+# ---------------------------------------------------------------------------
+
+
+class TestProductVariants:
+    """Tests for ProductVariant service functions and endpoints."""
+
+    # -----------------------------------------------------------------------
+    # Service unit tests
+    # -----------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_create_variant_happy_path(self):
+        """create_variant returns a variant with correct fields."""
+        business_id = uuid.uuid4()
+        product = _make_product(business_id=business_id)
+        product.has_variants = False
+
+        # The service calls get_product (db.execute → scalar_one_or_none returns product)
+        # then checks SKU uniqueness (second execute → None, no conflict)
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product  # get_product
+            else:
+                result.scalar_one_or_none.return_value = None  # SKU unique
+            return result
+
+        db = AsyncMock()
+        db.execute = mock_execute
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        data = ProductVariantCreate(
+            name="Red / Large",
+            sku="VAR-001",
+            attributes={"color": "Red", "size": "Large"},
+            price_override=Decimal("180"),
+        )
+        variant = await create_variant(db, product.id, data, business_id)
+
+        assert variant.name == "Red / Large"
+        assert variant.sku == "VAR-001"
+        assert variant.price_override == Decimal("180")
+        assert variant.product_id == product.id
+        assert variant.business_id == business_id
+        assert product.has_variants is True
+        db.add.assert_called_once_with(variant)
+
+    @pytest.mark.asyncio
+    async def test_create_variant_duplicate_sku_raises(self):
+        """create_variant raises DuplicateSKUError when SKU already exists in the business."""
+        business_id = uuid.uuid4()
+        product = _make_product(business_id=business_id)
+        existing_variant = _make_variant(business_id=business_id, sku="DUP-SKU")
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product  # get_product
+            else:
+                result.scalar_one_or_none.return_value = existing_variant  # SKU conflict
+            return result
+
+        db = AsyncMock()
+        db.execute = mock_execute
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+
+        data = ProductVariantCreate(name="Blue / Small", sku="DUP-SKU")
+        with pytest.raises(DuplicateSKUError):
+            await create_variant(db, product.id, data, business_id)
+
+    @pytest.mark.asyncio
+    async def test_list_variants_returns_all(self):
+        """list_variants returns all variants for a product."""
+        business_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        variants = [
+            _make_variant(product_id=product_id, business_id=business_id, name="Small"),
+            _make_variant(product_id=product_id, business_id=business_id, name="Large"),
+        ]
+        db = _mock_db_with_execute(scalars_result=variants)
+
+        result = await list_variants(db, product_id, business_id)
+
+        assert len(result) == 2
+        assert result[0].name == "Small"
+        assert result[1].name == "Large"
+
+    @pytest.mark.asyncio
+    async def test_update_variant_price_override(self):
+        """update_variant updates price_override on the variant."""
+        business_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        variant = _make_variant(
+            product_id=product_id,
+            business_id=business_id,
+            price_override=Decimal("180"),
+        )
+        db = _mock_db_with_execute(scalar_result=variant)
+
+        data = ProductVariantUpdate(price_override=Decimal("200"))
+        updated = await update_variant(db, product_id, variant.id, data, business_id)
+
+        assert updated.price_override == Decimal("200")
+        db.flush.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_variant_not_found_raises(self):
+        """update_variant raises VariantNotFoundError when variant is missing."""
+        business_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        db = _mock_db_with_execute(scalar_result=None)
+
+        data = ProductVariantUpdate(name="New Name")
+        with pytest.raises(VariantNotFoundError):
+            await update_variant(db, product_id, uuid.uuid4(), data, business_id)
+
+    @pytest.mark.asyncio
+    async def test_deactivate_variant(self):
+        """deactivate_variant sets is_active to False."""
+        business_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        variant = _make_variant(
+            product_id=product_id, business_id=business_id, is_active=True
+        )
+        db = _mock_db_with_execute(scalar_result=variant)
+
+        await deactivate_variant(db, product_id, variant.id, business_id)
+
+        assert variant.is_active is False
+        db.flush.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_deactivate_variant_not_found_raises(self):
+        """deactivate_variant raises VariantNotFoundError when variant is missing."""
+        db = _mock_db_with_execute(scalar_result=None)
+        with pytest.raises(VariantNotFoundError):
+            await deactivate_variant(db, uuid.uuid4(), uuid.uuid4(), uuid.uuid4())
+
+    def test_resolve_price_uses_override(self):
+        """resolve_price returns variant.price_override when set."""
+        product = _make_product(selling_price=Decimal("150"))
+        variant = _make_variant(price_override=Decimal("180"))
+
+        result = resolve_price(product, variant)
+
+        assert result == Decimal("180")
+
+    def test_resolve_price_falls_back_to_product(self):
+        """resolve_price returns product.selling_price when variant has no override."""
+        product = _make_product(selling_price=Decimal("150"))
+        variant = _make_variant(price_override=None)
+
+        result = resolve_price(product, variant)
+
+        assert result == Decimal("150")
+
+    def test_resolve_price_no_variant(self):
+        """resolve_price returns product.selling_price when variant is None."""
+        product = _make_product(selling_price=Decimal("150"))
+
+        result = resolve_price(product, None)
+
+        assert result == Decimal("150")
+
+    def test_resolve_cost_uses_override(self):
+        """resolve_cost returns variant.cost_price_override when set."""
+        product = _make_product(unit_cost=Decimal("100"))
+        variant = _make_variant(cost_price_override=Decimal("110"))
+
+        result = resolve_cost(product, variant)
+
+        assert result == Decimal("110")
+
+    def test_resolve_cost_falls_back_to_product(self):
+        """resolve_cost returns product.unit_cost when variant has no override."""
+        product = _make_product(unit_cost=Decimal("100"))
+        variant = _make_variant(cost_price_override=None)
+
+        result = resolve_cost(product, variant)
+
+        assert result == Decimal("100")
+
+    # -----------------------------------------------------------------------
+    # Endpoint integration tests
+    # -----------------------------------------------------------------------
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _override_auth(self, business_id: uuid.UUID | None = None):
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+
+        u = _make_user(business_id=business_id or uuid.uuid4())
+
+        async def _fake_auth():
+            return u
+
+        async def _fake_business_id():
+            return u.business_id
+
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
+        return u
+
+    def test_variant_endpoint_create_returns_201(self):
+        """POST /products/{id}/variants returns 201 with variant data."""
+        business_id = uuid.uuid4()
+        product = _make_product(business_id=business_id)
+        product.has_variants = False
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product  # get_product
+            else:
+                result.scalar_one_or_none.return_value = None  # SKU unique
+            return result
+
+        db = AsyncMock()
+        db.execute = mock_execute
+        db.flush = AsyncMock()
+
+        original_add = MagicMock()
+
+        def _add_and_patch(entity):
+            # Simulate what DB flush does: assign id and timestamps
+            if not getattr(entity, "id", None):
+                entity.id = uuid.uuid4()
+            if not getattr(entity, "created_at", None):
+                entity.created_at = datetime.now(timezone.utc)
+            if not getattr(entity, "updated_at", None):
+                entity.updated_at = datetime.now(timezone.utc)
+            return original_add(entity)
+
+        db.add = _add_and_patch
+
+        self._override_db(db)
+        self._override_auth(business_id=business_id)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                f"/api/v1/products/{product.id}/variants",
+                json={
+                    "name": "Red / Large",
+                    "sku": "VAR-TEST-001",
+                    "attributes": {"color": "Red", "size": "Large"},
+                    "price_override": "180.00",
+                },
+            )
+
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["name"] == "Red / Large"
+
+    def test_variant_endpoint_list_returns_200(self):
+        """GET /products/{id}/variants returns 200 with a list."""
+        business_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        variants = [
+            _make_variant(product_id=product_id, business_id=business_id, name="Small"),
+        ]
+        db = _mock_db_with_execute(scalars_result=variants)
+
+        self._override_db(db)
+        self._override_auth(business_id=business_id)
+
+        with TestClient(self.app) as client:
+            resp = client.get(f"/api/v1/products/{product_id}/variants")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert isinstance(body, list)
+        assert len(body) == 1
+        assert body[0]["name"] == "Small"
