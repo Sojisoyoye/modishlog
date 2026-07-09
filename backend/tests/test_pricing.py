@@ -1,5 +1,6 @@
 """Tests for pricing domain: demand forecast, margin optimization, recommendations."""
 
+import asyncio
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -1614,3 +1615,84 @@ class TestSellingPriceSuggestionStaleFlag:
         body = resp.json()
         assert body["fx_rate_stale"] is True
         assert body["fx_rate_source"] == "cached"
+
+
+# ---------------------------------------------------------------------------
+# Task #172 — asyncio.wait_for timeout on SciPy minimize()
+# ---------------------------------------------------------------------------
+
+
+class TestOptimizationTimeout:
+    """SciPy minimize() must be wrapped in asyncio.wait_for with a 30s timeout."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        from src.main import app
+
+        self.app = app
+        self._orig = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._orig
+
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+
+        async def _auth():
+            return _make_user()
+
+        self.app.dependency_overrides[get_current_active_user] = _auth
+        self.app.dependency_overrides[get_current_business_id] = lambda: uuid.uuid4()
+
+    def test_timeout_returns_504(self):
+        """When SciPy minimize() times out the endpoint must return HTTP 504."""
+        from src.core.database import get_db
+        from unittest.mock import AsyncMock, patch
+
+        self._override_auth()
+
+        async def _fake_db():
+            db = AsyncMock()
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        from src.fx.exceptions import ForecastTimeoutError
+
+        with patch(
+            "src.pricing.router.generate_recommendations",
+            new_callable=AsyncMock,
+            side_effect=ForecastTimeoutError("SciPy price optimization", 30.0),
+        ):
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/pricing/recommendations/generate",
+                    json={"target_margin": "35.00"},
+                )
+
+        assert resp.status_code == 504
+
+    def test_normal_completion_returns_201(self):
+        """When optimization completes within timeout, endpoint returns 201."""
+        from src.core.database import get_db
+        from unittest.mock import AsyncMock, patch
+
+        self._override_auth()
+
+        async def _fake_db():
+            db = AsyncMock()
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        with patch(
+            "src.pricing.router.generate_recommendations",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/pricing/recommendations/generate",
+                    json={"target_margin": "35.00"},
+                )
+
+        assert resp.status_code == 201

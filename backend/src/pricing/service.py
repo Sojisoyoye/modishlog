@@ -547,13 +547,19 @@ async def generate_recommendations(
             }
         )
 
-    # Run optimization in thread pool
+    # Run optimization in thread pool with a 30s timeout — minimize() can
+    # hang indefinitely on certain degenerate input shapes.
     try:
-        optimized = await asyncio.to_thread(
-            _optimize_prices,
-            opt_inputs,
-            float(target_margin) / 100,
+        optimized = await asyncio.wait_for(
+            asyncio.to_thread(
+                _optimize_prices,
+                opt_inputs,
+                float(target_margin) / 100,
+            ),
+            timeout=30.0,
         )
+    except asyncio.TimeoutError as e:
+        raise ForecastTimeoutError("SciPy price optimization", 30.0) from e
     except OptimizationInfeasibleError:
         return []
 
