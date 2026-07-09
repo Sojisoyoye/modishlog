@@ -1568,3 +1568,49 @@ class TestSellingPriceSuggestionStaleFlag:
         body = resp.json()
         assert body["fx_rate_stale"] is False
         assert body["fx_rate_source"] == "override"
+
+    def test_stale_usd_rate_sets_stale_flag(self):
+        """When the cached FX rate is older than FX_CACHE_TTL_HOURS, stale must be True."""
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from src.core.config import settings
+
+        self._override_auth()
+
+        from src.core.database import get_db
+
+        async def _fake_db():
+            db = AsyncMock()
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        # Timestamp older than the cache TTL → stale
+        stale_ts = datetime.now(timezone.utc) - timedelta(
+            hours=settings.FX_CACHE_TTL_HOURS + 1
+        )
+        mock_rate = MagicMock()
+        mock_rate.rate = Decimal("1600")
+        mock_rate.timestamp = stale_ts
+        mock_rate.source.value = "api_provider"
+
+        with patch(
+            "src.fx.service.get_current_rate",
+            new_callable=AsyncMock,
+            return_value=mock_rate,
+        ):
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/pricing/selling-price-suggestion",
+                    json={
+                        "unit_cost_override": 10,
+                        "currency": "USD",
+                        "min_margin_pct": 35,
+                    },
+                )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["fx_rate_stale"] is True
+        assert body["fx_rate_source"] == "cached"

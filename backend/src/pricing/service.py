@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.core.config import settings
 from src.fx.service import get_live_usdngn_rate
 from src.orders.models import OrderLineItem, PurchaseOrder
 from src.fx.exceptions import ForecastTimeoutError
@@ -1182,9 +1183,6 @@ async def get_selling_price_suggestion(
             fx_rate = fx_rate_override
             fx_rate_source = "override"
         else:
-            from datetime import datetime, timezone
-
-            from src.core.config import settings as _settings
             from src.fx.service import get_current_rate as _get_fx_rate
 
             pair = f"{resolved_currency}NGN"
@@ -1193,7 +1191,7 @@ async def get_selling_price_suggestion(
             age_seconds = (
                 datetime.now(timezone.utc) - rate_record.timestamp
             ).total_seconds()
-            fx_rate_stale = age_seconds > _settings.FX_CACHE_TTL_HOURS * 3600
+            fx_rate_stale = age_seconds > settings.FX_CACHE_TTL_HOURS * 3600
             fx_rate_source = rate_record.source.value if not fx_rate_stale else "cached"
         unit_cost_ngn = (unit_cost * fx_rate).quantize(Decimal("0.000001"))
 
