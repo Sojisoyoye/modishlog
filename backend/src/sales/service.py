@@ -10,6 +10,7 @@ import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.config import settings
 from src.inventory.models import MovementType
 from src.inventory.service import adjust_stock, fifo_deduct
 from src.orders.models import OrderLineItem, PurchaseOrder
@@ -495,6 +496,12 @@ async def process_bulk_upload(
             )
 
         rows = list(reader)
+        if len(rows) > settings.MAX_CSV_ROWS:
+            raise InvalidCSVFormatError(
+                filename,
+                f"CSV exceeds the maximum of {settings.MAX_CSV_ROWS:,} rows. "
+                f"Split the file and upload in batches.",
+            )
     except UnicodeDecodeError:
         raise InvalidCSVFormatError(filename, "File is not valid UTF-8")
 
