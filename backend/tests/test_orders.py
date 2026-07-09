@@ -1877,3 +1877,158 @@ class TestOrdersBusinessIsolation:
         purchase_orders = [o for o in added_objects if isinstance(o, PurchaseOrder)]
         assert len(purchase_orders) == 1
         assert purchase_orders[0].business_id == business_id
+
+
+# ---------------------------------------------------------------------------
+# Task #160 — Variant-aware order tests
+# ---------------------------------------------------------------------------
+
+
+def _make_variant_obj(product_id=None, cost_price_override=None, **overrides):
+    """Return a MagicMock that looks like a ProductVariant ORM instance."""
+    v = MagicMock()
+    v.id = overrides.get("id", uuid.uuid4())
+    v.product_id = product_id or uuid.uuid4()
+    v.cost_price_override = cost_price_override
+    v.price_override = overrides.get("price_override", None)
+    v.is_active = overrides.get("is_active", True)
+    v.name = overrides.get("name", "Red / Large")
+    v.sku = overrides.get("sku", "PRD-001-RL")
+    v.business_id = overrides.get("business_id", uuid.uuid4())
+    return v
+
+
+class TestCreateOrderWithVariant:
+    @pytest.mark.asyncio
+    async def test_create_order_with_variant_applies_cost_override(self):
+        """When a line item has a variant_id and the variant has cost_price_override,
+        the effective unit_cost used for the line item must equal the override."""
+        product = _make_product(id=uuid.uuid4())
+        business_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        variant = _make_variant_obj(
+            id=variant_id,
+            product_id=product.id,
+            cost_price_override=Decimal("350.000000"),
+            business_id=business_id,
+        )
+
+        db = _mock_db()
+        call_count = 0
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                # Product validation
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:
+                # Order number count
+                result.scalar.return_value = 0
+            elif call_count == 3:
+                # Order number uniqueness check
+                result.scalar_one_or_none.return_value = None
+            elif call_count == 4:
+                # Variant lookup for cost_price_override
+                result.scalar_one_or_none.return_value = variant
+            else:
+                # Final reload of order
+                order_obj = next(
+                    (o for o in added_objects if isinstance(o, PurchaseOrder)),
+                    None,
+                )
+                result.scalar_one.return_value = order_obj
+                result.scalar_one_or_none.return_value = order_obj
+            return result
+
+        db.execute = mock_execute
+
+        from src.orders.schemas import OrderLineItemCreate
+
+        data = OrderCreate(
+            supplier_name="Variant Supplier",
+            currency="USD",
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=product.id,
+                    quantity=4,
+                    unit_cost=Decimal("500"),  # will be overridden by variant cost
+                    variant_id=variant_id,
+                )
+            ],
+        )
+        await create_order(db, data, user_id=uuid.uuid4(), business_id=business_id)
+
+        # The OrderLineItem added to db should use the variant cost_price_override
+        line_items = [o for o in added_objects if isinstance(o, OrderLineItem)]
+        assert len(line_items) == 1
+        assert line_items[0].unit_cost == Decimal("350.000000")
+        assert line_items[0].variant_id == variant_id
+
+    @pytest.mark.asyncio
+    async def test_update_order_preserves_variant_id(self):
+        """When update_order receives a line_items list containing a variant_id,
+        the reconstructed OrderLineItem must retain that variant_id."""
+        order = _make_order(status=OrderStatus.PENDING)
+        product = _make_product(id=uuid.uuid4())
+        variant_id = uuid.uuid4()
+
+        # Pre-populate line_items on the order so delete loop works
+        existing_line = _make_line_item(order_id=order.id, product_id=product.id)
+        order.line_items = [existing_line]
+
+        db = _mock_db()
+        call_count = 0
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                # get_order initial load
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                # Product validation inside update_order
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 3:
+                # Variant validation — not found is OK for this test (no business_id on order)
+                result.scalar_one_or_none.return_value = None
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderUpdate(
+            line_items=[
+                {
+                    "product_id": str(product.id),
+                    "quantity": 6,
+                    "unit_cost": "200.000000",
+                    "variant_id": str(variant_id),
+                }
+            ]
+        )
+        await update_order(db, order.id, data, uuid.uuid4())
+
+        line_items = [o for o in added_objects if isinstance(o, OrderLineItem)]
+        assert len(line_items) == 1
+        # variant_id is stored as a UUID (SQLAlchemy coerces string → UUID)
+        assert str(line_items[0].variant_id) == str(variant_id)

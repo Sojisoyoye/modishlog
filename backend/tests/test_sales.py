@@ -2139,7 +2139,7 @@ def _make_variant(product_id=None, price_override=None, cost_price_override=None
     variant.cost_price_override = cost_price_override
     variant.is_active = overrides.get("is_active", True)
     variant.name = overrides.get("name", "Variant S")
-    variant.sku_suffix = overrides.get("sku_suffix", "-S")
+    variant.sku = overrides.get("sku", "PRD-00001-S")
     return variant
 
 

@@ -241,6 +241,7 @@ class PaymentRead(BaseModel):
 class PurchaseReturnLineItem(BaseModel):
     product_id: uuid.UUID
     quantity: int = Field(..., gt=0)
+    variant_id: uuid.UUID | None = None
 
 
 class PurchaseReturnCreate(BaseModel):

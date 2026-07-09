@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import Boolean, Date, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.database import Base, TimestampMixin, UUIDMixin
@@ -80,37 +81,39 @@ class Product(UUIDMixin, TimestampMixin, Base):
     )
     barcode: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
-    # Unit 1 will add a migration for has_variants; default False for backward compat
-    has_variants: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+
+    has_variants: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     category: Mapped["ProductCategory"] = relationship(back_populates="products")
     price_history: Mapped[list["PriceHistory"]] = relationship(back_populates="product")
-    variants: Mapped[list["ProductVariant"]] = relationship(back_populates="product", lazy="raise")
+    variants: Mapped[list["ProductVariant"]] = relationship(
+        back_populates="product", cascade="all, delete-orphan", lazy="raise"
+    )
 
     def __repr__(self) -> str:
         return f"<Product(id={self.id}, sku={self.sku})>"
 
 
 class ProductVariant(UUIDMixin, TimestampMixin, Base):
-    """A size/colour/style variant of a Product.
-
-    Unit 1 owns the migration; Unit 2 defines this model stub so that
-    sales/inventory/orders can import it for variant-aware queries.
-    """
+    """A variant of a product (e.g. size/colour combination)."""
 
     __tablename__ = "product_variants"
+    __table_args__ = (
+        UniqueConstraint("sku", "business_id", name="uq_product_variants_sku_business"),
+    )
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     product_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    sku_suffix: Mapped[str] = mapped_column(String(100), nullable=False)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    price_override: Mapped[Decimal | None] = mapped_column(
-        Numeric(18, 6), nullable=True, default=None
-    )
-    cost_price_override: Mapped[Decimal | None] = mapped_column(
-        Numeric(18, 6), nullable=True, default=None
-    )
+    name: Mapped[str] = mapped_column(String(255))  # e.g. "Red / Large"
+    sku: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    barcode: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    attributes: Mapped[dict] = mapped_column(JSONB, default=dict)  # {"size": "L", "color": "Red"}
+    price_override: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
+    cost_price_override: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     product: Mapped["Product"] = relationship(back_populates="variants")

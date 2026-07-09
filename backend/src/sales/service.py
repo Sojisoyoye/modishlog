@@ -122,7 +122,7 @@ async def create_sale(
 
     # Variant enforcement: products with variants require a variant_id on each sale
     has_variants = getattr(product, "has_variants", False)
-    if has_variants and not data.variant_id:
+    if has_variants and data.variant_id is None:
         from fastapi import HTTPException
 
         raise HTTPException(
@@ -130,13 +130,14 @@ async def create_sale(
             detail="This product has variants — please select a variant before recording a sale.",
         )
 
-    # Fetch variant if provided and validate it belongs to this product
+    # Fetch variant if provided and validate it belongs to this product and business
     variant = None
-    if data.variant_id:
+    if data.variant_id is not None:
         variant_result = await db.execute(
             select(ProductVariant).where(
                 ProductVariant.id == data.variant_id,
                 ProductVariant.product_id == product.id,
+                ProductVariant.business_id == business_id,
                 ProductVariant.is_active == True,  # noqa: E712
             )
         )

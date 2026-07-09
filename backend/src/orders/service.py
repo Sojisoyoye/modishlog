@@ -203,6 +203,7 @@ async def create_order(
                 select(ProductVariant).where(
                     ProductVariant.id == item_data.variant_id,
                     ProductVariant.product_id == item_data.product_id,
+                    ProductVariant.business_id == business_id,
                     ProductVariant.is_active == True,  # noqa: E712
                 )
             )
@@ -407,13 +408,24 @@ async def update_order(
     if line_items_data is not None:
         if not line_items_data:
             raise OrderLineItemError(order_id, [])
-        # Validate products
+        # Validate products and variants
         for item_data in line_items_data:
             result = await db.execute(
                 select(Product).where(Product.id == item_data["product_id"])
             )
             if not result.scalar_one_or_none():
                 raise OrderLineItemError(order_id, [item_data["product_id"]])
+            # Validate variant belongs to this business when provided
+            vid = item_data.get("variant_id")
+            if vid is not None and order.business_id is not None:
+                v_result = await db.execute(
+                    select(ProductVariant).where(
+                        ProductVariant.id == vid,
+                        ProductVariant.business_id == order.business_id,
+                    )
+                )
+                if not v_result.scalar_one_or_none():
+                    raise OrderLineItemError(order_id, [vid])
 
         # Preserve units_remaining for each product — it's set by the DELIVERED
         # transition and must survive a sell-price or notes edit on delivered lots.
@@ -547,6 +559,7 @@ async def transition_status(
             await adjust_stock(
                 db,
                 product_id=item.product_id,
+                variant_id=item.variant_id,
                 quantity_change=item.quantity,
                 movement_type=MovementType.ORDER_RECEIVED.value,
                 reason=f"Order {order.order_number} delivered",
@@ -1060,6 +1073,7 @@ async def create_purchase_return(
         await adjust_stock(
             db,
             product_id=pid,
+            variant_id=line.variant_id,
             quantity_change=-line.quantity,
             movement_type=MovementType.MANUAL_REMOVE.value,
             reason=f"Purchase return for order {order.order_number}",
