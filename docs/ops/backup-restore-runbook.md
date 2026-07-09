@@ -169,12 +169,82 @@ to verify backup integrity and practise the procedure:
 
 ---
 
-## Monitoring
+## Rate Limiting — Redis Configuration
 
-- Configure [UptimeRobot](https://uptimerobot.com) to ping `https://app.modishlog.com/health`
-  every 60 seconds with SMS + email alert when the endpoint returns non-200.
-- Set alert recipients: business owner + on-call engineer.
+### Current state (MVP / single instance)
+
+Rate limiting falls back to **in-memory storage** when no Redis instance is
+configured. This is acceptable for a single-instance MVP deployment:
+
+- `/health/deep` will report `redis: not_configured` — this is expected and not an error.
+- Rate-limit counters reset on backend container restart.
+- Works correctly as long as only one backend worker is running.
+
+### How to enable Redis (before scaling)
+
+Enable Redis before adding a second backend worker or horizontal scaling.
+
+**Step 1 — Add Redis service to `docker-compose.production.yml`:**
+
+```yaml
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
+```
+
+**Step 2 — Set the environment variable in `.env.production`:**
+
+```bash
+REDIS_URL=redis://redis:6379
+```
+
+**Step 3 — Restart the stack:**
+
+```bash
+docker compose -f docker-compose.production.yml up -d
+```
+
+**Step 4 — Verify:**
+
+```bash
+curl https://api.modishlog.com/health/deep | jq .redis
+# Expected: "ok"
+```
+
+### When to do this
+
+- Before deploying more than one backend container/worker
+- Before adding a CDN or load balancer in front of the API
+- If rate-limit counters surviving restarts becomes a compliance requirement
 
 ---
 
-*Last updated: 2026-07-08 — Initial runbook creation*
+## Monitoring
+
+### UptimeRobot setup
+
+Two HTTP monitors are configured in [UptimeRobot](https://uptimerobot.com):
+
+| Monitor | URL | Interval |
+|---------|-----|----------|
+| API health | `https://api.modishlog.com/health` | 5 min |
+| Frontend | `https://modishlog.com` | 5 min |
+
+Alert contact: `soji.soyoye@gmail.com` — triggered after **2 consecutive failures**.
+
+Dashboard screenshot: `docs/ops/uptime-monitoring-setup.png`
+
+### Adding more alert contacts
+
+Log in to UptimeRobot → **Alert Contacts** → **Add Alert Contact**.
+Recommended: add an on-call email or phone number before handing off to another operator.
+
+---
+
+*Last updated: 2026-07-09 — Redis fallback docs + UptimeRobot monitoring setup*
