@@ -9,6 +9,11 @@
  */
 
 import { execSync } from 'child_process';
+import path from 'path';
+
+// Always resolve docker-compose paths from the repo root, regardless of where
+// `npx playwright test` is invoked (local: repo root, CI: frontend/ working-dir).
+const REPO_ROOT = path.resolve(__dirname, '../..');
 
 export default async function globalSetup(): Promise<void> {
   const RESET_TIMEOUT_MS = 60_000;
@@ -18,7 +23,7 @@ export default async function globalSetup(): Promise<void> {
     execSync(
       'docker compose -f docker-compose.yml -f docker-compose.e2e.yml exec -T backend ' +
         'python scripts/reset_test_db.py',
-      { stdio: 'inherit', timeout: RESET_TIMEOUT_MS }
+      { cwd: REPO_ROOT, stdio: 'inherit', timeout: RESET_TIMEOUT_MS }
     );
   } catch (err) {
     throw new Error(
