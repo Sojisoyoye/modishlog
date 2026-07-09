@@ -77,8 +77,13 @@ async def get_inventory_level(
     db: AsyncSession,
     product_id: uuid.UUID,
     business_id: uuid.UUID | None = None,
+    variant_id: uuid.UUID | None = None,
 ) -> InventoryLevel:
-    """Get the current inventory level for a product.
+    """Get the current inventory level for a product (or a specific variant).
+
+    When variant_id is provided the query is scoped to that (product_id, variant_id)
+    pair; otherwise only rows with variant_id IS NULL are returned so that aggregate
+    (non-variant) stock is not confused with any variant row.
 
     If business_id is provided, verifies the product belongs to that business
     before returning its inventory level.
@@ -93,9 +98,13 @@ async def get_inventory_level(
         if product_result.scalar_one_or_none() is None:
             raise ProductStockNotFoundError(product_id)
 
-    result = await db.execute(
-        select(InventoryLevel).where(InventoryLevel.product_id == product_id)
-    )
+    query = select(InventoryLevel).where(InventoryLevel.product_id == product_id)
+    if variant_id is not None:
+        query = query.where(InventoryLevel.variant_id == variant_id)
+    else:
+        query = query.where(InventoryLevel.variant_id.is_(None))
+
+    result = await db.execute(query)
     inventory = result.scalar_one_or_none()
     if not inventory:
         raise ProductStockNotFoundError(product_id)
@@ -176,8 +185,13 @@ async def adjust_stock(
     reference_id: uuid.UUID | None = None,
     reference_type: str | None = None,
     business_id: uuid.UUID | None = None,
+    variant_id: uuid.UUID | None = None,
 ) -> InventoryLevel:
-    """Adjust stock and create a StockMovement audit record."""
+    """Adjust stock and create a StockMovement audit record.
+
+    When variant_id is provided the adjustment targets that variant's inventory
+    row (product_id, variant_id) and records the variant on the StockMovement.
+    """
     if business_id is not None:
         product_result = await db.execute(
             select(Product).where(
@@ -188,11 +202,14 @@ async def adjust_stock(
         if product_result.scalar_one_or_none() is None:
             raise ProductStockNotFoundError(product_id)
 
-    result = await db.execute(
-        select(InventoryLevel)
-        .where(InventoryLevel.product_id == product_id)
-        .with_for_update()
-    )
+    inv_query = select(InventoryLevel).where(InventoryLevel.product_id == product_id)
+    if variant_id is not None:
+        inv_query = inv_query.where(InventoryLevel.variant_id == variant_id)
+    else:
+        inv_query = inv_query.where(InventoryLevel.variant_id.is_(None))
+    inv_query = inv_query.with_for_update()
+
+    result = await db.execute(inv_query)
     inventory = result.scalar_one_or_none()
     if not inventory:
         raise ProductStockNotFoundError(product_id)
@@ -210,6 +227,7 @@ async def adjust_stock(
 
     movement = StockMovement(
         product_id=product_id,
+        variant_id=variant_id,
         movement_type=MovementType(movement_type),
         quantity_change=quantity_change,
         quantity_before=quantity_before,
@@ -225,6 +243,7 @@ async def adjust_stock(
     await logger.ainfo(
         "stock_adjusted",
         product_id=str(product_id),
+        variant_id=str(variant_id) if variant_id else None,
         movement_type=movement_type,
         change=quantity_change,
         new_quantity=new_quantity,

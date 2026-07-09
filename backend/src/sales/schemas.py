@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class SaleCreate(BaseModel):
     product_id: uuid.UUID
     quantity: int = Field(..., gt=0)
-    unit_price: Decimal = Field(..., gt=0)
+    unit_price: Decimal | None = Field(None, gt=0)
     sale_date: date
     channel: str = Field(..., pattern="^(online|retail|wholesale)$")
     notes: str | None = None
@@ -29,6 +29,7 @@ class SaleCreate(BaseModel):
     payment_amount: Decimal | None = Field(None, ge=0)
     payment_date: date | None = None
     location_id: uuid.UUID | None = None
+    variant_id: uuid.UUID | None = None
 
     @field_validator("payment_date")
     @classmethod
