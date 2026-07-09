@@ -28,7 +28,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from pos_migrate import WIPE_ORDER
-from src.auth.models import User, UserRole
+from src.auth.models import Business, User, UserRole
 
 log = structlog.get_logger()
 
@@ -62,7 +62,17 @@ async def _wipe_and_seed() -> None:
     async with factory() as session:
         for model in WIPE_ORDER:
             await session.execute(delete(model))
+        # Business is not in WIPE_ORDER (no FK dependents there), delete separately.
+        await session.execute(delete(Business))
         log.info("test_db_wiped")
+
+        business = Business(
+            id=uuid.uuid4(),
+            name="E2E Test Business",
+            currency="NGN",
+        )
+        session.add(business)
+        await session.flush()
 
         user = User(
             id=uuid.uuid4(),
@@ -71,6 +81,7 @@ async def _wipe_and_seed() -> None:
             hashed_password=pwd_ctx.hash(E2E_USER_PASSWORD),
             is_active=True,
             role=UserRole.ADMIN,
+            business_id=business.id,
         )
         session.add(user)
         await session.commit()
