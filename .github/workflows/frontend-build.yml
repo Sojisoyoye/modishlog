@@ -48,11 +48,14 @@ jobs:
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8000/health; then
               echo "Backend is ready"
-              break
+              exit 0
             fi
             echo "Waiting for backend... ($i/30)"
             sleep 5
           done
+          echo "❌ Backend did not become healthy after 150s"
+          docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs backend
+          exit 1
 
       - name: Install Playwright + Chromium
         run: npx playwright install --with-deps chromium
@@ -64,8 +67,21 @@ jobs:
         run: npx http-server dist/frontend/browser -p 4200 --silent &
         working-directory: frontend
 
+      - name: Wait for frontend (port 4200)
+        run: |
+          for i in $(seq 1 12); do
+            if curl -sf http://localhost:4200; then
+              echo "Frontend is ready"
+              exit 0
+            fi
+            echo "Waiting for frontend... ($i/12)"
+            sleep 5
+          done
+          echo "❌ Frontend did not become ready after 60s"
+          exit 1
+
       - name: Run Playwright E2E tests
-        run: npx playwright test --project=chromium --reporter=html
+        run: npx playwright test --project=chromium --reporter=list,html
         working-directory: frontend
         env:
           CI: 'true'
