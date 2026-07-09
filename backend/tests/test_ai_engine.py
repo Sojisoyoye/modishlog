@@ -834,3 +834,21 @@ class TestAIAvailableFlag:
         assert data["ai_available"] is False
         assert data["degraded_reason"] is not None
         assert len(data["degraded_reason"]) > 0
+
+    @pytest.mark.anyio
+    async def test_ai_available_false_when_key_invalid_format(self):
+        """A key that doesn't start with sk-ant- is treated as unavailable."""
+        self._override_auth()
+        with patch("src.ai_engine.router.get_recommendations", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = []
+            with patch("src.ai_engine.router.settings") as mock_settings:
+                mock_settings.ANTHROPIC_API_KEY = "placeholder-not-a-real-key"
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    resp = await client.get("/api/v1/ai/recommendations")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ai_available"] is False
+        assert data["degraded_reason"] is not None

@@ -292,7 +292,7 @@ interface ElasticityEntry {
             {{ recsGenerating() ? 'Generating…' : 'Refresh' }}
           </button>
         </div>
-        @if (!aiAvailable()) {
+        @if (aiAvailable() === false) {
           <div class="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             <i class="pi pi-exclamation-triangle mt-0.5 shrink-0"></i>
             <span>AI recommendations unavailable{{ aiDegradedReason() ? ': ' + aiDegradedReason() : '' }}. Existing recommendations are shown below.</span>
@@ -1341,7 +1341,7 @@ export class PricingPageComponent implements OnInit {
 
   pricingRecs = signal<Recommendation[]>([]);
   recsGenerating = signal(false);
-  aiAvailable = signal(true);
+  aiAvailable = signal<boolean | null>(null);
   aiDegradedReason = signal<string | null>(null);
   distributionChart = signal<unknown>(null);
 
@@ -1534,10 +1534,18 @@ export class PricingPageComponent implements OnInit {
             this.aiDegradedReason.set(r.degraded_reason);
             this.recsGenerating.set(false);
           },
-          error: () => this.recsGenerating.set(false),
+          error: () => {
+            this.aiAvailable.set(false);
+            this.aiDegradedReason.set('Could not reach recommendations service');
+            this.recsGenerating.set(false);
+          },
         });
       },
-      error: () => this.recsGenerating.set(false),
+      error: () => {
+        this.aiAvailable.set(false);
+        this.aiDegradedReason.set('Could not reach recommendations service');
+        this.recsGenerating.set(false);
+      },
     });
     this.pricingService.getMixStatus().subscribe({
       next: (r) => this.mixStatus.set(r.categories),
@@ -1587,6 +1595,11 @@ export class PricingPageComponent implements OnInit {
               summary: 'Refreshed',
               detail: `${this.pricingRecs().length} pricing recommendation(s) ready`,
             });
+          },
+          error: () => {
+            this.aiAvailable.set(false);
+            this.aiDegradedReason.set('Could not reach recommendations service');
+            this.recsGenerating.set(false);
           },
         });
       },
