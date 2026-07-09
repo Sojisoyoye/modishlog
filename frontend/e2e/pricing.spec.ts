@@ -248,3 +248,29 @@ test.describe('Pricing & Margins page', () => {
     await expect(elasticityTable).toContainText('-1.50');
   });
 });
+
+test('demand forecast shows insufficient data empty state when product has < 10 sales', async ({ page }) => {
+  // The E2E test user has no sales data for any product, so running a
+  // forecast should return a 400 InsufficientPriceDataError from the backend.
+  await page.goto('/pricing');
+  await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Navigate to Demand & Mix tab
+  await page.getByRole('button', { name: /demand/i }).click();
+
+  // Select any product from the forecast dropdown
+  const productSelect = page.locator('#forecast-product');
+  const optionCount = await productSelect.locator('option').count();
+  // Fail explicitly if no products exist — a silent skip would give false confidence
+  expect(optionCount).toBeGreaterThan(1);
+
+  await productSelect.selectOption({ index: 1 });
+  await page.getByRole('button', { name: /run forecast/i }).click();
+
+  // Should show the insufficient data empty state, not a generic toast error
+  await expect(
+    page.getByText(/record at least 10 sales/i)
+  ).toBeVisible({ timeout: 10_000 });
+});

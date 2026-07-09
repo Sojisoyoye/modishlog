@@ -1095,6 +1095,16 @@ interface ElasticityEntry {
               height="220px"
             />
           }
+        } @else if (forecastInsufficientData()) {
+          <div class="flex flex-col items-center gap-3 py-8 text-center">
+            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
+              <i class="pi pi-chart-line text-xl text-amber-600"></i>
+            </div>
+            <p class="text-sm font-medium text-text">Not enough data yet</p>
+            <p class="max-w-xs text-sm text-muted">
+              Record at least 10 sales for this product before a demand forecast can be generated.
+            </p>
+          </div>
         } @else if (!forecastLoading()) {
           <p class="py-4 text-center text-sm text-muted">
             <i class="pi pi-info-circle mr-1"></i> Select a product and click Run Forecast.
@@ -1484,6 +1494,7 @@ export class PricingPageComponent implements OnInit {
   forecastTotalDemand = signal(0);
   forecastChartData = signal<unknown>(null);
   forecastLoading = signal(false);
+  forecastInsufficientData = signal(false);
 
   readonly forecastChartOptions = {
     responsive: true,
@@ -1836,6 +1847,7 @@ export class PricingPageComponent implements OnInit {
     this.forecastLoading.set(true);
     this.forecastData.set(null);
     this.forecastChartData.set(null);
+    this.forecastInsufficientData.set(false);
     this.pricingService.getDemandForecast(this.forecastProductId, this.forecastHorizon).subscribe({
       next: (r) => {
         this.forecastData.set(r.forecasts);
@@ -1877,7 +1889,11 @@ export class PricingPageComponent implements OnInit {
       },
       error: (err) => {
         this.forecastLoading.set(false);
-        this.messageService.add({ severity: 'warn', summary: 'Forecast unavailable', detail: 'Not enough sales history to generate a demand forecast. Try again after recording more sales.' });
+        if (err?.status === 400 && err?.error?.detail?.includes('data points')) {
+          this.forecastInsufficientData.set(true);
+        } else {
+          this.messageService.add({ severity: 'error', summary: 'Forecast error', detail: 'Could not generate forecast. Please try again.' });
+        }
       },
     });
   }
