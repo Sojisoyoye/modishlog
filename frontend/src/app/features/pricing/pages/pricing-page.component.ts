@@ -848,6 +848,11 @@ interface ElasticityEntry {
               <p class="mt-0.5 text-xs text-muted">
                 FX {{ suggResult()!.fx_rate | number: '1.0-0' }}
               </p>
+              @if (suggResult()!.fx_rate_stale) {
+                <span class="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                  <i class="pi pi-clock text-xs"></i> Using cached FX rate
+                </span>
+              }
             </div>
             <div class="rounded-lg bg-violet-50 p-4">
               <p class="text-xs font-medium text-muted">Min Selling Price</p>

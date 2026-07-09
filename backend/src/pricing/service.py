@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.core.config import settings
 from src.fx.service import get_live_usdngn_rate
 from src.orders.models import OrderLineItem, PurchaseOrder
 from src.fx.exceptions import ForecastTimeoutError
@@ -1170,18 +1171,28 @@ async def get_selling_price_suggestion(
         unit_cost = unit_cost_override
         resolved_currency = currency
 
+    fx_rate_stale = False
+    fx_rate_source = "live"
+
     if resolved_currency == "NGN":
         fx_rate = Decimal("1")
         unit_cost_ngn = unit_cost
+        fx_rate_source = "ngn"
     else:
         if fx_rate_override is not None:
             fx_rate = fx_rate_override
+            fx_rate_source = "override"
         else:
             from src.fx.service import get_current_rate as _get_fx_rate
 
             pair = f"{resolved_currency}NGN"
             rate_record = await _get_fx_rate(db, pair)
             fx_rate = rate_record.rate
+            age_seconds = (
+                datetime.now(timezone.utc) - rate_record.timestamp
+            ).total_seconds()
+            fx_rate_stale = age_seconds > settings.FX_CACHE_TTL_HOURS * 3600
+            fx_rate_source = rate_record.source.value if not fx_rate_stale else "cached"
         unit_cost_ngn = (unit_cost * fx_rate).quantize(Decimal("0.000001"))
 
     margin_factor = Decimal("1") - (min_margin_pct / Decimal("100"))
@@ -1194,6 +1205,8 @@ async def get_selling_price_suggestion(
         "unit_cost_ngn": unit_cost_ngn,
         "min_margin_pct": min_margin_pct,
         "min_selling_price": min_selling_price,
+        "fx_rate_stale": fx_rate_stale,
+        "fx_rate_source": fx_rate_source,
     }
 
 

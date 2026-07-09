@@ -1484,3 +1484,133 @@ class TestSensitivityCalcEndpoint:
             )
 
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Task #165 — fx_rate_stale + fx_rate_source in SellingPriceSuggestionResponse
+# ---------------------------------------------------------------------------
+
+
+class TestSellingPriceSuggestionStaleFlag:
+    """SellingPriceSuggestionResponse must expose fx_rate_stale and fx_rate_source."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        from src.main import app
+
+        self.app = app
+        self._orig = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._orig
+
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user
+
+        async def _auth():
+            return _make_user()
+
+        self.app.dependency_overrides[get_current_active_user] = _auth
+
+    def test_ngn_currency_is_never_stale(self):
+        """NGN product costs need no FX conversion — stale flag must be False."""
+        from src.core.database import get_db
+        from unittest.mock import AsyncMock
+
+        self._override_auth()
+
+        async def _fake_db():
+            db = AsyncMock()
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/pricing/selling-price-suggestion",
+                json={
+                    "unit_cost_override": 1000,
+                    "currency": "NGN",
+                    "min_margin_pct": 35,
+                },
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "fx_rate_stale" in body
+        assert body["fx_rate_stale"] is False
+        assert "fx_rate_source" in body
+
+    def test_fx_rate_override_is_never_stale(self):
+        """Explicit fx_rate_override bypasses the FX service — stale must be False."""
+        from src.core.database import get_db
+        from unittest.mock import AsyncMock
+
+        self._override_auth()
+
+        async def _fake_db():
+            db = AsyncMock()
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/pricing/selling-price-suggestion",
+                json={
+                    "unit_cost_override": 10,
+                    "currency": "USD",
+                    "fx_rate_override": 1550,
+                    "min_margin_pct": 35,
+                },
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["fx_rate_stale"] is False
+        assert body["fx_rate_source"] == "override"
+
+    def test_stale_usd_rate_sets_stale_flag(self):
+        """When the cached FX rate is older than FX_CACHE_TTL_HOURS, stale must be True."""
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from src.core.config import settings
+
+        self._override_auth()
+
+        from src.core.database import get_db
+
+        async def _fake_db():
+            db = AsyncMock()
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        # Timestamp older than the cache TTL → stale
+        stale_ts = datetime.now(timezone.utc) - timedelta(
+            hours=settings.FX_CACHE_TTL_HOURS + 1
+        )
+        mock_rate = MagicMock()
+        mock_rate.rate = Decimal("1600")
+        mock_rate.timestamp = stale_ts
+        mock_rate.source.value = "api_provider"
+
+        with patch(
+            "src.fx.service.get_current_rate",
+            new_callable=AsyncMock,
+            return_value=mock_rate,
+        ):
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/pricing/selling-price-suggestion",
+                    json={
+                        "unit_cost_override": 10,
+                        "currency": "USD",
+                        "min_margin_pct": 35,
+                    },
+                )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["fx_rate_stale"] is True
+        assert body["fx_rate_source"] == "cached"

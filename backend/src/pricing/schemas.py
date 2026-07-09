@@ -231,6 +231,8 @@ class SellingPriceSuggestionResponse(BaseModel):
     unit_cost_ngn: Decimal
     min_margin_pct: Decimal
     min_selling_price: Decimal
+    fx_rate_stale: bool = False
+    fx_rate_source: str = "live"
 
 
 class ScenarioCreate(BaseModel):
