@@ -2090,12 +2090,12 @@ class TestSalesBulkUploadRowCap:
 
     def _make_csv(self, n_rows: int) -> bytes:
         header = "product_id,quantity,unit_price,sale_date,channel\n"
-        row = f"{uuid.uuid4()},1,100.00,2024-01-01,POS\n"
-        return (header + row * n_rows).encode("utf-8")
+        rows = "".join(f"{uuid.uuid4()},1,100.00,2024-01-01,POS\n" for _ in range(n_rows))
+        return (header + rows).encode("utf-8")
 
     @pytest.mark.asyncio
     async def test_csv_within_limit_is_accepted(self):
-        """A CSV at exactly MAX_CSV_ROWS rows must be processed without error."""
+        """A CSV within the row cap must be processed without error."""
         from unittest.mock import patch
         from src.sales.exceptions import InvalidCSVFormatError
 
