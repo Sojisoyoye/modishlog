@@ -2121,3 +2121,152 @@ class TestSalesBulkUploadRowCap:
             mock_settings.MAX_CSV_ROWS = 5
             with pytest.raises(InvalidCSVFormatError, match="maximum"):
                 await process_bulk_upload(db, content, "big.csv", uuid.uuid4(), business_id=uuid.uuid4())
+
+
+# ---------------------------------------------------------------------------
+# Task #160 — Variant-aware sale creation tests
+# ---------------------------------------------------------------------------
+
+
+def _make_variant(product_id=None, price_override=None, cost_price_override=None, **overrides):
+    """Build a minimal ProductVariant-like object without requiring the ORM table."""
+    from unittest.mock import MagicMock
+
+    variant = MagicMock()
+    variant.id = overrides.get("id", uuid.uuid4())
+    variant.product_id = product_id or uuid.uuid4()
+    variant.price_override = price_override
+    variant.cost_price_override = cost_price_override
+    variant.is_active = overrides.get("is_active", True)
+    variant.name = overrides.get("name", "Variant S")
+    variant.sku_suffix = overrides.get("sku_suffix", "-S")
+    return variant
+
+
+class TestCreateSaleVariants:
+    @pytest.mark.asyncio
+    async def test_create_sale_with_variants_product_no_variant_raises_422(self):
+        """Attempting to record a sale for a product with has_variants=True
+        without providing variant_id must raise HTTP 422."""
+        from fastapi import HTTPException
+
+        product = _make_product(id=uuid.uuid4(), has_variants=True)
+
+        db = _mock_db()
+
+        async def mock_execute(stmt):
+            result = MagicMock()
+            # First call: product lookup
+            result.scalar_one_or_none.return_value = product
+            return result
+
+        db.execute = mock_execute
+
+        data = SaleCreate(
+            product_id=product.id,
+            quantity=2,
+            unit_price=Decimal("200"),
+            sale_date=date(2026, 7, 9),
+            channel="retail",
+            # variant_id intentionally omitted
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
+
+        assert exc_info.value.status_code == 422
+        assert "variant" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_create_sale_with_variant_id_uses_variant_price(self):
+        """When variant_id is provided and the variant has a price_override,
+        the sale unit_price must equal the variant price override."""
+        product = _make_product(
+            id=uuid.uuid4(),
+            has_variants=True,
+            selling_price=Decimal("150.000000"),
+        )
+        variant_id = uuid.uuid4()
+        variant = _make_variant(
+            id=variant_id,
+            product_id=product.id,
+            price_override=Decimal("175.000000"),
+        )
+        inventory = _make_inventory(product_id=product.id, quantity_on_hand=50)
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                # Product lookup
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:
+                # Variant lookup
+                result.scalar_one_or_none.return_value = variant
+            elif call_count == 3:
+                # get_inventory_level (inside adjust_stock) — variant-scoped
+                result.scalar_one_or_none.return_value = inventory
+            elif call_count == 4:
+                # fifo_deduct batch query (no batches)
+                scalars_mock = MagicMock()
+                scalars_mock.all.return_value = []
+                result.scalars.return_value = scalars_mock
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = SaleCreate(
+            product_id=product.id,
+            quantity=3,
+            unit_price=None,  # no explicit price — should use variant override
+            sale_date=date(2026, 7, 9),
+            channel="retail",
+            variant_id=variant_id,
+        )
+        sale = await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
+
+        # Sale price must come from the variant price_override
+        assert sale.unit_price == Decimal("175.000000")
+        assert sale.total_amount == Decimal("525.000000")  # 175 * 3
+        assert sale.variant_id == variant_id
+
+    @pytest.mark.asyncio
+    async def test_create_sale_variant_not_found_raises_404(self):
+        """Supplying an unrecognised or inactive variant_id must raise HTTP 404."""
+        from fastapi import HTTPException
+
+        product = _make_product(id=uuid.uuid4(), has_variants=True)
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product
+            else:
+                # Variant lookup → not found
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = SaleCreate(
+            product_id=product.id,
+            quantity=1,
+            unit_price=Decimal("200"),
+            sale_date=date(2026, 7, 9),
+            channel="retail",
+            variant_id=uuid.uuid4(),
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
+
+        assert exc_info.value.status_code == 404

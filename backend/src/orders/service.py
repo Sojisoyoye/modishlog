@@ -48,7 +48,7 @@ from src.orders.schemas import (
     PurchaseReturnCreate,
     StatusTransition,
 )
-from src.products.models import Product
+from src.products.models import Product, ProductVariant
 
 logger = structlog.get_logger()
 
@@ -122,7 +122,7 @@ async def create_order(
 
     order_number = await _generate_order_number(db)
 
-    # Calculate total
+    # Calculate total (will be recalculated after variant cost overrides are applied)
     total_amount = Decimal("0")
     for item in data.line_items:
         total_amount += item.unit_cost * item.quantity
@@ -192,19 +192,43 @@ async def create_order(
     db.add(order)
     await db.flush()
 
-    # Create line items
+    # Create line items; accumulate actual total to account for variant cost overrides
+    actual_total = Decimal("0")
     for item_data in data.line_items:
+        # Resolve effective unit_cost, allowing variant cost_price_override to take
+        # precedence when a variant is specified.
+        effective_unit_cost = item_data.unit_cost
+        if item_data.variant_id is not None:
+            variant_result = await db.execute(
+                select(ProductVariant).where(
+                    ProductVariant.id == item_data.variant_id,
+                    ProductVariant.product_id == item_data.product_id,
+                    ProductVariant.is_active == True,  # noqa: E712
+                )
+            )
+            order_variant = variant_result.scalar_one_or_none()
+            if order_variant and order_variant.cost_price_override is not None:
+                effective_unit_cost = order_variant.cost_price_override
+
+        line_total = effective_unit_cost * item_data.quantity
+        actual_total += line_total
         line_item = OrderLineItem(
             order_id=order.id,
             product_id=item_data.product_id,
+            variant_id=item_data.variant_id,
             quantity=item_data.quantity,
-            unit_cost=item_data.unit_cost,
+            unit_cost=effective_unit_cost,
             unit_cost_ngn=item_data.unit_cost_ngn,
             sell_price_ngn=item_data.sell_price_ngn,
-            line_total=item_data.unit_cost * item_data.quantity,
+            line_total=line_total,
             notes=item_data.notes,
         )
         db.add(line_item)
+
+    # Update order total if variant overrides changed the cost
+    if actual_total != total_amount:
+        order.total_amount = actual_total
+        total_amount = actual_total
 
     # Initial status history
     history = OrderStatusHistory(
@@ -414,6 +438,7 @@ async def update_order(
             line_item = OrderLineItem(
                 order_id=order.id,
                 product_id=item_data["product_id"],
+                variant_id=item_data.get("variant_id"),
                 quantity=item_data["quantity"],
                 unit_cost=Decimal(str(item_data["unit_cost"])),
                 unit_cost_ngn=Decimal(str(raw_ngn)) if raw_ngn is not None else None,

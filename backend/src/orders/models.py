@@ -228,6 +228,12 @@ class OrderLineItem(UUIDMixin, Base):
 
     order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("purchase_orders.id"))
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
+    # variant_id: if set, this line item is for a specific product variant.
+    # Unit 1's migration adds this column; ORM declaration here allows service code
+    # to set it before the migration is applied.
+    variant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("product_variants.id"), nullable=True, default=None, index=True
+    )
     quantity: Mapped[int] = mapped_column(Integer)
     unit_cost: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     unit_cost_ngn: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), default=None)

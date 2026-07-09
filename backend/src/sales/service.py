@@ -14,7 +14,7 @@ from src.core.config import settings
 from src.inventory.models import MovementType
 from src.inventory.service import adjust_stock, fifo_deduct
 from src.orders.models import OrderLineItem, PurchaseOrder
-from src.products.models import Product
+from src.products.models import Product, ProductVariant
 from src.sales.exceptions import (
     BulkUploadJobNotFoundError,
     InvalidCSVFormatError,
@@ -120,7 +120,42 @@ async def create_sale(
             "product_id", str(data.product_id), "Product is inactive"
         )
 
-    gross = data.unit_price * data.quantity
+    # Variant enforcement: products with variants require a variant_id on each sale
+    has_variants = getattr(product, "has_variants", False)
+    if has_variants and not data.variant_id:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=422,
+            detail="This product has variants — please select a variant before recording a sale.",
+        )
+
+    # Fetch variant if provided and validate it belongs to this product
+    variant = None
+    if data.variant_id:
+        variant_result = await db.execute(
+            select(ProductVariant).where(
+                ProductVariant.id == data.variant_id,
+                ProductVariant.product_id == product.id,
+                ProductVariant.is_active == True,  # noqa: E712
+            )
+        )
+        variant = variant_result.scalar_one_or_none()
+        if not variant:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Variant not found or inactive")
+
+    # Resolve unit_price: use explicit price, then variant override, then product selling_price
+    unit_price = data.unit_price
+    if unit_price is None:
+        unit_price = (
+            variant.price_override
+            if (variant and variant.price_override is not None)
+            else product.selling_price
+        )
+
+    gross = unit_price * data.quantity
     discount = data.discount_amount or Decimal("0")
     if discount > gross:
         from src.sales.exceptions import SaleValidationError
@@ -149,7 +184,7 @@ async def create_sale(
     sale = Sale(
         product_id=data.product_id,
         quantity=data.quantity,
-        unit_price=data.unit_price,
+        unit_price=unit_price,
         total_amount=total_amount,
         discount_amount=data.discount_amount,
         transaction_id=data.transaction_id,
@@ -168,6 +203,7 @@ async def create_sale(
         location_id=data.location_id,
         recorded_by=user_id,
         business_id=business_id,
+        variant_id=data.variant_id,
     )
     db.add(sale)
     await db.flush()
@@ -187,6 +223,7 @@ async def create_sale(
     await adjust_stock(
         db,
         product_id=data.product_id,
+        variant_id=getattr(sale, 'variant_id', None),
         quantity_change=-data.quantity,
         movement_type=MovementType.SALE_DEPLETION.value,
         reason=f"Sale {sale.id}",
@@ -341,6 +378,7 @@ async def update_sale(
         await adjust_stock(
             db,
             product_id=sale.product_id,
+            variant_id=getattr(sale, 'variant_id', None),
             quantity_change=quantity_diff,
             movement_type=MovementType.SALE_DEPLETION.value,
             reason=f"Sale {sale.id} quantity updated from {old_quantity} to {sale.quantity}",
@@ -441,6 +479,7 @@ async def void_sale(
     await adjust_stock(
         db,
         product_id=sale.product_id,
+        variant_id=getattr(sale, 'variant_id', None),
         quantity_change=sale.quantity,
         movement_type=MovementType.SALE_REVERSAL.value,
         reason=f"Voided sale {sale.id}: {reason}",

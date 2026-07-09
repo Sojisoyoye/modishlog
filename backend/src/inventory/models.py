@@ -14,6 +14,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -43,12 +44,24 @@ class AlertStatus(str, enum.Enum):
 
 
 class InventoryLevel(UUIDMixin, TimestampMixin, Base):
-    """Current stock level for a product (one row per product)."""
+    """Current stock level for a product or product variant.
+
+    One row per (product_id, variant_id) pair. When variant_id is NULL the row
+    tracks the product's aggregate / non-variant stock.
+    """
 
     __tablename__ = "inventory_levels"
+    __table_args__ = (
+        UniqueConstraint(
+            "product_id", "variant_id", name="uq_inventory_levels_product_variant"
+        ),
+    )
 
-    product_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("products.id"), unique=True
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), index=True)
+    # variant_id is NULL for products without variants (or the aggregate row).
+    # Unit 1's migration adds this column; we define it here so ORM queries compile.
+    variant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("product_variants.id"), nullable=True, default=None, index=True
     )
     quantity_on_hand: Mapped[int] = mapped_column(Integer, default=0)
     quantity_reserved: Mapped[int] = mapped_column(Integer, default=0)
@@ -58,7 +71,7 @@ class InventoryLevel(UUIDMixin, TimestampMixin, Base):
     )
 
     def __repr__(self) -> str:
-        return f"<InventoryLevel(product_id={self.product_id}, on_hand={self.quantity_on_hand})>"
+        return f"<InventoryLevel(product_id={self.product_id}, variant_id={self.variant_id}, on_hand={self.quantity_on_hand})>"
 
 
 class StockMovement(UUIDMixin, Base):
@@ -67,6 +80,11 @@ class StockMovement(UUIDMixin, Base):
     __tablename__ = "stock_movements"
 
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
+    # variant_id links the movement to a specific variant row.
+    # Unit 1's migration adds this column; ORM column declared here for service use.
+    variant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("product_variants.id"), nullable=True, default=None, index=True
+    )
     movement_type: Mapped[MovementType] = mapped_column(Enum(MovementType))
     quantity_change: Mapped[int] = mapped_column(Integer)
     quantity_before: Mapped[int] = mapped_column(Integer)
