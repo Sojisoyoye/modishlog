@@ -1,5 +1,6 @@
 """Tests for pricing domain: demand forecast, margin optimization, recommendations."""
 
+import asyncio
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -1614,3 +1615,132 @@ class TestSellingPriceSuggestionStaleFlag:
         body = resp.json()
         assert body["fx_rate_stale"] is True
         assert body["fx_rate_source"] == "cached"
+
+
+# ---------------------------------------------------------------------------
+# Task #172 — asyncio.wait_for timeout on SciPy minimize()
+# ---------------------------------------------------------------------------
+
+
+class TestOptimizationTimeout:
+    """SciPy minimize() must be wrapped in asyncio.wait_for with a 30s timeout."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        from src.main import app
+
+        self.app = app
+        self._orig = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._orig
+
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+
+        async def _auth():
+            return _make_user()
+
+        self.app.dependency_overrides[get_current_active_user] = _auth
+        self.app.dependency_overrides[get_current_business_id] = lambda: uuid.uuid4()
+
+    def test_timeout_returns_504(self):
+        """When SciPy minimize() times out the endpoint must return HTTP 504."""
+        from src.core.database import get_db
+        from unittest.mock import AsyncMock, patch
+
+        self._override_auth()
+
+        async def _fake_db():
+            db = AsyncMock()
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        from src.fx.exceptions import ForecastTimeoutError
+
+        with patch(
+            "src.pricing.router.generate_recommendations",
+            new_callable=AsyncMock,
+            side_effect=ForecastTimeoutError("SciPy price optimization", 30.0),
+        ):
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/pricing/recommendations/generate",
+                    json={"target_margin": "35.00"},
+                )
+
+        assert resp.status_code == 504
+
+    def test_normal_completion_returns_201(self):
+        """When optimization completes within timeout, endpoint returns 201."""
+        from src.core.database import get_db
+        from unittest.mock import AsyncMock, patch
+
+        self._override_auth()
+
+        async def _fake_db():
+            db = AsyncMock()
+            yield db
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+        with patch(
+            "src.pricing.router.generate_recommendations",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/pricing/recommendations/generate",
+                    json={"target_margin": "35.00"},
+                )
+
+        assert resp.status_code == 201
+
+    @pytest.mark.asyncio
+    async def test_service_raises_forecast_timeout_when_wait_for_times_out(self):
+        """Service must catch asyncio.TimeoutError from wait_for and raise ForecastTimeoutError.
+
+        Patches asyncio.wait_for directly so this test breaks if the guard is removed
+        from the service, regardless of what the router does.
+        """
+        from decimal import Decimal
+        from unittest.mock import AsyncMock, patch, MagicMock
+        from src.fx.exceptions import ForecastTimeoutError
+        from src.pricing.service import generate_recommendations
+
+        db = AsyncMock()
+
+        # No products below target margin → optimization never runs; patch
+        # calculate_portfolio_margin to return a product below target so the
+        # optimizer branch is entered.
+        mock_portfolio = {
+            "blended_margin": Decimal("20"),
+            "products": [
+                {
+                    "product_id": str(uuid.uuid4()),
+                    "product_name": "Widget",
+                    "unit_cost": Decimal("50"),
+                    "selling_price": Decimal("60"),
+                    "margin_pct": 16.7,
+                    "quantity_30d": 30,
+                }
+            ],
+        }
+
+        with patch(
+            "src.pricing.service.calculate_portfolio_margin",
+            new_callable=AsyncMock,
+            return_value=mock_portfolio,
+        ), patch(
+            "src.pricing.service._get_elasticity_coefficient",
+            new_callable=AsyncMock,
+            return_value=Decimal("-1.5"),
+        ), patch(
+            "src.pricing.service.asyncio.wait_for",
+            side_effect=asyncio.TimeoutError(),
+        ):
+            with pytest.raises(ForecastTimeoutError):
+                await generate_recommendations(
+                    db, business_id=uuid.uuid4(), target_margin=Decimal("35")
+                )
