@@ -43,6 +43,7 @@ from src.ai_engine.service import (
 )
 from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
+from src.core.config import settings
 from src.core.database import get_db
 
 logger = structlog.get_logger()
@@ -89,11 +90,20 @@ async def list_recommendations_endpoint(
         pri = r.priority if isinstance(r.priority, str) else r.priority.value
         by_priority[pri] = by_priority.get(pri, 0) + 1
 
+    ai_available = bool(settings.ANTHROPIC_API_KEY)
+    degraded_reason = (
+        "Anthropic API key not configured — AI recommendations unavailable"
+        if not ai_available
+        else None
+    )
+
     return RecommendationListResponse(
         items=recs,
         total=len(recs),
         by_category=by_category,
         by_priority=by_priority,
+        ai_available=ai_available,
+        degraded_reason=degraded_reason,
     )
 
 

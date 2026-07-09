@@ -292,6 +292,12 @@ interface ElasticityEntry {
             {{ recsGenerating() ? 'Generating…' : 'Refresh' }}
           </button>
         </div>
+        @if (!aiAvailable()) {
+          <div class="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <i class="pi pi-exclamation-triangle mt-0.5 shrink-0"></i>
+            <span>AI recommendations unavailable{{ aiDegradedReason() ? ': ' + aiDegradedReason() : '' }}. Existing recommendations are shown below.</span>
+          </div>
+        }
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           @for (rec of pricingRecs(); track rec.id) {
             <div class="rounded-xl border border-gray-200 p-4 transition-shadow hover:shadow-md">
@@ -1335,6 +1341,8 @@ export class PricingPageComponent implements OnInit {
 
   pricingRecs = signal<Recommendation[]>([]);
   recsGenerating = signal(false);
+  aiAvailable = signal(true);
+  aiDegradedReason = signal<string | null>(null);
   distributionChart = signal<unknown>(null);
 
   // Task 32: Cross-subsidisation
@@ -1522,6 +1530,8 @@ export class PricingPageComponent implements OnInit {
         this.recsService.getAll({ category: 'PRICING' }).subscribe({
           next: (r) => {
             this.pricingRecs.set(r.items.filter((i) => i.status === 'pending'));
+            this.aiAvailable.set(r.ai_available);
+            this.aiDegradedReason.set(r.degraded_reason);
             this.recsGenerating.set(false);
           },
           error: () => this.recsGenerating.set(false),
@@ -1569,6 +1579,8 @@ export class PricingPageComponent implements OnInit {
         this.recsService.getAll({ category: 'PRICING' }).subscribe({
           next: (r) => {
             this.pricingRecs.set(r.items.filter((i) => i.status === 'pending'));
+            this.aiAvailable.set(r.ai_available);
+            this.aiDegradedReason.set(r.degraded_reason);
             this.recsGenerating.set(false);
             this.messageService.add({
               severity: 'success',

@@ -773,3 +773,64 @@ class TestBusinessIsolation:
         assert "business_id" in captured_queries[0].lower(), (
             f"business_id filter missing from get_recommendation_history query: {captured_queries[0]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Task #166 — ai_available + degraded_reason in RecommendationListResponse
+# ---------------------------------------------------------------------------
+
+
+class TestAIAvailableFlag:
+    """RecommendationListResponse must expose ai_available and degraded_reason."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self):
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+
+        fake_user = MagicMock()
+        fake_business_id = uuid.uuid4()
+        app.dependency_overrides[get_current_active_user] = lambda: fake_user
+        app.dependency_overrides[get_current_business_id] = lambda: fake_business_id
+
+    @pytest.mark.anyio
+    async def test_ai_available_true_when_key_configured(self):
+        """When ANTHROPIC_API_KEY is set, ai_available must be True."""
+        self._override_auth()
+        with patch("src.ai_engine.router.get_recommendations", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = []
+            with patch("src.ai_engine.router.settings") as mock_settings:
+                mock_settings.ANTHROPIC_API_KEY = "sk-ant-test-key"
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    resp = await client.get("/api/v1/ai/recommendations")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "ai_available" in data
+        assert data["ai_available"] is True
+        assert data["degraded_reason"] is None
+
+    @pytest.mark.anyio
+    async def test_ai_available_false_when_key_missing(self):
+        """When ANTHROPIC_API_KEY is missing, ai_available must be False with a reason."""
+        self._override_auth()
+        with patch("src.ai_engine.router.get_recommendations", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = []
+            with patch("src.ai_engine.router.settings") as mock_settings:
+                mock_settings.ANTHROPIC_API_KEY = ""
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    resp = await client.get("/api/v1/ai/recommendations")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ai_available"] is False
+        assert data["degraded_reason"] is not None
+        assert len(data["degraded_reason"]) > 0

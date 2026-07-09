@@ -82,6 +82,8 @@ class RecommendationListResponse(BaseModel):
     total: int
     by_category: dict[str, int] = Field(default_factory=dict)
     by_priority: dict[str, int] = Field(default_factory=dict)
+    ai_available: bool = True
+    degraded_reason: str | None = None
 
 
 class RecommendationAccept(BaseModel):

@@ -31,6 +31,8 @@ export interface RecommendationListResponse {
   total: number;
   by_category: Record<string, number>;
   by_priority: Record<string, number>;
+  ai_available: boolean;
+  degraded_reason: string | null;
 }
 
 export interface ImpactSummary {
