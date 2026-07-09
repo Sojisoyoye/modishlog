@@ -1406,6 +1406,15 @@ interface ColEntry {
       (confirmed)="executeDeleteProduct()"
       (cancelled)="productPendingDelete.set(null)"
     />
+
+    <!-- ── CONFIRM DISABLE VARIANTS DIALOG ──────────────────────────────────── -->
+    <app-confirm-dialog
+      [visible]="variantDisablePending()"
+      header="Disable Variants"
+      message="Disabling variants will not delete existing variants. Continue?"
+      (confirmed)="confirmDisableVariants()"
+      (cancelled)="cancelDisableVariants()"
+    />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -1476,6 +1485,7 @@ export class ProductsPageComponent implements OnInit {
   // ── Variants management ───────────────────────────────────────────────────
   editProductVariants = signal<ProductVariant[]>([]);
   variantSaving = signal(false);
+  variantDisablePending = signal(false);
   newVariantName = signal('');
   newVariantSku = signal('');
   newVariantPriceOverride = signal<string>('');
@@ -2097,13 +2107,26 @@ export class ProductsPageComponent implements OnInit {
   // ── Variants management ───────────────────────────────────────────────────
   onHasVariantsToggle(val: boolean): void {
     if (!val && this.editProductVariants().length > 0) {
-      if (!confirm('Disabling variants will not delete existing variants. Continue?')) return;
+      // Defer the actual toggle — show the confirm dialog first
+      this.variantDisablePending.set(true);
+      return;
     }
     this.editForm = { ...this.editForm, has_variants: val };
   }
 
+  confirmDisableVariants(): void {
+    this.variantDisablePending.set(false);
+    this.editForm = { ...this.editForm, has_variants: false };
+  }
+
+  cancelDisableVariants(): void {
+    this.variantDisablePending.set(false);
+    // Restore the checkbox to checked (has_variants stays true)
+    this.editForm = { ...this.editForm, has_variants: true };
+  }
+
   addVariant(): void {
-    const productId = this.menuProduct()?.id ?? this.editTarget()?.id;
+    const productId = this.editTarget()?.id;
     if (!productId || !this.newVariantName().trim()) return;
     this.variantSaving.set(true);
     const priceStr = this.newVariantPriceOverride().trim();
@@ -2133,7 +2156,7 @@ export class ProductsPageComponent implements OnInit {
   }
 
   deactivateVariant(variant: ProductVariant): void {
-    const productId = this.menuProduct()?.id ?? this.editTarget()?.id;
+    const productId = this.editTarget()?.id;
     if (!productId) return;
     this.productsService.updateVariant(productId, variant.id, { is_active: !variant.is_active }).subscribe({
       next: (updated) => {

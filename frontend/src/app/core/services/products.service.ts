@@ -213,19 +213,19 @@ export class ProductsService {
 
   createVariant(productId: string, body: ProductVariantCreate): Observable<ProductVariant> {
     return this.api.post<ProductVariant>(`/products/${productId}/variants`, body).pipe(
-      tap(() => { this.allCache$ = null; })
+      tap(() => this.invalidateCache()),
     );
   }
 
   updateVariant(productId: string, variantId: string, body: ProductVariantUpdate): Observable<ProductVariant> {
     return this.api.put<ProductVariant>(`/products/${productId}/variants/${variantId}`, body).pipe(
-      tap(() => { this.allCache$ = null; })
+      tap(() => this.invalidateCache()),
     );
   }
 
   deleteVariant(productId: string, variantId: string): Observable<void> {
     return this.api.delete<void>(`/products/${productId}/variants/${variantId}`).pipe(
-      tap(() => { this.allCache$ = null; })
+      tap(() => this.invalidateCache()),
     );
   }
 }
