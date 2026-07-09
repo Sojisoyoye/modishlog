@@ -1696,3 +1696,51 @@ class TestOptimizationTimeout:
                 )
 
         assert resp.status_code == 201
+
+    @pytest.mark.asyncio
+    async def test_service_raises_forecast_timeout_when_wait_for_times_out(self):
+        """Service must catch asyncio.TimeoutError from wait_for and raise ForecastTimeoutError.
+
+        Patches asyncio.wait_for directly so this test breaks if the guard is removed
+        from the service, regardless of what the router does.
+        """
+        from decimal import Decimal
+        from unittest.mock import AsyncMock, patch, MagicMock
+        from src.fx.exceptions import ForecastTimeoutError
+        from src.pricing.service import generate_recommendations
+
+        db = AsyncMock()
+
+        # No products below target margin → optimization never runs; patch
+        # calculate_portfolio_margin to return a product below target so the
+        # optimizer branch is entered.
+        mock_portfolio = {
+            "blended_margin": Decimal("20"),
+            "products": [
+                {
+                    "product_id": str(uuid.uuid4()),
+                    "product_name": "Widget",
+                    "unit_cost": Decimal("50"),
+                    "selling_price": Decimal("60"),
+                    "margin_pct": 16.7,
+                    "quantity_30d": 30,
+                }
+            ],
+        }
+
+        with patch(
+            "src.pricing.service.calculate_portfolio_margin",
+            new_callable=AsyncMock,
+            return_value=mock_portfolio,
+        ), patch(
+            "src.pricing.service._get_elasticity_coefficient",
+            new_callable=AsyncMock,
+            return_value=Decimal("-1.5"),
+        ), patch(
+            "src.pricing.service.asyncio.wait_for",
+            side_effect=asyncio.TimeoutError(),
+        ):
+            with pytest.raises(ForecastTimeoutError):
+                await generate_recommendations(
+                    db, business_id=uuid.uuid4(), target_margin=Decimal("35")
+                )
