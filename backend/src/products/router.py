@@ -4,13 +4,17 @@ import os
 import uuid
 
 import anyio
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.config import settings
 from src.core.database import get_db
+from src.products.models import Product
 from src.products.exceptions import (
     CategoryHasChildrenError,
     CategoryInUseError,
@@ -20,6 +24,7 @@ from src.products.exceptions import (
     InvalidProductNameError,
     ProductNotFoundError,
     SubcategoryDepthError,
+    VariantNotFoundError,
 )
 from src.products.schemas import (
     BulkProductUploadResponse,
@@ -32,18 +37,24 @@ from src.products.schemas import (
     ProductListResponse,
     ProductRead,
     ProductUpdate,
+    ProductVariantCreate,
+    ProductVariantRead,
+    ProductVariantUpdate,
 )
 from src.products.service import (
     create_category,
     create_product,
+    create_variant,
     deactivate_product,
+    deactivate_variant,
     delete_category,
     get_price_history,
-    get_product,
     list_categories,
     list_products,
+    list_variants,
     update_category,
     update_product,
+    update_variant,
 )
 
 router = APIRouter()
@@ -140,7 +151,16 @@ async def create_product_endpoint(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except DuplicateSlugError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-    return product
+    # Reload with variants to satisfy selectinload requirement
+    result = await db.execute(
+        select(Product)
+        .options(
+            selectinload(Product.category),
+            selectinload(Product.variants),
+        )
+        .where(Product.id == product.id)
+    )
+    return result.scalar_one()
 
 
 _CSV_BATCH_SIZE = 500  # Commit in batches to avoid long-held transactions
@@ -353,7 +373,7 @@ async def list_products_endpoint(
     db: AsyncSession = Depends(get_db),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """List products with filtering and pagination."""
+    """List products with filtering and pagination (includes variants)."""
     items, total = await list_products(
         db,
         business_id,
@@ -362,8 +382,83 @@ async def list_products_endpoint(
         search=search,
         page=page,
         page_size=page_size,
+        load_variants=True,
     )
     return ProductListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+# ---------------------------------------------------------------------------
+# Product Variants (static sub-paths before /{product_id} parameterised routes)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/{product_id}/variants",
+    response_model=ProductVariantRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_variant_endpoint(
+    product_id: uuid.UUID,
+    body: ProductVariantCreate,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Create a new variant for a product."""
+    try:
+        return await create_variant(db, product_id, body, business_id)
+    except ProductNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except DuplicateSKUError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+
+@router.get("/{product_id}/variants", response_model=list[ProductVariantRead])
+async def list_variants_endpoint(
+    product_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """List all variants for a product."""
+    return await list_variants(db, product_id, business_id)
+
+
+@router.put(
+    "/{product_id}/variants/{variant_id}",
+    response_model=ProductVariantRead,
+)
+async def update_variant_endpoint(
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID,
+    body: ProductVariantUpdate,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Update a product variant."""
+    try:
+        return await update_variant(db, product_id, variant_id, body, business_id)
+    except VariantNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.delete(
+    "/{product_id}/variants/{variant_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def deactivate_variant_endpoint(
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Soft-delete (deactivate) a product variant."""
+    try:
+        await deactivate_variant(db, product_id, variant_id, business_id)
+    except VariantNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get("/{product_id}", response_model=ProductRead)
@@ -372,9 +467,20 @@ async def get_product_endpoint(
     db: AsyncSession = Depends(get_db),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """Get a single product by ID."""
+    """Get a single product by ID (includes variants)."""
     try:
-        return await get_product(db, product_id, business_id=business_id)
+        result = await db.execute(
+            select(Product)
+            .options(
+                selectinload(Product.category),
+                selectinload(Product.variants),
+            )
+            .where(Product.id == product_id, Product.business_id == business_id)
+        )
+        product = result.scalar_one_or_none()
+        if not product:
+            raise ProductNotFoundError(product_id=product_id)
+        return product
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -389,7 +495,7 @@ async def update_product_endpoint(
 ):
     """Update a product."""
     try:
-        return await update_product(db, product_id, body, current_user.id, business_id=business_id)
+        product = await update_product(db, product_id, body, current_user.id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except CategoryNotFoundError as e:
@@ -400,6 +506,16 @@ async def update_product_endpoint(
         )
     except DuplicateSlugError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    # Reload with variants to satisfy selectinload requirement
+    result = await db.execute(
+        select(Product)
+        .options(
+            selectinload(Product.category),
+            selectinload(Product.variants),
+        )
+        .where(Product.id == product.id)
+    )
+    return result.scalar_one()
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -443,9 +559,7 @@ async def upload_product_image(
     Content-Type header). Files are stored outside the web root with UUID
     filenames to prevent directory traversal and content-type spoofing attacks.
     """
-    import structlog as _structlog
-
-    _logger = _structlog.get_logger()
+    _logger = structlog.get_logger()
 
     ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
     # S6: Allowed MIME types — validated against actual file bytes, not headers.
@@ -512,6 +626,16 @@ async def upload_product_image(
     image_url = f"/static/products/{safe_filename}"
     update_data = ProductUpdate(image_url=image_url)
     try:
-        return await update_product(db, product_id, update_data, current_user.id, business_id=business_id)
+        product = await update_product(db, product_id, update_data, current_user.id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    # Reload with variants to satisfy selectinload requirement
+    result = await db.execute(
+        select(Product)
+        .options(
+            selectinload(Product.category),
+            selectinload(Product.variants),
+        )
+        .where(Product.id == product.id)
+    )
+    return result.scalar_one()

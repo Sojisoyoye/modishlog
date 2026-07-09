@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date
+from decimal import Decimal
 
 import structlog
 from sqlalchemy import func, select
@@ -18,14 +19,17 @@ from src.products.exceptions import (
     InvalidProductNameError,
     ProductNotFoundError,
     SubcategoryDepthError,
+    VariantNotFoundError,
 )
 from src.products.utils import slugify
-from src.products.models import PriceHistory, Product, ProductCategory
+from src.products.models import PriceHistory, Product, ProductCategory, ProductVariant
 from src.products.schemas import (
     CategoryCreate,
     CategoryUpdate,
     ProductCreate,
     ProductUpdate,
+    ProductVariantCreate,
+    ProductVariantUpdate,
 )
 
 logger = structlog.get_logger()
@@ -247,7 +251,7 @@ async def get_product(
     product_id: uuid.UUID,
     business_id: uuid.UUID | None = None,
 ) -> Product:
-    """Get a single product by ID with category loaded.
+    """Get a single product by ID with category and variants loaded.
 
     If business_id is provided, only returns products belonging to that business.
     """
@@ -257,7 +261,7 @@ async def get_product(
 
     result = await db.execute(
         select(Product)
-        .options(selectinload(Product.category))
+        .options(selectinload(Product.category), selectinload(Product.variants))
         .where(*conditions)
     )
     product = result.scalar_one_or_none()
@@ -275,9 +279,13 @@ async def list_products(
     search: str | None = None,
     page: int = 1,
     page_size: int = 20,
+    load_variants: bool = False,
 ) -> tuple[list[Product], int]:
     """List products with filtering and pagination, scoped to a business."""
-    query = select(Product).options(selectinload(Product.category))
+    options = [selectinload(Product.category)]
+    if load_variants:
+        options.append(selectinload(Product.variants))
+    query = select(Product).options(*options)
     count_query = select(func.count()).select_from(Product)
 
     # Always filter by business_id for data isolation
@@ -410,3 +418,178 @@ async def get_price_history(
         .order_by(PriceHistory.effective_date.desc())
     )
     return list(result.scalars().all())
+
+
+# ---------------------------------------------------------------------------
+# Variant helpers
+# ---------------------------------------------------------------------------
+
+
+def resolve_price(product: Product, variant: ProductVariant | None) -> Decimal:
+    """Return the effective selling price, preferring variant override when set."""
+    if variant and variant.price_override is not None:
+        return variant.price_override
+    return product.selling_price
+
+
+def resolve_cost(product: Product, variant: ProductVariant | None) -> Decimal:
+    """Return the effective cost price, preferring variant override when set."""
+    if variant and variant.cost_price_override is not None:
+        return variant.cost_price_override
+    return product.unit_cost
+
+
+# ---------------------------------------------------------------------------
+# Variant CRUD
+# ---------------------------------------------------------------------------
+
+
+async def create_variant(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    data: ProductVariantCreate,
+    business_id: uuid.UUID,
+) -> ProductVariant:
+    """Create a product variant and mark the parent product as having variants."""
+    # Verify product exists and belongs to business
+    product = await get_product(db, product_id, business_id=business_id)
+
+    # Check SKU uniqueness within the business when provided (guard against empty string too)
+    if data.sku is not None and data.sku != "":
+        existing = await db.execute(
+            select(ProductVariant).where(
+                ProductVariant.sku == data.sku,
+                ProductVariant.business_id == business_id,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise DuplicateSKUError(data.sku)
+
+    variant = ProductVariant(
+        product_id=product_id,
+        business_id=business_id,
+        name=data.name,
+        sku=data.sku or None,  # normalize empty string to NULL
+        barcode=data.barcode or None,  # normalize empty string to NULL
+        attributes=data.attributes,
+        price_override=data.price_override,
+        cost_price_override=data.cost_price_override,
+        is_active=True,
+    )
+    db.add(variant)
+
+    # Mark parent product as having variants
+    product.has_variants = True
+
+    await db.flush()
+    await logger.ainfo(
+        "variant_created",
+        variant_id=str(variant.id),
+        product_id=str(product_id),
+    )
+    return variant
+
+
+async def list_variants(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    business_id: uuid.UUID,
+) -> list[ProductVariant]:
+    """List all variants for a product scoped to the given business."""
+    result = await db.execute(
+        select(ProductVariant)
+        .where(
+            ProductVariant.product_id == product_id,
+            ProductVariant.business_id == business_id,
+        )
+        .order_by(ProductVariant.created_at)
+    )
+    return list(result.scalars().all())
+
+
+async def update_variant(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID,
+    data: ProductVariantUpdate,
+    business_id: uuid.UUID,
+) -> ProductVariant:
+    """Update a product variant."""
+    result = await db.execute(
+        select(ProductVariant).where(
+            ProductVariant.id == variant_id,
+            ProductVariant.product_id == product_id,
+            ProductVariant.business_id == business_id,
+        )
+    )
+    variant = result.scalar_one_or_none()
+    if not variant:
+        raise VariantNotFoundError(variant_id)
+
+    update_fields = data.model_dump(exclude_unset=True)
+    for field, value in update_fields.items():
+        if field in ("sku", "barcode") and value == "":
+            value = None
+        setattr(variant, field, value)
+
+    await db.flush()
+
+    # If is_active was set to False, reset has_variants on parent if no active variants remain
+    if update_fields.get("is_active") is False:
+        active_check = await db.execute(
+            select(func.count())
+            .select_from(ProductVariant)
+            .where(
+                ProductVariant.product_id == variant.product_id,
+                ProductVariant.is_active == True,  # noqa: E712
+            )
+        )
+        active_count = active_check.scalar() or 0
+        if active_count == 0:
+            product = await db.get(Product, variant.product_id)
+            if product:
+                product.has_variants = False
+                await db.flush()
+
+    await logger.ainfo("variant_updated", variant_id=str(variant_id))
+    return variant
+
+
+async def deactivate_variant(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID,
+    business_id: uuid.UUID,
+) -> None:
+    """Soft-delete a variant by setting is_active=False."""
+    result = await db.execute(
+        select(ProductVariant).where(
+            ProductVariant.id == variant_id,
+            ProductVariant.product_id == product_id,
+            ProductVariant.business_id == business_id,
+        )
+    )
+    variant = result.scalar_one_or_none()
+    if not variant:
+        raise VariantNotFoundError(variant_id)
+
+    variant.is_active = False
+    await db.flush()
+
+    # Reset has_variants on the parent product if no active variants remain
+    active_check = await db.execute(
+        select(func.count())
+        .select_from(ProductVariant)
+        .where(
+            ProductVariant.product_id == variant.product_id,
+            ProductVariant.is_active == True,  # noqa: E712
+        )
+    )
+    active_count = active_check.scalar() or 0
+    if active_count == 0:
+        product = await db.get(Product, variant.product_id)
+        if product:
+            product.has_variants = False
+            await db.flush()
+
+    await logger.ainfo("variant_deactivated", variant_id=str(variant_id))
