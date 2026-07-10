@@ -140,6 +140,24 @@ export class ValidateStepComponent implements OnInit {
   });
 
   ngOnInit(): void {
+    // Check status first — if a prior request already ran validation
+    // (e.g. this step remounted from a page reload), reuse those results
+    // instead of unconditionally re-POSTing validateJob(), which would
+    // re-run extraction on a job that's already validated or in flight.
+    this.importService.getJob(this.jobId()).subscribe({
+      next: (job) => {
+        if (job.status === 'pending') {
+          this.runValidation();
+        } else {
+          this.loading.set(false);
+          this.job.set(job);
+        }
+      },
+      error: () => this.runValidation(),
+    });
+  }
+
+  private runValidation(): void {
     this.importService.validateJob(this.jobId()).subscribe({
       next: (job) => {
         this.loading.set(false);
