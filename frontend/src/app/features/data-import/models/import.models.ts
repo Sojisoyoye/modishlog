@@ -12,6 +12,9 @@ export function humanizeKey(key: string): string {
   return key.replace(/_/g, ' ');
 }
 
+export const UNDO_CONFIRM_MESSAGE = 'Undo this import? All records it created will be removed.';
+export const UNDO_FAILED_MESSAGE = 'Failed to undo import';
+
 /** Sums a MigrationJob's per-entity row counts into a single total. */
 export function sumRowCounts(rowCounts: Record<string, number>): number {
   return Object.values(rowCounts).reduce((sum, n) => sum + n, 0);

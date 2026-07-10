@@ -131,7 +131,6 @@ export class ApiCredentialsStepComponent {
   sourceSystem = input.required<SourceSystem>();
   back = output<void>();
   jobCreated = output<MigrationJob>();
-  failed = output<string>();
 
   apiBaseUrl = '';
   username = '';
@@ -222,9 +221,9 @@ export class ApiCredentialsStepComponent {
       },
       error: (err) => {
         this.submitting.set(false);
-        const message = err?.error?.detail || 'Failed to start import';
-        this.testError.set(message);
-        this.failed.emit(message);
+        // Shown inline (above) — don't also emit `failed`, which the
+        // parent surfaces as a toast; that duplicated this message.
+        this.testError.set(err?.error?.detail || 'Failed to start import');
       },
     });
   }

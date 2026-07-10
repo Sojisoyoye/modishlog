@@ -15,6 +15,14 @@ import { ConfirmationSnapshot, MigrationJob, humanizeKey } from '../models/impor
       <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
         <i class="pi pi-info-circle mr-1"></i> {{ staleMessage() }}
       </div>
+      <div class="mt-6">
+        <button
+          (click)="cancelled.emit()"
+          class="rounded-lg border border-gray-300 px-6 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 min-h-[40px]"
+        >
+          Back to Data Imports
+        </button>
+      </div>
     } @else if (snapshot(); as s) {
       <h3 class="mb-1 text-lg font-semibold text-text">Review your import</h3>
       <p class="mb-5 text-sm text-muted">
@@ -130,13 +138,12 @@ export class ConfirmStepComponent implements OnInit {
       },
       error: (err) => {
         this.loading.set(false);
-        if (err?.status === 409) {
-          this.staleMessage.set(
-            'This import has already been processed. View its status in Data Imports history.',
-          );
-        } else {
-          this.staleMessage.set(err?.error?.detail || 'Could not load import summary.');
-        }
+        const message =
+          err?.status === 409
+            ? 'This import has already been processed. View its status in Data Imports history.'
+            : err?.error?.detail || 'Could not load import summary.';
+        this.staleMessage.set(message);
+        this.failed.emit(message);
       },
     });
   }

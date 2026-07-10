@@ -11,6 +11,8 @@ import {
   SOURCE_LABELS,
   humanizeKey,
   sumRowCounts,
+  UNDO_CONFIRM_MESSAGE,
+  UNDO_FAILED_MESSAGE,
 } from '../models/import.models';
 import { CsvUploadStepComponent } from '../components/csv-upload-step.component';
 import { ApiCredentialsStepComponent } from '../components/api-credentials-step.component';
@@ -248,7 +250,6 @@ const SOURCE_OPTIONS: SourceOption[] = [
             [sourceSystem]="selectedSource()!"
             (back)="step.set('method')"
             (jobCreated)="onJobCreated($event)"
-            (failed)="onError($event)"
           />
         }
       }
@@ -435,7 +436,7 @@ export class ImportWizardPageComponent implements OnInit {
 
   undoFromHistory(job: MigrationJob): void {
     if (this.undoingJobIds().has(job.id)) return;
-    if (!window.confirm('Undo this import? All records it created will be removed.')) return;
+    if (!window.confirm(UNDO_CONFIRM_MESSAGE)) return;
     this.undoingJobIds.update((ids) => new Set(ids).add(job.id));
     this.importService.rollbackJob(job.id).subscribe({
       next: () => {
@@ -453,7 +454,7 @@ export class ImportWizardPageComponent implements OnInit {
           next.delete(job.id);
           return next;
         });
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to undo import' });
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: UNDO_FAILED_MESSAGE });
       },
     });
   }

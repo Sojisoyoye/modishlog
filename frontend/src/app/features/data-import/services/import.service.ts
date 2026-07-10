@@ -1,6 +1,8 @@
 import { Injectable, inject } from '@angular/core';
+import { HttpContext } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from '../../../core/services/api.service';
+import { NO_RETRY } from '../../../core/interceptors/retry.interceptor';
 import { environment } from '../../../../environments/environment';
 import {
   ApiCredentials,
@@ -16,6 +18,10 @@ import {
 export class ImportService {
   private readonly api = inject(ApiService);
   private readonly baseUrl = environment.apiBaseUrl;
+  // Mutating calls that aren't safely re-playable — a lost response +
+  // blind retry could resubmit a request whose first attempt actually
+  // already succeeded (e.g. double-confirm an import, double-create a job).
+  private readonly noRetry = new HttpContext().set(NO_RETRY, true);
 
   getAllTemplatesUrl(): string {
     return `${this.baseUrl}/import/templates`;
@@ -45,7 +51,7 @@ export class ImportService {
     for (const [entity, file] of Object.entries(files)) {
       if (file) formData.append(entity, file, file.name);
     }
-    return this.api.post<MigrationJob>('/import/jobs', formData);
+    return this.api.post<MigrationJob>('/import/jobs', formData, this.noRetry);
   }
 
   createApiJob(sourceSystem: SourceSystem, credentials: ApiCredentials): Observable<MigrationJob> {
@@ -56,7 +62,7 @@ export class ImportService {
     if (credentials.username) formData.append('username', credentials.username);
     if (credentials.password) formData.append('password', credentials.password);
     if (credentials.access_token) formData.append('access_token', credentials.access_token);
-    return this.api.post<MigrationJob>('/import/jobs', formData);
+    return this.api.post<MigrationJob>('/import/jobs', formData, this.noRetry);
   }
 
   listJobs(): Observable<MigrationJobListResponse> {
@@ -76,10 +82,10 @@ export class ImportService {
   }
 
   confirmJob(jobId: string, approved: boolean): Observable<MigrationJob> {
-    return this.api.post<MigrationJob>(`/import/jobs/${jobId}/confirm`, { approved });
+    return this.api.post<MigrationJob>(`/import/jobs/${jobId}/confirm`, { approved }, this.noRetry);
   }
 
   rollbackJob(jobId: string): Observable<MigrationJob> {
-    return this.api.delete<MigrationJob>(`/import/jobs/${jobId}`);
+    return this.api.delete<MigrationJob>(`/import/jobs/${jobId}`, this.noRetry);
   }
 }

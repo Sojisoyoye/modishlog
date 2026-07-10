@@ -1,7 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, input, output, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { ImportService } from '../services/import.service';
-import { MigrationJob, humanizeKey } from '../models/import.models';
+import { MigrationJob, humanizeKey, UNDO_CONFIRM_MESSAGE, UNDO_FAILED_MESSAGE } from '../models/import.models';
 
 @Component({
   selector: 'app-summary-step',
@@ -74,7 +74,7 @@ export class SummaryStepComponent {
   }
 
   undo(): void {
-    if (!window.confirm('Undo this import? All records it created will be removed.')) return;
+    if (!window.confirm(UNDO_CONFIRM_MESSAGE)) return;
     this.undoing.set(true);
     this.importService.rollbackJob(this.job().id).subscribe({
       next: () => {
@@ -83,7 +83,7 @@ export class SummaryStepComponent {
       },
       error: (err) => {
         this.undoing.set(false);
-        this.failed.emit(err?.error?.detail || 'Failed to undo import');
+        this.failed.emit(err?.error?.detail || UNDO_FAILED_MESSAGE);
       },
     });
   }
