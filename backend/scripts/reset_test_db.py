@@ -29,6 +29,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from pos_migrate import WIPE_ORDER
 from src.auth.models import Business, User, UserRole
+# Registers the migration_jobs table so SQLAlchemy can resolve every other
+# model's `migration_id` FK to it — without this import, mapper configuration
+# fails on the first flush touching any of those 23 tables (e.g. User).
+from src.data_import.models import MigrationJob  # noqa: F401
 
 log = structlog.get_logger()
 
