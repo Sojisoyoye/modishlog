@@ -4,7 +4,14 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { ImportService } from '../services/import.service';
-import { MigrationJob, SourceSystem, ExtractionMode, SOURCE_LABELS, humanizeKey } from '../models/import.models';
+import {
+  MigrationJob,
+  SourceSystem,
+  ExtractionMode,
+  SOURCE_LABELS,
+  humanizeKey,
+  sumRowCounts,
+} from '../models/import.models';
 import { CsvUploadStepComponent } from '../components/csv-upload-step.component';
 import { ApiCredentialsStepComponent } from '../components/api-credentials-step.component';
 import { ValidateStepComponent } from '../components/validate-step.component';
@@ -312,7 +319,16 @@ export class ImportWizardPageComponent implements OnInit {
           this.loadHistory();
         }
       },
-      error: () => this.router.navigate(['/settings/import']),
+      error: (err) => {
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: err?.error?.detail || 'Could not load this import — showing import history instead.',
+        });
+        this.loadHistory();
+        this.location.go('/settings/import');
+        this.step.set('history');
+      },
     });
   }
 
@@ -347,6 +363,7 @@ export class ImportWizardPageComponent implements OnInit {
     this.selectedSource.set(null);
     this.selectedMode.set(null);
     this.activeJob.set(null);
+    this.location.go('/settings/import');
     this.step.set('source');
   }
 
@@ -425,11 +442,14 @@ export class ImportWizardPageComponent implements OnInit {
   }
 
   totalRows(job: MigrationJob): number {
-    return Object.values(job.row_counts || {}).reduce((s, n) => s + n, 0);
+    return sumRowCounts(job.row_counts || {});
   }
 
   statusLabel(status: MigrationJob['status']): string {
-    return humanizeKey(status);
+    // Unlike other humanizeKey() call sites, this feeds app-status-badge
+    // and toast text directly with no surrounding `capitalize` CSS class,
+    // so it needs to capitalize each word itself.
+    return humanizeKey(status).replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   statusBadgeVariant(status: MigrationJob['status']): 'success' | 'warning' | 'danger' | 'neutral' {

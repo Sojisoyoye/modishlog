@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, input, output, signal, OnInit, computed } from '@angular/core';
 import { ImportService } from '../services/import.service';
-import { MigrationJob, ValidationIssue, humanizeKey } from '../models/import.models';
+import { MigrationJob, ValidationIssue, humanizeKey, sumRowCounts } from '../models/import.models';
 
 @Component({
   selector: 'app-validate-step',
@@ -136,8 +136,7 @@ export class ValidateStepComponent implements OnInit {
 
   totalRecords = computed(() => {
     const j = this.job();
-    if (!j) return 0;
-    return Object.values(j.row_counts).reduce((sum, n) => sum + n, 0);
+    return j ? sumRowCounts(j.row_counts) : 0;
   });
 
   ngOnInit(): void {

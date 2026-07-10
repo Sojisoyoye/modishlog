@@ -12,6 +12,11 @@ export function humanizeKey(key: string): string {
   return key.replace(/_/g, ' ');
 }
 
+/** Sums a MigrationJob's per-entity row counts into a single total. */
+export function sumRowCounts(rowCounts: Record<string, number>): number {
+  return Object.values(rowCounts).reduce((sum, n) => sum + n, 0);
+}
+
 export type ExtractionMode = 'csv' | 'api';
 
 export type MigrationJobStatus =

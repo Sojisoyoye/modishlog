@@ -143,9 +143,21 @@ export class ConfirmStepComponent implements OnInit {
 
   sampleText(entity: ConfirmationSnapshot['entities'][number]): string {
     if (!entity.sample_rows?.length) return '';
-    return entity.sample_rows
-      .map((row) => row['name']?.trim() || row['sku']?.trim() || '(no name)')
-      .join(', ');
+    return entity.sample_rows.map((row) => this.sampleRowLabel(row)).join(', ');
+  }
+
+  private sampleRowLabel(row: Record<string, string>): string {
+    const name = row['name']?.trim();
+    if (name) return name;
+    const sku = row['sku']?.trim();
+    if (sku) return sku;
+    // Entities like sales have no name/sku — fall back to the first
+    // non-empty non-id field so the preview shows something meaningful
+    // instead of a raw internal id.
+    const firstNonId = Object.entries(row).find(([key, value]) => !key.endsWith('_id') && value?.trim());
+    if (firstNonId) return firstNonId[1].trim();
+    const firstAny = Object.values(row).find((value) => value?.trim());
+    return firstAny?.trim() || '(no data)';
   }
 
   approve(): void {
