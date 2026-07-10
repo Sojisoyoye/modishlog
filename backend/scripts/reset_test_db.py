@@ -65,6 +65,12 @@ async def _wipe_and_seed() -> None:
 
     async with factory() as session:
         for model in WIPE_ORDER:
+            # migration_jobs is referenced by migration_id on every other
+            # WIPE_ORDER table (all cleared by this point, since User is
+            # last) and itself references users — must be wiped right
+            # before User, after everything else.
+            if model is User:
+                await session.execute(delete(MigrationJob))
             await session.execute(delete(model))
         # Business is not in WIPE_ORDER (no FK dependents there), delete separately.
         await session.execute(delete(Business))
