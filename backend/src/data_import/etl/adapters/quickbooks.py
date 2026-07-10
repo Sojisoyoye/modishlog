@@ -79,7 +79,7 @@ def _normalize_quickbooks_qty(raw: str) -> str:
         return str(int(raw))
     except ValueError:
         try:
-            return str(round(float(raw)) or 1)
+            return str(round(float(raw)) or 1)  # financial-float-ok — quantity, not money
         except ValueError:
             return "1"
 
