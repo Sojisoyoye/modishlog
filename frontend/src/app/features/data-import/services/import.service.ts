@@ -74,7 +74,7 @@ export class ImportService {
   }
 
   validateJob(jobId: string): Observable<MigrationJob> {
-    return this.api.post<MigrationJob>(`/import/jobs/${jobId}/validate`, {});
+    return this.api.post<MigrationJob>(`/import/jobs/${jobId}/validate`, {}, this.noRetry);
   }
 
   getConfirmationSnapshot(jobId: string): Observable<ConfirmationSnapshot> {
