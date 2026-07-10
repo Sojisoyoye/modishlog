@@ -165,3 +165,14 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           IMAGE_TAG: ${{ needs.build-backend.outputs.image_tag }}
+
+  # ─── 6. Smoke test both custom domains ────────────────────────────────────
+  smoke-test:
+    name: Smoke test staging
+    needs: [deploy-frontend, deploy-backend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Curl staging frontend and backend
+        run: |
+          curl -sf https://staging.modishlog.com | grep -q "ModishLog"
+          curl -sf https://api.staging.modishlog.com/health | grep -q '"status":"healthy"'

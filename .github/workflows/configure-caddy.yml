@@ -2,13 +2,22 @@ name: Configure Caddy on Hetzner
 
 on:
   workflow_dispatch:
+    inputs:
+      add_domain:
+        description: "Domain to add/update in the Caddyfile (reverse-proxied to the staging backend). Leave blank to skip."
+        required: false
+        default: "api.staging.modishlog.com"
+      remove_domain:
+        description: "Domain block to strip from the Caddyfile without re-adding. Leave blank to skip."
+        required: false
+        default: ""
 
 env:
   HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
 
 jobs:
   configure-caddy:
-    name: Add api-modishlog.modishstandard.com to Caddyfile
+    name: Update Caddyfile domains
     runs-on: ubuntu-latest
     steps:
       - name: Update Caddyfile and reload Caddy
@@ -17,11 +26,11 @@ jobs:
           host: ${{ env.HETZNER_HOST }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
+          envs: ADD_DOMAIN,REMOVE_DOMAIN
           script: |
             set -e
 
             CADDYFILE=/opt/modish/Caddyfile
-            DOMAIN=api-modishlog.modishstandard.com
 
             # Get IPv4-only Docker bridge gateway (inspect returns IPv4+IPv6 concatenated).
             DOCKER_GW=$(docker network inspect bridge \
@@ -35,24 +44,30 @@ jobs:
             echo "=== Current Caddyfile ==="
             cat "$CADDYFILE"
 
-            # Remove any existing block for this domain, then re-add with
-            # the correct backend address (IPv4 gateway instead of container name).
+            # Strip existing blocks for both domains (handles multiline), then
+            # re-add the add_domain block with the correct backend address
+            # (IPv4 gateway instead of container name). remove_domain is left
+            # stripped and not re-added.
             python3 - <<PYEOF
-            import re, pathlib
+            import os, re, pathlib
+
+            add_domain = os.environ.get("ADD_DOMAIN", "").strip()
+            remove_domain = os.environ.get("REMOVE_DOMAIN", "").strip()
+            backend = "$BACKEND"
 
             path = pathlib.Path("$CADDYFILE")
             text = path.read_text()
 
-            # Strip any existing block for this domain (handles multiline)
-            text = re.sub(
-                r'\n?$DOMAIN\s*\{[^}]*\}',
-                '',
-                text,
-                flags=re.DOTALL,
-            )
+            for domain in filter(None, [add_domain, remove_domain]):
+                text = re.sub(
+                    rf'\n?{re.escape(domain)}\s*\{{[^}}]*\}}',
+                    '',
+                    text,
+                    flags=re.DOTALL,
+                )
 
-            # Append corrected block
-            text = text.rstrip() + "\n\n$DOMAIN {\n    reverse_proxy $BACKEND\n}\n"
+            if add_domain:
+                text = text.rstrip() + f"\n\n{add_domain} {{\n    reverse_proxy {backend}\n}}\n"
 
             path.write_text(text)
             print("Caddyfile updated")
@@ -64,8 +79,13 @@ jobs:
             # Validate then reload inside the Caddy container
             docker exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
             docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
-            echo "Caddy reloaded — $DOMAIN -> $BACKEND"
+            echo "Caddy reloaded"
 
             # Quick smoke-test
-            echo "=== Health check via gateway ==="
-            docker exec caddy wget -qO- --timeout=5 "http://$BACKEND/health" 2>&1 || true
+            if [ -n "$ADD_DOMAIN" ]; then
+              echo "=== Health check via gateway ==="
+              docker exec caddy wget -qO- --timeout=5 "http://$BACKEND/health" 2>&1 || true
+            fi
+        env:
+          ADD_DOMAIN: ${{ inputs.add_domain }}
+          REMOVE_DOMAIN: ${{ inputs.remove_domain }}

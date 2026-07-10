@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  BACKEND_URL: https://api-modishlog.modishstandard.com
+  BACKEND_URL: https://api.staging.modishlog.com
 
 jobs:
   seed:

@@ -5,8 +5,8 @@
 ```
 modishlog.com          → Vercel  (Angular SPA, production project)
 api.modishlog.com      → Hetzner VPS 178.104.122.53 (FastAPI, Caddy SSL)
-modishlog-staging.vercel.app → Vercel (staging project)
-api-modishlog.modishstandard.com → Hetzner VPS (staging backend, port 8002)
+staging.modishlog.com → Vercel (staging project)
+api.staging.modishlog.com → Hetzner VPS (staging backend, port 8002)
 ```
 
 Both environments run on the **same Hetzner server**. Caddy handles SSL termination and routing for all services on the server. The production backend sits at `/root/modishlog-prod/`; the staging backend at `/root/modishlog/`.
@@ -163,8 +163,8 @@ ssh root@178.104.122.53 "
 
 | | Value |
 |---|---|
-| Frontend URL | https://modishlog-staging.vercel.app |
-| API URL | https://api-modishlog.modishstandard.com |
+| Frontend URL | https://staging.modishlog.com |
+| API URL | https://api.staging.modishlog.com |
 | Admin email | `admin@modishlog.com` |
 | Admin password | See GitHub Secret `ADMIN_PASSWORD` — or run the **Admin Password Reset** workflow to set a known value |
 
@@ -224,7 +224,7 @@ docker exec -e POS_USERNAME=<user> -e POS_PASSWORD=<pass> modishlog-backend \
 | Deploy pipeline shows failed (health check) | Usually a false negative — check `docker logs modishlog-backend` directly; the 404 is Nginx, not the backend |
 | Login works but dashboard shows no data | Check the date filter — it defaults to today; change to a broader range |
 | Login fails / CORS error / 400 on API calls | Run the "Fix Staging" workflow_dispatch (see Staging recovery above) |
-| Staging frontend calling wrong API | Check `frontend/src/environments/environment.staging.ts` — `apiBaseUrl` should be `https://api-modishlog.modishstandard.com/api/v1` |
+| Staging frontend calling wrong API | Check `frontend/src/environments/environment.staging.ts` — `apiBaseUrl` should be `https://api.staging.modishlog.com/api/v1` |
 | Production Vercel build fails | Confirm `PRODUCTION_VERCEL_PROJECT_ID` GitHub secret matches `prj_vo4UE6aXYIG2Mrtc24ZZbykYzc2r` |
 | GHCR pull denied on server | `echo $GHCR_TOKEN \| docker login ghcr.io -u sojisoyoye --password-stdin` |
 | Alembic fails on migration | Check `DATABASE_URL` in `.env`; run `docker exec modishlog-backend alembic upgrade head` directly |
