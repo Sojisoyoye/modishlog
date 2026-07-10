@@ -16,7 +16,7 @@ import {
   ImportRowError,
   ParsedLineItem,
 } from '../../../core/services/orders.service';
-import { ProductsService, Product } from '../../../core/services/products.service';
+import { ProductsService, Product, ProductVariant } from '../../../core/services/products.service';
 import { FxService } from '../../../core/services/fx.service';
 
 @Component({
@@ -39,7 +39,7 @@ import { FxService } from '../../../core/services/fx.service';
             <i class="pi pi-upload text-sm"></i> Import Orders
           </button>
           <button
-            (click)="showCreate = true"
+            (click)="showCreate = true; orderSubmitted.set(false)"
             class="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md min-h-[44px]"
           >
             <i class="pi pi-plus text-sm"></i> New Order
@@ -561,24 +561,46 @@ import { FxService } from '../../../core/services/fx.service';
           }
 
           @for (item of newOrderItems(); track $index) {
-            <div class="mb-2 flex flex-wrap gap-2">
-              <select
-                [(ngModel)]="item.product_id"
-                class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
-              >
-                <option value="">Select product</option>
-                @for (p of products(); track p.id) {
-                  <option [value]="p.id">{{ p.name }}</option>
-                }
-              </select>
-              <input type="number" [(ngModel)]="item.quantity" placeholder="Qty" min="1"
-                class="w-20 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
-              <input type="number" [(ngModel)]="item.unit_cost" placeholder="$/unit" min="0" step="0.01"
-                class="w-24 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
-              <button type="button" (click)="removeOrderItem($index)"
-                class="rounded p-1.5 text-muted hover:bg-red-50 hover:text-red-500">
-                <i class="pi pi-times text-xs"></i>
-              </button>
+            <div class="mb-2 flex flex-col gap-1">
+              <div class="flex flex-wrap gap-2">
+                <select
+                  [(ngModel)]="item.product_id"
+                  (ngModelChange)="item.variant_id = null; newOrderItems.update(items => [...items])"
+                  class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">Select product</option>
+                  @for (p of products(); track p.id) {
+                    <option [value]="p.id">{{ p.name }}</option>
+                  }
+                </select>
+                <input type="number" [(ngModel)]="item.quantity" placeholder="Qty" min="1"
+                  class="w-20 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+                <input type="number" [(ngModel)]="item.unit_cost" placeholder="$/unit" min="0" step="0.01"
+                  class="w-24 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
+                <button type="button" (click)="removeOrderItem($index)"
+                  class="rounded p-1.5 text-muted hover:bg-red-50 hover:text-red-500">
+                  <i class="pi pi-times text-xs"></i>
+                </button>
+              </div>
+              @if (getOrderProductForItem(item)?.has_variants) {
+                <div class="ml-0">
+                  <select
+                    [ngModel]="item.variant_id"
+                    (ngModelChange)="onOrderVariantChange(item, $event)"
+                    class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm min-h-[44px]"
+                    [class.border-red-400]="!item.variant_id && orderSubmitted()">
+                    <option value="">— Select variant —</option>
+                    @for (v of getOrderVariantsForProduct(item.product_id); track v.id) {
+                      <option [value]="v.id">
+                        {{ v.name }}{{ v.cost_price_override != null ? ' (' + formatMoney(v.cost_price_override) + '/unit)' : '' }}
+                      </option>
+                    }
+                  </select>
+                  @if (!item.variant_id && orderSubmitted()) {
+                    <p class="text-red-500 text-xs mt-0.5">Please select a variant</p>
+                  }
+                </div>
+              }
             </div>
           }
           <button (click)="addOrderItem()" type="button"
@@ -878,9 +900,10 @@ export class OrdersPageComponent implements OnInit {
     shipping_details: string;
     expenses: { key: string; value: number | null }[];
   } = this.emptyOrder();
-  newOrderItems = signal<{ product_id: string; quantity: number; unit_cost: number }[]>([
-    { product_id: '', quantity: 1, unit_cost: 0 },
+  newOrderItems = signal<{ product_id: string; quantity: number; unit_cost: number; variant_id: string | null }[]>([
+    { product_id: '', quantity: 1, unit_cost: 0, variant_id: null },
   ]);
+  orderSubmitted = signal(false);
 
   parseProductsErrors = signal<{ row: number; message: string }[]>([]);
   readonly productsTemplateUrl = this.ordersService.getProductsTemplateUrl();
@@ -1006,7 +1029,7 @@ export class OrdersPageComponent implements OnInit {
   addOrderItem(): void {
     this.newOrderItems.update((items) => [
       ...items,
-      { product_id: '', quantity: 1, unit_cost: 0 },
+      { product_id: '', quantity: 1, unit_cost: 0, variant_id: null },
     ]);
   }
 
@@ -1030,6 +1053,7 @@ export class OrdersPageComponent implements OnInit {
             product_id: item.product_id,
             quantity: item.quantity,
             unit_cost: item.unit_cost,
+            variant_id: null as string | null,
           }));
           // Replace any empty placeholder rows, then append imported
           const existing = this.newOrderItems().filter(
@@ -1050,12 +1074,28 @@ export class OrdersPageComponent implements OnInit {
     const validItems = this.newOrderItems().filter((i) => i.product_id && i.quantity > 0 && i.unit_cost > 0);
     if (!this.newOrder.supplier_name || validItems.length === 0) return;
 
+    // Validate variant selection for products that require it
+    const hasVariantError = validItems.some((item) => {
+      const product = this.products().find((p) => p.id === item.product_id);
+      return product?.has_variants && !item.variant_id;
+    });
+    if (hasVariantError) {
+      this.orderSubmitted.set(true);
+      return;
+    }
+
     this.creating.set(true);
+    this.orderSubmitted.set(false);
     const exps = this.newOrder.expenses.filter(e => e.key && e.value != null);
     const payload: CreateOrderPayload = {
       supplier_name: this.newOrder.supplier_name,
       is_purchase_order: this.newOrder.is_purchase_order,
-      line_items: validItems,
+      line_items: validItems.map((i) => ({
+        product_id: i.product_id,
+        quantity: i.quantity,
+        unit_cost: i.unit_cost,
+        ...(i.variant_id ? { variant_id: i.variant_id } : {}),
+      })),
       production_days: this.newOrder.production_days,
       shipping_days: this.newOrder.shipping_days,
       clearing_days: this.newOrder.clearing_days,
@@ -1082,7 +1122,8 @@ export class OrdersPageComponent implements OnInit {
         this.creating.set(false);
         this.showCreate = false;
         this.newOrder = this.emptyOrder();
-        this.newOrderItems.set([{ product_id: '', quantity: 1, unit_cost: 0 }]);
+        this.newOrderItems.set([{ product_id: '', quantity: 1, unit_cost: 0, variant_id: null }]);
+        this.orderSubmitted.set(false);
         this.parseProductsErrors.set([]);
         this.messageService.add({
           severity: 'success',
@@ -1121,6 +1162,32 @@ export class OrdersPageComponent implements OnInit {
       shipping_details: '',
       expenses: [] as { key: string; value: number | null }[],
     };
+  }
+
+  getOrderProductForItem(item: { product_id: string }): Product | undefined {
+    return this.products().find((p) => p.id === item.product_id);
+  }
+
+  getOrderVariantsForProduct(productId: string): ProductVariant[] {
+    const product = this.products().find((p) => p.id === productId);
+    return (product?.variants ?? []).filter((v) => v.is_active);
+  }
+
+  onOrderVariantChange(item: { product_id: string; quantity: number; unit_cost: number; variant_id: string | null }, variantId: string): void {
+    item.variant_id = variantId || null;
+    const product = this.getOrderProductForItem(item);
+    const variant = product?.variants?.find((v) => v.id === variantId);
+    if (variant && variant.cost_price_override != null) {
+      item.unit_cost = parseFloat(variant.cost_price_override);
+    } else if (!variantId) {
+      // Variant deselected — reset cost so the input doesn't show a stale value
+      item.unit_cost = 0;
+    }
+    this.newOrderItems.update(items => [...items]);
+  }
+
+  formatMoney(amount: string | number): string {
+    return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(Number(amount));
   }
 
   addExpense(): void {

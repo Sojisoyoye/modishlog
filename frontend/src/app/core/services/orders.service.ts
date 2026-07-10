@@ -63,7 +63,7 @@ export interface CreateOrderPayload {
   supplier_name: string;
   supplier_id?: string | null;
   is_purchase_order?: boolean;
-  line_items: { product_id: string; quantity: number; unit_cost: number }[];
+  line_items: { product_id: string; quantity: number; unit_cost: number; variant_id?: string }[];
   production_days?: number;
   shipping_days?: number;
   clearing_days?: number;

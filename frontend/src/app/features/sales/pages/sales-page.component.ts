@@ -17,7 +17,7 @@ import {
   BulkUploadResponse,
   QuickQuote,
 } from '../../../core/services/sales.service';
-import { ProductsService, Product } from '../../../core/services/products.service';
+import { ProductsService, Product, ProductVariant } from '../../../core/services/products.service';
 import { InventoryService } from '../../../core/services/inventory.service';
 import { CustomerService, Customer } from '../../../core/services/customer.service';
 import { LocationsService, Location } from '../../../core/services/locations.service';
@@ -27,6 +27,7 @@ interface EntryRow {
   quantity: number;
   unit_price: number | null;
   discount_amount: number | null;
+  variant_id: string | null;
 }
 
 interface TransactionMeta {
@@ -241,6 +242,26 @@ interface TransactionMeta {
                         >{{ getStock(row.product_id) }} in stock</span>
                       }
                     </div>
+                    <!-- Variant picker — shown only when product has variants -->
+                    @if (getProductForRow(row)?.has_variants) {
+                      <div class="mt-1">
+                        <select
+                          [ngModel]="row.variant_id"
+                          (ngModelChange)="onVariantChange(row, $event)"
+                          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm min-h-[44px]"
+                          [class.border-red-400]="!row.variant_id && submitted()">
+                          <option value="">— Select variant —</option>
+                          @for (v of getVariantsForProduct(row.product_id); track v.id) {
+                            <option [value]="v.id">
+                              {{ v.name }}{{ v.price_override != null ? ' (' + formatMoney(v.price_override) + ')' : '' }}
+                            </option>
+                          }
+                        </select>
+                        @if (!row.variant_id && submitted()) {
+                          <p class="text-red-500 text-xs mt-0.5">Please select a variant</p>
+                        }
+                      </div>
+                    }
                   </div>
 
                   <!-- Mobile row 2: Qty + Unit Price + Discount + Total + Remove -->
@@ -1187,6 +1208,7 @@ export class SalesPageComponent implements OnInit {
   history = signal<SaleRecord[]>([]);
   entryRows = signal<EntryRow[]>([this.newRow()]);
   submitting = signal(false);
+  submitted = signal(false);
   saving = signal(false);
   stockMap = signal<Map<string, number>>(new Map());
   productMap = signal<Map<string, string>>(new Map());
@@ -1488,15 +1510,47 @@ export class SalesPageComponent implements OnInit {
   }
 
   onProductChange(row: EntryRow): void {
+    row.variant_id = null;
     if (!row.product_id) {
       row.unit_price = null;
     } else {
       const product = this.products().find((p) => p.id === row.product_id);
-      row.unit_price = product ? product.selling_price : null;
+      if (product && product.has_variants) {
+        // Price will come from variant selection — don't pre-populate
+        row.unit_price = null;
+      } else {
+        row.unit_price = product ? product.selling_price : null;
+      }
     }
     // Mutating a property on the row object doesn't change the signal reference.
     // Spread the array so computed(grandTotal) re-evaluates.
     this.entryRows.update(rows => [...rows]);
+  }
+
+  getProductForRow(row: EntryRow): Product | undefined {
+    return this.products().find((p) => p.id === row.product_id);
+  }
+
+  getVariantsForProduct(productId: string): ProductVariant[] {
+    const product = this.products().find((p) => p.id === productId);
+    return (product?.variants ?? []).filter((v) => v.is_active);
+  }
+
+  onVariantChange(row: EntryRow, variantId: string): void {
+    row.variant_id = variantId || null;
+    const product = this.getProductForRow(row);
+    const variant = product?.variants?.find((v) => v.id === variantId);
+    if (variant) {
+      row.unit_price = variant.price_override != null ? parseFloat(variant.price_override) : (product?.selling_price ?? null);
+    } else {
+      // Variant deselected — clear price so grand total doesn't show stale amount
+      row.unit_price = null;
+    }
+    this.entryRows.update(rows => [...rows]);
+  }
+
+  formatMoney(amount: string | number): string {
+    return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(Number(amount));
   }
 
   refreshRows(): void {
@@ -1540,6 +1594,7 @@ export class SalesPageComponent implements OnInit {
       quantity: 1,
       unit_price: null,
       discount_amount: null,
+      variant_id: null,
     };
   }
 
@@ -1552,12 +1607,23 @@ export class SalesPageComponent implements OnInit {
   }
 
   submitEntries(): void {
+    // Validate variant selection before building the payload
+    const hasVariantError = this.entryRows().some((row) => {
+      const product = this.getProductForRow(row);
+      return product?.has_variants && !row.variant_id;
+    });
+    if (hasVariantError) {
+      this.submitted.set(true);
+      return;
+    }
+
     const meta = this.txnMeta;
     const date = this.saleDate();
     const valid = this.entryRows()
       .filter((r) => r.product_id && r.quantity > 0)
       .map((r) => ({
         product_id: r.product_id,
+        variant_id: r.variant_id || undefined,
         quantity: r.quantity,
         sale_date: date,
         discount_amount: r.discount_amount ?? null,
@@ -1570,9 +1636,11 @@ export class SalesPageComponent implements OnInit {
     if (valid.length === 0) return;
 
     this.submitting.set(true);
+    this.submitted.set(false);
     this.salesService.createDailyEntry(valid).subscribe({
       next: () => {
         this.submitting.set(false);
+        this.submitted.set(false);
         this.entryRows.set([this.newRow()]);
         this.txnMeta = { customer_id: '', payment_method: '', payment_amount: null, payment_date: null, payment_status: 'paid' };
         this.paymentDate.set(null);
