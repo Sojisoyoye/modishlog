@@ -144,7 +144,7 @@ export class ConfirmStepComponent implements OnInit {
   sampleText(entity: ConfirmationSnapshot['entities'][number]): string {
     if (!entity.sample_rows?.length) return '';
     return entity.sample_rows
-      .map((row) => row['name'] || row['sku'] || Object.values(row)[0])
+      .map((row) => row['name']?.trim() || row['sku']?.trim() || '(no name)')
       .join(', ');
   }
 

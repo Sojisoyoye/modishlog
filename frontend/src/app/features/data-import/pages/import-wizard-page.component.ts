@@ -10,6 +10,7 @@ import { ApiCredentialsStepComponent } from '../components/api-credentials-step.
 import { ValidateStepComponent } from '../components/validate-step.component';
 import { ConfirmStepComponent } from '../components/confirm-step.component';
 import { SummaryStepComponent } from '../components/summary-step.component';
+import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 
 type WizardStep =
   | 'history'
@@ -65,6 +66,7 @@ const SOURCE_OPTIONS: SourceOption[] = [
   imports: [
     DatePipe,
     Toast,
+    StatusBadgeComponent,
     CsvUploadStepComponent,
     ApiCredentialsStepComponent,
     ValidateStepComponent,
@@ -118,7 +120,7 @@ const SOURCE_OPTIONS: SourceOption[] = [
                     <td class="px-4 py-3 capitalize text-gray-700">{{ job.source_system }}</td>
                     <td class="px-4 py-3 uppercase text-gray-500">{{ job.extraction_mode }}</td>
                     <td class="px-4 py-3">
-                      <span [class]="statusBadgeClass(job.status)">{{ statusLabel(job.status) }}</span>
+                      <app-status-badge [label]="statusLabel(job.status)" [status]="statusBadgeVariant(job.status)" />
                     </td>
                     <td class="px-4 py-3 text-right text-gray-700">{{ totalRows(job) }}</td>
                     <td class="px-4 py-3 text-right">
@@ -261,6 +263,7 @@ const SOURCE_OPTIONS: SourceOption[] = [
         <app-summary-step
           [job]="activeJob()!"
           (undone)="onUndone()"
+          (failed)="onError($event)"
         />
       }
     }
@@ -287,20 +290,30 @@ export class ImportWizardPageComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.loadHistory();
-
     const jobId = this.route.snapshot.paramMap.get('jobId');
-    if (jobId) {
-      this.importService.getJob(jobId).subscribe({
-        next: (job) => {
-          this.activeJob.set(job);
-          this.selectedSource.set(job.source_system);
-          this.selectedMode.set(job.extraction_mode);
-          this.step.set(this.stepForStatus(job.status));
-        },
-        error: () => this.router.navigate(['/settings/import']),
-      });
+    if (!jobId) {
+      this.loadHistory();
+      return;
     }
+
+    this.importService.getJob(jobId).subscribe({
+      next: (job) => {
+        this.activeJob.set(job);
+        this.selectedSource.set(job.source_system);
+        this.selectedMode.set(job.extraction_mode);
+        const step = this.stepForStatus(job.status);
+        this.step.set(step);
+        if (step === 'history') {
+          this.messageService.add({
+            severity: 'info',
+            summary: 'Import unavailable',
+            detail: `This import is ${humanizeKey(job.status)} — showing import history instead.`,
+          });
+          this.loadHistory();
+        }
+      },
+      error: () => this.router.navigate(['/settings/import']),
+    });
   }
 
   private stepForStatus(status: MigrationJob['status']): WizardStep {
@@ -337,18 +350,22 @@ export class ImportWizardPageComponent implements OnInit {
     this.step.set('source');
   }
 
-  sourceCardClass(system: SourceSystem): string {
-    const base = 'rounded-xl border-2 p-5 text-left transition-colors min-h-[44px]';
-    return this.selectedSource() === system
+  private selectionCardClass(selected: boolean, extraBase = ''): string {
+    const base = `rounded-xl border-2 p-5 text-left transition-colors min-h-[44px]${extraBase}`;
+    return selected
       ? `${base} border-primary bg-emerald-50`
       : `${base} border-gray-200 bg-white hover:border-gray-300`;
   }
 
+  sourceCardClass(system: SourceSystem): string {
+    return this.selectionCardClass(this.selectedSource() === system);
+  }
+
   methodCardClass(mode: ExtractionMode): string {
-    const base = 'rounded-xl border-2 p-5 text-left transition-colors min-h-[44px] disabled:cursor-not-allowed disabled:opacity-40';
-    return this.selectedMode() === mode
-      ? `${base} border-primary bg-emerald-50`
-      : `${base} border-gray-200 bg-white hover:border-gray-300`;
+    return this.selectionCardClass(
+      this.selectedMode() === mode,
+      ' disabled:cursor-not-allowed disabled:opacity-40',
+    );
   }
 
   onJobCreated(job: MigrationJob): void {
@@ -415,12 +432,10 @@ export class ImportWizardPageComponent implements OnInit {
     return humanizeKey(status);
   }
 
-  statusBadgeClass(status: MigrationJob['status']): string {
-    const base = 'inline-block rounded-full px-2 py-0.5 text-xs font-medium capitalize';
-    if (status === 'done') return `${base} bg-emerald-50 text-emerald-700`;
-    if (status === 'failed') return `${base} bg-red-50 text-red-700`;
-    if (status === 'rolled_back') return `${base} bg-gray-100 text-gray-600`;
-    if (status === 'cancelled') return `${base} bg-gray-100 text-gray-600`;
-    return `${base} bg-amber-50 text-amber-700`;
+  statusBadgeVariant(status: MigrationJob['status']): 'success' | 'warning' | 'danger' | 'neutral' {
+    if (status === 'done') return 'success';
+    if (status === 'failed') return 'danger';
+    if (status === 'rolled_back' || status === 'cancelled') return 'neutral';
+    return 'warning';
   }
 }

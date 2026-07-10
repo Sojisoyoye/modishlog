@@ -63,6 +63,7 @@ export class SummaryStepComponent {
 
   job = input.required<MigrationJob>();
   undone = output<void>();
+  failed = output<string>();
 
   undoing = signal(false);
 
@@ -80,8 +81,9 @@ export class SummaryStepComponent {
         this.undoing.set(false);
         this.undone.emit();
       },
-      error: () => {
+      error: (err) => {
         this.undoing.set(false);
+        this.failed.emit(err?.error?.detail || 'Failed to undo import');
       },
     });
   }
