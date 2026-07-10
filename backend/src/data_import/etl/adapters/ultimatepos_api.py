@@ -55,7 +55,7 @@ def _parse_qty(raw: Any) -> int:
     m = re.match(r"^(-?[\d.]+)", str(raw or ""))
     if not m:
         return 0
-    qty_float = float(m.group(1))
+    qty_float = float(m.group(1))  # financial-float-ok — quantity, not money
     if qty_float <= 0:
         return 0
     return max(1, math.ceil(qty_float))
