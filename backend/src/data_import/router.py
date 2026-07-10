@@ -11,7 +11,11 @@ from src.core.database import get_db
 from src.data_import import service
 from src.data_import.etl.adapters.registry import API_ADAPTERS
 from src.data_import.etl.extractor import APIExtractor
-from src.data_import.exceptions import InvalidJobStateError, MigrationJobNotFoundError
+from src.data_import.exceptions import (
+    InvalidJobStateError,
+    MigrationJobNotFoundError,
+    UnsupportedSourceSystemError,
+)
 from src.data_import.models import ExtractionMode, SourceSystem
 from src.data_import.schemas import (
     ConfirmationSnapshot,
@@ -99,6 +103,10 @@ async def create_job(
     customers: UploadFile | None = File(None),
     business_locations: UploadFile | None = File(None),
     sales: UploadFile | None = File(None),
+    api_base_url: str | None = Form(None),
+    username: str | None = Form(None),
+    password: str | None = Form(None),
+    access_token: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     business_id: uuid.UUID = Depends(get_current_business_id),
@@ -117,14 +125,33 @@ async def create_job(
         if upload is not None:
             files[entity] = await upload.read()
 
-    job = await service.create_job(
-        db,
-        business_id=business_id,
-        user_id=current_user.id,
-        source_system=source_system,
-        extraction_mode=extraction_mode,
-        files=files,
-    )
+    # API-mode only — used once for the initial pull, never persisted (see
+    # service.create_job). Left out of the response model entirely.
+    credentials = {
+        k: v
+        for k, v in {"username": username, "password": password, "access_token": access_token}.items()
+        if v is not None
+    }
+
+    try:
+        job = await service.create_job(
+            db,
+            business_id=business_id,
+            user_id=current_user.id,
+            source_system=source_system,
+            extraction_mode=extraction_mode,
+            files=files,
+            api_base_url=api_base_url,
+            credentials=credentials or None,
+        )
+    except UnsupportedSourceSystemError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except NotImplementedError as e:
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Extraction failed: {e}"
+        )
     return job
 
 
