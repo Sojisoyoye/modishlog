@@ -25,8 +25,13 @@ else:
         note="Set REDIS_URL to enable shared rate limiting across workers",
     )
 
+# Disable rate limiting in test environment so Playwright workers don't hit
+# the per-IP cap when multiple tests call loginViaAPI concurrently.
+_enabled = settings.ENVIRONMENT != "test"
+
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["200/minute"],
     storage_uri=_storage_uri,
+    enabled=_enabled,
 )
