@@ -29,6 +29,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from pos_migrate import WIPE_ORDER
 from src.auth.models import Business, User, UserRole
+# Registers the migration_jobs table so SQLAlchemy can resolve every other
+# model's `migration_id` FK to it — without this import, mapper configuration
+# fails on the first flush touching any of those 23 tables (e.g. User).
+from src.data_import.models import MigrationJob  # noqa: F401
 
 log = structlog.get_logger()
 
@@ -61,6 +65,12 @@ async def _wipe_and_seed() -> None:
 
     async with factory() as session:
         for model in WIPE_ORDER:
+            # migration_jobs is referenced by migration_id on every other
+            # WIPE_ORDER table (all cleared by this point, since User is
+            # last) and itself references users — must be wiped right
+            # before User, after everything else.
+            if model is User:
+                await session.execute(delete(MigrationJob))
             await session.execute(delete(model))
         # Business is not in WIPE_ORDER (no FK dependents there), delete separately.
         await session.execute(delete(Business))
