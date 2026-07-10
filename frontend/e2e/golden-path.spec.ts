@@ -61,7 +61,7 @@ test.describe('Golden path — full MVP business cycle', () => {
 
   test('Login redirects to dashboard', async ({ page }) => {
     await loginViaUI(page);
-    await expect(page.getByText('Good day,')).toBeVisible();
+    await expect(page.getByText("Today's Revenue")).toBeVisible();
   });
 
   test('Purchase order transitions from ORDERED through to DELIVERED via UI', async ({ page }) => {

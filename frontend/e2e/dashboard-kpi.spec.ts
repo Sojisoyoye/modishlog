@@ -17,8 +17,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe('KPI summary header', () => {
-  test('shows personalised Welcome heading', async ({ page }) => {
-    await expect(page.getByText('Good day,')).toBeVisible();
+  test('shows dashboard KPI heading after login', async ({ page }) => {
+    await expect(page.getByText("Today's Revenue")).toBeVisible();
   });
 });
 

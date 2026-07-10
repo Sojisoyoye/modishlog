@@ -25,7 +25,7 @@ test('dashboard – page loads with heading', async ({ page }) => {
   await page.goto('/dashboard');
   await page.waitForLoadState('domcontentloaded');
   await shot(page, '01-loaded');
-  await expect(page.getByText('Good day,')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("Today's Revenue")).toBeVisible({ timeout: 10_000 });
 });
 
 // ── 2. FX ticker bar ─────────────────────────────────────────────────────────
@@ -34,7 +34,7 @@ test('dashboard – FX ticker bar is present', async ({ page }) => {
   await shot(page, '02-fx-ticker');
   // Ticker renders currency pair labels once the FX widget loads
   const hasTicker = await page.getByText(/USD\s*\/\s*NGN/).first().isVisible({ timeout: 10_000 }).catch(() => false);
-  const hasLoaded = await page.getByText('Good day,').isVisible({ timeout: 5_000 }).catch(() => false);
+  const hasLoaded = await page.getByText("Today's Revenue").isVisible({ timeout: 5_000 }).catch(() => false);
   expect(hasTicker || hasLoaded).toBe(true);
 });
 

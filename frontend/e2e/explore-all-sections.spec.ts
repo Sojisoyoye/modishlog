@@ -50,7 +50,7 @@ test('dashboard – loads KPI cards', async ({ page }) => {
   await page.waitForLoadState('domcontentloaded');
   await shot(page, '01-dashboard');
   // Dashboard renders the greeting banner and named metric sections
-  await expect(page.getByText('Good day,')).toBeVisible();
+  await expect(page.getByText("Today's Revenue")).toBeVisible();
   // Look for well-known dashboard sections
   const knownSections = ['Cash Health', 'FX Exposure', 'Profit Margin', 'Order Activity'];
   let found = 0;
