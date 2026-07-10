@@ -2,6 +2,7 @@ import uuid
 import zipfile
 from io import BytesIO
 
+import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +12,12 @@ from src.core.database import get_db
 from src.data_import import service
 from src.data_import.etl.adapters.registry import API_ADAPTERS
 from src.data_import.etl.extractor import APIExtractor
-from src.data_import.exceptions import InvalidJobStateError, MigrationJobNotFoundError
+from src.data_import.exceptions import (
+    InvalidJobStateError,
+    MigrationJobNotFoundError,
+    MissingExtractedDataError,
+    UnsupportedSourceSystemError,
+)
 from src.data_import.models import ExtractionMode, SourceSystem
 from src.data_import.schemas import (
     ConfirmationSnapshot,
@@ -22,7 +28,19 @@ from src.data_import.schemas import (
     TestConnectionResponse,
 )
 
+logger = structlog.get_logger()
+
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
+
+
+def _credentials_from_form(
+    username: str | None, password: str | None, access_token: str | None
+) -> dict[str, str]:
+    return {
+        k: v
+        for k, v in {"username": username, "password": password, "access_token": access_token}.items()
+        if v is not None
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -64,15 +82,7 @@ async def test_connection(data: TestConnectionRequest):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"No live-API adapter available for {data.source_system.value}",
         )
-    credentials = {
-        k: v
-        for k, v in {
-            "username": data.username,
-            "password": data.password,
-            "access_token": data.access_token,
-        }.items()
-        if v is not None
-    }
+    credentials = _credentials_from_form(data.username, data.password, data.access_token)
     extractor: APIExtractor = adapter_cls(data.api_base_url, credentials)
     try:
         result = await extractor.test_connection()
@@ -99,6 +109,10 @@ async def create_job(
     customers: UploadFile | None = File(None),
     business_locations: UploadFile | None = File(None),
     sales: UploadFile | None = File(None),
+    api_base_url: str | None = Form(None),
+    username: str | None = Form(None),
+    password: str | None = Form(None),
+    access_token: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     business_id: uuid.UUID = Depends(get_current_business_id),
@@ -117,14 +131,35 @@ async def create_job(
         if upload is not None:
             files[entity] = await upload.read()
 
-    job = await service.create_job(
-        db,
-        business_id=business_id,
-        user_id=current_user.id,
-        source_system=source_system,
-        extraction_mode=extraction_mode,
-        files=files,
-    )
+    # API-mode only — used once for the initial pull, never persisted (see
+    # service.create_job). Left out of the response model entirely.
+    credentials = _credentials_from_form(username, password, access_token)
+
+    try:
+        job = await service.create_job(
+            db,
+            business_id=business_id,
+            user_id=current_user.id,
+            source_system=source_system,
+            extraction_mode=extraction_mode,
+            files=files,
+            api_base_url=api_base_url,
+            credentials=credentials or None,
+        )
+    except UnsupportedSourceSystemError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except NotImplementedError as e:
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(e))
+    except Exception:
+        # Don't leak the raw exception to the client — it may echo request
+        # context (the adapter received the credentials in this same call)
+        # or internal details from the HTTP/parsing library. Log the real
+        # cause server-side; the client gets a safe, generic message.
+        await logger.aexception("data_import_extraction_failed", source_system=source_system.value)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not extract data from the source system — check the base URL and credentials.",
+        )
     return job
 
 
@@ -159,7 +194,10 @@ async def validate_job(
         job = await service.get_job(db, job_id, business_id=business_id)
     except MigrationJobNotFoundError:
         raise HTTPException(status_code=404, detail="Migration job not found")
-    return await service.validate_job(db, job)
+    try:
+        return await service.validate_job(db, job)
+    except MissingExtractedDataError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.get("/jobs/{job_id}/confirmation-snapshot", response_model=ConfirmationSnapshot)
@@ -176,6 +214,8 @@ async def confirmation_snapshot(
         return await service.build_confirmation_snapshot(db, job)
     except InvalidJobStateError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except MissingExtractedDataError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.post("/jobs/{job_id}/confirm", response_model=MigrationJobRead)
@@ -193,6 +233,8 @@ async def confirm_job(
         return await service.confirm_job(db, job, approved=data.approved)
     except InvalidJobStateError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except MissingExtractedDataError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.delete("/jobs/{job_id}", response_model=MigrationJobRead)

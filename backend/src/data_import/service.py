@@ -4,6 +4,7 @@
 
 import csv
 import io
+import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -20,7 +21,12 @@ from src.data_import.etl.loader import load as loader_load
 from src.data_import.etl.loader import rollback as loader_rollback
 from src.data_import.etl.transformer import Transformer
 from src.data_import.etl.validator import validate_extracted_data
-from src.data_import.exceptions import InvalidJobStateError, MigrationJobNotFoundError
+from src.data_import.exceptions import (
+    InvalidJobStateError,
+    MigrationJobNotFoundError,
+    MissingExtractedDataError,
+    UnsupportedSourceSystemError,
+)
 from src.data_import.models import ExtractionMode, MigrationJob, MigrationJobStatus, SourceSystem
 from src.data_import.schemas import ConfirmationSnapshot, SnapshotEntity, ValidationIssue
 
@@ -46,6 +52,33 @@ def _job_upload_dir(job_id: uuid.UUID) -> str:
     return os.path.join(settings.UPLOAD_DIR, "imports", str(job_id))
 
 
+def _job_extracted_json_path(job_id: uuid.UUID) -> str:
+    return os.path.join(_job_upload_dir(job_id), "extracted.json")
+
+
+def _save_extracted_data_sync(job_id: uuid.UUID, data: dict) -> None:
+    path = _job_extracted_json_path(job_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f)
+
+
+async def _save_extracted_data(job_id: uuid.UUID, data: dict) -> None:
+    await anyio.to_thread.run_sync(_save_extracted_data_sync, job_id, data)
+
+
+def _load_extracted_data_sync(job_id: uuid.UUID) -> dict:
+    path = _job_extracted_json_path(job_id)
+    if not os.path.isfile(path):
+        return {}
+    with open(path) as f:
+        return json.load(f)
+
+
+async def _load_extracted_data(job_id: uuid.UUID) -> dict:
+    return await anyio.to_thread.run_sync(_load_extracted_data_sync, job_id)
+
+
 async def create_job(
     db: AsyncSession,
     *,
@@ -55,6 +88,7 @@ async def create_job(
     extraction_mode: ExtractionMode,
     files: dict[str, bytes] | None = None,
     api_base_url: str | None = None,
+    credentials: dict[str, str] | None = None,
 ) -> MigrationJob:
     job = MigrationJob(
         business_id=business_id,
@@ -77,6 +111,32 @@ async def create_job(
                     f.write(raw_bytes)
 
         await anyio.to_thread.run_sync(_write_all)
+
+    elif extraction_mode == ExtractionMode.API:
+        adapter_cls = API_ADAPTERS.get(source_system.value)
+        if adapter_cls is None:
+            raise UnsupportedSourceSystemError(source_system.value, "api")
+
+        # Credentials are used only for this one pull, right now, then
+        # discarded — they are never written to the DB or logged. What DOES
+        # get persisted is the *extracted data* (already plain strings, same
+        # shape CSV extraction produces), so validate/confirm/snapshot can
+        # re-read it later without ever needing credentials again.
+        job.status = MigrationJobStatus.EXTRACTING
+        extractor = adapter_cls(api_base_url, credentials or {})
+        try:
+            extracted = await extractor.extract()
+        except Exception:
+            # Must commit (not just flush) — the exception we're about to
+            # re-raise propagates through get_db's `except: rollback()`,
+            # which would otherwise wipe out this job row entirely, along
+            # with the FAILED status meant to record the failed attempt.
+            job.status = MigrationJobStatus.FAILED
+            await db.commit()
+            raise
+        await _save_extracted_data(job.id, extracted)
+        job.row_counts = {entity: len(rows) for entity, rows in extracted.items()}
+        job.status = MigrationJobStatus.PENDING
 
     logger.info("data_import_job_created", job_id=str(job.id), source_system=source_system.value)
     return job
@@ -127,30 +187,35 @@ async def _extract_and_transform(
     dedup/ghost-record warnings off the transformer.
 
     Known tech debt: validate/snapshot/confirm each call this from scratch —
-    every call re-reads the CSVs and re-runs every dedup query. That's
-    correct (each call sees current DB state) but means three full passes
-    for one job, and a duplicate created between snapshot and confirm could
-    make the two disagree. Acceptable for Phase 0's CSV-upload scale; a
-    caching layer keyed on job_id is the fix if that becomes a problem.
+    every call re-reads the cached extraction and re-runs every dedup query.
+    That's correct (each call sees current DB state) but means three full
+    passes for one job, and a duplicate created between snapshot and confirm
+    could make the two disagree. Acceptable for Phase 0/1's scale; a caching
+    layer for the *transform* step is the fix if that becomes a problem.
     """
     if job.extraction_mode == ExtractionMode.API:
-        adapter_cls = API_ADAPTERS.get(job.source_system.value)
-        if adapter_cls is None:
-            raise NotImplementedError(f"No API adapter registered for {job.source_system.value}")
-        # Credentials aren't persisted anywhere — API-mode confirm/validate for
-        # a job created earlier isn't supported until Phase 1 adapters land.
-        raise NotImplementedError("Live API extraction is a Phase 1 work unit")
+        # Extraction already happened once, at job-creation time (see
+        # create_job) — credentials aren't available here and don't need to
+        # be; the extracted rows are already in target field-name shape
+        # (the API extractor did its own mapping), so no adapter.map_rows()
+        # step is needed, unlike CSV mode below.
+        mapped: dict[str, list[dict]] = await _load_extracted_data(job.id)
+        if not mapped:
+            # A missing cache must never silently degrade to "0 rows,
+            # validation passed" — that's a zero-row import masquerading as
+            # a success. create_job always writes this cache on success (and
+            # fails the job outright otherwise), so an empty result here
+            # means something is genuinely wrong with the job's state.
+            raise MissingExtractedDataError(job.id)
+    else:
+        csv_adapter_cls = CSV_ADAPTERS.get(job.source_system.value, CSV_ADAPTERS["generic"])
+        csv_adapter = csv_adapter_cls()
 
-    csv_adapter_cls = CSV_ADAPTERS.get(job.source_system.value, CSV_ADAPTERS["generic"])
-    csv_adapter = csv_adapter_cls()
+        raw_files = await _load_saved_csv_files(job.id)
+        extractor = CSVExtractor(raw_files)
+        raw = await extractor.extract()
 
-    raw_files = await _load_saved_csv_files(job.id)
-    extractor = CSVExtractor(raw_files)
-    raw = await extractor.extract()
-
-    mapped: dict[str, list[dict]] = {
-        entity: csv_adapter.map_rows(entity, rows) for entity, rows in raw.items()
-    }
+        mapped = {entity: csv_adapter.map_rows(entity, rows) for entity, rows in raw.items()}
 
     transformer = Transformer(db, job.business_id, job.created_by)
 

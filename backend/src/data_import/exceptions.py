@@ -36,3 +36,20 @@ class UnsupportedSourceSystemError(Exception):
         super().__init__(
             f"No {extraction_mode} adapter registered for source system '{source_system}'"
         )
+
+
+class MissingExtractedDataError(Exception):
+    """Raised when an API-mode job has no cached extraction to work from.
+
+    Should never happen in the normal flow (create_job extracts eagerly and
+    fails the job on error) — this is a safety net so a missing cache
+    (deleted from disk, non-persistent filesystem, corrupted job state)
+    surfaces as an explicit error instead of silently validating/confirming
+    an empty, zero-row "successful" import.
+    """
+
+    def __init__(self, job_id: uuid.UUID) -> None:
+        self.job_id = job_id
+        super().__init__(
+            f"Migration job {job_id} has no cached extraction data — cannot proceed"
+        )
