@@ -76,6 +76,7 @@ class BusinessLocation(UUIDMixin, TimestampMixin, Base):
     pos_location_id: Mapped[str | None] = mapped_column(
         String(50), nullable=True, default=None
     )
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<BusinessLocation(id={self.id}, name={self.name}, code={self.location_code})>"

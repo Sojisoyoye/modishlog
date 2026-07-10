@@ -1,0 +1,436 @@
+"""Transform layer — ID remapping, dedup, normalisation, ghost records.
+
+Row shape convention: every raw entity row carries a `source_id` column (the
+value the source system used to identify it) so that other entities in the
+same upload can reference it via a `<entity>_source_id` column. The
+transformer resolves those references into ModishLog UUIDs via `IdMap`.
+"""
+
+import uuid
+from collections import defaultdict
+from decimal import ROUND_HALF_UP, Decimal
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.customers.models import Customer
+from src.data_import.etl.extractor import parse_flexible_amount, parse_flexible_date
+from src.data_import.schemas import ValidationIssue
+from src.products.models import Product
+from src.products.utils import slugify
+from src.sales.models import SaleChannel
+from src.suppliers.models import Supplier
+
+_CHANNEL_MAP = {
+    "online": SaleChannel.ONLINE,
+    "retail": SaleChannel.RETAIL,
+    "in_store": SaleChannel.RETAIL,
+    "in-store": SaleChannel.RETAIL,
+    "wholesale": SaleChannel.WHOLESALE,
+}
+
+
+def normalize_channel(raw: str | None) -> SaleChannel:
+    return _CHANNEL_MAP.get((raw or "retail").strip().lower(), SaleChannel.RETAIL)
+
+_PAYMENT_METHOD_MAP = {
+    "credit card": "card",
+    "debit card": "card",
+    "card": "card",
+    "cash": "cash",
+    "bank": "bank_transfer",
+    "bank transfer": "bank_transfer",
+    "transfer": "bank_transfer",
+    "cheque": "cheque",
+    "check": "cheque",
+    "mobile money": "mobile_money",
+    "pos": "card",
+}
+
+
+class IdMap:
+    """Per-job registry mapping `(entity, source_id) -> ModishLog UUID`."""
+
+    def __init__(self) -> None:
+        self._maps: dict[str, dict[str, uuid.UUID]] = defaultdict(dict)
+
+    def register(self, entity: str, source_id: str, internal_id: uuid.UUID) -> None:
+        if not source_id:
+            return
+        self._maps[entity][source_id] = internal_id
+
+    def lookup(self, entity: str, source_id: str) -> uuid.UUID | None:
+        return self._maps[entity].get(source_id)
+
+
+def normalize_amount(raw: str) -> Decimal:
+    return parse_flexible_amount(raw).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+
+def normalize_date(raw: str):
+    return parse_flexible_date(raw)
+
+
+def normalize_payment_method(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    return _PAYMENT_METHOD_MAP.get(raw.strip().lower(), "other")
+
+
+def normalize_name(name: str) -> str:
+    return " ".join(name.split()).lower()
+
+
+class Transformer:
+    """Stateful per-job transform pass — holds the id_map and accumulated warnings."""
+
+    def __init__(
+        self,
+        db: AsyncSession,
+        business_id: uuid.UUID,
+        created_by: uuid.UUID,
+        id_map: IdMap | None = None,
+    ) -> None:
+        self.db = db
+        self.business_id = business_id
+        # Every imported row needs an owning user for required created_by /
+        # recorded_by columns — attributed to whoever ran the import job.
+        self.created_by = created_by
+        self.id_map = id_map or IdMap()
+        self.warnings: list[ValidationIssue] = []
+
+    def _assign_id(self, entity: str, source_id: str | None) -> uuid.UUID:
+        """Pre-assign a UUID for a new row and register it immediately.
+
+        The loader hasn't run yet at transform time, so anything referencing
+        this row later in the same job (a child category, a variant, a sale)
+        needs an id to resolve against *before* any DB write happens — this
+        keeps transform a pure dry-run step, safe to call from validate/
+        snapshot without touching the database.
+        """
+        new_id = uuid.uuid4()
+        self.id_map.register(entity, source_id, new_id)
+        return new_id
+
+    # ------------------------------------------------------------------
+    # Dedup lookups
+    # ------------------------------------------------------------------
+
+    async def dedup_customer(self, email: str | None, phone: str | None) -> Customer | None:
+        if email:
+            result = await self.db.execute(
+                select(Customer).where(
+                    Customer.business_id == self.business_id,
+                    func.lower(Customer.email) == email.lower(),
+                )
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                return existing
+        if phone:
+            result = await self.db.execute(
+                select(Customer).where(
+                    Customer.business_id == self.business_id,
+                    Customer.contact_number == phone,
+                )
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                return existing
+        return None
+
+    async def dedup_supplier(self, name: str, email: str | None) -> Supplier | None:
+        q = select(Supplier).where(
+            Supplier.business_id == self.business_id,
+            func.lower(Supplier.name) == name.lower(),
+        )
+        if email:
+            q = q.where(func.lower(Supplier.email) == email.lower())
+        result = await self.db.execute(q)
+        return result.scalar_one_or_none()
+
+    async def dedup_product(self, barcode: str | None, sku: str | None) -> Product | None:
+        if barcode:
+            result = await self.db.execute(select(Product).where(Product.barcode == barcode))
+            existing = result.scalar_one_or_none()
+            if existing:
+                return existing
+        if sku:
+            result = await self.db.execute(
+                select(Product).where(
+                    Product.business_id == self.business_id, Product.sku == sku
+                )
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                return existing
+        return None
+
+    # ------------------------------------------------------------------
+    # Entity transforms — each returns normalised dicts ready for the loader
+    # ------------------------------------------------------------------
+
+    async def transform_categories(self, raw_rows: list[dict]) -> list[dict]:
+        out = []
+        for row in raw_rows:
+            parent_id = None
+            parent_source_id = row.get("parent_source_id")
+            if parent_source_id:
+                parent_id = self.id_map.lookup("product_categories", parent_source_id)
+            source_id = row.get("source_id")
+            out.append(
+                {
+                    "id": self._assign_id("product_categories", source_id),
+                    "_source_id": source_id,
+                    "name": row["name"].strip(),
+                    "description": row.get("description") or None,
+                    "parent_id": parent_id,
+                    "business_id": self.business_id,
+                }
+            )
+        return out
+
+    async def transform_products(self, raw_rows: list[dict]) -> list[dict]:
+        out = []
+        for row in raw_rows:
+            barcode = row.get("barcode") or None
+            sku = row.get("sku") or None
+            name = row["name"].strip()
+            existing = await self.dedup_product(barcode, sku)
+            if existing is not None:
+                self.id_map.register("products", row.get("source_id"), existing.id)
+                continue
+
+            category_id = None
+            category_source_id = row.get("category_source_id")
+            if category_source_id:
+                category_id = self.id_map.lookup("product_categories", category_source_id)
+
+            source_id = row.get("source_id")
+            out.append(
+                {
+                    "id": self._assign_id("products", source_id),
+                    "_source_id": source_id,
+                    "name": name,
+                    "sku": sku or f"IMPORTED-{uuid.uuid4().hex[:10].upper()}",
+                    "slug": slugify(name) or f"product-{uuid.uuid4().hex[:8]}",
+                    "barcode": barcode,
+                    "unit_cost": normalize_amount(row.get("unit_cost", "0")),
+                    "selling_price": normalize_amount(row.get("selling_price", "0")),
+                    "currency": row.get("currency", "NGN").upper(),
+                    "category_id": category_id,
+                    "is_active": row.get("is_active", "true").strip().lower() != "false",
+                    "business_id": self.business_id,
+                }
+            )
+        return out
+
+    async def transform_variants(self, raw_rows: list[dict]) -> list[dict]:
+        out = []
+        for row in raw_rows:
+            product_id = self.id_map.lookup("products", row.get("product_source_id"))
+            if product_id is None:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="product_variants",
+                        row=0,
+                        field="product_source_id",
+                        severity="warning",
+                        message=f"Variant references unknown product {row.get('product_source_id')!r} — skipped",
+                    )
+                )
+                continue
+            source_id = row.get("source_id")
+            out.append(
+                {
+                    "id": self._assign_id("product_variants", source_id),
+                    "_source_id": source_id,
+                    "product_id": product_id,
+                    "name": row["name"].strip(),
+                    "sku": row.get("sku") or None,
+                    "barcode": row.get("barcode") or None,
+                    "attributes": {
+                        k: v
+                        for k, v in (
+                            pair.split(":", 1) for pair in row.get("attributes", "").split(";") if ":" in pair
+                        )
+                    },
+                    "price_override": (
+                        normalize_amount(row["price_override"]) if row.get("price_override") else None
+                    ),
+                    "cost_price_override": (
+                        normalize_amount(row["cost_price_override"])
+                        if row.get("cost_price_override")
+                        else None
+                    ),
+                    "business_id": self.business_id,
+                }
+            )
+        return out
+
+    async def transform_suppliers(self, raw_rows: list[dict]) -> list[dict]:
+        out = []
+        for row in raw_rows:
+            name = row["name"].strip()
+            email = row.get("email") or None
+            existing = await self.dedup_supplier(name, email)
+            if existing is not None:
+                self.id_map.register("suppliers", row.get("source_id"), existing.id)
+                continue
+            source_id = row.get("source_id")
+            out.append(
+                {
+                    "id": self._assign_id("suppliers", source_id),
+                    "_source_id": source_id,
+                    "name": name,
+                    "email": email,
+                    "contact_person": row.get("contact_person") or None,
+                    "mobile": row.get("mobile") or None,
+                    "business_id": self.business_id,
+                    "created_by": self.created_by,
+                }
+            )
+        return out
+
+    async def transform_customers(self, raw_rows: list[dict]) -> list[dict]:
+        out = []
+        for row in raw_rows:
+            email = row.get("email") or None
+            phone = row.get("contact_number") or None
+            existing = await self.dedup_customer(email, phone)
+            if existing is not None:
+                self.id_map.register("customers", row.get("source_id"), existing.id)
+                if not existing.name and row.get("name"):
+                    existing.name = row["name"].strip()
+                continue
+            source_id = row.get("source_id")
+            out.append(
+                {
+                    "id": self._assign_id("customers", source_id),
+                    "_source_id": source_id,
+                    "name": row["name"].strip(),
+                    "email": email,
+                    "contact_number": phone,
+                    "business_id": self.business_id,
+                    "created_by": self.created_by,
+                }
+            )
+        return out
+
+    def transform_locations(self, raw_rows: list[dict]) -> list[dict]:
+        out = []
+        for row in raw_rows:
+            source_id = row.get("source_id")
+            out.append(
+                {
+                    "id": self._assign_id("business_locations", source_id),
+                    "_source_id": source_id,
+                    "name": row["name"].strip(),
+                    "location_code": row.get("location_code") or row["name"][:20].upper(),
+                    "business_id": self.business_id,
+                    "created_by": self.created_by,
+                }
+            )
+        return out
+
+    def transform_sales(
+        self, raw_rows: list[dict], location_map: dict[str, uuid.UUID] | None = None
+    ) -> list[dict]:
+        location_map = location_map or {}
+        out = []
+        for i, row in enumerate(raw_rows, start=2):
+            product_id = self.id_map.lookup("products", row.get("product_source_id"))
+            if product_id is None:
+                # detect_ghost_products() should have run first and registered a
+                # ghost product for every unresolved reference — this is a bug
+                # in the caller's ordering, not bad input, so it's an error.
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="sales",
+                        row=i,
+                        field="product_source_id",
+                        severity="error",
+                        message=f"Product {row.get('product_source_id')!r} could not be resolved",
+                    )
+                )
+                continue
+
+            variant_id = None
+            if row.get("variant_source_id"):
+                variant_id = self.id_map.lookup("product_variants", row["variant_source_id"])
+
+            customer_id = None
+            if row.get("customer_source_id"):
+                customer_id = self.id_map.lookup("customers", row["customer_source_id"])
+
+            location_id = None
+            source_location = row.get("location_name") or row.get("location_source_id")
+            if source_location:
+                location_id = location_map.get(source_location)
+                if location_id is None:
+                    self.warnings.append(
+                        ValidationIssue(
+                            entity="sales",
+                            row=i,
+                            field="location_name",
+                            severity="warning",
+                            message=f"Location {source_location!r} not mapped — assigned to default location",
+                        )
+                    )
+
+            out.append(
+                {
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "customer_id": customer_id,
+                    "location_id": location_id,
+                    "quantity": int(row["quantity"]),
+                    "unit_price": normalize_amount(row["unit_price"]),
+                    "total_amount": normalize_amount(row["unit_price"]) * int(row["quantity"]),
+                    "currency": row.get("currency", "NGN").upper(),
+                    "sale_date": normalize_date(row["sale_date"]),
+                    "channel": normalize_channel(row.get("channel")),
+                    "payment_method": normalize_payment_method(row.get("payment_method")),
+                    "business_id": self.business_id,
+                    "recorded_by": self.created_by,
+                }
+            )
+        return out
+
+    def detect_ghost_products(
+        self, sales_raw: list[dict], known_product_source_ids: set[str]
+    ) -> list[dict]:
+        """Sale rows referencing a product not in the products upload get a
+        placeholder ("ghost") product so the sale can still be imported and
+        history is preserved.
+        """
+        seen: set[str] = set()
+        ghosts = []
+        for row in sales_raw:
+            source_id = row.get("product_source_id")
+            if not source_id or source_id in known_product_source_ids or source_id in seen:
+                continue
+            seen.add(source_id)
+            display_name = row.get("product_name") or source_id
+            ghosts.append(
+                {
+                    "source_id": source_id,
+                    "name": f"[Deleted Product: {display_name}]",
+                    "sku": "",
+                    "barcode": "",
+                    "unit_cost": "0",
+                    "selling_price": "0",
+                    "currency": "NGN",
+                    "is_active": "false",
+                }
+            )
+            self.warnings.append(
+                ValidationIssue(
+                    entity="products",
+                    row=0,
+                    field="product_source_id",
+                    severity="warning",
+                    message=f"Product {source_id!r} not found in upload — imported as a ghost record",
+                )
+            )
+        return ghosts

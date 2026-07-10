@@ -205,6 +205,7 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     business_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("businesses.id"), nullable=False, index=True
     )
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
 
     line_items: Mapped[list["OrderLineItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
@@ -243,6 +244,7 @@ class OrderLineItem(UUIDMixin, Base):
     )
     line_total: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     notes: Mapped[str | None] = mapped_column(Text, default=None)
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
 
     order: Mapped["PurchaseOrder"] = relationship(back_populates="line_items")
 
@@ -261,6 +263,7 @@ class OrderStatusHistory(UUIDMixin, Base):
     transitioned_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
 
     order: Mapped["PurchaseOrder"] = relationship(back_populates="status_history")
 
@@ -289,6 +292,7 @@ class OrderPayment(UUIDMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
 
     order: Mapped["PurchaseOrder"] = relationship(back_populates="payments")
 
