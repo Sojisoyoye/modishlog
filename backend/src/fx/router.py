@@ -456,6 +456,22 @@ async def generate_forecast_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+@router.get("/forecast/{pair}/accuracy", response_model=ForecastAccuracy)
+async def forecast_accuracy_endpoint(
+    pair: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get forecast accuracy metrics."""
+    from src.fx.forecast_service import update_forecast_accuracy
+
+    return await update_forecast_accuracy(db, pair)
+
+
+# G2 — /forecast/{pair}/{target_date} must stay below every other
+# /forecast/{pair}/... route: {target_date} matches any single path segment
+# (including literal strings like "accuracy"), so a more specific static
+# route declared after it would be unreachable — FastAPI resolves by
+# declaration order and does not fall through on a param-parse failure.
 @router.get("/forecast/{pair}/{target_date}", response_model=ForecastRead)
 async def get_forecast_for_date_endpoint(
     pair: str,
@@ -489,14 +505,3 @@ async def get_forecast_range_endpoint(
         forecasts=forecast_reads,
         model_version=model_ver,
     )
-
-
-@router.get("/forecast/{pair}/accuracy", response_model=ForecastAccuracy)
-async def forecast_accuracy_endpoint(
-    pair: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Get forecast accuracy metrics."""
-    from src.fx.forecast_service import update_forecast_accuracy
-
-    return await update_forecast_accuracy(db, pair)

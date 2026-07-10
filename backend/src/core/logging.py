@@ -27,7 +27,7 @@ def sanitize_url(url: str) -> str:
         postgresql+asyncpg://user:SuperSecret@host:5432/db
         → postgresql+asyncpg://user:***@host:5432/db
 
-        postgresql+asyncpg://localhost/modishlog  (no password)
+        postgresql+asyncpg://localhost/modishlog  (no credentials in the URL)
         → postgresql+asyncpg://localhost/modishlog  (unchanged)
     """
     if not url:
