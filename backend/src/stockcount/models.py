@@ -57,7 +57,7 @@ class StockCount(UUIDMixin, TimestampMixin, Base):
     finalized_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), default=None
     )
-    migration_id: Mapped[Optional[uuid.UUID]] = mapped_column(nullable=True, index=True, default=None)
+    migration_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     items: Mapped[list["StockCountItem"]] = relationship(
         back_populates="stock_count", cascade="all, delete-orphan"
@@ -93,7 +93,7 @@ class StockCountItem(UUIDMixin, Base):
         Numeric(18, 6), nullable=True, default=None
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, default=None)
-    migration_id: Mapped[Optional[uuid.UUID]] = mapped_column(nullable=True, index=True, default=None)
+    migration_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     stock_count: Mapped["StockCount"] = relationship(back_populates="items")
     product: Mapped["Product"] = relationship(  # type: ignore[name-defined]

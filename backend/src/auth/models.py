@@ -63,7 +63,7 @@ class User(UUIDMixin, TimestampMixin, Base):
     business_id: Mapped[_uuid.UUID | None] = mapped_column(
         ForeignKey("businesses.id"), nullable=True, index=True
     )
-    migration_id: Mapped[_uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
+    migration_id: Mapped[_uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
     business: Mapped["Business | None"] = relationship(back_populates="users", lazy="selectin")
 
     def __repr__(self) -> str:

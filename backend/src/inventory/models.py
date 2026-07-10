@@ -69,7 +69,7 @@ class InventoryLevel(UUIDMixin, TimestampMixin, Base):
     last_replenished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<InventoryLevel(product_id={self.product_id}, variant_id={self.variant_id}, on_hand={self.quantity_on_hand})>"
@@ -99,7 +99,7 @@ class StockMovement(UUIDMixin, Base):
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
     )
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<StockMovement(id={self.id}, type={self.movement_type})>"
@@ -151,7 +151,7 @@ class InventoryBatch(UUIDMixin, Base):
     landed_cost_per_unit: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     received_at: Mapped[date] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<InventoryBatch(id={self.id}, product_id={self.product_id}, remaining={self.quantity_remaining})>"

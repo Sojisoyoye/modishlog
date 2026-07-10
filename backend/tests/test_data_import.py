@@ -40,6 +40,7 @@ def _mock_db():
     db = AsyncMock()
     db.flush = AsyncMock()
     db.add = MagicMock()
+    db.add_all = MagicMock()
     return db
 
 
@@ -225,6 +226,20 @@ class TestTransformerDedup:
         # Only the barcode lookup should have run — sku lookup short-circuits.
         assert db.execute.await_count == 1
 
+    @pytest.mark.asyncio
+    async def test_dedup_product_barcode_lookup_is_scoped_to_business_id(self):
+        """A barcode match from another business must never leak into this
+        job's id_map — barcode has no global-uniqueness constraint."""
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=_none_result())
+        transformer = Transformer(db, BUSINESS_ID, CREATED_BY)
+
+        await transformer.dedup_product("123456", None)
+
+        executed_query = db.execute.call_args_list[0].args[0]
+        compiled = str(executed_query.compile(compile_kwargs={"literal_binds": False}))
+        assert "business_id" in compiled
+
 
 class TestTransformProducts:
     @pytest.mark.asyncio
@@ -304,6 +319,27 @@ class TestGhostProducts:
         assert result == []
         assert any(w.severity == "error" for w in transformer.warnings)
 
+    def test_sale_with_unparseable_quantity_is_dropped_not_raised(self):
+        """Malformed quantity must never crash transform — validator hasn't
+        had a chance to reject it yet when this runs (transform is called
+        before validate_extracted_data in the pipeline)."""
+        id_map = IdMap()
+        product_id = uuid.uuid4()
+        id_map.register("products", "P1", product_id)
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY, id_map)
+
+        sales_raw = [
+            {
+                "product_source_id": "P1",
+                "quantity": "five",
+                "unit_price": "10",
+                "sale_date": "2026-01-01",
+            }
+        ]
+        result = transformer.transform_sales(sales_raw)
+        assert result == []
+        assert any(w.severity == "error" for w in transformer.warnings)
+
 
 class TestTransformCategories:
     @pytest.mark.asyncio
@@ -349,7 +385,7 @@ class TestLoader:
 
         assert row_counts["products"] == 1
         assert row_counts["sales"] == 0
-        added_product = db.add.call_args_list[0].args[0]
+        added_product = db.add_all.call_args_list[0].args[0][0]
         assert added_product.migration_id == migration_id
         assert added_product.id == product_id
 
@@ -358,7 +394,7 @@ class TestLoader:
         db = _mock_db()
         row_counts = await loader_load(db, uuid.uuid4(), {}, IdMap())
         assert all(count == 0 for count in row_counts.values())
-        db.add.assert_not_called()
+        db.add_all.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_rollback_deletes_by_migration_id_in_reverse_order(self):

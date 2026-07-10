@@ -64,7 +64,7 @@ class Customer(UUIDMixin, TimestampMixin, Base):
     business_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("businesses.id"), nullable=False, index=True
     )
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<Customer(id={self.id}, name={self.name})>"

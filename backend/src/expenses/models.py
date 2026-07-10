@@ -17,7 +17,7 @@ class ExpenseCategory(UUIDMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(150), index=True)
     description: Mapped[str | None] = mapped_column(Text, default=None)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     expenses: Mapped[list["Expense"]] = relationship(
         "Expense", back_populates="category", lazy="raise"
@@ -45,7 +45,7 @@ class Expense(UUIDMixin, TimestampMixin, Base):
         ForeignKey("business_locations.id"), nullable=True
     )
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True, default=None)
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     category: Mapped["ExpenseCategory | None"] = relationship(
         "ExpenseCategory", back_populates="expenses", lazy="raise"

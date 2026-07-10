@@ -48,19 +48,24 @@ async def load(
     for entity, model_cls in LOAD_ORDER:
         rows = transformed.get(entity, [])
         valid_columns = {c.name for c in inspect(model_cls).columns}
-        count = 0
+        objs = []
+        source_ids = []
         for row in rows:
             row = dict(row)
-            source_id = row.pop("_source_id", None)
+            source_ids.append(row.pop("_source_id", None))
             kwargs = {k: v for k, v in row.items() if k in valid_columns}
             kwargs["migration_id"] = migration_id
-            obj = model_cls(**kwargs)
-            db.add(obj)
+            objs.append(model_cls(**kwargs))
+        if objs:
+            db.add_all(objs)
+            # Ids are pre-assigned by the transformer (see Transformer._assign_id),
+            # so one flush per entity is enough — no need to flush per row to
+            # discover generated PKs.
             await db.flush()
-            if source_id:
-                id_map.register(entity, source_id, obj.id)
-            count += 1
-        row_counts[entity] = count
+            for obj, source_id in zip(objs, source_ids):
+                if source_id:
+                    id_map.register(entity, source_id, obj.id)
+        row_counts[entity] = len(objs)
     return row_counts
 
 

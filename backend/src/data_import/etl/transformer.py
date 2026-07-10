@@ -8,7 +8,7 @@ transformer resolves those references into ModishLog UUIDs via `IdMap`.
 
 import uuid
 from collections import defaultdict
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -151,7 +151,16 @@ class Transformer:
 
     async def dedup_product(self, barcode: str | None, sku: str | None) -> Product | None:
         if barcode:
-            result = await self.db.execute(select(Product).where(Product.barcode == barcode))
+            # Scoped by business_id like every other dedup lookup — barcode has
+            # no global-uniqueness constraint in this schema, so an unscoped
+            # match here would leak another business's product into this job's
+            # id_map (a cross-tenant data leak, per the isolation invariant
+            # from the business_id migration work).
+            result = await self.db.execute(
+                select(Product).where(
+                    Product.business_id == self.business_id, Product.barcode == barcode
+                )
+            )
             existing = result.scalar_one_or_none()
             if existing:
                 return existing
@@ -299,9 +308,9 @@ class Transformer:
             phone = row.get("contact_number") or None
             existing = await self.dedup_customer(email, phone)
             if existing is not None:
+                # No mutation of `existing` here — transform must stay a pure
+                # dry-run (validate/snapshot call it without writing to the DB).
                 self.id_map.register("customers", row.get("source_id"), existing.id)
-                if not existing.name and row.get("name"):
-                    existing.name = row["name"].strip()
                 continue
             source_id = row.get("source_id")
             out.append(
@@ -355,6 +364,23 @@ class Transformer:
                 )
                 continue
 
+            # transform runs before validator.validate_extracted_data (it needs
+            # to happen first to populate id_map), so malformed quantity/price
+            # values haven't been rejected yet — coerce defensively here rather
+            # than let int()/Decimal() raise and crash the whole dry-run.
+            try:
+                quantity = int(row["quantity"])
+                unit_price = normalize_amount(row["unit_price"])
+                sale_date = normalize_date(row["sale_date"])
+            except (KeyError, ValueError, InvalidOperation) as e:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="sales", row=i, severity="error",
+                        message=f"Could not parse row: {e}",
+                    )
+                )
+                continue
+
             variant_id = None
             if row.get("variant_source_id"):
                 variant_id = self.id_map.lookup("product_variants", row["variant_source_id"])
@@ -384,11 +410,11 @@ class Transformer:
                     "variant_id": variant_id,
                     "customer_id": customer_id,
                     "location_id": location_id,
-                    "quantity": int(row["quantity"]),
-                    "unit_price": normalize_amount(row["unit_price"]),
-                    "total_amount": normalize_amount(row["unit_price"]) * int(row["quantity"]),
+                    "quantity": quantity,
+                    "unit_price": unit_price,
+                    "total_amount": unit_price * quantity,
                     "currency": row.get("currency", "NGN").upper(),
-                    "sale_date": normalize_date(row["sale_date"]),
+                    "sale_date": sale_date,
                     "channel": normalize_channel(row.get("channel")),
                     "payment_method": normalize_payment_method(row.get("payment_method")),
                     "business_id": self.business_id,

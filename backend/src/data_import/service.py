@@ -103,7 +103,7 @@ async def get_job(db: AsyncSession, job_id: uuid.UUID, *, business_id: uuid.UUID
     return job
 
 
-def _load_saved_csv_files(job_id: uuid.UUID) -> dict[str, bytes]:
+def _load_saved_csv_files_sync(job_id: uuid.UUID) -> dict[str, bytes]:
     upload_dir = _job_upload_dir(job_id)
     if not os.path.isdir(upload_dir):
         return {}
@@ -115,12 +115,23 @@ def _load_saved_csv_files(job_id: uuid.UUID) -> dict[str, bytes]:
     return files
 
 
+async def _load_saved_csv_files(job_id: uuid.UUID) -> dict[str, bytes]:
+    return await anyio.to_thread.run_sync(_load_saved_csv_files_sync, job_id)
+
+
 async def _extract_and_transform(
     db: AsyncSession, job: MigrationJob
 ) -> tuple[dict[str, list[dict]], dict[str, list[dict]], Transformer]:
     """Returns (mapped_raw_rows, transformed_rows, transformer) so the caller
     can validate structural issues on the mapped raw rows and pull
     dedup/ghost-record warnings off the transformer.
+
+    Known tech debt: validate/snapshot/confirm each call this from scratch —
+    every call re-reads the CSVs and re-runs every dedup query. That's
+    correct (each call sees current DB state) but means three full passes
+    for one job, and a duplicate created between snapshot and confirm could
+    make the two disagree. Acceptable for Phase 0's CSV-upload scale; a
+    caching layer keyed on job_id is the fix if that becomes a problem.
     """
     if job.extraction_mode == ExtractionMode.API:
         adapter_cls = API_ADAPTERS.get(job.source_system.value)
@@ -133,7 +144,7 @@ async def _extract_and_transform(
     csv_adapter_cls = CSV_ADAPTERS.get(job.source_system.value, CSV_ADAPTERS["generic"])
     csv_adapter = csv_adapter_cls()
 
-    raw_files = _load_saved_csv_files(job.id)
+    raw_files = await _load_saved_csv_files(job.id)
     extractor = CSVExtractor(raw_files)
     raw = await extractor.extract()
 
@@ -171,9 +182,7 @@ async def _extract_and_transform(
 async def validate_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
     mapped, transformed, transformer = await _extract_and_transform(db, job)
 
-    issues: list[ValidationIssue] = []
-    for entity, rows in mapped.items():
-        issues.extend(validate_extracted_data({entity: rows}))
+    issues: list[ValidationIssue] = validate_extracted_data(mapped)
     issues.extend(transformer.warnings)
 
     errors = [i for i in issues if i.severity == "error"]

@@ -102,12 +102,16 @@ def upgrade() -> None:
             table,
             sa.Column("migration_id", postgresql.UUID(as_uuid=True), nullable=True),
         )
+        op.create_foreign_key(
+            f"fk_{table}_migration_id", table, "migration_jobs", ["migration_id"], ["id"]
+        )
         op.create_index(f"ix_{table}_migration_id", table, ["migration_id"])
 
 
 def downgrade() -> None:
     for table in reversed(MIGRATION_ID_TABLES):
         op.drop_index(f"ix_{table}_migration_id", table_name=table)
+        op.drop_constraint(f"fk_{table}_migration_id", table, type_="foreignkey")
         op.drop_column(table, "migration_id")
 
     op.drop_index("ix_migration_jobs_business_id", table_name="migration_jobs")
