@@ -155,6 +155,20 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'settings/import',
+        loadComponent: () =>
+          import('./features/data-import/pages/import-wizard-page.component').then(
+            (m) => m.ImportWizardPageComponent,
+          ),
+      },
+      {
+        path: 'settings/import/:jobId',
+        loadComponent: () =>
+          import('./features/data-import/pages/import-wizard-page.component').then(
+            (m) => m.ImportWizardPageComponent,
+          ),
+      },
+      {
         path: 'reports',
         loadComponent: () =>
           import('./features/reports/pages/reports-index.component').then(
