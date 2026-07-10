@@ -2,13 +2,12 @@ import { Component, ChangeDetectionStrategy, inject, input, output, signal } fro
 import { ImportService } from '../services/import.service';
 import { MigrationJob, SourceSystem, IMPORTABLE_ENTITIES, ImportEntity, ENTITY_LABELS, REQUIRED_ENTITIES } from '../models/import.models';
 
+const REMAP_INSTRUCTION_TAIL = 'then re-map the columns using our templates below.';
+
 const SOURCE_INSTRUCTIONS: Record<SourceSystem, string> = {
-  ultimatepos:
-    'In UltimatePOS, go to each module (Products, Contacts, Sell) and use "Export" to download a CSV, then re-map the columns using our templates below.',
-  quickbooks:
-    "In QuickBooks, use Reports → Export to CSV for Items, Customers, Vendors and Invoices, then re-map the columns using our templates below.",
-  shopify:
-    "In Shopify Admin, use the Shopify products and orders CSV export (Products → Export, Orders → Export), then re-map the columns using our templates below.",
+  ultimatepos: `In UltimatePOS, go to each module (Products, Contacts, Sell) and use "Export" to download a CSV, ${REMAP_INSTRUCTION_TAIL}`,
+  quickbooks: `In QuickBooks, use Reports → Export to CSV for Items, Customers, Vendors and Invoices, ${REMAP_INSTRUCTION_TAIL}`,
+  shopify: `In Shopify Admin, use the Shopify products and orders CSV export (Products → Export, Orders → Export), ${REMAP_INSTRUCTION_TAIL}`,
   generic: 'Fill in our templates directly — no re-mapping needed.',
 };
 
@@ -140,7 +139,6 @@ export class CsvUploadStepComponent {
   sourceSystem = input.required<SourceSystem>();
   back = output<void>();
   jobCreated = output<MigrationJob>();
-  failed = output<string>();
 
   readonly entities = IMPORTABLE_ENTITIES;
   readonly allTemplatesUrl = this.importService.getAllTemplatesUrl();
@@ -190,9 +188,9 @@ export class CsvUploadStepComponent {
       },
       error: (err) => {
         this.submitting.set(false);
-        const message = err?.error?.detail || 'Failed to upload files';
-        this.errorMessage.set(message);
-        this.failed.emit(message);
+        // Shown inline (below) — don't also emit `failed`, which the
+        // parent surfaces as a toast; that duplicated this message.
+        this.errorMessage.set(err?.error?.detail || 'Failed to upload files');
       },
     });
   }

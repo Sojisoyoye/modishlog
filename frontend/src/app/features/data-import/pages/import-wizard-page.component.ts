@@ -134,9 +134,14 @@ const SOURCE_OPTIONS: SourceOption[] = [
                       @if (job.status === 'done') {
                         <button
                           (click)="undoFromHistory(job)"
-                          class="rounded px-2 py-1 text-xs text-muted hover:bg-red-50 hover:text-red-600"
+                          [disabled]="undoingJobIds().has(job.id)"
+                          class="rounded px-2 py-1 text-xs text-muted hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
                         >
-                          Undo
+                          @if (undoingJobIds().has(job.id)) {
+                            Undoing...
+                          } @else {
+                            Undo
+                          }
                         </button>
                       }
                     </td>
@@ -237,7 +242,6 @@ const SOURCE_OPTIONS: SourceOption[] = [
             [sourceSystem]="selectedSource()!"
             (back)="step.set('method')"
             (jobCreated)="onJobCreated($event)"
-            (failed)="onError($event)"
           />
         } @else {
           <app-api-credentials-step
@@ -290,6 +294,7 @@ export class ImportWizardPageComponent implements OnInit {
   selectedSource = signal<SourceSystem | null>(null);
   selectedMode = signal<ExtractionMode | null>(null);
   activeJob = signal<MigrationJob | null>(null);
+  undoingJobIds = signal<ReadonlySet<string>>(new Set());
 
   supportsApi = computed(() => {
     const source = this.selectedSource();
@@ -416,8 +421,12 @@ export class ImportWizardPageComponent implements OnInit {
     this.loadHistory();
   }
 
-  onUndone(): void {
+  private notifyImportUndone(): void {
     this.messageService.add({ severity: 'success', summary: 'Import undone', detail: 'All imported records were removed.' });
+  }
+
+  onUndone(): void {
+    this.notifyImportUndone();
     this.location.go('/settings/import');
     this.activeJob.set(null);
     this.step.set('history');
@@ -425,13 +434,25 @@ export class ImportWizardPageComponent implements OnInit {
   }
 
   undoFromHistory(job: MigrationJob): void {
+    if (this.undoingJobIds().has(job.id)) return;
     if (!window.confirm('Undo this import? All records it created will be removed.')) return;
+    this.undoingJobIds.update((ids) => new Set(ids).add(job.id));
     this.importService.rollbackJob(job.id).subscribe({
       next: () => {
-        this.messageService.add({ severity: 'success', summary: 'Import undone', detail: 'All imported records were removed.' });
+        this.undoingJobIds.update((ids) => {
+          const next = new Set(ids);
+          next.delete(job.id);
+          return next;
+        });
+        this.notifyImportUndone();
         this.loadHistory();
       },
       error: () => {
+        this.undoingJobIds.update((ids) => {
+          const next = new Set(ids);
+          next.delete(job.id);
+          return next;
+        });
         this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to undo import' });
       },
     });
