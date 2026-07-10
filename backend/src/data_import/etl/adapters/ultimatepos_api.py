@@ -136,7 +136,7 @@ class _POSAPIClient:
 
     def login(self) -> None:
         csrf = self._csrf("/login")
-        status, body = self._post("/login", {"_token": csrf, "username": self._username, "password": self._password})
+        status, body = self._post("/login", {"_token": csrf, "username": self._username, "password": self._password})  # risk-ok — posts the login form, not a log call
         # Same success heuristic as pos_migrate.py's proven POSClient.login —
         # UltimatePOS redirects to /home on success. This substring check
         # alone can false-negative-pass a failed login if shared layout
