@@ -3,7 +3,7 @@
 import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 import pandas as pd
 import structlog
@@ -376,12 +376,14 @@ async def calculate_portfolio_margin(
         else Decimal("0")
     )
 
-    blended_margin = blended_margin.quantize(Decimal("0.01"))
+    blended_margin = blended_margin.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     return {
         "blended_margin": blended_margin,
         "target_margin": target_margin,
-        "margin_gap": (blended_margin - target_margin).quantize(Decimal("0.01")),
+        "margin_gap": (blended_margin - target_margin).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        ),
         "total_revenue": total_revenue,
         "total_cogs": total_cogs,
         "products": products,

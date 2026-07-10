@@ -299,6 +299,10 @@ jobs:
           # that collection is paired with a human-review gate, rather than
           # grepping for hardcoded action-name strings that may not match the
           # actual vocabulary in use.
+          # Known limitation: this only catches actions gated through
+          # HIGH_CONSEQUENCE_ACTIONS. A new high-consequence action added via
+          # its own ad-hoc if/elif check (bypassing the shared set entirely)
+          # would not be flagged — same class of gap the old check had too.
           set_match = re.search(r"HIGH_CONSEQUENCE_ACTIONS\s*=\s*[{\[]([^}\]]*)[}\]]", service_content)
           if not set_match:
               print("FAIL [E4]: no HIGH_CONSEQUENCE_ACTIONS collection found in ai_engine/service.py")
@@ -309,7 +313,12 @@ jobs:
               print("FAIL [E4]: HIGH_CONSEQUENCE_ACTIONS collection is empty or unparseable")
               sys.exit(1)
 
-          gate_terms = ("requires_human_review", "confirmed")
+          # A bare substring match on "confirmed" is too loose — it would pass
+          # on any coincidental nearby mention (a docstring, an unrelated
+          # variable). Require it to appear as an actual boolean gate:
+          # "requires_human_review" outright, or "confirmed" used in a
+          # condition/assignment (not confirmed / confirmed: / confirmed=).
+          gate_pattern = re.compile(r"requires_human_review|not\s+confirmed\b|confirmed\s*[:=]")
           violations = []
           for m in re.finditer(r"HIGH_CONSEQUENCE_ACTIONS", combined):
               line_start = combined.rfind("\n", 0, m.start()) + 1
@@ -320,7 +329,7 @@ jobs:
               if re.match(r"\s*(from .+ )?import\b", line) or re.match(r"\s*HIGH_CONSEQUENCE_ACTIONS\s*=", line):
                   continue
               context = combined[max(0, m.start() - 200):m.start() + 400]
-              if not any(term in context for term in gate_terms):
+              if not gate_pattern.search(context):
                   line_no = combined[:m.start()].count("\n") + 1
                   violations.append(f"  combined-offset line {line_no}: no human-review gate nearby")
 
