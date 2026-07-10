@@ -254,14 +254,14 @@ docker compose --env-file .env.production up -d --no-deps --force-recreate backe
 
 ---
 
-### Staging — live at modishlog-staging.vercel.app
+### Staging — live at staging.modishlog.com
 
 Every push to `main` automatically deploys to staging.
 
 | Component | Service | URL |
 |-----------|---------|-----|
-| Frontend | Vercel (`modishlog-staging` project) | https://modishlog-staging.vercel.app |
-| Backend API | Hetzner VPS — same server, container `modishlog-backend` | https://api-modishlog.modishstandard.com |
+| Frontend | Vercel (`modishlog-staging` project) | https://staging.modishlog.com |
+| Backend API | Hetzner VPS — same server, container `modishlog-backend` | https://api.staging.modishlog.com |
 | Database | Neon PostgreSQL (staging, SSL required) | connection string in `STAGING_DATABASE_URL` GitHub Secret |
 | Registry | GHCR | `ghcr.io/sojisoyoye/modishlog/backend:staging` |
 | CI/CD | GitHub Actions — auto on push to `main` | `.github/workflows/deploy-staging.yml` |
