@@ -1,0 +1,76 @@
+name: Run Alembic Migration (staging + prod)
+
+# One-shot: upgrades both staging (Neon) and prod (local postgres) to head.
+# Safe to re-run — alembic upgrade head is idempotent.
+on:
+  workflow_dispatch:
+
+jobs:
+  migrate-staging:
+    name: Migrate staging (Neon)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check current revision (before)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            echo "=== staging: alembic current (before) ==="
+            docker exec modishlog-backend alembic current
+
+      - name: Run alembic upgrade head
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            echo "=== staging: alembic upgrade head ==="
+            docker exec modishlog-backend alembic upgrade head
+
+      - name: Verify revision (after)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            echo "=== staging: alembic current (after) ==="
+            docker exec modishlog-backend alembic current
+
+  migrate-prod:
+    name: Migrate prod (local postgres)
+    runs-on: ubuntu-latest
+    needs: migrate-staging
+    steps:
+      - name: Check current revision (before)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: root
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            echo "=== prod: alembic current (before) ==="
+            docker exec modishlog-prod-backend alembic current
+
+      - name: Run alembic upgrade head
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: root
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            echo "=== prod: alembic upgrade head ==="
+            docker exec modishlog-prod-backend alembic upgrade head
+
+      - name: Verify revision (after)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: root
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            echo "=== prod: alembic current (after) ==="
+            docker exec modishlog-prod-backend alembic current
