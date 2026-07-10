@@ -121,6 +121,7 @@ class Sale(UUIDMixin, TimestampMixin, Base):
         default=None,
         index=True,
     )
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<Sale(id={self.id}, product_id={self.product_id}, total={self.total_amount})>"
@@ -164,6 +165,7 @@ class SaleAuditEntry(UUIDMixin, Base):
     performed_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     reason: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<SaleAuditEntry(id={self.id}, sale_id={self.sale_id}, action={self.action})>"
@@ -188,6 +190,7 @@ class SellReturn(UUIDMixin, TimestampMixin, Base):
     business_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("businesses.id"), nullable=False, index=True
     )
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<SellReturn(id={self.id}, sale_id={self.sale_id}, amount={self.total_amount})>"

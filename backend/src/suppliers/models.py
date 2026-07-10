@@ -55,6 +55,7 @@ class Supplier(UUIDMixin, TimestampMixin, Base):
     business_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("businesses.id"), nullable=False, index=True
     )
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     products: Mapped[list["SupplierProduct"]] = relationship(
         back_populates="supplier", cascade="all, delete-orphan"
@@ -77,6 +78,7 @@ class SupplierProduct(UUIDMixin, Base):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), default=None)
     lead_time_days: Mapped[int | None] = mapped_column(Integer, default=None)
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     supplier: Mapped["Supplier"] = relationship(back_populates="products")
 

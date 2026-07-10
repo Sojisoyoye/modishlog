@@ -1,0 +1,310 @@
+"""Data import (ETL) orchestration — glues extractor → transformer → validator
+→ loader together behind the job lifecycle described in the router.
+"""
+
+import csv
+import io
+import os
+import uuid
+from datetime import datetime, timezone
+
+import anyio
+import structlog
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.core.config import settings
+from src.data_import.etl.adapters.registry import API_ADAPTERS, CSV_ADAPTERS
+from src.data_import.etl.extractor import CSVExtractor
+from src.data_import.etl.loader import load as loader_load
+from src.data_import.etl.loader import rollback as loader_rollback
+from src.data_import.etl.transformer import Transformer
+from src.data_import.etl.validator import validate_extracted_data
+from src.data_import.exceptions import InvalidJobStateError, MigrationJobNotFoundError
+from src.data_import.models import ExtractionMode, MigrationJob, MigrationJobStatus, SourceSystem
+from src.data_import.schemas import ConfirmationSnapshot, SnapshotEntity, ValidationIssue
+
+logger = structlog.get_logger()
+
+# Entities the frontend wizard can upload / the ETL pipeline fully loads. Every
+# other importable table already has a `migration_id` column ready for when
+# loader.LOAD_ORDER is extended.
+IMPORTABLE_ENTITIES = [
+    "product_categories",
+    "products",
+    "product_variants",
+    "suppliers",
+    "customers",
+    "business_locations",
+    "sales",
+]
+
+_SAMPLE_ROWS = 3
+
+
+def _job_upload_dir(job_id: uuid.UUID) -> str:
+    return os.path.join(settings.UPLOAD_DIR, "imports", str(job_id))
+
+
+async def create_job(
+    db: AsyncSession,
+    *,
+    business_id: uuid.UUID,
+    user_id: uuid.UUID,
+    source_system: SourceSystem,
+    extraction_mode: ExtractionMode,
+    files: dict[str, bytes] | None = None,
+    api_base_url: str | None = None,
+) -> MigrationJob:
+    job = MigrationJob(
+        business_id=business_id,
+        created_by=user_id,
+        source_system=source_system,
+        extraction_mode=extraction_mode,
+        api_base_url=api_base_url,
+        status=MigrationJobStatus.PENDING,
+    )
+    db.add(job)
+    await db.flush()
+
+    if extraction_mode == ExtractionMode.CSV and files:
+        upload_dir = _job_upload_dir(job.id)
+
+        def _write_all() -> None:
+            os.makedirs(upload_dir, exist_ok=True)
+            for entity, raw_bytes in files.items():
+                with open(os.path.join(upload_dir, f"{entity}.csv"), "wb") as f:
+                    f.write(raw_bytes)
+
+        await anyio.to_thread.run_sync(_write_all)
+
+    logger.info("data_import_job_created", job_id=str(job.id), source_system=source_system.value)
+    return job
+
+
+async def list_jobs(db: AsyncSession, *, business_id: uuid.UUID) -> list[MigrationJob]:
+    result = await db.execute(
+        select(MigrationJob)
+        .where(MigrationJob.business_id == business_id)
+        .order_by(MigrationJob.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+async def get_job(db: AsyncSession, job_id: uuid.UUID, *, business_id: uuid.UUID) -> MigrationJob:
+    result = await db.execute(
+        select(MigrationJob).where(
+            MigrationJob.id == job_id, MigrationJob.business_id == business_id
+        )
+    )
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise MigrationJobNotFoundError(job_id)
+    return job
+
+
+def _load_saved_csv_files_sync(job_id: uuid.UUID) -> dict[str, bytes]:
+    upload_dir = _job_upload_dir(job_id)
+    if not os.path.isdir(upload_dir):
+        return {}
+    files: dict[str, bytes] = {}
+    for filename in os.listdir(upload_dir):
+        if filename.endswith(".csv"):
+            with open(os.path.join(upload_dir, filename), "rb") as f:
+                files[filename[: -len(".csv")]] = f.read()
+    return files
+
+
+async def _load_saved_csv_files(job_id: uuid.UUID) -> dict[str, bytes]:
+    return await anyio.to_thread.run_sync(_load_saved_csv_files_sync, job_id)
+
+
+async def _extract_and_transform(
+    db: AsyncSession, job: MigrationJob
+) -> tuple[dict[str, list[dict]], dict[str, list[dict]], Transformer]:
+    """Returns (mapped_raw_rows, transformed_rows, transformer) so the caller
+    can validate structural issues on the mapped raw rows and pull
+    dedup/ghost-record warnings off the transformer.
+
+    Known tech debt: validate/snapshot/confirm each call this from scratch —
+    every call re-reads the CSVs and re-runs every dedup query. That's
+    correct (each call sees current DB state) but means three full passes
+    for one job, and a duplicate created between snapshot and confirm could
+    make the two disagree. Acceptable for Phase 0's CSV-upload scale; a
+    caching layer keyed on job_id is the fix if that becomes a problem.
+    """
+    if job.extraction_mode == ExtractionMode.API:
+        adapter_cls = API_ADAPTERS.get(job.source_system.value)
+        if adapter_cls is None:
+            raise NotImplementedError(f"No API adapter registered for {job.source_system.value}")
+        # Credentials aren't persisted anywhere — API-mode confirm/validate for
+        # a job created earlier isn't supported until Phase 1 adapters land.
+        raise NotImplementedError("Live API extraction is a Phase 1 work unit")
+
+    csv_adapter_cls = CSV_ADAPTERS.get(job.source_system.value, CSV_ADAPTERS["generic"])
+    csv_adapter = csv_adapter_cls()
+
+    raw_files = await _load_saved_csv_files(job.id)
+    extractor = CSVExtractor(raw_files)
+    raw = await extractor.extract()
+
+    mapped: dict[str, list[dict]] = {
+        entity: csv_adapter.map_rows(entity, rows) for entity, rows in raw.items()
+    }
+
+    transformer = Transformer(db, job.business_id, job.created_by)
+
+    known_product_ids = {r.get("source_id") for r in mapped.get("products", []) if r.get("source_id")}
+    ghosts = transformer.detect_ghost_products(mapped.get("sales", []), known_product_ids)
+
+    transformed: dict[str, list[dict]] = {
+        "product_categories": await transformer.transform_categories(mapped.get("product_categories", [])),
+        "products": await transformer.transform_products(mapped.get("products", []) + ghosts),
+        "suppliers": await transformer.transform_suppliers(mapped.get("suppliers", [])),
+        "customers": await transformer.transform_customers(mapped.get("customers", [])),
+        "business_locations": transformer.transform_locations(mapped.get("business_locations", [])),
+    }
+    transformed["product_variants"] = await transformer.transform_variants(
+        mapped.get("product_variants", [])
+    )
+
+    location_map = {}
+    for row in transformed["business_locations"]:
+        location_map[row["name"]] = row["id"]
+        if row.get("_source_id"):
+            location_map[row["_source_id"]] = row["id"]
+
+    transformed["sales"] = transformer.transform_sales(mapped.get("sales", []), location_map)
+
+    return mapped, transformed, transformer
+
+
+async def validate_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
+    mapped, transformed, transformer = await _extract_and_transform(db, job)
+
+    issues: list[ValidationIssue] = validate_extracted_data(mapped)
+    issues.extend(transformer.warnings)
+
+    errors = [i for i in issues if i.severity == "error"]
+    job.validation_errors = [i.model_dump() for i in issues if i.severity == "error"]
+    job.validation_warnings = [i.model_dump() for i in issues if i.severity == "warning"]
+    job.row_counts = {entity: len(rows) for entity, rows in transformed.items()}
+    job.status = (
+        MigrationJobStatus.AWAITING_CONFIRMATION if not errors else MigrationJobStatus.TRANSFORMING
+    )
+    await db.flush()
+    return job
+
+
+async def build_confirmation_snapshot(db: AsyncSession, job: MigrationJob) -> ConfirmationSnapshot:
+    if job.status != MigrationJobStatus.AWAITING_CONFIRMATION:
+        raise InvalidJobStateError(job.id, "awaiting_confirmation", job.status.value)
+
+    _mapped, transformed, transformer = await _extract_and_transform(db, job)
+
+    ghost_count = sum(
+        1 for row in transformed.get("products", []) if str(row.get("name", "")).startswith("[Deleted Product:")
+    )
+
+    entities = [
+        SnapshotEntity(
+            name=entity,
+            count=len(rows),
+            sample_rows=[{k: str(v) for k, v in r.items() if not k.startswith("_")} for r in rows[:_SAMPLE_ROWS]],
+        )
+        for entity, rows in transformed.items()
+    ]
+
+    return ConfirmationSnapshot(
+        job_id=job.id,
+        extraction_mode=job.extraction_mode,
+        source_system=job.source_system,
+        status=job.status,
+        entities=entities,
+        warnings=transformer.warnings,
+        ghost_records={"products": ghost_count} if ghost_count else {},
+        total_rows=sum(len(rows) for rows in transformed.values()),
+    )
+
+
+async def confirm_job(db: AsyncSession, job: MigrationJob, *, approved: bool) -> MigrationJob:
+    if job.status != MigrationJobStatus.AWAITING_CONFIRMATION:
+        raise InvalidJobStateError(job.id, "awaiting_confirmation", job.status.value)
+
+    if not approved:
+        job.status = MigrationJobStatus.CANCELLED
+        await db.flush()
+        return job
+
+    job.status = MigrationJobStatus.IMPORTING
+    _mapped, transformed, transformer = await _extract_and_transform(db, job)
+    row_counts = await loader_load(db, job.id, transformed, transformer.id_map)
+
+    job.row_counts = row_counts
+    job.status = MigrationJobStatus.DONE
+    job.completed_at = datetime.now(timezone.utc)
+    await db.flush()
+    logger.info("data_import_job_confirmed", job_id=str(job.id), row_counts=row_counts)
+    return job
+
+
+async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
+    if job.status != MigrationJobStatus.DONE:
+        raise InvalidJobStateError(job.id, "done", job.status.value)
+
+    deleted_counts = await loader_rollback(db, job.id)
+    job.status = MigrationJobStatus.ROLLED_BACK
+    await db.flush()
+    logger.info("data_import_job_rolled_back", job_id=str(job.id), deleted_counts=deleted_counts)
+    return job
+
+
+# ---------------------------------------------------------------------------
+# CSV templates
+# ---------------------------------------------------------------------------
+
+_TEMPLATE_COLUMNS: dict[str, list[str]] = {
+    "product_categories": ["source_id", "name", "description", "parent_source_id"],
+    "products": [
+        "source_id", "name", "sku", "barcode", "unit_cost", "selling_price",
+        "currency", "category_source_id", "is_active",
+    ],
+    "product_variants": [
+        "source_id", "product_source_id", "name", "sku", "barcode",
+        "attributes", "price_override", "cost_price_override",
+    ],
+    "suppliers": ["source_id", "name", "email", "contact_person", "mobile"],
+    "customers": ["source_id", "name", "email", "contact_number"],
+    "business_locations": ["source_id", "name", "location_code"],
+    "sales": [
+        "product_source_id", "variant_source_id", "customer_source_id",
+        "quantity", "unit_price", "sale_date", "currency", "channel",
+        "payment_method", "location_name",
+    ],
+}
+
+
+def build_entity_template_csv(entity: str) -> str:
+    columns = _TEMPLATE_COLUMNS[entity]
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(columns)
+    writer.writerow(["#EXAMPLE"] + [""] * (len(columns) - 1))
+    return buf.getvalue()
+
+
+def build_readme() -> str:
+    lines = [
+        "ModishLog data import — CSV templates",
+        "",
+        "Import order (fill these files in this order so source_id references resolve):",
+        *[f"  {i}. {e}.csv" for i, e in enumerate(IMPORTABLE_ENTITIES, start=1)],
+        "",
+        "Every file's `source_id` column is the value you use to reference that row",
+        "from other files (e.g. sales.csv's `product_source_id` matches a `source_id`",
+        "in products.csv).",
+        "",
+        "Accepted date formats: YYYY-MM-DD (preferred), DD/MM/YYYY, MM/DD/YYYY, DD-Mon-YYYY.",
+        "Accepted payment_method values: card, cash, bank_transfer, cheque, mobile_money, other.",
+    ]
+    return "\n".join(lines)
