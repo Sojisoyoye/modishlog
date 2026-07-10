@@ -24,6 +24,7 @@ from src.data_import.etl.validator import validate_extracted_data
 from src.data_import.exceptions import (
     InvalidJobStateError,
     MigrationJobNotFoundError,
+    MissingExtractedDataError,
     UnsupportedSourceSystemError,
 )
 from src.data_import.models import ExtractionMode, MigrationJob, MigrationJobStatus, SourceSystem
@@ -126,8 +127,12 @@ async def create_job(
         try:
             extracted = await extractor.extract()
         except Exception:
+            # Must commit (not just flush) — the exception we're about to
+            # re-raise propagates through get_db's `except: rollback()`,
+            # which would otherwise wipe out this job row entirely, along
+            # with the FAILED status meant to record the failed attempt.
             job.status = MigrationJobStatus.FAILED
-            await db.flush()
+            await db.commit()
             raise
         await _save_extracted_data(job.id, extracted)
         job.row_counts = {entity: len(rows) for entity, rows in extracted.items()}
@@ -195,6 +200,13 @@ async def _extract_and_transform(
         # (the API extractor did its own mapping), so no adapter.map_rows()
         # step is needed, unlike CSV mode below.
         mapped: dict[str, list[dict]] = await _load_extracted_data(job.id)
+        if not mapped:
+            # A missing cache must never silently degrade to "0 rows,
+            # validation passed" — that's a zero-row import masquerading as
+            # a success. create_job always writes this cache on success (and
+            # fails the job outright otherwise), so an empty result here
+            # means something is genuinely wrong with the job's state.
+            raise MissingExtractedDataError(job.id)
     else:
         csv_adapter_cls = CSV_ADAPTERS.get(job.source_system.value, CSV_ADAPTERS["generic"])
         csv_adapter = csv_adapter_cls()

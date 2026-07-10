@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.data_import.etl.extractor import APIExtractor
-from src.data_import.exceptions import UnsupportedSourceSystemError
+from src.data_import.exceptions import MissingExtractedDataError, UnsupportedSourceSystemError
 from src.data_import.models import ExtractionMode, MigrationJob, MigrationJobStatus, SourceSystem
 from src.data_import.service import _extract_and_transform, create_job
 
@@ -142,6 +142,10 @@ class TestCreateJobApiMode:
 
         added_job = db.add.call_args_list[0].args[0]
         assert added_job.status == MigrationJobStatus.FAILED
+        # Must be a real commit, not just flush — get_db's exception handler
+        # rolls back on the propagating error, which would otherwise erase
+        # this FAILED job row (and its original insert) entirely.
+        db.commit.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_unsupported_source_system_raises(self, tmp_path, monkeypatch):
@@ -208,19 +212,21 @@ class TestExtractAndTransformApiMode:
         assert transformed["products"][0]["name"] == "Widget"
 
     @pytest.mark.asyncio
-    async def test_missing_cache_produces_empty_result_not_a_crash(self, tmp_path, monkeypatch):
-        """No cached extraction on disk (e.g. job created before this feature
-        existed) degrades to an empty import rather than raising."""
+    async def test_missing_cache_raises_instead_of_silently_importing_zero_rows(
+        self, tmp_path, monkeypatch
+    ):
+        """No cached extraction on disk (deleted, non-persistent filesystem,
+        inconsistent job state, ...) must be a hard error — silently
+        proceeding with an empty result would let a job "validate" and
+        "confirm" successfully while importing nothing."""
         monkeypatch.setattr("src.data_import.service.settings.UPLOAD_DIR", str(tmp_path))
         job = _make_job(id=uuid.uuid4())
 
         db = _mock_db()
         db.execute = AsyncMock(return_value=_none_result())
 
-        mapped, transformed, _transformer = await _extract_and_transform(db, job)
-
-        assert mapped == {}
-        assert all(len(rows) == 0 for rows in transformed.values())
+        with pytest.raises(MissingExtractedDataError):
+            await _extract_and_transform(db, job)
 
 
 class TestCreateJobEndpointApiMode:
@@ -290,3 +296,32 @@ class TestCreateJobEndpointApiMode:
                 )
 
         assert resp.status_code == 400
+
+    def test_extraction_error_returns_safe_message_not_raw_exception_text(self):
+        """A generic extraction failure must not leak the raw exception text
+        (which could echo request context or internal details) into the
+        HTTP response."""
+        db = _mock_db()
+        self._override(db)
+
+        def _bad_adapter(base_url, credentials):
+            return _FakeAPIExtractor(
+                base_url, credentials, error=ConnectionError("secret-internal-detail hunter2")
+            )
+
+        with patch.dict("src.data_import.service.API_ADAPTERS", {"ultimatepos": _bad_adapter}):
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/import/jobs",
+                    data={
+                        "source_system": "ultimatepos",
+                        "extraction_mode": "api",
+                        "api_base_url": "https://pos.example.com",
+                        "username": "admin",
+                        "password": "hunter2",
+                    },
+                )
+
+        assert resp.status_code == 400
+        assert "secret-internal-detail" not in resp.text
+        assert "hunter2" not in resp.text
