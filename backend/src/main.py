@@ -182,8 +182,13 @@ app.add_middleware(
 )
 
 # Serve uploaded files as static assets
-os.makedirs(os.path.join(settings.UPLOAD_DIR, "products"), exist_ok=True)
-app.mount("/static", StaticFiles(directory=settings.UPLOAD_DIR), name="static")
+# Guard: Docker named volumes are root-owned on first run; skip gracefully if
+# the container user lacks write permission (e.g. CI without volume init).
+try:
+    os.makedirs(os.path.join(settings.UPLOAD_DIR, "products"), exist_ok=True)
+    app.mount("/static", StaticFiles(directory=settings.UPLOAD_DIR), name="static")
+except (PermissionError, RuntimeError):
+    pass
 
 # Include domain routers
 from src.auth.router import router as auth_router  # noqa: E402

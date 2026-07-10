@@ -8,6 +8,8 @@ import { Dialog } from 'primeng/dialog';
 import {
   ProductsService,
   Product,
+  ProductVariant,
+  ProductVariantCreate,
   Category,
   CategoryCreate,
   CategoryUpdate,
@@ -444,7 +446,14 @@ interface ColEntry {
                     </div>
                   </td>
                   @if (visibleCols().sku) {
-                    <td class="px-4 py-3 font-mono text-xs text-muted">{{ product.sku }}</td>
+                    <td class="px-4 py-3 font-mono text-xs text-muted">
+                      {{ product.sku }}
+                      @if (product.has_variants) {
+                        <span class="ml-1 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5">
+                          variants
+                        </span>
+                      }
+                    </td>
                   }
                   @if (visibleCols().category) {
                     <td class="px-4 py-3 text-muted">{{ categoryName(product.category_id) || '—' }}</td>
@@ -1281,6 +1290,82 @@ interface ColEntry {
           />
           <label for="editActive" class="text-sm font-medium text-text">Active</label>
         </div>
+
+        <!-- Has variants toggle -->
+        <div class="flex items-center gap-2 mt-4">
+          <input type="checkbox" id="edit-has-variants"
+            [ngModel]="editForm.has_variants"
+            (ngModelChange)="onHasVariantsToggle($event)"
+            class="h-4 w-4 rounded border-gray-300 text-emerald-600">
+          <label for="edit-has-variants" class="text-sm font-medium text-gray-700">
+            Has variants (size, colour, etc.)
+          </label>
+        </div>
+
+        <!-- Variants table (only shown when has_variants) -->
+        @if (editForm.has_variants) {
+          <div class="mt-4 border-t pt-4">
+            <h4 class="text-sm font-semibold text-gray-700 mb-2">Variants</h4>
+
+            @if (editProductVariants().length > 0) {
+              <table class="w-full text-xs border border-gray-200 rounded mb-3">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-2 py-1.5 text-left">Name</th>
+                    <th class="px-2 py-1.5 text-left">SKU</th>
+                    <th class="px-2 py-1.5 text-right">Price Override</th>
+                    <th class="px-2 py-1.5 text-right">Cost Override</th>
+                    <th class="px-2 py-1.5 text-center">Status</th>
+                    <th class="px-2 py-1.5"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (v of editProductVariants(); track v.id) {
+                    <tr class="border-t border-gray-100">
+                      <td class="px-2 py-1.5">{{ v.name }}</td>
+                      <td class="px-2 py-1.5 text-gray-500">{{ v.sku ?? '—' }}</td>
+                      <td class="px-2 py-1.5 text-right">{{ v.price_override != null ? formatMoney(v.price_override) : '—' }}</td>
+                      <td class="px-2 py-1.5 text-right">{{ v.cost_price_override != null ? formatMoney(v.cost_price_override) : '—' }}</td>
+                      <td class="px-2 py-1.5 text-center">
+                        <span [class]="v.is_active ? 'text-emerald-600' : 'text-gray-400'">
+                          {{ v.is_active ? 'Active' : 'Inactive' }}
+                        </span>
+                      </td>
+                      <td class="px-2 py-1.5 text-right">
+                        <button (click)="deactivateVariant(v)" class="text-red-500 hover:text-red-700 text-xs min-h-[28px] px-2">
+                          {{ v.is_active ? 'Deactivate' : 'Activate' }}
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
+
+            <!-- Inline add form -->
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div class="col-span-2">
+                <input type="text" placeholder="Variant name *" [ngModel]="newVariantName()"
+                  (ngModelChange)="newVariantName.set($event)"
+                  class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs">
+              </div>
+              <input type="text" placeholder="SKU (optional)" [ngModel]="newVariantSku()"
+                (ngModelChange)="newVariantSku.set($event)"
+                class="border border-gray-300 rounded px-2 py-1.5 text-xs">
+              <input type="text" placeholder="Price override (optional)" [ngModel]="newVariantPriceOverride()"
+                (ngModelChange)="newVariantPriceOverride.set($event)"
+                class="border border-gray-300 rounded px-2 py-1.5 text-xs">
+              <input type="text" placeholder="Cost override (optional)" [ngModel]="newVariantCostOverride()"
+                (ngModelChange)="newVariantCostOverride.set($event)"
+                class="border border-gray-300 rounded px-2 py-1.5 text-xs">
+            </div>
+            <button (click)="addVariant()" [disabled]="variantSaving() || !newVariantName().trim()"
+              class="mt-2 px-3 py-1.5 bg-emerald-600 text-white text-xs rounded hover:bg-emerald-700 disabled:opacity-50 min-h-[36px]">
+              {{ variantSaving() ? 'Adding…' : '+ Add Variant' }}
+            </button>
+          </div>
+        }
+
         <div>
           <label class="mb-1.5 block text-xs font-medium text-muted">Replace Image</label>
           <input
@@ -1320,6 +1405,15 @@ interface ColEntry {
       [message]="'Delete &quot;' + (productPendingDelete()?.name ?? '') + '&quot;? This action cannot be undone.'"
       (confirmed)="executeDeleteProduct()"
       (cancelled)="productPendingDelete.set(null)"
+    />
+
+    <!-- ── CONFIRM DISABLE VARIANTS DIALOG ──────────────────────────────────── -->
+    <app-confirm-dialog
+      [visible]="variantDisablePending()"
+      header="Disable Variants"
+      message="Disabling variants will not delete existing variants. Continue?"
+      (confirmed)="confirmDisableVariants()"
+      (cancelled)="cancelDisableVariants()"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -1388,6 +1482,15 @@ export class ProductsPageComponent implements OnInit {
   showEdit = false;
   editTarget = signal<Product | null>(null);
 
+  // ── Variants management ───────────────────────────────────────────────────
+  editProductVariants = signal<ProductVariant[]>([]);
+  variantSaving = signal(false);
+  variantDisablePending = signal(false);
+  newVariantName = signal('');
+  newVariantSku = signal('');
+  newVariantPriceOverride = signal<string>('');
+  newVariantCostOverride = signal<string>('');
+
   // ── Confirm delete dialogs ────────────────────────────────────────────────
   categoryPendingDelete = signal<Category | null>(null);
   productPendingDelete = signal<Product | null>(null);
@@ -1395,8 +1498,8 @@ export class ProductsPageComponent implements OnInit {
   // ── Edit category dialog ──────────────────────────────────────────────────
   editingCategory = signal<Category | null>(null);
   categoryEditForm: { name: string; description: string; defaultMarginPct: number | null } = { name: '', description: '', defaultMarginPct: null };
-  editForm: ProductUpdate & { category_id: string; is_active: boolean } = {
-    name: '', category_id: '', unit_cost: 0, selling_price: 0, description: '', is_active: true,
+  editForm: ProductUpdate & { category_id: string; is_active: boolean; has_variants: boolean } = {
+    name: '', category_id: '', unit_cost: 0, selling_price: 0, description: '', is_active: true, has_variants: false,
   };
   editFile: File | null = null;
 
@@ -1840,14 +1943,29 @@ export class ProductsPageComponent implements OnInit {
       selling_price: price,
       description: product.description ?? '',
       is_active: product.is_active,
+      has_variants: product.has_variants ?? false,
     };
     this.editCostStr = this.formatMoney(cost);
     this.editPriceStr = this.formatMoney(price);
     this.editFile = null;
     this.editCurrency.set(product.currency || 'NGN');
     this.editMinMarginPct.set(35);
+    this.editProductVariants.set([]);
+    this.newVariantName.set('');
+    this.newVariantSku.set('');
+    this.newVariantPriceOverride.set('');
+    this.newVariantCostOverride.set('');
     this.showEdit = true;
     this.closeActionMenu();
+    // Load variants only if product has_variants flag is set
+    if (product.has_variants) {
+      this.productsService.getVariants(product.id).subscribe({
+        next: (variants) => this.editProductVariants.set(variants),
+        error: () => { /* variants unavailable — non-fatal */ },
+      });
+    } else {
+      this.editProductVariants.set([]);
+    }
   }
 
   onEditCostBlur(): void {
@@ -1945,6 +2063,7 @@ export class ProductsPageComponent implements OnInit {
       selling_price: this.editForm.selling_price,
       category_id: this.editForm.category_id || undefined,
       is_active: this.editForm.is_active,
+      has_variants: this.editForm.has_variants,
     };
     this.productsService.update(target.id, body).subscribe({
       next: (updated) => {
@@ -1982,6 +2101,70 @@ export class ProductsPageComponent implements OnInit {
         });
       },
       error: () => this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to update status' }),
+    });
+  }
+
+  // ── Variants management ───────────────────────────────────────────────────
+  onHasVariantsToggle(val: boolean): void {
+    if (!val && this.editProductVariants().length > 0) {
+      // Defer the actual toggle — show the confirm dialog first
+      this.variantDisablePending.set(true);
+      return;
+    }
+    this.editForm = { ...this.editForm, has_variants: val };
+  }
+
+  confirmDisableVariants(): void {
+    this.variantDisablePending.set(false);
+    this.editForm = { ...this.editForm, has_variants: false };
+  }
+
+  cancelDisableVariants(): void {
+    this.variantDisablePending.set(false);
+    // Restore the checkbox to checked (has_variants stays true)
+    this.editForm = { ...this.editForm, has_variants: true };
+  }
+
+  addVariant(): void {
+    const productId = this.editTarget()?.id;
+    if (!productId || !this.newVariantName().trim()) return;
+    this.variantSaving.set(true);
+    const priceStr = this.newVariantPriceOverride().trim();
+    const parsedPrice = priceStr ? parseFloat(priceStr.replace(/,/g, '')) : NaN;
+    const costStr = this.newVariantCostOverride().trim();
+    const parsedCost = costStr ? parseFloat(costStr.replace(/,/g, '')) : NaN;
+    const body: ProductVariantCreate = {
+      name: this.newVariantName().trim(),
+      sku: this.newVariantSku().trim() || undefined,
+      price_override: (!isNaN(parsedPrice) && parsedPrice > 0) ? parsedPrice : undefined,
+      cost_price_override: (!isNaN(parsedCost) && parsedCost > 0) ? parsedCost : undefined,
+    };
+    this.productsService.createVariant(productId, body).subscribe({
+      next: (v) => {
+        this.editProductVariants.update((list) => [...list, v]);
+        this.newVariantName.set('');
+        this.newVariantSku.set('');
+        this.newVariantPriceOverride.set('');
+        this.newVariantCostOverride.set('');
+        this.variantSaving.set(false);
+      },
+      error: () => {
+        this.variantSaving.set(false);
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to add variant' });
+      },
+    });
+  }
+
+  deactivateVariant(variant: ProductVariant): void {
+    const productId = this.editTarget()?.id;
+    if (!productId) return;
+    this.productsService.updateVariant(productId, variant.id, { is_active: !variant.is_active }).subscribe({
+      next: (updated) => {
+        this.editProductVariants.update((list) => list.map((v) => (v.id === updated.id ? updated : v)));
+      },
+      error: () => {
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to update variant' });
+      },
     });
   }
 
