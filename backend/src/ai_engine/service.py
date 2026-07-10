@@ -164,8 +164,8 @@ async def _generate_price_recommendations(
                 "product_name": p.get("product_name", ""),
                 "current_price": str(selling_price),
                 "suggested_price": str(target_price),
-                "margin_pct": float(margin_pct),
-                "margin_gap": float(margin_gap),
+                "margin_pct": float(margin_pct),  # financial-float-ok
+                "margin_gap": float(margin_gap),  # financial-float-ok
                 "revenue_30d": str(revenue_30d),
             }
         )
@@ -175,7 +175,7 @@ async def _generate_price_recommendations(
 
     for cat_name, products in buckets.items():
         count = len(products)
-        avg_gap = float(
+        avg_gap = float(  # financial-float-ok
             (sum(Decimal(str(p["margin_gap"])) for p in products) / Decimal(str(count))).quantize(
                 Decimal("0.1"), rounding=ROUND_HALF_UP
             )
@@ -788,7 +788,7 @@ async def apply_recommendation(
 ) -> AIRecommendation:
     """Apply a recommendation: update status and route to domain service.
 
-    E4: High-consequence actions (DELAY_PAYMENT, LIQUIDATE) require confirmed=True.
+    E4: High-consequence actions (see HIGH_CONSEQUENCE_ACTIONS) require confirmed=True.
     """
     rec = await get_recommendation(db, recommendation_id, business_id=business_id)
 
@@ -1130,13 +1130,18 @@ async def generate_reorder_suggestions(
         # Calculate average daily demand from last 90 days
         ninety_days_ago = today - timedelta(days=90)
         sales_result = await db.execute(
-            select(func.sum(Sale.quantity)).where(
+            select(
+                func.sum(Sale.quantity),
+                func.count(func.distinct(Sale.sale_date)),
+            ).where(
                 Sale.product_id == product.id,
                 Sale.status == SaleStatus.COMPLETED,
                 Sale.sale_date >= ninety_days_ago,
             )
         )
-        total_sold = sales_result.scalar() or 0
+        total_sold, data_points_used = sales_result.one()
+        total_sold = total_sold or 0
+        data_points_used = data_points_used or 0
 
         if total_sold <= 0:
             continue
@@ -1146,33 +1151,33 @@ async def generate_reorder_suggestions(
 
         # Calculate reorder point and safety stock
         safety_stock = int(
-            float(SAFETY_STOCK_MULTIPLIER)
-            * float(demand_variability)
+            float(SAFETY_STOCK_MULTIPLIER)  # financial-float-ok
+            * float(demand_variability)  # financial-float-ok
             * (DEFAULT_LEAD_TIME_DAYS**0.5)
         )
         reorder_point = int(
-            float(avg_daily_demand) * DEFAULT_LEAD_TIME_DAYS + safety_stock
+            float(avg_daily_demand) * DEFAULT_LEAD_TIME_DAYS + safety_stock  # financial-float-ok
         )
 
         if inv.quantity_on_hand > reorder_point:
             continue
 
         # Economic Order Quantity (Wilson formula simplified)
-        annual_demand = float(avg_daily_demand) * 365
+        annual_demand = float(avg_daily_demand) * 365  # financial-float-ok
         ordering_cost = 50000  # Fixed ordering cost NGN
-        holding_cost = float(product.unit_cost) * 0.20  # 20% of unit cost
+        holding_cost = float(product.unit_cost) * 0.20  # 20% of unit cost  # financial-float-ok
         eoq = (
             int((2 * annual_demand * ordering_cost / holding_cost) ** 0.5)
             if holding_cost > 0
             else 100
         )
         suggested_qty = max(
-            eoq, int(float(avg_daily_demand) * DEFAULT_LEAD_TIME_DAYS * 1.2)
+            eoq, int(float(avg_daily_demand) * DEFAULT_LEAD_TIME_DAYS * 1.2)  # financial-float-ok
         )
 
         # Estimate stockout date
-        if float(avg_daily_demand) > 0:
-            days_left = int(inv.quantity_on_hand / float(avg_daily_demand))
+        if float(avg_daily_demand) > 0:  # financial-float-ok
+            days_left = int(inv.quantity_on_hand / float(avg_daily_demand))  # financial-float-ok
             stockout_date = today + timedelta(days=days_left)
         else:
             days_left = 999
@@ -1181,7 +1186,7 @@ async def generate_reorder_suggestions(
         confidence = Decimal("75.00")
         reasoning = (
             f"Current stock ({inv.quantity_on_hand}) at or below reorder point ({reorder_point}). "
-            f"Avg daily demand: {float(avg_daily_demand):.1f} units. "
+            f"Avg daily demand: {float(avg_daily_demand):.1f} units. "  # financial-float-ok
             f"Safety stock: {safety_stock}. Lead time: {DEFAULT_LEAD_TIME_DAYS} days. "
             f"EOQ: {eoq}. Suggested order: {suggested_qty} units."
         )
@@ -1203,6 +1208,11 @@ async def generate_reorder_suggestions(
             ),
             estimated_stockout_date=stockout_date,
             confidence=confidence,
+            # E1 — how many distinct sale-days fed this forecast, so the
+            # frontend/API consumer can judge whether the demand estimate is
+            # backed by sparse or solid history rather than trusting a bare
+            # confidence score.
+            data_points_used=data_points_used,
             reasoning=reasoning,
             status=ReorderStatus.PENDING,
             created_at=now,

@@ -32,6 +32,7 @@ from src.ai_engine.service import (
     apply_recommendation,
     approve_reorder,
     dismiss_recommendation,
+    generate_reorder_suggestions,
     generate_usd_accumulation_schedule,
     get_impact_summary,
     get_recommendation,
@@ -365,6 +366,66 @@ class TestReorderSuggestions:
         db = _mock_db_with_execute(return_val=suggestion)
         result = await approve_reorder(db, suggestion.product_id)
         assert result.status == ReorderStatus.APPROVED
+
+    @pytest.mark.anyio
+    async def test_generate_reorder_suggestions_stamps_data_points_used(self):
+        """E1: data_points_used must reflect the count of distinct sale-days
+        backing the demand estimate, not just whether any sales existed."""
+        from src.ai_engine.models import ReorderSuggestion as _ReorderSuggestion
+        from src.inventory.models import InventoryLevel
+        from src.products.models import Product
+
+        inv = MagicMock(spec=InventoryLevel)
+        inv.product_id = uuid.uuid4()
+        inv.quantity_on_hand = 5
+
+        product = MagicMock(spec=Product)
+        product.id = inv.product_id
+        product.unit_cost = Decimal("100")
+
+        join_result = MagicMock()
+        join_result.all.return_value = [(inv, product)]
+
+        sales_result = MagicMock()
+        sales_result.one.return_value = (300, 17)  # 300 units sold over 17 distinct days
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[join_result, sales_result])
+
+        suggestions = await generate_reorder_suggestions(db, uuid.uuid4())
+
+        assert len(suggestions) == 1
+        added = db.add.call_args_list[0].args[0]
+        assert isinstance(added, _ReorderSuggestion)
+        assert added.data_points_used == 17
+
+    @pytest.mark.anyio
+    async def test_generate_reorder_suggestions_zero_data_points_when_no_sales(self):
+        """No sales in the lookback window means data_points_used stays 0 and
+        the product is skipped entirely (not enough signal to suggest a reorder)."""
+        from src.inventory.models import InventoryLevel
+        from src.products.models import Product
+
+        inv = MagicMock(spec=InventoryLevel)
+        inv.product_id = uuid.uuid4()
+        inv.quantity_on_hand = 5
+
+        product = MagicMock(spec=Product)
+        product.id = inv.product_id
+        product.unit_cost = Decimal("100")
+
+        join_result = MagicMock()
+        join_result.all.return_value = [(inv, product)]
+
+        sales_result = MagicMock()
+        sales_result.one.return_value = (None, None)
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[join_result, sales_result])
+
+        suggestions = await generate_reorder_suggestions(db, uuid.uuid4())
+        assert suggestions == []
+        db.add.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -550,8 +550,8 @@ def _summarize_projection(proj: CashflowProjection) -> dict:
     last_risk = buckets[-1]["risk_rating"] if buckets else "HIGH"
 
     return {
-        "cash_runway": float(last_runway),
-        "avg_dscr": float(avg_dscr),
+        "cash_runway": float(last_runway),  # financial-float-ok — display summary, not a stored amount
+        "avg_dscr": float(avg_dscr),  # financial-float-ok — display summary, not a stored amount
         "risk_rating": last_risk,
         "net_cashflow": str(proj.net_cashflow),
     }

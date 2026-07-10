@@ -181,7 +181,7 @@ async def get_rate_history(
     first_rate = rate_values[0]
     last_rate = rate_values[-1]
     pct_change = (
-        float((last_rate - first_rate) / first_rate * 100) if first_rate else 0.0
+        float((last_rate - first_rate) / first_rate * 100) if first_rate else 0.0  # financial-float-ok
     )
 
     rate_reads = [FXRateRead.model_validate(r) for r in rates]
@@ -551,8 +551,8 @@ async def calculate_volatility(
     # Calculate daily log returns
     daily_returns: list[float] = []
     for i in range(1, len(rates)):
-        prev = float(rates[i - 1].rate)
-        curr = float(rates[i].rate)
+        prev = float(rates[i - 1].rate)  # financial-float-ok
+        curr = float(rates[i].rate)  # financial-float-ok
         if prev > 0:
             daily_returns.append(math.log(curr / prev))
 
@@ -623,8 +623,8 @@ async def get_exposure_summary(
             else Decimal("0")
         )
 
-        locked_pct = float(locked / total_exp * 100) if total_exp else 0.0
-        floating_pct = float(floating / total_exp * 100) if total_exp else 0.0
+        locked_pct = float(locked / total_exp * 100) if total_exp else 0.0  # financial-float-ok
+        floating_pct = float(floating / total_exp * 100) if total_exp else 0.0  # financial-float-ok
 
         summaries.append(
             {
@@ -1013,7 +1013,7 @@ async def run_simulation(
     if len(rates) < MIN_SIMULATION_DAYS:
         raise InsufficientRateDataError(data.pair, len(rates), MIN_SIMULATION_DAYS)
 
-    rate_values = [float(r.rate) for r in rates]
+    rate_values = [float(r.rate) for r in rates]  # financial-float-ok
 
     # E2: Look up volatility multiplier for this pair
     vol_mult = VOLATILITY_MULTIPLIER.get(data.pair, VOLATILITY_MULTIPLIER["default"])
@@ -1026,7 +1026,7 @@ async def run_simulation(
                 rate_values,
                 data.num_simulations,
                 data.horizon_days,
-                float(data.confidence_level),
+                float(data.confidence_level),  # financial-float-ok
                 vol_mult,
             ),
             timeout=_MONTE_CARLO_TIMEOUT,

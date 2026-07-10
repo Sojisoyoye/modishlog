@@ -161,9 +161,17 @@ class ReorderSuggestionRead(BaseModel):
     avg_daily_demand: Decimal
     estimated_stockout_date: date | None = None
     confidence: Decimal
+    # E1 — confidence disclosure, same threshold/pattern as RecommendationRead
+    data_points_used: int = 0
+    confidence_reliable: bool = False
     reasoning: str
     status: str
     created_at: datetime
+
+    @model_validator(mode="after")
+    def _populate_confidence_reliability(self) -> "ReorderSuggestionRead":
+        self.confidence_reliable = self.data_points_used >= 30
+        return self
 
 
 class ReorderSuggestionListResponse(BaseModel):
