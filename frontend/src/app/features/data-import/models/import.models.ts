@@ -1,5 +1,17 @@
 export type SourceSystem = 'ultimatepos' | 'quickbooks' | 'shopify' | 'generic';
 
+export const SOURCE_LABELS: Record<SourceSystem, string> = {
+  ultimatepos: 'UltimatePOS',
+  quickbooks: 'QuickBooks',
+  shopify: 'Shopify',
+  generic: 'Generic CSV',
+};
+
+/** Humanizes a snake_case entity/status key for display, e.g. "business_locations" -> "Business locations". */
+export function humanizeKey(key: string): string {
+  return key.replace(/_/g, ' ');
+}
+
 export type ExtractionMode = 'csv' | 'api';
 
 export type MigrationJobStatus =

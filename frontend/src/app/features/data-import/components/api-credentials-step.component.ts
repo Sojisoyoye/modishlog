@@ -2,7 +2,14 @@ import { Component, ChangeDetectionStrategy, inject, input, output, signal } fro
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { ImportService } from '../services/import.service';
-import { ApiCredentials, MigrationJob, SourceSystem, TestConnectionResponse } from '../models/import.models';
+import {
+  ApiCredentials,
+  MigrationJob,
+  SourceSystem,
+  SOURCE_LABELS,
+  TestConnectionResponse,
+  humanizeKey,
+} from '../models/import.models';
 
 @Component({
   selector: 'app-api-credentials-step',
@@ -21,6 +28,7 @@ import { ApiCredentials, MigrationJob, SourceSystem, TestConnectionResponse } fr
         <input
           type="text"
           [(ngModel)]="apiBaseUrl"
+          (ngModelChange)="onCredentialsChanged()"
           [placeholder]="urlPlaceholder()"
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none min-h-[40px]"
         />
@@ -32,6 +40,7 @@ import { ApiCredentials, MigrationJob, SourceSystem, TestConnectionResponse } fr
           <input
             type="text"
             [(ngModel)]="username"
+            (ngModelChange)="onCredentialsChanged()"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none min-h-[40px]"
           />
         </div>
@@ -40,6 +49,7 @@ import { ApiCredentials, MigrationJob, SourceSystem, TestConnectionResponse } fr
           <input
             type="password"
             [(ngModel)]="password"
+            (ngModelChange)="onCredentialsChanged()"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none min-h-[40px]"
           />
         </div>
@@ -49,6 +59,7 @@ import { ApiCredentials, MigrationJob, SourceSystem, TestConnectionResponse } fr
           <input
             type="password"
             [(ngModel)]="accessToken"
+            (ngModelChange)="onCredentialsChanged()"
             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none min-h-[40px]"
           />
           <p class="mt-1 text-xs text-muted">{{ tokenHelpText() }}</p>
@@ -76,7 +87,7 @@ import { ApiCredentials, MigrationJob, SourceSystem, TestConnectionResponse } fr
           <ul class="mt-1 space-y-0.5 text-gray-700">
             @for (entry of countEntries(result); track entry[0]) {
               <li class="flex justify-between">
-                <span class="capitalize">{{ entry[0].replace('_', ' ') }}</span>
+                <span class="capitalize">{{ humanizeKey(entry[0]) }}</span>
                 <span class="font-medium">{{ entry[1] | number }}</span>
               </li>
             }
@@ -133,14 +144,10 @@ export class ApiCredentialsStepComponent {
   testError = signal<string | null>(null);
 
   sourceLabel(): string {
-    const labels: Record<SourceSystem, string> = {
-      ultimatepos: 'UltimatePOS',
-      quickbooks: 'QuickBooks',
-      shopify: 'Shopify',
-      generic: 'Generic CSV',
-    };
-    return labels[this.sourceSystem()];
+    return SOURCE_LABELS[this.sourceSystem()];
   }
+
+  humanizeKey = humanizeKey;
 
   urlLabel(): string {
     return this.sourceSystem() === 'shopify' ? 'Store admin API URL' : 'Store URL';
@@ -173,6 +180,11 @@ export class ApiCredentialsStepComponent {
       password: this.password || undefined,
       access_token: this.accessToken.trim() || undefined,
     };
+  }
+
+  onCredentialsChanged(): void {
+    this.testResult.set(null);
+    this.testError.set(null);
   }
 
   canTest(): boolean {

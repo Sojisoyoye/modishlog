@@ -1,5 +1,4 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { ApiService } from '../../../core/services/api.service';
 import { environment } from '../../../../environments/environment';
@@ -16,7 +15,6 @@ import {
 @Injectable({ providedIn: 'root' })
 export class ImportService {
   private readonly api = inject(ApiService);
-  private readonly http = inject(HttpClient);
   private readonly baseUrl = environment.apiBaseUrl;
 
   getAllTemplatesUrl(): string {
@@ -47,7 +45,7 @@ export class ImportService {
     for (const [entity, file] of Object.entries(files)) {
       if (file) formData.append(entity, file, file.name);
     }
-    return this.http.post<MigrationJob>(`${this.baseUrl}/import/jobs`, formData);
+    return this.api.post<MigrationJob>('/import/jobs', formData);
   }
 
   createApiJob(sourceSystem: SourceSystem, credentials: ApiCredentials): Observable<MigrationJob> {
@@ -58,7 +56,7 @@ export class ImportService {
     if (credentials.username) formData.append('username', credentials.username);
     if (credentials.password) formData.append('password', credentials.password);
     if (credentials.access_token) formData.append('access_token', credentials.access_token);
-    return this.http.post<MigrationJob>(`${this.baseUrl}/import/jobs`, formData);
+    return this.api.post<MigrationJob>('/import/jobs', formData);
   }
 
   listJobs(): Observable<MigrationJobListResponse> {

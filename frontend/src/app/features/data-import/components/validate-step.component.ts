@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, input, output, signal, OnInit, computed } from '@angular/core';
 import { ImportService } from '../services/import.service';
-import { MigrationJob, ValidationIssue } from '../models/import.models';
+import { MigrationJob, ValidationIssue, humanizeKey } from '../models/import.models';
 
 @Component({
   selector: 'app-validate-step',
@@ -35,7 +35,7 @@ import { MigrationJob, ValidationIssue } from '../models/import.models';
           <tbody class="divide-y divide-gray-100">
             @for (entry of entityRows(); track entry.entity) {
               <tr>
-                <td class="px-4 py-3 capitalize text-gray-700">{{ entry.entity.replace('_', ' ') }}</td>
+                <td class="px-4 py-3 capitalize text-gray-700">{{ humanizeKey(entry.entity) }}</td>
                 <td class="px-4 py-3 text-right text-gray-700">{{ entry.count }} record{{ entry.count === 1 ? '' : 's' }}</td>
                 <td class="px-4 py-3 text-right" [class.text-red-600]="entry.errors > 0" [class.font-medium]="entry.errors > 0">
                   {{ entry.errors }} error{{ entry.errors === 1 ? '' : 's' }}
@@ -114,6 +114,8 @@ export class ValidateStepComponent implements OnInit {
   loading = signal(true);
   job = signal<MigrationJob | null>(null);
   error = signal<string | null>(null);
+
+  humanizeKey = humanizeKey;
 
   entityRows = computed(() => {
     const j = this.job();

@@ -1,6 +1,6 @@
 import { Component, ChangeDetectionStrategy, inject, input, output, signal, OnInit, computed } from '@angular/core';
 import { ImportService } from '../services/import.service';
-import { ConfirmationSnapshot } from '../models/import.models';
+import { ConfirmationSnapshot, MigrationJob, humanizeKey } from '../models/import.models';
 
 @Component({
   selector: 'app-confirm-step',
@@ -37,7 +37,7 @@ import { ConfirmationSnapshot } from '../models/import.models';
           <tbody class="divide-y divide-gray-100">
             @for (entity of nonEmptyEntities(); track entity.name) {
               <tr>
-                <td class="px-4 py-3 capitalize text-gray-700">{{ entity.name.replace('_', ' ') }}</td>
+                <td class="px-4 py-3 capitalize text-gray-700">{{ humanizeKey(entity.name) }}</td>
                 <td class="px-4 py-3 text-right text-gray-700">{{ entity.count }} record{{ entity.count === 1 ? '' : 's' }}</td>
                 <td class="max-w-[280px] truncate px-4 py-3 text-gray-500">{{ sampleText(entity) }}</td>
               </tr>
@@ -105,7 +105,7 @@ export class ConfirmStepComponent implements OnInit {
 
   jobId = input.required<string>();
   cancelled = output<void>();
-  confirmed = output<import('../models/import.models').MigrationJob>();
+  confirmed = output<MigrationJob>();
   failed = output<string>();
 
   loading = signal(true);
@@ -113,11 +113,13 @@ export class ConfirmStepComponent implements OnInit {
   snapshot = signal<ConfirmationSnapshot | null>(null);
   staleMessage = signal<string | null>(null);
 
+  humanizeKey = humanizeKey;
+
   nonEmptyEntities = computed(() => (this.snapshot()?.entities ?? []).filter((e) => e.count > 0));
   emptyEntities = computed(() =>
     (this.snapshot()?.entities ?? [])
       .filter((e) => e.count === 0)
-      .map((e) => e.name.replace('_', ' ')),
+      .map((e) => humanizeKey(e.name)),
   );
 
   ngOnInit(): void {

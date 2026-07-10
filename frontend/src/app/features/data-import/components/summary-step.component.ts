@@ -1,7 +1,7 @@
 import { Component, ChangeDetectionStrategy, inject, input, output, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { ImportService } from '../services/import.service';
-import { MigrationJob } from '../models/import.models';
+import { MigrationJob, humanizeKey } from '../models/import.models';
 
 @Component({
   selector: 'app-summary-step',
@@ -15,7 +15,7 @@ import { MigrationJob } from '../models/import.models';
 
       <ul class="mt-4 space-y-1 text-sm text-gray-700">
         @for (entry of rowEntries(); track entry[0]) {
-          <li>{{ entry[1] }} {{ entry[0].replace('_', ' ') }} imported</li>
+          <li>{{ entry[1] }} {{ humanizeKey(entry[0]) }} imported</li>
         }
       </ul>
 
@@ -65,6 +65,8 @@ export class SummaryStepComponent {
   undone = output<void>();
 
   undoing = signal(false);
+
+  humanizeKey = humanizeKey;
 
   rowEntries(): [string, number][] {
     return Object.entries(this.job().row_counts).filter(([, count]) => count > 0);

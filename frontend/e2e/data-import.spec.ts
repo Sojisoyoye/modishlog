@@ -90,7 +90,8 @@ test('wizard: upload valid CSVs then validate shows correct row counts with no e
   await page.locator('input[type="file"]#file-customers').setInputFiles(customersFile);
   await page.getByRole('button', { name: 'Next' }).click();
 
-  await expect(page.getByRole('heading', { name: /validating/i })).toBeVisible();
+  // Not asserting the transient "Validating..." heading — it can resolve
+  // before this check polls it when the backend responds quickly.
   await expect(page.getByText(/2 records/i)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(/1 record/i)).toBeVisible();
   await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible();

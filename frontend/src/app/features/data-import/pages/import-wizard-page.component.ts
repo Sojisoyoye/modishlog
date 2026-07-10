@@ -1,10 +1,10 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { DatePipe, Location } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { ImportService } from '../services/import.service';
-import { MigrationJob, SourceSystem, ExtractionMode } from '../models/import.models';
+import { MigrationJob, SourceSystem, ExtractionMode, SOURCE_LABELS, humanizeKey } from '../models/import.models';
 import { CsvUploadStepComponent } from '../components/csv-upload-step.component';
 import { ApiCredentialsStepComponent } from '../components/api-credentials-step.component';
 import { ValidateStepComponent } from '../components/validate-step.component';
@@ -31,28 +31,28 @@ interface SourceOption {
 const SOURCE_OPTIONS: SourceOption[] = [
   {
     system: 'ultimatepos',
-    label: 'UltimatePOS',
+    label: SOURCE_LABELS.ultimatepos,
     description: 'Export from UltimatePOS/Laravel. We auto-detect your column names.',
     icon: 'pi-desktop',
     supportsApi: true,
   },
   {
     system: 'quickbooks',
-    label: 'QuickBooks',
+    label: SOURCE_LABELS.quickbooks,
     description: 'Use QuickBooks CSV export (Items, Invoices, Bills, Vendors).',
     icon: 'pi-book',
     supportsApi: true,
   },
   {
     system: 'shopify',
-    label: 'Shopify',
+    label: SOURCE_LABELS.shopify,
     description: "Use Shopify's built-in Products and Orders CSV export.",
     icon: 'pi-shopping-bag',
     supportsApi: true,
   },
   {
     system: 'generic',
-    label: 'Generic CSV',
+    label: SOURCE_LABELS.generic,
     description: 'Use our templates. Works with any spreadsheet (Excel, Google Sheets).',
     icon: 'pi-file',
     supportsApi: false,
@@ -281,10 +281,10 @@ export class ImportWizardPageComponent implements OnInit {
   selectedMode = signal<ExtractionMode | null>(null);
   activeJob = signal<MigrationJob | null>(null);
 
-  supportsApi(): boolean {
+  supportsApi = computed(() => {
     const source = this.selectedSource();
     return !!source && this.sourceOptions.find((o) => o.system === source)!.supportsApi;
-  }
+  });
 
   ngOnInit(): void {
     this.loadHistory();
@@ -309,8 +309,17 @@ export class ImportWizardPageComponent implements OnInit {
         return 'confirm';
       case 'done':
         return 'summary';
-      default:
+      case 'pending':
+      case 'extracting':
+      case 'transforming':
         return 'validate';
+      default:
+        // importing/recomputing (mid-flight elsewhere) and the terminal
+        // failed/cancelled/rolled_back statuses must never land on
+        // 'validate' — that step unconditionally re-POSTs validateJob(),
+        // which would re-run extraction on a job that's already finished
+        // or in progress.
+        return 'history';
     }
   }
 
@@ -344,7 +353,14 @@ export class ImportWizardPageComponent implements OnInit {
 
   onJobCreated(job: MigrationJob): void {
     this.activeJob.set(job);
-    this.router.navigate(['/settings/import', job.id]);
+    // Location.go (not Router.navigate) — /settings/import and
+    // /settings/import/:jobId are separate Route entries, so a router
+    // navigation between them destroys and recreates this component. If
+    // validateJob() (triggered by the 'validate' step below) resolves
+    // before that recreation settles, ngOnInit's re-fetch can see the job
+    // already at awaiting_confirmation and jump straight to 'confirm',
+    // skipping the validate step's UI entirely.
+    this.location.go(`/settings/import/${job.id}`);
     this.step.set('validate');
   }
 
@@ -396,7 +412,7 @@ export class ImportWizardPageComponent implements OnInit {
   }
 
   statusLabel(status: MigrationJob['status']): string {
-    return status.replace(/_/g, ' ');
+    return humanizeKey(status);
   }
 
   statusBadgeClass(status: MigrationJob['status']): string {
