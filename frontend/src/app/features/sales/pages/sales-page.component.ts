@@ -1541,7 +1541,7 @@ export class SalesPageComponent implements OnInit {
     const product = this.getProductForRow(row);
     const variant = product?.variants?.find((v) => v.id === variantId);
     if (variant) {
-      row.unit_price = variant.price_override != null ? parseFloat(variant.price_override) : (product?.selling_price ?? null);
+      row.unit_price = variant.price_override != null ? variant.price_override : (product?.selling_price ?? null);
     } else {
       // Variant deselected — clear price so grand total doesn't show stale amount
       row.unit_price = null;

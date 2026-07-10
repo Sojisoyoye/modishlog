@@ -1178,7 +1178,7 @@ export class OrdersPageComponent implements OnInit {
     const product = this.getOrderProductForItem(item);
     const variant = product?.variants?.find((v) => v.id === variantId);
     if (variant && variant.cost_price_override != null) {
-      item.unit_cost = parseFloat(variant.cost_price_override);
+      item.unit_cost = variant.cost_price_override;
     } else if (!variantId) {
       // Variant deselected — reset cost so the input doesn't show a stale value
       item.unit_cost = 0;
