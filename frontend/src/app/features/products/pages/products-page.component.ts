@@ -21,7 +21,6 @@ import { InventoryService } from '../../../core/services/inventory.service';
 import { FxService } from '../../../core/services/fx.service';
 import { ApiService } from '../../../core/services/api.service';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
-import { AlertBannerComponent } from '../../../shared/components/alert-banner/alert-banner.component';
 import { environment } from '../../../../environments/environment';
 
 type ProductsTab = 'products' | 'stock-report' | 'add' | 'upload' | 'categories';
@@ -44,7 +43,7 @@ interface ColEntry {
 @Component({
   selector: 'app-products-page',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, Toast, Dialog, ConfirmDialogComponent, AlertBannerComponent],
+  imports: [FormsModule, DecimalPipe, Toast, Dialog, ConfirmDialogComponent],
   template: `
     <p-toast />
 
