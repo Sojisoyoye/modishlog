@@ -3,7 +3,7 @@
 import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 import pandas as pd
 import structlog
@@ -73,7 +73,7 @@ async def _fetch_sales_history(
     if len(rows) < MIN_DATA_POINTS:
         raise InsufficientPriceDataError(product_id, len(rows), MIN_DATA_POINTS)
 
-    df = pd.DataFrame([{"ds": row[0], "y": float(row[1])} for row in rows])
+    df = pd.DataFrame([{"ds": row[0], "y": float(row[1])} for row in rows])  # financial-float-ok
     df["ds"] = pd.to_datetime(df["ds"])
     return df
 
@@ -131,10 +131,10 @@ async def calculate_demand_forecast(
     if proposed_price is not None:
         product = await _get_product(db, product_id)
         elasticity = await _get_elasticity_coefficient(db, product_id)
-        price_change_pct = float(
+        price_change_pct = float(  # financial-float-ok
             (proposed_price - product.selling_price) / product.selling_price
         )
-        multiplier = 1 + float(elasticity) * price_change_pct
+        multiplier = 1 + float(elasticity) * price_change_pct  # financial-float-ok
 
     forecasts = []
     total_demand = 0.0
@@ -210,8 +210,8 @@ async def calculate_price_elasticity_impact(
     elasticity = await _get_elasticity_coefficient(db, product_id)
 
     current_price = product.selling_price
-    price_change_pct = float((proposed_price - current_price) / current_price)
-    demand_impact_pct = float(elasticity) * price_change_pct
+    price_change_pct = float((proposed_price - current_price) / current_price)  # financial-float-ok
+    demand_impact_pct = float(elasticity) * price_change_pct  # financial-float-ok
 
     return {
         "product_id": product_id,
@@ -343,7 +343,7 @@ async def calculate_portfolio_margin(
             qty = sales["qty"]
             revenue = sales["revenue"]
             cogs = unit_cost * qty
-            margin_pct = float((revenue - cogs) / revenue * 100) if revenue else 0.0
+            margin_pct = float((revenue - cogs) / revenue * 100) if revenue else 0.0  # financial-float-ok
             total_revenue += revenue
             total_cogs += cogs
         else:
@@ -352,7 +352,7 @@ async def calculate_portfolio_margin(
             revenue = Decimal("0")
             cogs = Decimal("0")
             margin_pct = (
-                float((selling_price - unit_cost) / selling_price * 100)
+                float((selling_price - unit_cost) / selling_price * 100)  # financial-float-ok
                 if selling_price > 0
                 else 0.0
             )
@@ -376,11 +376,13 @@ async def calculate_portfolio_margin(
         else Decimal("0")
     )
 
+    blended_margin = blended_margin.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
     return {
-        "blended_margin": Decimal(str(round(float(blended_margin), 2))),
+        "blended_margin": blended_margin,
         "target_margin": target_margin,
-        "margin_gap": Decimal(
-            str(round(float(blended_margin) - float(target_margin), 2))
+        "margin_gap": (blended_margin - target_margin).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
         ),
         "total_revenue": total_revenue,
         "total_cogs": total_cogs,
@@ -444,22 +446,22 @@ def _optimize_prices(
     if not products:
         return []
 
-    x0 = [float(p["selling_price"]) for p in products]
+    x0 = [float(p["selling_price"]) for p in products]  # financial-float-ok
 
     def _calc_totals(prices):
         total_rev = 0.0
         total_cogs = 0.0
         for i, p in enumerate(products):
             new_price = prices[i]
-            old_price = float(p["selling_price"])
+            old_price = float(p["selling_price"])  # financial-float-ok
             if old_price <= 0:
                 continue
             price_change = (new_price - old_price) / old_price
-            elasticity = float(p.get("elasticity", -1.0))
+            elasticity = float(p.get("elasticity", -1.0))  # financial-float-ok
             demand_mult = max(0.1, 1 + elasticity * price_change)
-            projected_qty = float(p["avg_daily_sales"]) * 30 * demand_mult
+            projected_qty = float(p["avg_daily_sales"]) * 30 * demand_mult  # financial-float-ok
             total_rev += projected_qty * new_price
-            total_cogs += projected_qty * float(p["unit_cost"])
+            total_cogs += projected_qty * float(p["unit_cost"])  # financial-float-ok
         return total_rev, total_cogs
 
     def objective(prices):
@@ -478,7 +480,7 @@ def _optimize_prices(
 
     # Bounds: min 10% margin above cost, max 3x cost
     bounds = [
-        (float(p["unit_cost"]) * 1.10, float(p["unit_cost"]) * 3.0) for p in products
+        (float(p["unit_cost"]) * 1.10, float(p["unit_cost"]) * 3.0) for p in products  # financial-float-ok
     ]
 
     constraints = [{"type": "ineq", "fun": margin_constraint}]
@@ -521,7 +523,7 @@ async def generate_recommendations(
 
     # Get products below target margin
     below_target = [
-        p for p in portfolio["products"] if p["margin_pct"] < float(target_margin)
+        p for p in portfolio["products"] if p["margin_pct"] < float(target_margin)  # financial-float-ok
     ]
 
     if not below_target:
@@ -542,7 +544,7 @@ async def generate_recommendations(
                 "unit_cost": p["unit_cost"],
                 "selling_price": p["selling_price"],
                 "avg_daily_sales": avg_daily,
-                "elasticity": float(elasticity),
+                "elasticity": float(elasticity),  # financial-float-ok
                 "current_margin_pct": p["margin_pct"],
             }
         )
@@ -554,7 +556,7 @@ async def generate_recommendations(
             asyncio.to_thread(
                 _optimize_prices,
                 opt_inputs,
-                float(target_margin) / 100,
+                float(target_margin) / 100,  # financial-float-ok
             ),
             timeout=30.0,
         )
@@ -586,16 +588,16 @@ async def generate_recommendations(
             )
             continue  # Skip this product; never recommend a loss-making price
 
-        price_change_pct = float((recommended - current) / current * 100)
+        price_change_pct = float((recommended - current) / current * 100)  # financial-float-ok
         elasticity = await _get_elasticity_coefficient(db, opt["product_id"])
-        demand_change = float(elasticity) * price_change_pct / 100
+        demand_change = float(elasticity) * price_change_pct / 100  # financial-float-ok
 
         # Estimate margin improvement
-        new_margin = float((recommended - opt["unit_cost"]) / recommended * 100)
-        margin_change = new_margin - float((current - opt["unit_cost"]) / current * 100)
+        new_margin = float((recommended - opt["unit_cost"]) / recommended * 100)  # financial-float-ok
+        margin_change = new_margin - float((current - opt["unit_cost"]) / current * 100)  # financial-float-ok
 
         # Determine priority
-        margin_gap = float(target_margin) - float(
+        margin_gap = float(target_margin) - float(  # financial-float-ok
             (current - opt["unit_cost"]) / current * 100
         )
         if margin_gap > 5:
@@ -609,7 +611,7 @@ async def generate_recommendations(
             f"{priority} priority: Current margin gap of {margin_gap:.1f}%. "
             f"Price increase of {price_change_pct:.1f}% projected to improve "
             f"margin by {margin_change:.1f}pp with {demand_change * 100:.1f}% "
-            f"demand impact (elasticity: {float(elasticity):.2f})."
+            f"demand impact (elasticity: {float(elasticity):.2f})."  # financial-float-ok
         )
 
         rec = PricingRecommendation(

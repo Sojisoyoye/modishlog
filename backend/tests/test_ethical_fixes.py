@@ -149,6 +149,57 @@ class TestE1ConfidenceDisclosure:
         schema = RecommendationRead.model_validate(rec)
         assert schema.confidence_reliable is True
 
+    def test_reorder_suggestion_read_schema_has_confidence_fields(self):
+        """ReorderSuggestionRead must carry the same E1 disclosure fields as
+        RecommendationRead — reorder suggestions are AI-generated too."""
+        from src.ai_engine.schemas import ReorderSuggestionRead
+
+        fields = ReorderSuggestionRead.model_fields
+        assert "data_points_used" in fields
+        assert "confidence_reliable" in fields
+
+    def test_reorder_suggestion_confidence_reliable_false_when_few_data_points(self):
+        from src.ai_engine.schemas import ReorderSuggestionRead
+
+        schema = ReorderSuggestionRead(
+            id=uuid.uuid4(),
+            product_id=uuid.uuid4(),
+            current_stock=5,
+            reorder_point=20,
+            suggested_order_quantity=50,
+            economic_order_quantity=50,
+            safety_stock=10,
+            lead_time_days=7,
+            avg_daily_demand=Decimal("2.00"),
+            confidence=Decimal("75.00"),
+            data_points_used=5,
+            reasoning="Low stock",
+            status="pending",
+            created_at=NOW,
+        )
+        assert schema.confidence_reliable is False
+
+    def test_reorder_suggestion_confidence_reliable_true_when_sufficient_data_points(self):
+        from src.ai_engine.schemas import ReorderSuggestionRead
+
+        schema = ReorderSuggestionRead(
+            id=uuid.uuid4(),
+            product_id=uuid.uuid4(),
+            current_stock=5,
+            reorder_point=20,
+            suggested_order_quantity=50,
+            economic_order_quantity=50,
+            safety_stock=10,
+            lead_time_days=7,
+            avg_daily_demand=Decimal("2.00"),
+            confidence=Decimal("75.00"),
+            data_points_used=45,
+            reasoning="Low stock",
+            status="pending",
+            created_at=NOW,
+        )
+        assert schema.confidence_reliable is True
+
 
 # ---------------------------------------------------------------------------
 # E2 — FX volatility multiplier

@@ -190,6 +190,7 @@ class ReorderSuggestion(UUIDMixin, Base):
     demand_variability: Mapped[Decimal] = mapped_column(Numeric(8, 4))
     estimated_stockout_date: Mapped[date | None] = mapped_column(Date, default=None)
     confidence: Mapped[Decimal] = mapped_column(Numeric(5, 2))
+    data_points_used: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     reasoning: Mapped[str] = mapped_column(Text)
     status: Mapped[ReorderStatus] = mapped_column(
         Enum(ReorderStatus), default=ReorderStatus.PENDING

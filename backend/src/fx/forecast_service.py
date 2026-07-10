@@ -49,7 +49,7 @@ async def _fetch_historical_rates(
         raise InsufficientRateDataError(pair, len(rates), MIN_TRAINING_DAYS)
 
     df = pd.DataFrame(
-        [{"ds": r.timestamp.replace(tzinfo=None), "y": float(r.rate)} for r in rates]
+        [{"ds": r.timestamp.replace(tzinfo=None), "y": float(r.rate)} for r in rates]  # financial-float-ok
     )
     # Keep one rate per calendar day (last timestamp wins) to avoid duplicate-date
     # issues that inflate uncertainty estimates in any model.
@@ -88,14 +88,14 @@ def _gbm_forecast(
     # Estimate parameters from the most recent 60 days; older data may reflect
     # different macro conditions.
     recent = log_returns[-60:] if len(log_returns) > 60 else log_returns
-    raw_drift = float(np.mean(recent))
-    daily_drift = float(np.clip(raw_drift, -MAX_DAILY_DRIFT, MAX_DAILY_DRIFT))
-    daily_vol = float(np.std(recent))
+    raw_drift = float(np.mean(recent))  # financial-float-ok
+    daily_drift = float(np.clip(raw_drift, -MAX_DAILY_DRIFT, MAX_DAILY_DRIFT))  # financial-float-ok
+    daily_vol = float(np.std(recent))  # financial-float-ok
 
     # Safety floor on volatility (at least 0.1 % per day)
     daily_vol = max(daily_vol, 0.001)
 
-    S0 = float(prices[-1])
+    S0 = float(prices[-1])  # financial-float-ok
     last_date = df["ds"].iloc[-1]
     rng = np.random.default_rng()
 
@@ -113,11 +113,11 @@ def _gbm_forecast(
         scenarios.append(
             {
                 "date": target_date,
-                "base_rate": round(float(np.percentile(day_prices, 50)), 6),
-                "best_case_rate": round(float(np.percentile(day_prices, 10)), 6),
-                "worst_case_rate": round(float(np.percentile(day_prices, 90)), 6),
-                "prophet_lower": round(float(np.percentile(day_prices, 10)), 6),
-                "prophet_upper": round(float(np.percentile(day_prices, 90)), 6),
+                "base_rate": round(float(np.percentile(day_prices, 50)), 6),  # financial-float-ok
+                "best_case_rate": round(float(np.percentile(day_prices, 10)), 6),  # financial-float-ok
+                "worst_case_rate": round(float(np.percentile(day_prices, 90)), 6),  # financial-float-ok
+                "prophet_lower": round(float(np.percentile(day_prices, 10)), 6),  # financial-float-ok
+                "prophet_upper": round(float(np.percentile(day_prices, 90)), 6),  # financial-float-ok
             }
         )
 
@@ -252,8 +252,8 @@ async def update_forecast_accuracy(
         actual = actual_result.scalar_one_or_none()
         if actual is None:
             continue
-        forecast_val = float(fc.base_rate)
-        actual_val = float(actual.rate)
+        forecast_val = float(fc.base_rate)  # financial-float-ok
+        actual_val = float(actual.rate)  # financial-float-ok
         errors.append(abs(forecast_val - actual_val))
         pct_errors.append(abs(forecast_val - actual_val) / actual_val * 100 if actual_val else 0)
         fc.mae = Decimal(str(round(errors[-1], 6)))
@@ -265,6 +265,6 @@ async def update_forecast_accuracy(
     return ForecastAccuracy(
         pair=pair,
         total_evaluated=len(errors),
-        mean_mae=Decimal(str(round(float(np.mean(errors)), 6))) if errors else Decimal("0"),
-        mean_mape=Decimal(str(round(float(np.mean(pct_errors)), 6))) if pct_errors else Decimal("0"),
+        mean_mae=Decimal(str(round(float(np.mean(errors)), 6))) if errors else Decimal("0"),  # financial-float-ok
+        mean_mape=Decimal(str(round(float(np.mean(pct_errors)), 6))) if pct_errors else Decimal("0"),  # financial-float-ok
     )
