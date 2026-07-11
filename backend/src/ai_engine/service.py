@@ -263,10 +263,17 @@ async def _generate_order_timing_recommendations(
     now: datetime,
 ) -> list[AIRecommendation]:
     """Generate reorder recommendations based on inventory depletion and FX forecasts."""
-    # Get products with low stock
+    # Get products with low stock. Scoped to the product-level (variant_id
+    # IS NULL) row only — this function was never made variant-aware, and a
+    # product can now also have variant-level InventoryLevel rows (see
+    # data_import/recompute.py); without this filter, a product with N
+    # variants below threshold would produce N+1 duplicate recommendations
+    # instead of one (mirrors the identical fix in generate_reorder_suggestions
+    # below).
     result = await db.execute(
         select(InventoryLevel).where(
-            InventoryLevel.quantity_on_hand <= InventoryLevel.low_stock_threshold
+            InventoryLevel.quantity_on_hand <= InventoryLevel.low_stock_threshold,
+            InventoryLevel.variant_id.is_(None),
         )
     )
     low_stock_items = list(result.scalars().all())

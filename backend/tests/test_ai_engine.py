@@ -390,6 +390,31 @@ class TestReorderSuggestions:
         assert "variant_id IS NULL" in compiled_where
 
     @pytest.mark.anyio
+    async def test_order_timing_recommendations_excludes_variant_level_inventory_rows(
+        self,
+    ):
+        """Same fix as generate_reorder_suggestions above, applied to its
+        sibling — _generate_order_timing_recommendations queried every
+        InventoryLevel row for a product with no variant_id filter, so a
+        product with N variants below threshold produced N+1 duplicate
+        reorder recommendations instead of one."""
+        from src.ai_engine.service import _generate_order_timing_recommendations
+
+        db = _mock_db()
+        empty_result = MagicMock()
+        empty_result.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(return_value=empty_result)
+
+        await _generate_order_timing_recommendations(db, NOW)
+
+        compiled_where = str(
+            db.execute.call_args[0][0].whereclause.compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        )
+        assert "variant_id IS NULL" in compiled_where
+
+    @pytest.mark.anyio
     async def test_generate_reorder_suggestions_stamps_data_points_used(self):
         """E1: data_points_used must reflect the count of distinct sale-days
         backing the demand estimate, not just whether any sales existed."""
