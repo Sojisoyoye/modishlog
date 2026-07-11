@@ -33,6 +33,7 @@ _CHANNEL_MAP = {
 def normalize_channel(raw: str | None) -> SaleChannel:
     return _CHANNEL_MAP.get((raw or "retail").strip().lower(), SaleChannel.RETAIL)
 
+
 _PAYMENT_METHOD_MAP = {
     "credit card": "card",
     "debit card": "card",
@@ -64,7 +65,9 @@ class IdMap:
 
 
 def normalize_amount(raw: str) -> Decimal:
-    return parse_flexible_amount(raw).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    return parse_flexible_amount(raw).quantize(
+        Decimal("0.000001"), rounding=ROUND_HALF_UP
+    )
 
 
 def normalize_date(raw: str):
@@ -116,7 +119,9 @@ class Transformer:
     # Dedup lookups
     # ------------------------------------------------------------------
 
-    async def dedup_customer(self, email: str | None, phone: str | None) -> Customer | None:
+    async def dedup_customer(
+        self, email: str | None, phone: str | None
+    ) -> Customer | None:
         if email:
             result = await self.db.execute(
                 select(Customer).where(
@@ -149,7 +154,9 @@ class Transformer:
         result = await self.db.execute(q)
         return result.scalar_one_or_none()
 
-    async def dedup_product(self, barcode: str | None, sku: str | None) -> Product | None:
+    async def dedup_product(
+        self, barcode: str | None, sku: str | None
+    ) -> Product | None:
         if barcode:
             # Scoped by business_id like every other dedup lookup — barcode has
             # no global-uniqueness constraint in this schema, so an unscoped
@@ -213,7 +220,9 @@ class Transformer:
             category_id = None
             category_source_id = row.get("category_source_id")
             if category_source_id:
-                category_id = self.id_map.lookup("product_categories", category_source_id)
+                category_id = self.id_map.lookup(
+                    "product_categories", category_source_id
+                )
 
             source_id = row.get("source_id")
             out.append(
@@ -228,7 +237,8 @@ class Transformer:
                     "selling_price": normalize_amount(row.get("selling_price", "0")),
                     "currency": row.get("currency", "NGN").upper(),
                     "category_id": category_id,
-                    "is_active": row.get("is_active", "true").strip().lower() != "false",
+                    "is_active": row.get("is_active", "true").strip().lower()
+                    != "false",
                     "business_id": self.business_id,
                 }
             )
@@ -261,11 +271,15 @@ class Transformer:
                     "attributes": {
                         k: v
                         for k, v in (
-                            pair.split(":", 1) for pair in row.get("attributes", "").split(";") if ":" in pair
+                            pair.split(":", 1)
+                            for pair in row.get("attributes", "").split(";")
+                            if ":" in pair
                         )
                     },
                     "price_override": (
-                        normalize_amount(row["price_override"]) if row.get("price_override") else None
+                        normalize_amount(row["price_override"])
+                        if row.get("price_override")
+                        else None
                     ),
                     "cost_price_override": (
                         normalize_amount(row["cost_price_override"])
@@ -335,7 +349,8 @@ class Transformer:
                     "id": self._assign_id("business_locations", source_id),
                     "_source_id": source_id,
                     "name": row["name"].strip(),
-                    "location_code": row.get("location_code") or row["name"][:20].upper(),
+                    "location_code": row.get("location_code")
+                    or row["name"][:20].upper(),
                     "business_id": self.business_id,
                     "created_by": self.created_by,
                 }
@@ -375,7 +390,9 @@ class Transformer:
             except (KeyError, ValueError, InvalidOperation) as e:
                 self.warnings.append(
                     ValidationIssue(
-                        entity="sales", row=i, severity="error",
+                        entity="sales",
+                        row=i,
+                        severity="error",
                         message=f"Could not parse row: {e}",
                     )
                 )
@@ -383,7 +400,9 @@ class Transformer:
 
             variant_id = None
             if row.get("variant_source_id"):
-                variant_id = self.id_map.lookup("product_variants", row["variant_source_id"])
+                variant_id = self.id_map.lookup(
+                    "product_variants", row["variant_source_id"]
+                )
 
             customer_id = None
             if row.get("customer_source_id"):
@@ -416,12 +435,195 @@ class Transformer:
                     "currency": row.get("currency", "NGN").upper(),
                     "sale_date": sale_date,
                     "channel": normalize_channel(row.get("channel")),
-                    "payment_method": normalize_payment_method(row.get("payment_method")),
+                    "payment_method": normalize_payment_method(
+                        row.get("payment_method")
+                    ),
                     "business_id": self.business_id,
                     "recorded_by": self.created_by,
                 }
             )
         return out
+
+    def transform_purchase_orders(self, raw_rows: list[dict]) -> list[dict]:
+        """Rows are one-line-item-per-row; rows sharing the same `source_id`
+        group into one purchase order with multiple line items (mirrors how
+        a business would naturally list "PO-001, ProductA, 10" / "PO-001,
+        ProductB, 5" as two rows of the same order).
+        """
+        groups: dict[str, dict] = {}
+        order = []
+        for i, row in enumerate(raw_rows, start=2):
+            source_id = row.get("source_id") or f"__row_{i}"
+            product_id = self.id_map.lookup("products", row.get("product_source_id"))
+            if product_id is None:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="purchase_orders",
+                        row=i,
+                        field="product_source_id",
+                        severity="error",
+                        message=f"Product {row.get('product_source_id')!r} could not be resolved",
+                    )
+                )
+                continue
+
+            try:
+                # Parsed the same lenient way validate_entity_rows() checks
+                # it (comma-thousands, decimal strings) — a plain int(row[...])
+                # here would reject values the validator already accepted
+                # (e.g. "1,000" or "10.0"), silently dropping the line item
+                # at confirm time on a row that passed validation clean.
+                quantity = int(normalize_amount(row["quantity"]))
+                unit_cost = normalize_amount(row["unit_cost"])
+                order_date = (
+                    normalize_date(row["order_date"]) if row.get("order_date") else None
+                )
+                fx_rate = (
+                    normalize_amount(row["fx_rate"]) if row.get("fx_rate") else None
+                )
+            except (KeyError, ValueError, InvalidOperation) as e:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="purchase_orders",
+                        row=i,
+                        severity="error",
+                        message=f"Could not parse row: {e}",
+                    )
+                )
+                continue
+
+            variant_id = None
+            if row.get("variant_source_id"):
+                variant_id = self.id_map.lookup(
+                    "product_variants", row["variant_source_id"]
+                )
+                if variant_id is None:
+                    # Unlike product_source_id (a hard error that drops the
+                    # row above), a stale/typo'd variant reference doesn't
+                    # need to be fatal — the line item still has a valid
+                    # product to import against. But it must not be
+                    # confused with the "recognized, tracked at product
+                    # level" case below: this reference was never resolved
+                    # at all.
+                    self.warnings.append(
+                        ValidationIssue(
+                            entity="purchase_orders",
+                            row=i,
+                            field="variant_source_id",
+                            severity="warning",
+                            message=(
+                                f"Variant {row['variant_source_id']!r} could not be "
+                                f"resolved — {quantity} units were added to "
+                                f"{row.get('product_source_id')!r}'s overall stock "
+                                "instead."
+                            ),
+                        )
+                    )
+                else:
+                    # Purchase-order delivery (transition_status(), reused as-is
+                    # from the real-time order flow) applies stock/FIFO-batch
+                    # changes at the product level only — it has no variant-aware
+                    # path today, imported or not. It also silently replaces
+                    # unit_cost with the variant's cost_price_override, if one is
+                    # set, before computing the order total and FIFO landed
+                    # cost — correct for a real-time PO (use the negotiated
+                    # cost), wrong for a historical import (the point is
+                    # preserving the actual price paid). Surface both honestly
+                    # rather than silently mis-tracking stock or cost.
+                    self.warnings.append(
+                        ValidationIssue(
+                            entity="purchase_orders",
+                            row=i,
+                            field="variant_source_id",
+                            severity="warning",
+                            message=(
+                                f"{quantity} units will be added to "
+                                f"{row.get('product_source_id')!r}'s overall stock, not "
+                                "tracked against this specific variant. If this variant "
+                                "has a cost override set, its imported unit_cost of "
+                                f"{unit_cost} will also be replaced by that override — "
+                                "purchase-order delivery doesn't support variant-level "
+                                "stock or historical-cost overrides yet."
+                            ),
+                        )
+                    )
+
+            if source_id not in groups:
+                groups[source_id] = {
+                    "source_id": source_id,
+                    "supplier_id": None,
+                    "supplier_name": row.get("supplier_name") or source_id,
+                    "location_id": None,
+                    "currency": None,
+                    "order_date": None,
+                    "fx_rate": None,
+                    "_first_row": i,
+                    "line_items": [],
+                }
+                order.append(groups[source_id])
+
+            # Order-level fields — a business can naturally export them on
+            # whichever line-item row happened to carry the value (e.g. only
+            # the first row of the PO has order_date filled in), so every
+            # row for this source_id gets a chance to fill in whatever the
+            # group is still missing, instead of only ever looking at the
+            # row that happened to create the group.
+            group = groups[source_id]
+            if group["supplier_id"] is None and row.get("supplier_source_id"):
+                group["supplier_id"] = self.id_map.lookup(
+                    "suppliers", row["supplier_source_id"]
+                )
+            if group["location_id"] is None and row.get("location_source_id"):
+                group["location_id"] = self.id_map.lookup(
+                    "business_locations", row["location_source_id"]
+                )
+            if group["currency"] is None and row.get("currency"):
+                group["currency"] = row["currency"].upper()
+            if group["order_date"] is None and order_date is not None:
+                group["order_date"] = order_date
+            # Order-level, not per-line-item — the real-time PO flow only
+            # ever captures one FX rate per order too. If left unset,
+            # transition_status() falls back to a hardcoded 1500 NGN/USD
+            # rate, which silently misstates landed cost/COGS for any
+            # historical purchase where the real rate differed.
+            if group["fx_rate"] is None and fx_rate is not None:
+                group["fx_rate"] = fx_rate
+
+            groups[source_id]["line_items"].append(
+                {
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "quantity": quantity,
+                    "unit_cost": unit_cost,
+                }
+            )
+
+        result = [g for g in order if g["line_items"]]
+        for group in result:
+            if group["currency"] is None:
+                group["currency"] = "USD"
+            if group["order_date"] is None:
+                # load_purchase_orders() passes this straight through as the
+                # DELIVERED transition's actual_delivery_date;
+                # transition_status() falls back to date.today() when it's
+                # None, which would backdate every PO missing this column
+                # (on every one of its rows) to "today" and skew FIFO
+                # batch ordering for a historical import.
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="purchase_orders",
+                        row=group["_first_row"],
+                        field="order_date",
+                        severity="warning",
+                        message=(
+                            f"No order_date for {group['source_id']!r} — it will be "
+                            "recorded as delivered today instead of its real historical "
+                            "date, which affects FIFO cost-basis ordering."
+                        ),
+                    )
+                )
+            del group["_first_row"]
+        return result
 
     def detect_ghost_products(
         self, sales_raw: list[dict], known_product_source_ids: set[str]
@@ -434,7 +636,11 @@ class Transformer:
         ghosts = []
         for row in sales_raw:
             source_id = row.get("product_source_id")
-            if not source_id or source_id in known_product_source_ids or source_id in seen:
+            if (
+                not source_id
+                or source_id in known_product_source_ids
+                or source_id in seen
+            ):
                 continue
             seen.add(source_id)
             display_name = row.get("product_name") or source_id

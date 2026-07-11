@@ -3,7 +3,7 @@
 import uuid
 from datetime import date
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,13 +17,14 @@ from src.data_import.etl.extractor import (
 )
 from src.data_import.etl.loader import load as loader_load
 from src.data_import.etl.loader import rollback as loader_rollback
+from src.inventory.models import InventoryLevel
 from src.data_import.etl.transformer import (
     IdMap,
     Transformer,
     normalize_payment_method,
 )
 from src.data_import.etl.validator import validate_entity_rows
-from src.data_import.exceptions import InvalidJobStateError
+from src.data_import.exceptions import InvalidJobStateError, PurchaseOrderImportError
 from src.data_import.models import (
     ExtractionMode,
     MigrationJob,
@@ -170,6 +171,97 @@ class TestValidateEntityRows:
     def test_valid_rows_produce_no_issues(self):
         rows = [{"source_id": "P1", "name": "Widget", "unit_cost": "5", "selling_price": "10"}]
         assert validate_entity_rows("products", rows) == []
+
+    def test_purchase_order_missing_required_field_is_error(self):
+        rows = [{"source_id": "PO1", "product_source_id": "", "quantity": "10", "unit_cost": "5"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(i.field == "product_source_id" and i.severity == "error" for i in issues)
+
+    def test_purchase_order_invalid_date_is_error(self):
+        rows = [
+            {
+                "source_id": "PO1",
+                "product_source_id": "P1",
+                "quantity": "10",
+                "unit_cost": "5",
+                "order_date": "not-a-date",
+            }
+        ]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(i.field == "order_date" and i.severity == "error" for i in issues)
+
+    def test_purchase_order_negative_unit_cost_is_error(self):
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "10", "unit_cost": "-5"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(i.field == "unit_cost" and i.severity == "error" for i in issues)
+
+    def test_purchase_order_zero_quantity_is_error(self):
+        """OrderLineItemCreate requires quantity > 0 (not just >= 0) — a
+        zero value must be caught here, not surface as a raw pydantic
+        error deep inside load_purchase_orders() at confirm time."""
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "0", "unit_cost": "10"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(
+            i.field == "quantity" and i.severity == "error" and "greater than zero" in i.message
+            for i in issues
+        )
+
+    def test_purchase_order_zero_unit_cost_is_error(self):
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "10", "unit_cost": "0"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(
+            i.field == "unit_cost" and i.severity == "error" and "greater than zero" in i.message
+            for i in issues
+        )
+
+    def test_purchase_order_malformed_fx_rate_is_error(self):
+        """fx_rate shares transform_purchase_orders()'s single try/except
+        with quantity/unit_cost/order_date — an unvalidated garbage value
+        would silently drop the entire otherwise-valid line item at confirm
+        time as a generic 'could not parse row' error. Must be caught here
+        instead, while the row can still be corrected."""
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "10", "unit_cost": "5", "fx_rate": "N/A"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(i.field == "fx_rate" and i.severity == "error" for i in issues)
+
+    def test_purchase_order_missing_fx_rate_is_valid(self):
+        """fx_rate is optional — omitting it entirely must not be an error."""
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "10", "unit_cost": "5"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert not any(i.field == "fx_rate" for i in issues)
+
+    def test_purchase_order_decimal_and_comma_quantity_is_valid(self):
+        """quantity is validated leniently (parse_flexible_amount, matching
+        transform_purchase_orders()'s own parsing) — "10.0" and "1,000" must
+        not be rejected here."""
+        rows = [
+            {"source_id": "PO1", "product_source_id": "P1", "quantity": "10.0", "unit_cost": "5"},
+            {"source_id": "PO2", "product_source_id": "P1", "quantity": "1,000", "unit_cost": "5"},
+        ]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert not any(i.field == "quantity" for i in issues)
+
+    def test_purchase_order_fractional_quantity_is_error(self):
+        """transform_purchase_orders() does int(normalize_amount(...)) on
+        quantity — a genuinely fractional value like "10.7" would silently
+        lose its remainder at confirm time. Must be rejected here instead."""
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "10.7", "unit_cost": "5"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(
+            i.field == "quantity" and i.severity == "error" and "whole number" in i.message
+            for i in issues
+        )
+
+    def test_purchase_order_rows_sharing_source_id_are_not_flagged_as_duplicates(self):
+        """Multiple rows with the same source_id are one multi-line-item
+        order by design (see transform_purchase_orders) — not a duplicate,
+        unlike every other entity's source_id semantics."""
+        rows = [
+            {"source_id": "PO1", "product_source_id": "P1", "quantity": "10", "unit_cost": "5"},
+            {"source_id": "PO1", "product_source_id": "P2", "quantity": "5", "unit_cost": "10"},
+        ]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert not any("Duplicate source_id" in i.message for i in issues)
 
     def test_unknown_entity_returns_no_issues(self):
         assert validate_entity_rows("not_a_real_entity", [{"anything": "x"}]) == []
@@ -353,6 +445,253 @@ class TestTransformCategories:
         assert result[1]["parent_id"] == result[0]["id"]
 
 
+class TestTransformPurchaseOrders:
+    def _transformer_with_product(self, product_source_id="P1"):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        product_id = uuid.uuid4()
+        transformer.id_map.register("products", product_source_id, product_id)
+        return transformer, product_id
+
+    def test_rows_sharing_source_id_group_into_one_order_with_two_line_items(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        transformer.id_map.register("products", "P2", uuid.uuid4())
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "Acme Textiles",
+                "product_source_id": "P1",
+                "quantity": "10",
+                "unit_cost": "500",
+                "order_date": "2026-01-01",
+            },
+            {
+                "source_id": "PO1",
+                "supplier_name": "Acme Textiles",
+                "product_source_id": "P2",
+                "quantity": "5",
+                "unit_cost": "200",
+                "order_date": "2026-01-01",
+            },
+        ]
+        result = transformer.transform_purchase_orders(rows)
+
+        assert len(result) == 1
+        assert result[0]["supplier_name"] == "Acme Textiles"
+        assert len(result[0]["line_items"]) == 2
+        assert result[0]["line_items"][0]["product_id"] == product_id
+        assert result[0]["line_items"][0]["quantity"] == 10
+        assert result[0]["line_items"][0]["unit_cost"] == Decimal("500.000000")
+
+    def test_missing_order_date_produces_warning(self):
+        """load_purchase_orders() passes order_date straight through as the
+        DELIVERED transition's actual_delivery_date; transition_status()
+        falls back to date.today() when it's None, silently backdating a
+        historical import. Must warn, not silently proceed."""
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "Acme Textiles",
+                "product_source_id": "P1",
+                "quantity": "10",
+                "unit_cost": "500",
+            }
+        ]
+        result = transformer.transform_purchase_orders(rows)
+
+        assert len(result) == 1
+        assert result[0]["order_date"] is None
+        assert any(
+            w.field == "order_date" and w.severity == "warning"
+            for w in transformer.warnings
+        )
+
+    def test_resolved_variant_gets_product_level_tracking_warning(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        variant_id = uuid.uuid4()
+        transformer.id_map.register("product_variants", "V1", variant_id)
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "A",
+                "product_source_id": "P1",
+                "variant_source_id": "V1",
+                "quantity": "10",
+                "unit_cost": "500",
+                "order_date": "2025-01-01",
+            }
+        ]
+        result = transformer.transform_purchase_orders(rows)
+
+        assert result[0]["line_items"][0]["variant_id"] == variant_id
+        warning = next(w for w in transformer.warnings if w.field == "variant_source_id")
+        assert "not tracked against this specific variant" in warning.message
+        assert "could not be resolved" not in warning.message
+
+    def test_unresolvable_variant_gets_a_distinct_warning_not_the_tracking_one(self):
+        """A stale/typo'd variant reference must not be confused with the
+        'recognized, tracked at product level' case — it was never resolved
+        at all, so the warning must say so, not claim the variant was
+        recognized and its cost-override behavior applies."""
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "A",
+                "product_source_id": "P1",
+                "variant_source_id": "NONEXISTENT",
+                "quantity": "10",
+                "unit_cost": "500",
+                "order_date": "2025-01-01",
+            }
+        ]
+        result = transformer.transform_purchase_orders(rows)
+
+        assert result[0]["line_items"][0]["variant_id"] is None
+        warning = next(w for w in transformer.warnings if w.field == "variant_source_id")
+        assert "could not be resolved" in warning.message
+        assert "cost override" not in warning.message
+
+    def test_order_level_fields_backfilled_from_a_later_row_in_the_group(self):
+        """order_date/fx_rate/currency/supplier/location are order-level,
+        but a business's export may only populate them on whichever line
+        row happened to carry the value — not necessarily the first one.
+        A later row filling in what an earlier row left blank must not be
+        silently discarded (previously only the first row was ever
+        consulted for these fields)."""
+        transformer, product_id = self._transformer_with_product("P1")
+        transformer.id_map.register("products", "P2", uuid.uuid4())
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "Acme Textiles",
+                "product_source_id": "P1",
+                "quantity": "10",
+                "unit_cost": "500",
+                # order_date/fx_rate/currency all blank on this row.
+            },
+            {
+                "source_id": "PO1",
+                "supplier_name": "Acme Textiles",
+                "product_source_id": "P2",
+                "quantity": "5",
+                "unit_cost": "200",
+                "order_date": "2025-03-01",
+                "fx_rate": "1550",
+                "currency": "ngn",
+            },
+        ]
+        result = transformer.transform_purchase_orders(rows)
+
+        assert len(result) == 1
+        assert result[0]["order_date"] == date(2025, 3, 1)
+        assert result[0]["fx_rate"] == Decimal("1550.000000")
+        assert result[0]["currency"] == "NGN"
+        assert not any(w.field == "order_date" for w in transformer.warnings)
+
+    def test_distinct_source_ids_produce_separate_orders(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "1", "unit_cost": "10"},
+            {"source_id": "PO2", "supplier_name": "B", "product_source_id": "P1", "quantity": "1", "unit_cost": "10"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert len(result) == 2
+
+    def test_resolves_supplier_id_from_id_map(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        supplier_id = uuid.uuid4()
+        transformer.id_map.register("suppliers", "S1", supplier_id)
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_source_id": "S1",
+                "supplier_name": "Acme",
+                "product_source_id": "P1",
+                "quantity": "1",
+                "unit_cost": "10",
+            }
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result[0]["supplier_id"] == supplier_id
+
+    def test_missing_supplier_name_falls_back_to_source_id(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "product_source_id": "P1", "quantity": "1", "unit_cost": "10"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result[0]["supplier_name"] == "PO1"
+
+    def test_row_with_unresolvable_product_is_dropped_with_error(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "UNKNOWN", "quantity": "1", "unit_cost": "10"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result == []
+        assert any(w.severity == "error" for w in transformer.warnings)
+
+    def test_order_with_some_resolvable_and_some_unresolvable_lines_keeps_resolvable_ones(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "1", "unit_cost": "10"},
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "UNKNOWN", "quantity": "1", "unit_cost": "10"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert len(result) == 1
+        assert len(result[0]["line_items"]) == 1
+
+    def test_unparseable_quantity_drops_row_with_error_not_raised(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "many", "unit_cost": "10"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result == []
+        assert any(w.severity == "error" for w in transformer.warnings)
+
+    def test_fx_rate_is_parsed_onto_the_group(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "A",
+                "product_source_id": "P1",
+                "quantity": "10",
+                "unit_cost": "500",
+                "fx_rate": "1620.50",
+            },
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result[0]["fx_rate"] == Decimal("1620.500000")
+
+    def test_missing_fx_rate_is_none_not_a_default(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "10", "unit_cost": "500"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result[0]["fx_rate"] is None
+
+    def test_decimal_and_comma_quantity_parse_instead_of_being_dropped(self):
+        """validate_entity_rows() accepts "10.0"/"1,000" for quantity (it
+        validates via the same lenient parse_flexible_amount() as every
+        other amount field) — a strict int(row["quantity"]) here would
+        reject what validation just accepted, silently dropping the line
+        item at confirm time on a row the user was told was valid."""
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "10.0", "unit_cost": "5", "order_date": "2024-01-01"},
+            {"source_id": "PO2", "supplier_name": "A", "product_source_id": "P1", "quantity": "1,000", "unit_cost": "5", "order_date": "2024-01-02"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert len(result) == 2
+        assert result[0]["line_items"][0]["quantity"] == 10
+        assert result[1]["line_items"][0]["quantity"] == 1000
+        assert not transformer.warnings
+
+
 # ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
@@ -390,6 +729,50 @@ class TestLoader:
         assert added_product.id == product_id
 
     @pytest.mark.asyncio
+    async def test_load_initializes_zeroed_inventory_level_for_every_new_product(self):
+        """adjust_stock() (called by transition_status() during purchase-order
+        delivery) requires an existing InventoryLevel row — it's an UPDATE,
+        not an upsert — so every imported product needs one created up front,
+        same as create_product() -> initialize_inventory() does for products
+        created through the normal (non-import) flow."""
+        db = _mock_db()
+        migration_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        transformed = {
+            "products": [
+                {
+                    "id": product_id,
+                    "name": "Widget",
+                    "sku": "SKU-1",
+                    "slug": "widget",
+                    "unit_cost": Decimal("5"),
+                    "selling_price": Decimal("10"),
+                    "currency": "NGN",
+                    "business_id": BUSINESS_ID,
+                }
+            ]
+        }
+
+        await loader_load(db, migration_id, transformed, IdMap())
+
+        inventory_calls = [
+            call.args[0]
+            for call in db.add_all.call_args_list
+            if call.args[0] and isinstance(call.args[0][0], InventoryLevel)
+        ]
+        assert len(inventory_calls) == 1
+        inventory_rows = inventory_calls[0]
+        assert len(inventory_rows) == 1
+        assert inventory_rows[0].product_id == product_id
+        assert inventory_rows[0].variant_id is None
+        assert inventory_rows[0].quantity_on_hand == 0
+        assert inventory_rows[0].migration_id == migration_id
+        # Matches initialize_inventory()'s own explicit default — passed
+        # explicitly here too, not left to the column default, so the two
+        # construction sites can't silently drift apart.
+        assert inventory_rows[0].low_stock_threshold == 10
+
+    @pytest.mark.asyncio
     async def test_load_skips_unset_entities(self):
         db = _mock_db()
         row_counts = await loader_load(db, uuid.uuid4(), {}, IdMap())
@@ -400,12 +783,323 @@ class TestLoader:
     async def test_rollback_deletes_by_migration_id_in_reverse_order(self):
         db = _mock_db()
         result_mock = MagicMock(rowcount=3)
-        db.execute = AsyncMock(return_value=result_mock)
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        # First call is the pre-flight PurchaseOrder-id lookup (empty here —
+        # no purchase orders in this import, so the payment-block check is
+        # skipped) — every remaining call is one of the FK-ordered deletes.
+        db.execute = AsyncMock(side_effect=[empty_scalars] + [result_mock] * 20)
 
         deleted_counts = await loader_rollback(db, uuid.uuid4())
 
         assert deleted_counts["sales"] == 3
-        assert db.execute.await_count == len(deleted_counts)
+        assert db.execute.await_count == len(deleted_counts) + 1
+
+    @pytest.mark.asyncio
+    async def test_rollback_blocked_when_imported_po_has_a_payment_recorded(self):
+        """A payment recorded against an imported PO after the import isn't
+        part of the import (the loader never creates OrderPayment rows) —
+        deleting the PurchaseOrder would violate the order_payments FK (no
+        ON DELETE CASCADE) or silently destroy that real payment. Rollback
+        must refuse before deleting anything."""
+        from src.data_import.exceptions import PurchaseOrderRollbackBlockedError
+
+        db = _mock_db()
+        po_id = uuid.uuid4()
+        blocked_result = MagicMock()
+        blocked_result.scalars.return_value.all.return_value = [po_id]
+        db.execute = AsyncMock(return_value=blocked_result)
+
+        with pytest.raises(PurchaseOrderRollbackBlockedError):
+            await loader_rollback(db, uuid.uuid4())
+
+        # Refused before any delete statement was issued.
+        assert db.execute.await_count == 1
+
+
+class TestLoadPurchaseOrders:
+    """load_purchase_orders() orchestrates create_order()/transition_status()
+    (already tested in test_orders.py) rather than reimplementing inventory
+    writes — these tests mock those two collaborators and verify the
+    orchestration: right OrderCreate shape, full delivery-chain transition,
+    and migration_id tagging."""
+
+    def _empty_scalars(self):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = []
+        return r
+
+    @pytest.mark.asyncio
+    async def test_creates_zeroed_inventory_level_for_deduped_product_missing_one(self):
+        """A PO line item can reference a *deduped* (pre-existing) product,
+        not one this loader just created — nothing guarantees that product
+        already has an InventoryLevel row (see load()'s own comment). If it
+        doesn't, adjust_stock() (inside transition_status()) raises
+        ProductStockNotFoundError and aborts the whole import batch, not
+        just this one order."""
+        from src.data_import.etl.loader import load_purchase_orders
+
+        mock_order = MagicMock()
+        mock_order.id = uuid.uuid4()
+        mock_order.line_items = [MagicMock()]
+        product_id = uuid.uuid4()
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                self._empty_scalars(),  # InventoryLevel existence check -> none found
+                self._empty_scalars(),  # InventoryBatch tag sweep
+                self._empty_scalars(),  # StockMovement tag sweep
+                self._empty_scalars(),  # OrderStatusHistory tag sweep
+            ]
+        )
+
+        with (
+            patch("src.data_import.etl.loader.create_order", new=AsyncMock(return_value=mock_order)),
+            patch("src.data_import.etl.loader.transition_status", new=AsyncMock(return_value=mock_order)),
+        ):
+            await load_purchase_orders(
+                db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                po_groups=[
+                    {
+                        "source_id": "PO1",
+                        "supplier_name": "Acme",
+                        "currency": "USD",
+                        "line_items": [
+                            {"product_id": product_id, "variant_id": None, "quantity": 10, "unit_cost": Decimal("5")}
+                        ],
+                    }
+                ],
+            )
+
+        inventory_calls = [
+            call.args[0]
+            for call in db.add_all.call_args_list
+            if call.args[0] and isinstance(call.args[0][0], InventoryLevel)
+        ]
+        assert len(inventory_calls) == 1
+        assert inventory_calls[0][0].product_id == product_id
+        assert inventory_calls[0][0].quantity_on_hand == 0
+        # Untagged — this product isn't newly created by this import, so it
+        # must not be deleted on rollback (unlike load()'s InventoryLevel
+        # rows for genuinely new products).
+        assert inventory_calls[0][0].migration_id is None
+
+    @pytest.mark.asyncio
+    async def test_creates_order_and_transitions_through_full_delivery_chain(self):
+        from src.data_import.etl.loader import load_purchase_orders
+
+        migration_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+
+        mock_order = MagicMock()
+        mock_order.id = uuid.uuid4()
+        mock_line_item = MagicMock()
+        mock_order.line_items = [mock_line_item]
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                self._empty_scalars(),  # InventoryLevel existence check (pre-loop)
+                self._empty_scalars(),  # InventoryBatch tag sweep
+                self._empty_scalars(),  # StockMovement tag sweep
+                self._empty_scalars(),  # OrderStatusHistory tag sweep
+            ]
+        )
+
+        with (
+            patch("src.data_import.etl.loader.create_order", new=AsyncMock(return_value=mock_order)) as mock_create,
+            patch("src.data_import.etl.loader.transition_status", new=AsyncMock(return_value=mock_order)) as mock_transition,
+        ):
+            count = await load_purchase_orders(
+                db,
+                migration_id,
+                BUSINESS_ID,
+                CREATED_BY,
+                po_groups=[
+                    {
+                        "source_id": "PO1",
+                        "supplier_name": "Acme",
+                        "supplier_id": None,
+                        "location_id": None,
+                        "order_date": date(2026, 1, 1),
+                        "currency": "USD",
+                        "fx_rate": Decimal("1620.50"),
+                        "line_items": [
+                            {"product_id": product_id, "variant_id": None, "quantity": 10, "unit_cost": Decimal("5")}
+                        ],
+                    }
+                ],
+            )
+
+        assert count == 1
+        mock_create.assert_awaited_once()
+        order_create_arg = mock_create.await_args.args[1]
+        assert order_create_arg.supplier_name == "Acme"
+        assert order_create_arg.is_purchase_order is False
+        assert order_create_arg.fx_rate_at_creation == Decimal("1620.50")
+        assert len(order_create_arg.line_items) == 1
+        assert order_create_arg.line_items[0].product_id == product_id
+
+        assert mock_transition.await_count == 4
+        transitioned_statuses = [call.args[2].new_status for call in mock_transition.await_args_list]
+        assert transitioned_statuses == ["IN_PRODUCTION", "SHIPPING", "CLEARED", "DELIVERED"]
+        final_transition = mock_transition.await_args_list[-1].args[2]
+        assert final_transition.actual_delivery_date == date(2026, 1, 1)
+
+        assert mock_order.migration_id == migration_id
+        assert mock_line_item.migration_id == migration_id
+
+    @pytest.mark.asyncio
+    async def test_groups_with_no_resolvable_line_items_are_skipped(self):
+        from src.data_import.etl.loader import load_purchase_orders
+
+        db = _mock_db()
+        with (
+            patch("src.data_import.etl.loader.create_order", new=AsyncMock()) as mock_create,
+            patch("src.data_import.etl.loader.transition_status", new=AsyncMock()),
+        ):
+            count = await load_purchase_orders(
+                db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                po_groups=[{"source_id": "PO1", "supplier_name": "A", "line_items": []}],
+            )
+
+        assert count == 0
+        mock_create.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_tag_sweep_queries_are_batched_not_per_order(self):
+        """3 sweep queries total (InventoryBatch/StockMovement/
+        OrderStatusHistory), regardless of how many orders were created —
+        not 3 per order."""
+        from src.data_import.etl.loader import load_purchase_orders
+
+        order_a, order_b = MagicMock(), MagicMock()
+        order_a.id, order_b.id = uuid.uuid4(), uuid.uuid4()
+        order_a.line_items, order_b.line_items = [MagicMock()], [MagicMock()]
+        product_a, product_b = uuid.uuid4(), uuid.uuid4()
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[self._empty_scalars() for _ in range(4)])
+
+        with (
+            patch(
+                "src.data_import.etl.loader.create_order",
+                new=AsyncMock(side_effect=[order_a, order_b]),
+            ),
+            patch(
+                "src.data_import.etl.loader.transition_status",
+                new=AsyncMock(side_effect=[order_a] * 4 + [order_b] * 4),
+            ),
+        ):
+            count = await load_purchase_orders(
+                db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                po_groups=[
+                    {
+                        "source_id": "PO1",
+                        "supplier_name": "A",
+                        "currency": "USD",
+                        "line_items": [
+                            {"product_id": product_a, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
+                        ],
+                    },
+                    {
+                        "source_id": "PO2",
+                        "supplier_name": "B",
+                        "currency": "USD",
+                        "line_items": [
+                            {"product_id": product_b, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
+                        ],
+                    },
+                ],
+            )
+
+        assert count == 2
+        # 1 InventoryLevel existence check + 3 batched sweeps = 4, not
+        # 1 + (3 x 2 orders) = 7.
+        assert db.execute.await_count == 4
+
+    @pytest.mark.asyncio
+    async def test_create_order_error_propagates_without_being_swallowed(self):
+        """A product referenced by a line item can be deleted between
+        validation and confirm — create_order() raises OrderLineItemError in
+        that case. The loader must not swallow it (the caller's
+        request-scoped transaction is what rolls the whole import back)."""
+        from src.orders.exceptions import OrderLineItemError
+
+        from src.data_import.etl.loader import load_purchase_orders
+
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=self._empty_scalars())
+        product_id = uuid.uuid4()
+
+        with (
+            patch(
+                "src.data_import.etl.loader.create_order",
+                new=AsyncMock(side_effect=OrderLineItemError(None, [product_id])),
+            ),
+            patch("src.data_import.etl.loader.transition_status", new=AsyncMock()) as mock_transition,
+        ):
+            with pytest.raises(OrderLineItemError):
+                await load_purchase_orders(
+                    db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                    po_groups=[
+                        {
+                            "source_id": "PO1",
+                            "supplier_name": "Acme",
+                            "currency": "USD",
+                            "line_items": [
+                                {"product_id": product_id, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
+                            ],
+                        }
+                    ],
+                )
+
+        mock_transition.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_transition_status_error_mid_chain_propagates(self):
+        """A failure partway through the 4-step delivery chain (e.g. a
+        concurrent modification) must not be swallowed either."""
+        from src.orders.exceptions import InvalidStatusTransitionError
+
+        from src.data_import.etl.loader import load_purchase_orders
+
+        mock_order = MagicMock()
+        mock_order.id = uuid.uuid4()
+        mock_order.line_items = [MagicMock()]
+        product_id = uuid.uuid4()
+
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=self._empty_scalars())
+        with (
+            patch("src.data_import.etl.loader.create_order", new=AsyncMock(return_value=mock_order)),
+            patch(
+                "src.data_import.etl.loader.transition_status",
+                new=AsyncMock(
+                    side_effect=[
+                        mock_order,
+                        InvalidStatusTransitionError(mock_order.id, "SHIPPING", "CLEARED", []),
+                    ]
+                ),
+            ) as mock_transition,
+        ):
+            with pytest.raises(InvalidStatusTransitionError):
+                await load_purchase_orders(
+                    db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                    po_groups=[
+                        {
+                            "source_id": "PO1",
+                            "supplier_name": "Acme",
+                            "currency": "USD",
+                            "line_items": [
+                                {"product_id": product_id, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
+                            ],
+                        }
+                    ],
+                )
+
+        assert mock_transition.await_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +1144,71 @@ class TestConfirmationGate:
         job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
         with pytest.raises(InvalidJobStateError):
             await rollback_job(_mock_db(), job)
+
+    @pytest.mark.asyncio
+    async def test_purchase_order_import_errors_are_translated_to_one_domain_exception(self):
+        """load_purchase_orders() reuses orders/inventory services unmodified
+        and can raise any of their exception types — confirm_job() must
+        translate every one of them into this domain's own
+        PurchaseOrderImportError, so callers (the router) only need to know
+        about one exception type, not every domain those services touch."""
+        from src.orders.exceptions import OrderLineItemError
+
+        job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+
+        with (
+            patch(
+                "src.data_import.service._extract_and_transform",
+                new=AsyncMock(return_value=({}, {"purchase_orders": []}, MagicMock(id_map=IdMap()))),
+            ),
+            patch("src.data_import.service.loader_load", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.loader_load_purchase_orders",
+                new=AsyncMock(side_effect=OrderLineItemError(None, [uuid.uuid4()])),
+            ),
+        ):
+            with pytest.raises(PurchaseOrderImportError):
+                await confirm_job(db, job, approved=True)
+
+    @pytest.mark.asyncio
+    async def test_purchase_order_import_error_does_not_leak_cause_text(self):
+        """A pydantic ValidationError's str() includes field paths, input
+        values, and an errors.pydantic.dev URL — none of that belongs in an
+        HTTP response (this codebase already did a dedicated security pass,
+        PR #222, to stop str(e) leaking internals to clients). The raw
+        cause must stay on `.cause` for server-side logging only; the
+        exception's own message must be a fixed, safe string."""
+        from pydantic import BaseModel
+
+        class _Model(BaseModel):
+            quantity: int
+
+        try:
+            _Model(quantity="not-a-number")
+        except Exception as pydantic_error:
+            cause = pydantic_error
+
+        job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+
+        with (
+            patch(
+                "src.data_import.service._extract_and_transform",
+                new=AsyncMock(return_value=({}, {"purchase_orders": []}, MagicMock(id_map=IdMap()))),
+            ),
+            patch("src.data_import.service.loader_load", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.loader_load_purchase_orders",
+                new=AsyncMock(side_effect=cause),
+            ),
+        ):
+            with pytest.raises(PurchaseOrderImportError) as exc_info:
+                await confirm_job(db, job, approved=True)
+
+        assert "not-a-number" not in str(exc_info.value)
+        assert "pydantic.dev" not in str(exc_info.value)
+        assert exc_info.value.cause is cause
 
 
 # ---------------------------------------------------------------------------

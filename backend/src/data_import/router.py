@@ -3,7 +3,16 @@ import zipfile
 from io import BytesIO
 
 import structlog
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user, get_current_business_id
@@ -16,6 +25,8 @@ from src.data_import.exceptions import (
     InvalidJobStateError,
     MigrationJobNotFoundError,
     MissingExtractedDataError,
+    PurchaseOrderImportError,
+    PurchaseOrderRollbackBlockedError,
     UnsupportedSourceSystemError,
 )
 from src.data_import.models import ExtractionMode, SourceSystem
@@ -38,7 +49,11 @@ def _credentials_from_form(
 ) -> dict[str, str]:
     return {
         k: v
-        for k, v in {"username": username, "password": password, "access_token": access_token}.items()
+        for k, v in {
+            "username": username,
+            "password": password,
+            "access_token": access_token,
+        }.items()
         if v is not None
     }
 
@@ -58,7 +73,9 @@ async def get_all_templates():
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=modishlog-import-templates.zip"},
+        headers={
+            "Content-Disposition": "attachment; filename=modishlog-import-templates.zip"
+        },
     )
 
 
@@ -82,7 +99,9 @@ async def test_connection(data: TestConnectionRequest):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"No live-API adapter available for {data.source_system.value}",
         )
-    credentials = _credentials_from_form(data.username, data.password, data.access_token)
+    credentials = _credentials_from_form(
+        data.username, data.password, data.access_token
+    )
     extractor: APIExtractor = adapter_cls(data.api_base_url, credentials)
     try:
         result = await extractor.test_connection()
@@ -90,7 +109,9 @@ async def test_connection(data: TestConnectionRequest):
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    return TestConnectionResponse(connected=True, source_system=data.source_system, **result)
+    return TestConnectionResponse(
+        connected=True, source_system=data.source_system, **result
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +119,9 @@ async def test_connection(data: TestConnectionRequest):
 # ---------------------------------------------------------------------------
 
 
-@router.post("/jobs", response_model=MigrationJobRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/jobs", response_model=MigrationJobRead, status_code=status.HTTP_201_CREATED
+)
 async def create_job(
     source_system: SourceSystem = Form(...),
     extraction_mode: ExtractionMode = Form(ExtractionMode.CSV),
@@ -108,6 +131,7 @@ async def create_job(
     suppliers: UploadFile | None = File(None),
     customers: UploadFile | None = File(None),
     business_locations: UploadFile | None = File(None),
+    purchase_orders: UploadFile | None = File(None),
     sales: UploadFile | None = File(None),
     api_base_url: str | None = Form(None),
     username: str | None = Form(None),
@@ -124,6 +148,7 @@ async def create_job(
         "suppliers": suppliers,
         "customers": customers,
         "business_locations": business_locations,
+        "purchase_orders": purchase_orders,
         "sales": sales,
     }
     files: dict[str, bytes] = {}
@@ -155,7 +180,9 @@ async def create_job(
         # context (the adapter received the credentials in this same call)
         # or internal details from the HTTP/parsing library. Log the real
         # cause server-side; the client gets a safe, generic message.
-        await logger.aexception("data_import_extraction_failed", source_system=source_system.value)
+        await logger.aexception(
+            "data_import_extraction_failed", source_system=source_system.value
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Could not extract data from the source system — check the base URL and credentials.",
@@ -197,7 +224,9 @@ async def validate_job(
     try:
         return await service.validate_job(db, job)
     except MissingExtractedDataError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.get("/jobs/{job_id}/confirmation-snapshot", response_model=ConfirmationSnapshot)
@@ -215,7 +244,9 @@ async def confirmation_snapshot(
     except InvalidJobStateError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except MissingExtractedDataError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
 
 
 @router.post("/jobs/{job_id}/confirm", response_model=MigrationJobRead)
@@ -234,7 +265,19 @@ async def confirm_job(
     except InvalidJobStateError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except MissingExtractedDataError as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
+        )
+    except PurchaseOrderImportError as e:
+        # service.confirm_job() translates every orders/inventory-domain
+        # exception load_purchase_orders() can raise (a referenced product
+        # deleted or a resolved reference otherwise gone stale between
+        # validation and confirm, etc.) into this one data_import-owned
+        # exception, so the router doesn't need to know about those
+        # unrelated domains' exception types. The whole import rolls back
+        # (one request-scoped transaction) — the job reverts to
+        # awaiting_confirmation and the client can retry.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.delete("/jobs/{job_id}", response_model=MigrationJobRead)
@@ -250,4 +293,6 @@ async def rollback_job(
     try:
         return await service.rollback_job(db, job)
     except InvalidJobStateError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except PurchaseOrderRollbackBlockedError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))

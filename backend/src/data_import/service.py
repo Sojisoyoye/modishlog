@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 import anyio
 import structlog
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +19,9 @@ from src.core.config import settings
 from src.data_import.etl.adapters.registry import API_ADAPTERS, CSV_ADAPTERS
 from src.data_import.etl.extractor import CSVExtractor
 from src.data_import.etl.loader import load as loader_load
+from src.data_import.etl.loader import (
+    load_purchase_orders as loader_load_purchase_orders,
+)
 from src.data_import.etl.loader import rollback as loader_rollback
 from src.data_import.etl.transformer import Transformer
 from src.data_import.etl.validator import validate_extracted_data
@@ -25,10 +29,29 @@ from src.data_import.exceptions import (
     InvalidJobStateError,
     MigrationJobNotFoundError,
     MissingExtractedDataError,
+    PurchaseOrderImportError,
     UnsupportedSourceSystemError,
 )
-from src.data_import.models import ExtractionMode, MigrationJob, MigrationJobStatus, SourceSystem
-from src.data_import.schemas import ConfirmationSnapshot, SnapshotEntity, ValidationIssue
+from src.data_import.models import (
+    ExtractionMode,
+    MigrationJob,
+    MigrationJobStatus,
+    SourceSystem,
+)
+from src.data_import.schemas import (
+    ConfirmationSnapshot,
+    SnapshotEntity,
+    ValidationIssue,
+)
+from src.inventory.exceptions import (
+    InvalidStockAdjustmentError,
+    ProductStockNotFoundError,
+)
+from src.orders.exceptions import (
+    InvalidStatusTransitionError,
+    OrderLineItemError,
+    OrderNotFoundError,
+)
 
 logger = structlog.get_logger()
 
@@ -42,6 +65,7 @@ IMPORTABLE_ENTITIES = [
     "suppliers",
     "customers",
     "business_locations",
+    "purchase_orders",
     "sales",
 ]
 
@@ -138,7 +162,9 @@ async def create_job(
         job.row_counts = {entity: len(rows) for entity, rows in extracted.items()}
         job.status = MigrationJobStatus.PENDING
 
-    logger.info("data_import_job_created", job_id=str(job.id), source_system=source_system.value)
+    logger.info(
+        "data_import_job_created", job_id=str(job.id), source_system=source_system.value
+    )
     return job
 
 
@@ -151,7 +177,9 @@ async def list_jobs(db: AsyncSession, *, business_id: uuid.UUID) -> list[Migrati
     return result.scalars().all()
 
 
-async def get_job(db: AsyncSession, job_id: uuid.UUID, *, business_id: uuid.UUID) -> MigrationJob:
+async def get_job(
+    db: AsyncSession, job_id: uuid.UUID, *, business_id: uuid.UUID
+) -> MigrationJob:
     result = await db.execute(
         select(MigrationJob).where(
             MigrationJob.id == job_id, MigrationJob.business_id == business_id
@@ -208,26 +236,40 @@ async def _extract_and_transform(
             # means something is genuinely wrong with the job's state.
             raise MissingExtractedDataError(job.id)
     else:
-        csv_adapter_cls = CSV_ADAPTERS.get(job.source_system.value, CSV_ADAPTERS["generic"])
+        csv_adapter_cls = CSV_ADAPTERS.get(
+            job.source_system.value, CSV_ADAPTERS["generic"]
+        )
         csv_adapter = csv_adapter_cls()
 
         raw_files = await _load_saved_csv_files(job.id)
         extractor = CSVExtractor(raw_files)
         raw = await extractor.extract()
 
-        mapped = {entity: csv_adapter.map_rows(entity, rows) for entity, rows in raw.items()}
+        mapped = {
+            entity: csv_adapter.map_rows(entity, rows) for entity, rows in raw.items()
+        }
 
     transformer = Transformer(db, job.business_id, job.created_by)
 
-    known_product_ids = {r.get("source_id") for r in mapped.get("products", []) if r.get("source_id")}
-    ghosts = transformer.detect_ghost_products(mapped.get("sales", []), known_product_ids)
+    known_product_ids = {
+        r.get("source_id") for r in mapped.get("products", []) if r.get("source_id")
+    }
+    ghosts = transformer.detect_ghost_products(
+        mapped.get("sales", []), known_product_ids
+    )
 
     transformed: dict[str, list[dict]] = {
-        "product_categories": await transformer.transform_categories(mapped.get("product_categories", [])),
-        "products": await transformer.transform_products(mapped.get("products", []) + ghosts),
+        "product_categories": await transformer.transform_categories(
+            mapped.get("product_categories", [])
+        ),
+        "products": await transformer.transform_products(
+            mapped.get("products", []) + ghosts
+        ),
         "suppliers": await transformer.transform_suppliers(mapped.get("suppliers", [])),
         "customers": await transformer.transform_customers(mapped.get("customers", [])),
-        "business_locations": transformer.transform_locations(mapped.get("business_locations", [])),
+        "business_locations": transformer.transform_locations(
+            mapped.get("business_locations", [])
+        ),
     }
     transformed["product_variants"] = await transformer.transform_variants(
         mapped.get("product_variants", [])
@@ -239,7 +281,12 @@ async def _extract_and_transform(
         if row.get("_source_id"):
             location_map[row["_source_id"]] = row["id"]
 
-    transformed["sales"] = transformer.transform_sales(mapped.get("sales", []), location_map)
+    transformed["sales"] = transformer.transform_sales(
+        mapped.get("sales", []), location_map
+    )
+    transformed["purchase_orders"] = transformer.transform_purchase_orders(
+        mapped.get("purchase_orders", [])
+    )
 
     return mapped, transformed, transformer
 
@@ -252,30 +299,41 @@ async def validate_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
 
     errors = [i for i in issues if i.severity == "error"]
     job.validation_errors = [i.model_dump() for i in issues if i.severity == "error"]
-    job.validation_warnings = [i.model_dump() for i in issues if i.severity == "warning"]
+    job.validation_warnings = [
+        i.model_dump() for i in issues if i.severity == "warning"
+    ]
     job.row_counts = {entity: len(rows) for entity, rows in transformed.items()}
     job.status = (
-        MigrationJobStatus.AWAITING_CONFIRMATION if not errors else MigrationJobStatus.TRANSFORMING
+        MigrationJobStatus.AWAITING_CONFIRMATION
+        if not errors
+        else MigrationJobStatus.TRANSFORMING
     )
     await db.flush()
     return job
 
 
-async def build_confirmation_snapshot(db: AsyncSession, job: MigrationJob) -> ConfirmationSnapshot:
+async def build_confirmation_snapshot(
+    db: AsyncSession, job: MigrationJob
+) -> ConfirmationSnapshot:
     if job.status != MigrationJobStatus.AWAITING_CONFIRMATION:
         raise InvalidJobStateError(job.id, "awaiting_confirmation", job.status.value)
 
     _mapped, transformed, transformer = await _extract_and_transform(db, job)
 
     ghost_count = sum(
-        1 for row in transformed.get("products", []) if str(row.get("name", "")).startswith("[Deleted Product:")
+        1
+        for row in transformed.get("products", [])
+        if str(row.get("name", "")).startswith("[Deleted Product:")
     )
 
     entities = [
         SnapshotEntity(
             name=entity,
             count=len(rows),
-            sample_rows=[{k: str(v) for k, v in r.items() if not k.startswith("_")} for r in rows[:_SAMPLE_ROWS]],
+            sample_rows=[
+                {k: str(v) for k, v in r.items() if not k.startswith("_")}
+                for r in rows[:_SAMPLE_ROWS]
+            ],
         )
         for entity, rows in transformed.items()
     ]
@@ -292,7 +350,9 @@ async def build_confirmation_snapshot(db: AsyncSession, job: MigrationJob) -> Co
     )
 
 
-async def confirm_job(db: AsyncSession, job: MigrationJob, *, approved: bool) -> MigrationJob:
+async def confirm_job(
+    db: AsyncSession, job: MigrationJob, *, approved: bool
+) -> MigrationJob:
     if job.status != MigrationJobStatus.AWAITING_CONFIRMATION:
         raise InvalidJobStateError(job.id, "awaiting_confirmation", job.status.value)
 
@@ -304,6 +364,31 @@ async def confirm_job(db: AsyncSession, job: MigrationJob, *, approved: bool) ->
     job.status = MigrationJobStatus.IMPORTING
     _mapped, transformed, transformer = await _extract_and_transform(db, job)
     row_counts = await loader_load(db, job.id, transformed, transformer.id_map)
+    try:
+        row_counts["purchase_orders"] = await loader_load_purchase_orders(
+            db,
+            job.id,
+            job.business_id,
+            job.created_by,
+            transformed.get("purchase_orders", []),
+        )
+    except (
+        OrderLineItemError,
+        OrderNotFoundError,
+        InvalidStatusTransitionError,
+        ProductStockNotFoundError,
+        InvalidStockAdjustmentError,
+        PydanticValidationError,
+    ) as e:
+        # load_purchase_orders() reuses the orders/inventory services
+        # unmodified — translate whatever they raise into this domain's own
+        # exception so the router (and any other caller) only needs to know
+        # about one data_import-owned exception type, not every exception
+        # those unrelated domains happen to raise today. The raw cause (may
+        # include pydantic field/internal detail) is logged here, not
+        # echoed to the client — see PurchaseOrderImportError's docstring.
+        await logger.aexception("purchase_order_import_failed", job_id=str(job.id))
+        raise PurchaseOrderImportError(e) from e
 
     job.row_counts = row_counts
     job.status = MigrationJobStatus.DONE
@@ -320,7 +405,9 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
     deleted_counts = await loader_rollback(db, job.id)
     job.status = MigrationJobStatus.ROLLED_BACK
     await db.flush()
-    logger.info("data_import_job_rolled_back", job_id=str(job.id), deleted_counts=deleted_counts)
+    logger.info(
+        "data_import_job_rolled_back", job_id=str(job.id), deleted_counts=deleted_counts
+    )
     return job
 
 
@@ -331,20 +418,53 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
 _TEMPLATE_COLUMNS: dict[str, list[str]] = {
     "product_categories": ["source_id", "name", "description", "parent_source_id"],
     "products": [
-        "source_id", "name", "sku", "barcode", "unit_cost", "selling_price",
-        "currency", "category_source_id", "is_active",
+        "source_id",
+        "name",
+        "sku",
+        "barcode",
+        "unit_cost",
+        "selling_price",
+        "currency",
+        "category_source_id",
+        "is_active",
     ],
     "product_variants": [
-        "source_id", "product_source_id", "name", "sku", "barcode",
-        "attributes", "price_override", "cost_price_override",
+        "source_id",
+        "product_source_id",
+        "name",
+        "sku",
+        "barcode",
+        "attributes",
+        "price_override",
+        "cost_price_override",
     ],
     "suppliers": ["source_id", "name", "email", "contact_person", "mobile"],
     "customers": ["source_id", "name", "email", "contact_number"],
     "business_locations": ["source_id", "name", "location_code"],
+    "purchase_orders": [
+        "source_id",
+        "supplier_source_id",
+        "supplier_name",
+        "product_source_id",
+        "variant_source_id",
+        "location_source_id",
+        "quantity",
+        "unit_cost",
+        "currency",
+        "order_date",
+        "fx_rate",
+    ],
     "sales": [
-        "product_source_id", "variant_source_id", "customer_source_id",
-        "quantity", "unit_price", "sale_date", "currency", "channel",
-        "payment_method", "location_name",
+        "product_source_id",
+        "variant_source_id",
+        "customer_source_id",
+        "quantity",
+        "unit_price",
+        "sale_date",
+        "currency",
+        "channel",
+        "payment_method",
+        "location_name",
     ],
 }
 
@@ -371,5 +491,12 @@ def build_readme() -> str:
         "",
         "Accepted date formats: YYYY-MM-DD (preferred), DD/MM/YYYY, MM/DD/YYYY, DD-Mon-YYYY.",
         "Accepted payment_method values: card, cash, bank_transfer, cheque, mobile_money, other.",
+        "",
+        "purchase_orders.csv: unit_cost must be in USD, matching the FX-based landed-cost",
+        "calculation used for every purchase order in ModishLog (not the `currency` column,",
+        "which is only stored for display). Set fx_rate to the actual NGN/USD rate at the",
+        "time of that purchase, or leave it blank to fall back to a fixed rate — for",
+        "historical imports spanning any real length of time, a fixed rate will misstate",
+        "landed cost and profit margin for every purchase made when the real rate differed.",
     ]
     return "\n".join(lines)

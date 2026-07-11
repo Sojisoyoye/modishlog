@@ -9,15 +9,37 @@ extend `LOAD_ORDER` without another schema change.
 
 import uuid
 
-from sqlalchemy import delete, inspect
+from sqlalchemy import delete, inspect, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.customers.models import Customer
 from src.data_import.etl.transformer import IdMap
+from src.data_import.exceptions import PurchaseOrderRollbackBlockedError
+from src.inventory.models import InventoryBatch, InventoryLevel, StockMovement
 from src.locations.models import BusinessLocation
+from src.orders.models import (
+    OrderLineItem,
+    OrderPayment,
+    OrderStatus,
+    OrderStatusHistory,
+    PurchaseOrder,
+)
+from src.orders.schemas import OrderCreate, OrderLineItemCreate, StatusTransition
+from src.orders.service import create_order, transition_status
 from src.products.models import Product, ProductCategory, ProductVariant
 from src.sales.models import Sale
 from src.suppliers.models import Supplier
+
+# Chained in order — the order state machine has no shortcut from PENDING
+# straight to DELIVERED, so a historical (already-received) import replays
+# every intermediate transition to reach it. Only the final DELIVERED step
+# has side effects (adjust_stock + create_batch, inside transition_status).
+_DELIVERY_CHAIN = [
+    OrderStatus.IN_PRODUCTION,
+    OrderStatus.SHIPPING,
+    OrderStatus.CLEARED,
+    OrderStatus.DELIVERED,
+]
 
 # FK dependency order — parents before children.
 LOAD_ORDER: list[tuple[str, type]] = [
@@ -29,6 +51,29 @@ LOAD_ORDER: list[tuple[str, type]] = [
     ("business_locations", BusinessLocation),
     ("sales", Sale),
 ]
+
+
+def _zeroed_inventory_level(
+    product_id: uuid.UUID, migration_id: uuid.UUID | None
+) -> InventoryLevel:
+    """A product-level (variant_id=None) InventoryLevel row starting at zero.
+
+    `migration_id=None` for a product this loader didn't create itself
+    (a deduped/pre-existing product) — tagging it would make rollback
+    incorrectly delete a pre-existing product's inventory row.
+
+    low_stock_threshold is passed explicitly (matching
+    src.inventory.service.initialize_inventory()'s own default) rather than
+    left to InventoryLevel's column default, so the two construction sites
+    can't silently drift apart if either one's default ever changes.
+    """
+    return InventoryLevel(
+        product_id=product_id,
+        quantity_on_hand=0,
+        quantity_reserved=0,
+        low_stock_threshold=10,
+        migration_id=migration_id,
+    )
 
 
 async def load(
@@ -65,14 +110,217 @@ async def load(
             for obj, source_id in zip(objs, source_ids):
                 if source_id:
                     id_map.register(entity, source_id, obj.id)
+            if entity == "products":
+                # adjust_stock() (called by transition_status() during
+                # purchase-order delivery, see load_purchase_orders()) is an
+                # UPDATE, not an upsert — it requires an existing
+                # InventoryLevel row. The normal create_product() flow gets
+                # one via initialize_inventory(); this bulk-insert path
+                # bypasses that entirely, so every imported product needs
+                # one created here, zeroed (no opening-stock data exists to
+                # seed it with — see purchase_orders import for real stock).
+                db.add_all(
+                    [
+                        _zeroed_inventory_level(product.id, migration_id)
+                        for product in objs
+                    ]
+                )
+                await db.flush()
         row_counts[entity] = len(objs)
     return row_counts
 
 
+async def load_purchase_orders(
+    db: AsyncSession,
+    migration_id: uuid.UUID,
+    business_id: uuid.UUID,
+    user_id: uuid.UUID,
+    po_groups: list[dict],
+) -> int:
+    """Create + fully deliver each grouped purchase order via the real
+    `create_order()`/`transition_status()` service functions, so inventory
+    levels and FIFO batches stay consistent with the exact same logic
+    real-time POs go through — this loader never writes InventoryLevel/
+    InventoryBatch/StockMovement rows itself. Returns the number of orders
+    created (groups with no resolvable line items are skipped).
+    """
+    # adjust_stock() (called inside transition_status()'s DELIVERED branch)
+    # is an UPDATE, not an upsert. Newly-imported products always get a row
+    # (see load()), but a PO line item can also reference a *deduped*
+    # (pre-existing) product — nothing guarantees those already have one
+    # (e.g. seeded via a path that bypassed create_product()). Without this,
+    # one product missing a row aborts the entire import batch, not just
+    # its own order.
+    referenced_product_ids = {
+        li["product_id"] for group in po_groups for li in group["line_items"]
+    }
+    if referenced_product_ids:
+        existing = await db.execute(
+            select(InventoryLevel.product_id).where(
+                InventoryLevel.product_id.in_(referenced_product_ids),
+                InventoryLevel.variant_id.is_(None),
+            )
+        )
+        missing_ids = referenced_product_ids - set(existing.scalars().all())
+        if missing_ids:
+            db.add_all([_zeroed_inventory_level(pid, None) for pid in missing_ids])
+            await db.flush()
+
+    order_ids: list[uuid.UUID] = []
+    for group in po_groups:
+        if not group["line_items"]:
+            continue
+
+        order_data = OrderCreate(
+            supplier_name=group["supplier_name"],
+            supplier_id=group.get("supplier_id"),
+            # transform_purchase_orders() already backfills a "USD" default
+            # for every group it returns — no fallback needed here.
+            currency=group["currency"],
+            fx_rate_at_creation=group.get("fx_rate"),
+            is_purchase_order=False,
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=li["product_id"],
+                    variant_id=li.get("variant_id"),
+                    quantity=li["quantity"],
+                    unit_cost=li["unit_cost"],
+                )
+                for li in group["line_items"]
+            ],
+        )
+        order = await create_order(db, order_data, user_id, business_id)
+        order.migration_id = migration_id
+        # order_date/location_id aren't in OrderCreate (only order_date is
+        # accepted at all, and create_order() never actually writes it —
+        # see the model directly instead of going through the schema).
+        if group.get("order_date"):
+            order.order_date = group["order_date"]
+        if group.get("location_id"):
+            order.location_id = group["location_id"]
+        for line_item in order.line_items:
+            line_item.migration_id = migration_id
+        await db.flush()
+
+        for status in _DELIVERY_CHAIN:
+            transition = StatusTransition(
+                new_status=status.value,
+                actual_delivery_date=group.get("order_date")
+                if status == OrderStatus.DELIVERED
+                else None,
+            )
+            order = await transition_status(db, order.id, transition, user_id)
+
+        order_ids.append(order.id)
+
+    # create_order()/transition_status() write InventoryBatch/StockMovement/
+    # OrderStatusHistory rows, none of whose functions accept a migration_id
+    # — tag them afterward by the orders/references just created. 3 bulk
+    # UPDATEs total (not 3 per order, and no row materialization needed
+    # since only one column changes) now that every order_id is known.
+    if order_ids:
+        await db.execute(
+            update(InventoryBatch)
+            .where(InventoryBatch.order_id.in_(order_ids))
+            .values(migration_id=migration_id)
+        )
+        await db.execute(
+            update(StockMovement)
+            .where(
+                StockMovement.reference_id.in_(order_ids),
+                StockMovement.reference_type == "purchase_order",
+            )
+            .values(migration_id=migration_id)
+        )
+        await db.execute(
+            update(OrderStatusHistory)
+            .where(OrderStatusHistory.order_id.in_(order_ids))
+            .values(migration_id=migration_id)
+        )
+        await db.flush()
+
+    return len(order_ids)
+
+
 async def rollback(db: AsyncSession, migration_id: uuid.UUID) -> dict[str, int]:
-    """Delete every row tagged with this migration_id, in reverse FK order."""
+    """Delete every row tagged with this migration_id, in FK-safe order.
+
+    Correctly undoes everything for products genuinely *created* by this
+    import (the common case — a purchase-order import almost always
+    accompanies importing the products it's for). It does NOT fully reverse
+    the quantity effect of this import's purchase orders on a *deduped*
+    (pre-existing) product: that product's InventoryLevel row isn't tagged
+    with this migration_id (only newly-created rows are), so it isn't
+    touched here — only the StockMovement audit trail for that change is
+    deleted. Correctly reversing that case needs delta-based undo, not
+    blanket deletion; that's the recompute service's job, not this one.
+
+    Raises PurchaseOrderRollbackBlockedError, before deleting anything, if
+    the business has recorded a real payment (via the normal orders
+    endpoint, after the import) against one of these purchase orders — that
+    payment isn't part of the import and must not be silently destroyed or
+    left dangling against a deleted order.
+    """
     deleted_counts: dict[str, int] = {}
+
+    blocked_ids = (
+        (
+            await db.execute(
+                select(OrderPayment.order_id)
+                .where(
+                    OrderPayment.order_id.in_(
+                        select(PurchaseOrder.id).where(
+                            PurchaseOrder.migration_id == migration_id
+                        )
+                    )
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if blocked_ids:
+        raise PurchaseOrderRollbackBlockedError(migration_id, list(blocked_ids))
+
+    # StockMovement/InventoryLevel reference products.id and must go before
+    # the reversed LOAD_ORDER loop deletes products, further down.
+    result = await db.execute(
+        delete(StockMovement).where(StockMovement.migration_id == migration_id)
+    )
+    deleted_counts["stock_movements"] = result.rowcount
+    result = await db.execute(
+        delete(InventoryLevel).where(InventoryLevel.migration_id == migration_id)
+    )
+    deleted_counts["inventory_levels"] = result.rowcount
+
+    # Purchase orders aren't in LOAD_ORDER (they're written via
+    # load_purchase_orders(), not the generic bulk-insert loop) — delete
+    # child-before-parent: line items and batches reference purchase_orders.id
+    # and products.id, both of which must still exist at this point.
+    result = await db.execute(
+        delete(OrderLineItem).where(OrderLineItem.migration_id == migration_id)
+    )
+    deleted_counts["order_line_items"] = result.rowcount
+    result = await db.execute(
+        delete(InventoryBatch).where(InventoryBatch.migration_id == migration_id)
+    )
+    deleted_counts["inventory_batches"] = result.rowcount
+    result = await db.execute(
+        delete(OrderStatusHistory).where(
+            OrderStatusHistory.migration_id == migration_id
+        )
+    )
+    deleted_counts["order_status_history"] = result.rowcount
+    result = await db.execute(
+        delete(PurchaseOrder).where(PurchaseOrder.migration_id == migration_id)
+    )
+    deleted_counts["purchase_orders"] = result.rowcount
+
     for entity, model_cls in reversed(LOAD_ORDER):
-        result = await db.execute(delete(model_cls).where(model_cls.migration_id == migration_id))
+        result = await db.execute(
+            delete(model_cls).where(model_cls.migration_id == migration_id)
+        )
         deleted_counts[entity] = result.rowcount
+
     return deleted_counts
