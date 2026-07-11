@@ -78,6 +78,7 @@ class TestDeductImportedSalesStock:
             side_effect=[
                 _rows_result([]),  # no groups already applied
                 _rows_result([(product_id, None, 15)]),  # aggregate group query
+                _rows_result([(product_id, None)]),  # InventoryLevel already exists
                 MagicMock(),  # migration_id tag sweep on the new StockMovement
             ]
         )
@@ -99,11 +100,11 @@ class TestDeductImportedSalesStock:
         assert kwargs["business_id"] == BUSINESS_ID
         assert kwargs["reference_id"] == JOB_ID
         assert kwargs["reference_type"] == "data_import_recompute"
-        # 1 already-applied check + 1 aggregate query + 1 tag sweep — the
-        # sweep must run so rollback's reversal-delta calculation (which
-        # sums StockMovement rows tagged with this migration_id) can find
-        # these movements too.
-        assert db.execute.await_count == 3
+        # 1 already-applied check + 1 aggregate query + 1 InventoryLevel
+        # existence check + 1 tag sweep — the sweep must run so rollback's
+        # reversal-delta calculation (which sums StockMovement rows tagged
+        # with this migration_id) can find these movements too.
+        assert db.execute.await_count == 4
 
     @pytest.mark.asyncio
     async def test_no_imported_sales_is_a_noop(self):
@@ -197,6 +198,44 @@ class TestDeductImportedSalesStock:
         assert created.migration_id is None
 
     @pytest.mark.asyncio
+    async def test_missing_product_level_inventory_row_is_also_backfilled(self):
+        """load()/load_purchase_orders() aren't guaranteed to have created a
+        product-level (variant_id=None) InventoryLevel row for a deduped
+        product either (see load_purchase_orders()'s identical defensive
+        backfill in etl/loader.py, for the same reason) — a sale against
+        such a product with no variant reference must not fail with
+        ProductStockNotFoundError just because only the variant-level
+        backfill was implemented."""
+        from src.data_import.recompute import _deduct_imported_sales_stock
+
+        product_id = uuid.uuid4()
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result([]),
+                _rows_result([(product_id, None, 5)]),
+                _rows_result([]),  # no InventoryLevel row exists at all
+                _scalars_result([]),  # product is NOT new — deduped
+                MagicMock(),
+            ]
+        )
+
+        with patch(
+            "src.data_import.recompute.adjust_stock", new=AsyncMock()
+        ) as mock_adjust:
+            errors = await _deduct_imported_sales_stock(
+                db, BUSINESS_ID, JOB_ID, USER_ID
+            )
+
+        assert errors == []
+        assert db.add.call_count == 1
+        created = db.add.call_args[0][0]
+        assert created.product_id == product_id
+        assert created.variant_id is None
+        assert created.migration_id is None
+        mock_adjust.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_one_groups_negative_stock_error_does_not_stop_the_others(self):
         """Imported sale history can easily exceed imported PO history (e.g.
         a business imports a year of sales but only 6 months of POs) —
@@ -210,6 +249,9 @@ class TestDeductImportedSalesStock:
             side_effect=[
                 _rows_result([]),  # no groups already applied
                 _rows_result([(product_a, None, 100), (product_b, None, 5)]),
+                _rows_result(
+                    [(product_a, None), (product_b, None)]
+                ),  # InventoryLevel rows already exist
                 MagicMock(),  # migration_id tag sweep (product_b succeeded)
             ]
         )
@@ -241,6 +283,7 @@ class TestDeductImportedSalesStock:
             side_effect=[
                 _rows_result([]),  # no groups already applied
                 _rows_result([(product_id, None, 5)]),
+                _rows_result([(product_id, None)]),  # InventoryLevel already exists
             ]
         )
 
@@ -253,9 +296,9 @@ class TestDeductImportedSalesStock:
             )
 
         assert len(errors) == 1
-        # Already-applied check + aggregate query — no tag sweep since
-        # nothing succeeded to tag.
-        assert db.execute.await_count == 2
+        # Already-applied check + aggregate query + InventoryLevel
+        # existence check — no tag sweep since nothing succeeded to tag.
+        assert db.execute.await_count == 3
 
     @pytest.mark.asyncio
     async def test_adjust_stock_is_wrapped_in_a_per_item_savepoint(self):
@@ -273,6 +316,7 @@ class TestDeductImportedSalesStock:
             side_effect=[
                 _rows_result([]),
                 _rows_result([(product_id, None, 5)]),
+                _rows_result([(product_id, None)]),  # InventoryLevel already exists
                 MagicMock(),
             ]
         )
@@ -298,6 +342,9 @@ class TestDeductImportedSalesStock:
             side_effect=[
                 _rows_result([(done_product, None)]),  # already-applied pairs
                 _rows_result([(done_product, None, 5), (pending_product, None, 3)]),
+                _rows_result(
+                    [(done_product, None), (pending_product, None)]
+                ),  # InventoryLevel rows already exist
                 MagicMock(),  # tag sweep for the newly-succeeded group
             ]
         )

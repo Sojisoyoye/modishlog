@@ -1114,11 +1114,16 @@ async def generate_reorder_suggestions(
     business_id: uuid.UUID,
 ) -> list[ReorderSuggestion]:
     """Generate reorder suggestions for products at or below reorder point."""
-    # Get all products with inventory
+    # Get all products with inventory. Scoped to the product-level
+    # (variant_id IS NULL) row only — this function was never made
+    # variant-aware, and a product can now also have variant-level
+    # InventoryLevel rows (see data_import/recompute.py); without this
+    # filter, a product with N variants would join to N+1 InventoryLevel
+    # rows and get N+1 duplicate suggestions instead of one.
     result = await db.execute(
         select(InventoryLevel, Product)
         .join(Product, Product.id == InventoryLevel.product_id)
-        .where(Product.is_active.is_(True))
+        .where(Product.is_active.is_(True), InventoryLevel.variant_id.is_(None))
     )
     rows = result.all()
 

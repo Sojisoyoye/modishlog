@@ -368,6 +368,28 @@ class TestReorderSuggestions:
         assert result.status == ReorderStatus.APPROVED
 
     @pytest.mark.anyio
+    async def test_query_excludes_variant_level_inventory_rows(self):
+        """A product can now have variant-level InventoryLevel rows
+        alongside its product-level (variant_id=None) one (see
+        data_import/recompute.py) — this function was never made
+        variant-aware, so without this filter a product with N variants
+        would join to N+1 InventoryLevel rows and get N+1 duplicate
+        suggestions instead of one."""
+        db = _mock_db()
+        join_result = MagicMock()
+        join_result.all.return_value = []
+        db.execute = AsyncMock(return_value=join_result)
+
+        await generate_reorder_suggestions(db, uuid.uuid4())
+
+        compiled_where = str(
+            db.execute.call_args[0][0].whereclause.compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        )
+        assert "variant_id IS NULL" in compiled_where
+
+    @pytest.mark.anyio
     async def test_generate_reorder_suggestions_stamps_data_points_used(self):
         """E1: data_points_used must reflect the count of distinct sale-days
         backing the demand estimate, not just whether any sales existed."""

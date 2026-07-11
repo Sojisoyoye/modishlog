@@ -117,22 +117,23 @@ async def _deduct_imported_sales_stock(
         return []
 
     # adjust_stock() is an UPDATE, not an upsert. load() only ever creates a
-    # product-level (variant_id=None) InventoryLevel row for imported
-    # products — never a variant-level one. Unlike PO delivery (which
-    # reuses transition_status()/create_batch() unmodified and has no
-    # variant-aware path — see transform_purchase_orders()'s warning), this
-    # step calls adjust_stock() directly and CAN pass variant_id, so create
-    # whatever variant-level rows are missing before deducting.
-    variant_pairs = {(pid, vid) for pid, vid, _ in groups if vid is not None}
-    if variant_pairs:
-        variant_ids = {vid for _, vid in variant_pairs}
+    # product-level (variant_id=None) InventoryLevel row for a *newly
+    # imported* product — a deduped (pre-existing) product isn't
+    # guaranteed to have one (e.g. seeded via a path that bypassed
+    # create_product() — see load_purchase_orders()'s identical defensive
+    # backfill for the same reason), and no path at all creates a
+    # variant-level row before this one. Create whatever's missing —
+    # product-level or variant-level — for every group before deducting.
+    all_pairs = {(pid, vid) for pid, vid, _ in groups}
+    if all_pairs:
+        product_ids_in_groups = {pid for pid, _, _ in groups}
         existing = await db.execute(
             select(InventoryLevel.product_id, InventoryLevel.variant_id).where(
-                InventoryLevel.variant_id.in_(variant_ids)
+                InventoryLevel.product_id.in_(product_ids_in_groups)
             )
         )
         existing_pairs = set(existing.all())
-        missing = variant_pairs - existing_pairs
+        missing = all_pairs - existing_pairs
         if missing:
             # Tag the new row with migration_id only if the *product* is
             # also new (migration_id == job_id) — mirrors
