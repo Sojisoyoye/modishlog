@@ -490,6 +490,52 @@ class TestTransformPurchaseOrders:
             for w in transformer.warnings
         )
 
+    def test_resolved_variant_gets_product_level_tracking_warning(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        variant_id = uuid.uuid4()
+        transformer.id_map.register("product_variants", "V1", variant_id)
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "A",
+                "product_source_id": "P1",
+                "variant_source_id": "V1",
+                "quantity": "10",
+                "unit_cost": "500",
+                "order_date": "2025-01-01",
+            }
+        ]
+        result = transformer.transform_purchase_orders(rows)
+
+        assert result[0]["line_items"][0]["variant_id"] == variant_id
+        warning = next(w for w in transformer.warnings if w.field == "variant_source_id")
+        assert "not tracked against this specific variant" in warning.message
+        assert "could not be resolved" not in warning.message
+
+    def test_unresolvable_variant_gets_a_distinct_warning_not_the_tracking_one(self):
+        """A stale/typo'd variant reference must not be confused with the
+        'recognized, tracked at product level' case — it was never resolved
+        at all, so the warning must say so, not claim the variant was
+        recognized and its cost-override behavior applies."""
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "A",
+                "product_source_id": "P1",
+                "variant_source_id": "NONEXISTENT",
+                "quantity": "10",
+                "unit_cost": "500",
+                "order_date": "2025-01-01",
+            }
+        ]
+        result = transformer.transform_purchase_orders(rows)
+
+        assert result[0]["line_items"][0]["variant_id"] is None
+        warning = next(w for w in transformer.warnings if w.field == "variant_source_id")
+        assert "could not be resolved" in warning.message
+        assert "cost override" not in warning.message
+
     def test_order_level_fields_backfilled_from_a_later_row_in_the_group(self):
         """order_date/fx_rate/currency/supplier/location are order-level,
         but a business's export may only populate them on whichever line
