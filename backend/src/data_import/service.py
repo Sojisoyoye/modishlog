@@ -578,7 +578,12 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
             {"step": "reorder_suggestions", "error": reorder_error}
         )
 
-    job.recompute_errors = skipped_reversals
+    # Append, don't overwrite — job.recompute_errors may already hold a
+    # record of problems from the original import's confirm_job() recompute
+    # run (e.g. understated FIFO COGS, a missing price suggestion). That's
+    # audit history someone investigating this job later still needs, even
+    # though the import itself is now rolled back.
+    job.recompute_errors = (job.recompute_errors or []) + skipped_reversals
     job.status = MigrationJobStatus.ROLLED_BACK
     await db.flush()
     logger.info(

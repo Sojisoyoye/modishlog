@@ -36,11 +36,25 @@ JOB_ID = uuid.uuid4()
 USER_ID = uuid.uuid4()
 
 
+class _NestedTransaction:
+    """AsyncSession.begin_nested() is a sync method returning an async
+    context manager (an AsyncSessionTransaction) — a bare AsyncMock's
+    auto-specced children would make `db.begin_nested()` itself return a
+    coroutine instead, breaking `async with db.begin_nested():`."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
 def _mock_db():
     db = AsyncMock()
     db.flush = AsyncMock()
     db.add = MagicMock()
     db.add_all = MagicMock()
+    db.begin_nested = MagicMock(return_value=_NestedTransaction())
     return db
 
 
@@ -264,6 +278,31 @@ class TestDeductImportedSalesStock:
         assert db.execute.await_count == 2
 
     @pytest.mark.asyncio
+    async def test_adjust_stock_is_wrapped_in_a_per_item_savepoint(self):
+        """A real DB-level failure inside adjust_stock() (a constraint
+        violation, not just its own Python-level exceptions) would
+        otherwise poison the single SAVEPOINT the whole recompute runs
+        inside, breaking every later group and every later recompute step.
+        Each group's adjust_stock() call must open — and roll back to —
+        its own nested SAVEPOINT."""
+        from src.data_import.recompute import _deduct_imported_sales_stock
+
+        product_id = uuid.uuid4()
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result([]),
+                _rows_result([(product_id, None, 5)]),
+                MagicMock(),
+            ]
+        )
+
+        with patch("src.data_import.recompute.adjust_stock", new=AsyncMock()):
+            await _deduct_imported_sales_stock(db, BUSINESS_ID, JOB_ID, USER_ID)
+
+        db.begin_nested.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_already_applied_group_is_skipped_but_others_still_run(self):
         """A second call (via POST /jobs/{id}/recompute) must not deduct an
         already-tagged (product, variant) group's stock again — but a
@@ -406,6 +445,33 @@ class TestComputeFifoCogsForImportedSales:
         # Still records the partial result — some COGS is better than none.
         assert sale.fifo_cogs == Decimal("40")
 
+    @pytest.mark.asyncio
+    async def test_fifo_deduct_is_wrapped_in_a_per_item_savepoint(self):
+        """A real DB-level failure inside fifo_deduct() (a constraint
+        violation from its own flush, not just an unhandled Python
+        exception) would otherwise poison the single SAVEPOINT the whole
+        recompute runs inside, breaking every later sale and every later
+        recompute step. Each sale's fifo_deduct() call must open — and
+        roll back to — its own nested SAVEPOINT."""
+        from src.data_import.recompute import _compute_fifo_cogs_for_imported_sales
+
+        sale = MagicMock()
+        sale.id = uuid.uuid4()
+        sale.product_id = uuid.uuid4()
+        sale.quantity = 3
+        sale.total_amount = Decimal("300")
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[_scalars_result([sale]), _scalar_result(3)])
+
+        with patch(
+            "src.data_import.recompute.fifo_deduct",
+            new=AsyncMock(return_value=Decimal("100")),
+        ):
+            await _compute_fifo_cogs_for_imported_sales(db, JOB_ID)
+
+        db.begin_nested.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # _create_opening_price_history
@@ -491,15 +557,18 @@ class TestRecomputeLowStockAlerts:
     async def test_creates_alert_when_quantity_at_or_below_threshold(self):
         from src.data_import.recompute import _recompute_low_stock_alerts
 
+        product_id = uuid.uuid4()
         inv = MagicMock()
-        inv.product_id = uuid.uuid4()
+        inv.product_id = product_id
         inv.quantity_on_hand = 2
         inv.low_stock_threshold = 10
 
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[
-                _rows_result([(inv, JOB_ID)]),
+                _scalars_result([product_id]),  # new products
+                _scalars_result([]),  # products referenced by imported sales
+                _scalars_result([inv]),
                 _scalar_one_or_none_result(None),  # no existing ACTIVE alert
             ]
         )
@@ -513,16 +582,65 @@ class TestRecomputeLowStockAlerts:
         assert alert.threshold == 10
 
     @pytest.mark.asyncio
+    async def test_includes_a_deduped_product_depleted_by_imported_sales(self):
+        """A deduped (pre-existing) product isn't migration_id-tagged, but
+        imported sales against it (Sale.migration_id == job_id) can still
+        push it below threshold — scoping only to newly-created products
+        would miss it entirely."""
+        from src.data_import.recompute import _recompute_low_stock_alerts
+
+        deduped_product_id = uuid.uuid4()
+        inv = MagicMock()
+        inv.product_id = deduped_product_id
+        inv.quantity_on_hand = 1
+        inv.low_stock_threshold = 10
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalars_result([]),  # no new products this job
+                _scalars_result([deduped_product_id]),  # sold via imported sales
+                _scalars_result([inv]),
+                _scalar_one_or_none_result(None),
+            ]
+        )
+
+        await _recompute_low_stock_alerts(db, JOB_ID)
+
+        db.add.assert_called_once()
+        assert db.add.call_args[0][0].product_id == deduped_product_id
+
+    @pytest.mark.asyncio
+    async def test_no_relevant_products_is_a_noop(self):
+        from src.data_import.recompute import _recompute_low_stock_alerts
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[_scalars_result([]), _scalars_result([])])
+
+        await _recompute_low_stock_alerts(db, JOB_ID)
+
+        db.add.assert_not_called()
+        # Neither the InventoryLevel lookup nor anything past it ran.
+        assert db.execute.await_count == 2
+
+    @pytest.mark.asyncio
     async def test_skips_when_quantity_above_threshold(self):
         from src.data_import.recompute import _recompute_low_stock_alerts
 
+        product_id = uuid.uuid4()
         inv = MagicMock()
-        inv.product_id = uuid.uuid4()
+        inv.product_id = product_id
         inv.quantity_on_hand = 50
         inv.low_stock_threshold = 10
 
         db = _mock_db()
-        db.execute = AsyncMock(return_value=_rows_result([(inv, JOB_ID)]))
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalars_result([product_id]),
+                _scalars_result([]),
+                _scalars_result([inv]),
+            ]
+        )
 
         await _recompute_low_stock_alerts(db, JOB_ID)
 
@@ -532,8 +650,9 @@ class TestRecomputeLowStockAlerts:
     async def test_does_not_duplicate_an_existing_active_alert(self):
         from src.data_import.recompute import _recompute_low_stock_alerts
 
+        product_id = uuid.uuid4()
         inv = MagicMock()
-        inv.product_id = uuid.uuid4()
+        inv.product_id = product_id
         inv.quantity_on_hand = 1
         inv.low_stock_threshold = 10
 
@@ -541,7 +660,9 @@ class TestRecomputeLowStockAlerts:
         existing_alert = MagicMock()
         db.execute = AsyncMock(
             side_effect=[
-                _rows_result([(inv, JOB_ID)]),
+                _scalars_result([product_id]),
+                _scalars_result([]),
+                _scalars_result([inv]),
                 _scalar_one_or_none_result(existing_alert),
             ]
         )
@@ -639,6 +760,63 @@ class TestRecomputeAiSignals:
 
         assert any(e["step"] == "reorder_suggestions" for e in errors)
         mock_price.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_a_non_pricing_exception_is_isolated_per_product_too(self):
+        """compute_suggestion() can fail for reasons that aren't its own
+        PricingSuggestionError (e.g. a transient FX-rate lookup failure) —
+        that must still be isolated per product, not abort every remaining
+        product's price suggestion."""
+        from src.data_import.recompute import _recompute_ai_signals
+
+        product_a, product_b = uuid.uuid4(), uuid.uuid4()
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[MagicMock(), _scalars_result([product_a, product_b])]
+        )
+
+        with (
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "src.data_import.recompute.compute_suggestion",
+                new=AsyncMock(
+                    side_effect=[RuntimeError("FX rate lookup timed out"), MagicMock()]
+                ),
+            ) as mock_price,
+        ):
+            errors = await _recompute_ai_signals(db, BUSINESS_ID, JOB_ID)
+
+        assert mock_price.await_count == 2
+        assert len(errors) == 1
+        assert errors[0]["product_id"] == str(product_a)
+
+    @pytest.mark.asyncio
+    async def test_price_suggestion_call_is_wrapped_in_a_per_item_savepoint(self):
+        """A real DB-level failure inside compute_suggestion() (not just a
+        Python-level PricingSuggestionError) would otherwise poison the
+        single SAVEPOINT the whole recompute runs inside, breaking every
+        later step. Each product's call must open — and roll back to — its
+        own nested SAVEPOINT."""
+        from src.data_import.recompute import _recompute_ai_signals
+
+        product_id = uuid.uuid4()
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[MagicMock(), _scalars_result([product_id])])
+        db.begin_nested = MagicMock(return_value=_NestedTransaction())
+
+        with (
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch("src.data_import.recompute.compute_suggestion", new=AsyncMock()),
+        ):
+            await _recompute_ai_signals(db, BUSINESS_ID, JOB_ID)
+
+        db.begin_nested.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

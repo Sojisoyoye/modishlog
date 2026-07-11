@@ -1308,6 +1308,44 @@ class TestConfirmationGate:
         assert result.recompute_errors[0]["product_id"] == str(deduped_product_id)
 
     @pytest.mark.asyncio
+    async def test_rollback_appends_to_recompute_errors_instead_of_overwriting(self):
+        """job.recompute_errors may already hold a record of problems from
+        the original import's confirm_job() recompute run (e.g. understated
+        FIFO COGS). A clean rollback (nothing skipped) must not silently
+        erase that audit history — someone investigating this job later
+        (e.g. via a support ticket) still needs to see it."""
+        job = _make_job(status=MigrationJobStatus.DONE)
+        job.recompute_errors = [
+            {"step": "fifo_cogs", "sale_id": "abc", "error": "understated"}
+        ]
+
+        db = _mock_db()
+        empty_movements = MagicMock()
+        empty_movements.all.return_value = []
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(
+            side_effect=[
+                empty_movements,  # no movement deltas to reverse
+                empty_scalars,  # no new products
+                MagicMock(),  # delete(PriceHistory)
+                MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
+            ]
+        )
+
+        with (
+            patch("src.data_import.service.loader_rollback", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            result = await rollback_job(db, job)
+
+        assert len(result.recompute_errors) == 1
+        assert result.recompute_errors[0]["step"] == "fifo_cogs"
+
+    @pytest.mark.asyncio
     async def test_recompute_job_requires_done_status(self):
         from src.data_import.service import recompute_job
 

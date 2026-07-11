@@ -36,7 +36,6 @@ from src.inventory.models import (
     StockMovement,
 )
 from src.inventory.service import adjust_stock, fifo_deduct
-from src.pricing.exceptions import PricingSuggestionError
 from src.pricing.service import compute_suggestion
 from src.products.models import PriceHistory, Product
 from src.sales.models import Sale
@@ -130,18 +129,28 @@ async def _deduct_imported_sales_stock(
     any_succeeded = False
     for product_id, variant_id, total_quantity in groups:
         try:
-            await adjust_stock(
-                db,
-                product_id=product_id,
-                quantity_change=-int(total_quantity),
-                movement_type=MovementType.SALE_DEPLETION.value,
-                reason="Post-import stock deduction (aggregated from imported sales)",
-                user_id=user_id,
-                business_id=business_id,
-                variant_id=variant_id,
-                reference_id=job_id,
-                reference_type="data_import_recompute",
-            )
+            # A per-item SAVEPOINT, not just a per-item try/except: a real
+            # DB-level failure (constraint violation, lock timeout) inside
+            # adjust_stock()'s flush leaves the underlying Postgres
+            # transaction "aborted" until rolled back — a bare try/except
+            # would catch the Python exception but leave every subsequent
+            # db.execute()/flush() call in this and every later recompute
+            # step failing with "current transaction is aborted". The
+            # SAVEPOINT gives this one item's failure somewhere to roll
+            # back to that doesn't touch anything outside it.
+            async with db.begin_nested():
+                await adjust_stock(
+                    db,
+                    product_id=product_id,
+                    quantity_change=-int(total_quantity),
+                    movement_type=MovementType.SALE_DEPLETION.value,
+                    reason="Post-import stock deduction (aggregated from imported sales)",
+                    user_id=user_id,
+                    business_id=business_id,
+                    variant_id=variant_id,
+                    reference_id=job_id,
+                    reference_type="data_import_recompute",
+                )
             any_succeeded = True
         except Exception as e:
             await logger.awarning(
@@ -225,7 +234,13 @@ async def _compute_fifo_cogs_for_imported_sales(
             )
 
         try:
-            cogs = await fifo_deduct(db, sale.product_id, sale.quantity)
+            # Per-item SAVEPOINT — same reasoning as
+            # _deduct_imported_sales_stock: fifo_deduct()'s flush can fail
+            # at the DB level, not just raise a Python exception, which
+            # would otherwise poison the shared outer transaction for
+            # every sale (and every later recompute step) after this one.
+            async with db.begin_nested():
+                cogs = await fifo_deduct(db, sale.product_id, sale.quantity)
         except Exception as e:
             await logger.awarning(
                 "recompute_fifo_cogs_failed", sale_id=str(sale.id), error=str(e)
@@ -281,16 +296,34 @@ async def _recompute_low_stock_alerts(db: AsyncSession, job_id: uuid.UUID) -> No
     """LowStockAlert has no variant_id column — it's a product-level signal
     only, matching the product-level (variant_id=None) InventoryLevel rows
     the loader creates for imported products.
+
+    Checks every product this job could plausibly have pushed below
+    threshold: products it *created* (whose opening PO-delivered stock
+    might already be below whatever threshold applies), and — just as
+    importantly — deduped (pre-existing) products it deducted stock from
+    via imported sales. Scoping only to newly-created products would miss
+    a deduped product's real, current low-stock condition entirely.
     """
-    result = await db.execute(
-        select(InventoryLevel, Product.migration_id)
-        .join(Product, Product.id == InventoryLevel.product_id)
-        .where(Product.migration_id == job_id, InventoryLevel.variant_id.is_(None))
+    new_products = await db.execute(
+        select(Product.id).where(Product.migration_id == job_id)
     )
-    rows = result.all()
+    sale_products = await db.execute(
+        select(Sale.product_id).where(Sale.migration_id == job_id).distinct()
+    )
+    product_ids = set(new_products.scalars().all()) | set(sale_products.scalars().all())
+    if not product_ids:
+        return
+
+    result = await db.execute(
+        select(InventoryLevel).where(
+            InventoryLevel.product_id.in_(product_ids),
+            InventoryLevel.variant_id.is_(None),
+        )
+    )
+    rows = result.scalars().all()
 
     now = datetime.now(timezone.utc)
-    for inventory, _ in rows:
+    for inventory in rows:
         if inventory.quantity_on_hand > inventory.low_stock_threshold:
             continue
         existing = await db.execute(
@@ -356,8 +389,15 @@ async def _recompute_ai_signals(
     product_ids = result.scalars().all()
     for product_id in product_ids:
         try:
-            await compute_suggestion(db, product_id)
-        except PricingSuggestionError as e:
+            # Per-item SAVEPOINT, same reasoning as the stock-deduction and
+            # FIFO-COGS loops. Also catches more than PricingSuggestionError
+            # — compute_suggestion() can hit a transient failure (e.g. the
+            # live FX-rate lookup) that isn't that domain's own validation
+            # error, and one product's failure must not abort every
+            # remaining product's price suggestion.
+            async with db.begin_nested():
+                await compute_suggestion(db, product_id)
+        except Exception as e:
             errors.append(
                 {
                     "step": "price_suggestion",
