@@ -500,8 +500,13 @@ class Transformer:
                 # Purchase-order delivery (transition_status(), reused as-is
                 # from the real-time order flow) applies stock/FIFO-batch
                 # changes at the product level only — it has no variant-aware
-                # path today, imported or not. Surface that honestly rather
-                # than silently mis-tracking a specific variant's stock.
+                # path today, imported or not. It also silently replaces
+                # unit_cost with the variant's cost_price_override, if one is
+                # set, before computing the order total and FIFO landed
+                # cost — correct for a real-time PO (use the negotiated
+                # cost), wrong for a historical import (the point is
+                # preserving the actual price paid). Surface both honestly
+                # rather than silently mis-tracking stock or cost.
                 self.warnings.append(
                     ValidationIssue(
                         entity="purchase_orders",
@@ -511,8 +516,11 @@ class Transformer:
                         message=(
                             f"{quantity} units will be added to "
                             f"{row.get('product_source_id')!r}'s overall stock, not "
-                            "tracked against this specific variant — purchase-order "
-                            "delivery doesn't support variant-level stock yet."
+                            "tracked against this specific variant. If this variant has "
+                            "a cost override set, its imported unit_cost of "
+                            f"{unit_cost} will also be replaced by that override — "
+                            "purchase-order delivery doesn't support variant-level "
+                            "stock or historical-cost overrides yet."
                         ),
                     )
                 )

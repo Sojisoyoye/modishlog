@@ -24,7 +24,7 @@ from src.data_import.etl.transformer import (
     normalize_payment_method,
 )
 from src.data_import.etl.validator import validate_entity_rows
-from src.data_import.exceptions import InvalidJobStateError
+from src.data_import.exceptions import InvalidJobStateError, PurchaseOrderImportError
 from src.data_import.models import (
     ExtractionMode,
     MigrationJob,
@@ -975,6 +975,32 @@ class TestConfirmationGate:
         job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
         with pytest.raises(InvalidJobStateError):
             await rollback_job(_mock_db(), job)
+
+    @pytest.mark.asyncio
+    async def test_purchase_order_import_errors_are_translated_to_one_domain_exception(self):
+        """load_purchase_orders() reuses orders/inventory services unmodified
+        and can raise any of their exception types — confirm_job() must
+        translate every one of them into this domain's own
+        PurchaseOrderImportError, so callers (the router) only need to know
+        about one exception type, not every domain those services touch."""
+        from src.orders.exceptions import OrderLineItemError
+
+        job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+
+        with (
+            patch(
+                "src.data_import.service._extract_and_transform",
+                new=AsyncMock(return_value=({}, {"purchase_orders": []}, MagicMock(id_map=IdMap()))),
+            ),
+            patch("src.data_import.service.loader_load", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.loader_load_purchase_orders",
+                new=AsyncMock(side_effect=OrderLineItemError(None, [uuid.uuid4()])),
+            ),
+        ):
+            with pytest.raises(PurchaseOrderImportError):
+                await confirm_job(db, job, approved=True)
 
 
 # ---------------------------------------------------------------------------

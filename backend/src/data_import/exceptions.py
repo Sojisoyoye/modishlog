@@ -53,3 +53,18 @@ class MissingExtractedDataError(Exception):
         super().__init__(
             f"Migration job {job_id} has no cached extraction data — cannot proceed"
         )
+
+
+class PurchaseOrderImportError(Exception):
+    """Raised when load_purchase_orders() (which reuses the orders/inventory
+    services unmodified) hits a failure from one of those domains — a
+    referenced product/order went stale between validation and confirm, a
+    status transition or stock adjustment was rejected, or a line item
+    failed schema validation. Wraps the underlying error so the router only
+    needs to know about this one data_import-owned exception, not every
+    exception type orders/inventory happen to raise today.
+    """
+
+    def __init__(self, cause: Exception) -> None:
+        self.cause = cause
+        super().__init__(str(cause))

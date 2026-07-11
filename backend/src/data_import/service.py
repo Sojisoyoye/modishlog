@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 import anyio
 import structlog
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +29,7 @@ from src.data_import.exceptions import (
     InvalidJobStateError,
     MigrationJobNotFoundError,
     MissingExtractedDataError,
+    PurchaseOrderImportError,
     UnsupportedSourceSystemError,
 )
 from src.data_import.models import (
@@ -40,6 +42,15 @@ from src.data_import.schemas import (
     ConfirmationSnapshot,
     SnapshotEntity,
     ValidationIssue,
+)
+from src.inventory.exceptions import (
+    InvalidStockAdjustmentError,
+    ProductStockNotFoundError,
+)
+from src.orders.exceptions import (
+    InvalidStatusTransitionError,
+    OrderLineItemError,
+    OrderNotFoundError,
 )
 
 logger = structlog.get_logger()
@@ -353,13 +364,28 @@ async def confirm_job(
     job.status = MigrationJobStatus.IMPORTING
     _mapped, transformed, transformer = await _extract_and_transform(db, job)
     row_counts = await loader_load(db, job.id, transformed, transformer.id_map)
-    row_counts["purchase_orders"] = await loader_load_purchase_orders(
-        db,
-        job.id,
-        job.business_id,
-        job.created_by,
-        transformed.get("purchase_orders", []),
-    )
+    try:
+        row_counts["purchase_orders"] = await loader_load_purchase_orders(
+            db,
+            job.id,
+            job.business_id,
+            job.created_by,
+            transformed.get("purchase_orders", []),
+        )
+    except (
+        OrderLineItemError,
+        OrderNotFoundError,
+        InvalidStatusTransitionError,
+        ProductStockNotFoundError,
+        InvalidStockAdjustmentError,
+        PydanticValidationError,
+    ) as e:
+        # load_purchase_orders() reuses the orders/inventory services
+        # unmodified — translate whatever they raise into this domain's own
+        # exception so the router (and any other caller) only needs to know
+        # about one data_import-owned exception type, not every exception
+        # those unrelated domains happen to raise today.
+        raise PurchaseOrderImportError(e) from e
 
     job.row_counts = row_counts
     job.status = MigrationJobStatus.DONE
