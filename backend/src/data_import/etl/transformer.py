@@ -33,6 +33,7 @@ _CHANNEL_MAP = {
 def normalize_channel(raw: str | None) -> SaleChannel:
     return _CHANNEL_MAP.get((raw or "retail").strip().lower(), SaleChannel.RETAIL)
 
+
 _PAYMENT_METHOD_MAP = {
     "credit card": "card",
     "debit card": "card",
@@ -64,7 +65,9 @@ class IdMap:
 
 
 def normalize_amount(raw: str) -> Decimal:
-    return parse_flexible_amount(raw).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+    return parse_flexible_amount(raw).quantize(
+        Decimal("0.000001"), rounding=ROUND_HALF_UP
+    )
 
 
 def normalize_date(raw: str):
@@ -116,7 +119,9 @@ class Transformer:
     # Dedup lookups
     # ------------------------------------------------------------------
 
-    async def dedup_customer(self, email: str | None, phone: str | None) -> Customer | None:
+    async def dedup_customer(
+        self, email: str | None, phone: str | None
+    ) -> Customer | None:
         if email:
             result = await self.db.execute(
                 select(Customer).where(
@@ -149,7 +154,9 @@ class Transformer:
         result = await self.db.execute(q)
         return result.scalar_one_or_none()
 
-    async def dedup_product(self, barcode: str | None, sku: str | None) -> Product | None:
+    async def dedup_product(
+        self, barcode: str | None, sku: str | None
+    ) -> Product | None:
         if barcode:
             # Scoped by business_id like every other dedup lookup — barcode has
             # no global-uniqueness constraint in this schema, so an unscoped
@@ -213,7 +220,9 @@ class Transformer:
             category_id = None
             category_source_id = row.get("category_source_id")
             if category_source_id:
-                category_id = self.id_map.lookup("product_categories", category_source_id)
+                category_id = self.id_map.lookup(
+                    "product_categories", category_source_id
+                )
 
             source_id = row.get("source_id")
             out.append(
@@ -228,7 +237,8 @@ class Transformer:
                     "selling_price": normalize_amount(row.get("selling_price", "0")),
                     "currency": row.get("currency", "NGN").upper(),
                     "category_id": category_id,
-                    "is_active": row.get("is_active", "true").strip().lower() != "false",
+                    "is_active": row.get("is_active", "true").strip().lower()
+                    != "false",
                     "business_id": self.business_id,
                 }
             )
@@ -261,11 +271,15 @@ class Transformer:
                     "attributes": {
                         k: v
                         for k, v in (
-                            pair.split(":", 1) for pair in row.get("attributes", "").split(";") if ":" in pair
+                            pair.split(":", 1)
+                            for pair in row.get("attributes", "").split(";")
+                            if ":" in pair
                         )
                     },
                     "price_override": (
-                        normalize_amount(row["price_override"]) if row.get("price_override") else None
+                        normalize_amount(row["price_override"])
+                        if row.get("price_override")
+                        else None
                     ),
                     "cost_price_override": (
                         normalize_amount(row["cost_price_override"])
@@ -335,7 +349,8 @@ class Transformer:
                     "id": self._assign_id("business_locations", source_id),
                     "_source_id": source_id,
                     "name": row["name"].strip(),
-                    "location_code": row.get("location_code") or row["name"][:20].upper(),
+                    "location_code": row.get("location_code")
+                    or row["name"][:20].upper(),
                     "business_id": self.business_id,
                     "created_by": self.created_by,
                 }
@@ -375,7 +390,9 @@ class Transformer:
             except (KeyError, ValueError, InvalidOperation) as e:
                 self.warnings.append(
                     ValidationIssue(
-                        entity="sales", row=i, severity="error",
+                        entity="sales",
+                        row=i,
+                        severity="error",
                         message=f"Could not parse row: {e}",
                     )
                 )
@@ -383,7 +400,9 @@ class Transformer:
 
             variant_id = None
             if row.get("variant_source_id"):
-                variant_id = self.id_map.lookup("product_variants", row["variant_source_id"])
+                variant_id = self.id_map.lookup(
+                    "product_variants", row["variant_source_id"]
+                )
 
             customer_id = None
             if row.get("customer_source_id"):
@@ -416,12 +435,92 @@ class Transformer:
                     "currency": row.get("currency", "NGN").upper(),
                     "sale_date": sale_date,
                     "channel": normalize_channel(row.get("channel")),
-                    "payment_method": normalize_payment_method(row.get("payment_method")),
+                    "payment_method": normalize_payment_method(
+                        row.get("payment_method")
+                    ),
                     "business_id": self.business_id,
                     "recorded_by": self.created_by,
                 }
             )
         return out
+
+    def transform_purchase_orders(self, raw_rows: list[dict]) -> list[dict]:
+        """Rows are one-line-item-per-row; rows sharing the same `source_id`
+        group into one purchase order with multiple line items (mirrors how
+        a business would naturally list "PO-001, ProductA, 10" / "PO-001,
+        ProductB, 5" as two rows of the same order).
+        """
+        groups: dict[str, dict] = {}
+        order = []
+        for i, row in enumerate(raw_rows, start=2):
+            source_id = row.get("source_id") or f"__row_{i}"
+            product_id = self.id_map.lookup("products", row.get("product_source_id"))
+            if product_id is None:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="purchase_orders",
+                        row=i,
+                        field="product_source_id",
+                        severity="error",
+                        message=f"Product {row.get('product_source_id')!r} could not be resolved",
+                    )
+                )
+                continue
+
+            try:
+                quantity = int(row["quantity"])
+                unit_cost = normalize_amount(row["unit_cost"])
+            except (KeyError, ValueError, InvalidOperation) as e:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="purchase_orders",
+                        row=i,
+                        severity="error",
+                        message=f"Could not parse row: {e}",
+                    )
+                )
+                continue
+
+            variant_id = None
+            if row.get("variant_source_id"):
+                variant_id = self.id_map.lookup(
+                    "product_variants", row["variant_source_id"]
+                )
+
+            if source_id not in groups:
+                supplier_id = None
+                if row.get("supplier_source_id"):
+                    supplier_id = self.id_map.lookup(
+                        "suppliers", row["supplier_source_id"]
+                    )
+                location_id = None
+                if row.get("location_source_id"):
+                    location_id = self.id_map.lookup(
+                        "business_locations", row["location_source_id"]
+                    )
+                groups[source_id] = {
+                    "source_id": source_id,
+                    "supplier_id": supplier_id,
+                    "supplier_name": row.get("supplier_name") or source_id,
+                    "location_id": location_id,
+                    "currency": (row.get("currency") or "USD").upper(),
+                    "order_date": normalize_date(row["order_date"])
+                    if row.get("order_date")
+                    else None,
+                    "line_items": [],
+                }
+                order.append(groups[source_id])
+
+            groups[source_id]["line_items"].append(
+                {
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "quantity": quantity,
+                    "unit_cost": unit_cost,
+                }
+            )
+
+        return [g for g in order if g["line_items"]]
 
     def detect_ghost_products(
         self, sales_raw: list[dict], known_product_source_ids: set[str]
@@ -434,7 +533,11 @@ class Transformer:
         ghosts = []
         for row in sales_raw:
             source_id = row.get("product_source_id")
-            if not source_id or source_id in known_product_source_ids or source_id in seen:
+            if (
+                not source_id
+                or source_id in known_product_source_ids
+                or source_id in seen
+            ):
                 continue
             seen.add(source_id)
             display_name = row.get("product_name") or source_id

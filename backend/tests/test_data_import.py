@@ -3,7 +3,7 @@
 import uuid
 from datetime import date
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +17,7 @@ from src.data_import.etl.extractor import (
 )
 from src.data_import.etl.loader import load as loader_load
 from src.data_import.etl.loader import rollback as loader_rollback
+from src.inventory.models import InventoryLevel
 from src.data_import.etl.transformer import (
     IdMap,
     Transformer,
@@ -353,6 +354,106 @@ class TestTransformCategories:
         assert result[1]["parent_id"] == result[0]["id"]
 
 
+class TestTransformPurchaseOrders:
+    def _transformer_with_product(self, product_source_id="P1"):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        product_id = uuid.uuid4()
+        transformer.id_map.register("products", product_source_id, product_id)
+        return transformer, product_id
+
+    def test_rows_sharing_source_id_group_into_one_order_with_two_line_items(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        transformer.id_map.register("products", "P2", uuid.uuid4())
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "Acme Textiles",
+                "product_source_id": "P1",
+                "quantity": "10",
+                "unit_cost": "500",
+                "order_date": "2026-01-01",
+            },
+            {
+                "source_id": "PO1",
+                "supplier_name": "Acme Textiles",
+                "product_source_id": "P2",
+                "quantity": "5",
+                "unit_cost": "200",
+                "order_date": "2026-01-01",
+            },
+        ]
+        result = transformer.transform_purchase_orders(rows)
+
+        assert len(result) == 1
+        assert result[0]["supplier_name"] == "Acme Textiles"
+        assert len(result[0]["line_items"]) == 2
+        assert result[0]["line_items"][0]["product_id"] == product_id
+        assert result[0]["line_items"][0]["quantity"] == 10
+        assert result[0]["line_items"][0]["unit_cost"] == Decimal("500.000000")
+
+    def test_distinct_source_ids_produce_separate_orders(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "1", "unit_cost": "10"},
+            {"source_id": "PO2", "supplier_name": "B", "product_source_id": "P1", "quantity": "1", "unit_cost": "10"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert len(result) == 2
+
+    def test_resolves_supplier_id_from_id_map(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        supplier_id = uuid.uuid4()
+        transformer.id_map.register("suppliers", "S1", supplier_id)
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_source_id": "S1",
+                "supplier_name": "Acme",
+                "product_source_id": "P1",
+                "quantity": "1",
+                "unit_cost": "10",
+            }
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result[0]["supplier_id"] == supplier_id
+
+    def test_missing_supplier_name_falls_back_to_source_id(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "product_source_id": "P1", "quantity": "1", "unit_cost": "10"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result[0]["supplier_name"] == "PO1"
+
+    def test_row_with_unresolvable_product_is_dropped_with_error(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "UNKNOWN", "quantity": "1", "unit_cost": "10"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result == []
+        assert any(w.severity == "error" for w in transformer.warnings)
+
+    def test_order_with_some_resolvable_and_some_unresolvable_lines_keeps_resolvable_ones(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "1", "unit_cost": "10"},
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "UNKNOWN", "quantity": "1", "unit_cost": "10"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert len(result) == 1
+        assert len(result[0]["line_items"]) == 1
+
+    def test_unparseable_quantity_drops_row_with_error_not_raised(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "many", "unit_cost": "10"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result == []
+        assert any(w.severity == "error" for w in transformer.warnings)
+
+
 # ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
@@ -390,6 +491,46 @@ class TestLoader:
         assert added_product.id == product_id
 
     @pytest.mark.asyncio
+    async def test_load_initializes_zeroed_inventory_level_for_every_new_product(self):
+        """adjust_stock() (called by transition_status() during purchase-order
+        delivery) requires an existing InventoryLevel row — it's an UPDATE,
+        not an upsert — so every imported product needs one created up front,
+        same as create_product() -> initialize_inventory() does for products
+        created through the normal (non-import) flow."""
+        db = _mock_db()
+        migration_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        transformed = {
+            "products": [
+                {
+                    "id": product_id,
+                    "name": "Widget",
+                    "sku": "SKU-1",
+                    "slug": "widget",
+                    "unit_cost": Decimal("5"),
+                    "selling_price": Decimal("10"),
+                    "currency": "NGN",
+                    "business_id": BUSINESS_ID,
+                }
+            ]
+        }
+
+        await loader_load(db, migration_id, transformed, IdMap())
+
+        inventory_calls = [
+            call.args[0]
+            for call in db.add_all.call_args_list
+            if call.args[0] and isinstance(call.args[0][0], InventoryLevel)
+        ]
+        assert len(inventory_calls) == 1
+        inventory_rows = inventory_calls[0]
+        assert len(inventory_rows) == 1
+        assert inventory_rows[0].product_id == product_id
+        assert inventory_rows[0].variant_id is None
+        assert inventory_rows[0].quantity_on_hand == 0
+        assert inventory_rows[0].migration_id == migration_id
+
+    @pytest.mark.asyncio
     async def test_load_skips_unset_entities(self):
         db = _mock_db()
         row_counts = await loader_load(db, uuid.uuid4(), {}, IdMap())
@@ -406,6 +547,94 @@ class TestLoader:
 
         assert deleted_counts["sales"] == 3
         assert db.execute.await_count == len(deleted_counts)
+
+
+class TestLoadPurchaseOrders:
+    """load_purchase_orders() orchestrates create_order()/transition_status()
+    (already tested in test_orders.py) rather than reimplementing inventory
+    writes — these tests mock those two collaborators and verify the
+    orchestration: right OrderCreate shape, full delivery-chain transition,
+    and migration_id tagging."""
+
+    def _empty_scalars(self):
+        r = MagicMock()
+        r.scalars.return_value.all.return_value = []
+        return r
+
+    @pytest.mark.asyncio
+    async def test_creates_order_and_transitions_through_full_delivery_chain(self):
+        from src.data_import.etl.loader import load_purchase_orders
+
+        migration_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+
+        mock_order = MagicMock()
+        mock_order.id = uuid.uuid4()
+        mock_line_item = MagicMock()
+        mock_order.line_items = [mock_line_item]
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[self._empty_scalars(), self._empty_scalars(), self._empty_scalars()]
+        )
+
+        with (
+            patch("src.data_import.etl.loader.create_order", new=AsyncMock(return_value=mock_order)) as mock_create,
+            patch("src.data_import.etl.loader.transition_status", new=AsyncMock(return_value=mock_order)) as mock_transition,
+        ):
+            count = await load_purchase_orders(
+                db,
+                migration_id,
+                BUSINESS_ID,
+                CREATED_BY,
+                po_groups=[
+                    {
+                        "source_id": "PO1",
+                        "supplier_name": "Acme",
+                        "supplier_id": None,
+                        "location_id": None,
+                        "order_date": date(2026, 1, 1),
+                        "currency": "USD",
+                        "line_items": [
+                            {"product_id": product_id, "variant_id": None, "quantity": 10, "unit_cost": Decimal("5")}
+                        ],
+                    }
+                ],
+            )
+
+        assert count == 1
+        mock_create.assert_awaited_once()
+        order_create_arg = mock_create.await_args.args[1]
+        assert order_create_arg.supplier_name == "Acme"
+        assert order_create_arg.is_purchase_order is False
+        assert len(order_create_arg.line_items) == 1
+        assert order_create_arg.line_items[0].product_id == product_id
+
+        assert mock_transition.await_count == 4
+        transitioned_statuses = [call.args[2].new_status for call in mock_transition.await_args_list]
+        assert transitioned_statuses == ["IN_PRODUCTION", "SHIPPING", "CLEARED", "DELIVERED"]
+        final_transition = mock_transition.await_args_list[-1].args[2]
+        assert final_transition.actual_delivery_date == date(2026, 1, 1)
+
+        assert mock_order.migration_id == migration_id
+        assert mock_line_item.migration_id == migration_id
+
+    @pytest.mark.asyncio
+    async def test_groups_with_no_resolvable_line_items_are_skipped(self):
+        from src.data_import.etl.loader import load_purchase_orders
+
+        db = _mock_db()
+        with (
+            patch("src.data_import.etl.loader.create_order", new=AsyncMock()) as mock_create,
+            patch("src.data_import.etl.loader.transition_status", new=AsyncMock()),
+        ):
+            count = await load_purchase_orders(
+                db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                po_groups=[{"source_id": "PO1", "supplier_name": "A", "line_items": []}],
+            )
+
+        assert count == 0
+        mock_create.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

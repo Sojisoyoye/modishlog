@@ -41,6 +41,7 @@ export const IMPORTABLE_ENTITIES = [
   'suppliers',
   'customers',
   'business_locations',
+  'purchase_orders',
   'sales',
 ] as const;
 
@@ -55,6 +56,7 @@ export const ENTITY_LABELS: Record<ImportEntity, string> = {
   suppliers: 'Suppliers',
   customers: 'Customers',
   business_locations: 'Business Locations',
+  purchase_orders: 'Purchase Orders',
   sales: 'Sales',
 };
 
