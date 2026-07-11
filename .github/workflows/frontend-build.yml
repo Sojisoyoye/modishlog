@@ -37,8 +37,12 @@ jobs:
         run: npx ng build
         working-directory: frontend
 
+      # Explicitly scoped to backend + db_test — an unscoped `up -d` also
+      # starts docker-compose.yml's `frontend` service (host port 4200:4200),
+      # which collides with the "Serve frontend" step below binding the same
+      # host port outside Docker.
       - name: Start backend + test DB (e2e stack)
-        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build backend db_test
         env:
           SECRET_KEY: ci-test-secret-key-do-not-use-in-production-32x
           POSTGRES_PASSWORD: modishlog_dev

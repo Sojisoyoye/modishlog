@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
@@ -18,8 +18,8 @@ export class ApiService {
     return this.http.get<T>(`${this.baseUrl}${path}`, { params: httpParams });
   }
 
-  post<T>(path: string, body: unknown): Observable<T> {
-    return this.http.post<T>(`${this.baseUrl}${path}`, body);
+  post<T>(path: string, body: unknown, context?: HttpContext): Observable<T> {
+    return this.http.post<T>(`${this.baseUrl}${path}`, body, { context });
   }
 
   put<T>(path: string, body: unknown): Observable<T> {
@@ -30,7 +30,7 @@ export class ApiService {
     return this.http.patch<T>(`${this.baseUrl}${path}`, body);
   }
 
-  delete<T>(path: string): Observable<T> {
-    return this.http.delete<T>(`${this.baseUrl}${path}`);
+  delete<T>(path: string, context?: HttpContext): Observable<T> {
+    return this.http.delete<T>(`${this.baseUrl}${path}`, { context });
   }
 }
