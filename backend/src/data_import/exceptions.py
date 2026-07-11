@@ -77,3 +77,24 @@ class PurchaseOrderImportError(Exception):
             "product, variant, or order may have changed since this job "
             "was validated. Try re-validating the job."
         )
+
+
+class PurchaseOrderRollbackBlockedError(Exception):
+    """Raised when rollback() would need to delete an imported PurchaseOrder
+    that already has a real OrderPayment recorded against it. That payment
+    was made by the business after the import (it isn't tagged with this
+    migration_id — the loader never creates payments), so it's real money
+    data, not import data: deleting the order would either violate the
+    order_payments FK (no ON DELETE CASCADE) or silently destroy that
+    payment record. Rollback refuses outright instead of doing either.
+    """
+
+    def __init__(self, job_id: uuid.UUID, blocked_order_ids: list[uuid.UUID]) -> None:
+        self.job_id = job_id
+        self.blocked_order_ids = blocked_order_ids
+        super().__init__(
+            f"Cannot roll back migration job {job_id}: {len(blocked_order_ids)} "
+            "imported purchase order(s) have payments recorded against them "
+            "since the import. Remove those payments first, or leave this "
+            "import in place."
+        )

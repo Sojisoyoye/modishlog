@@ -490,6 +490,43 @@ class TestTransformPurchaseOrders:
             for w in transformer.warnings
         )
 
+    def test_order_level_fields_backfilled_from_a_later_row_in_the_group(self):
+        """order_date/fx_rate/currency/supplier/location are order-level,
+        but a business's export may only populate them on whichever line
+        row happened to carry the value — not necessarily the first one.
+        A later row filling in what an earlier row left blank must not be
+        silently discarded (previously only the first row was ever
+        consulted for these fields)."""
+        transformer, product_id = self._transformer_with_product("P1")
+        transformer.id_map.register("products", "P2", uuid.uuid4())
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "Acme Textiles",
+                "product_source_id": "P1",
+                "quantity": "10",
+                "unit_cost": "500",
+                # order_date/fx_rate/currency all blank on this row.
+            },
+            {
+                "source_id": "PO1",
+                "supplier_name": "Acme Textiles",
+                "product_source_id": "P2",
+                "quantity": "5",
+                "unit_cost": "200",
+                "order_date": "2025-03-01",
+                "fx_rate": "1550",
+                "currency": "ngn",
+            },
+        ]
+        result = transformer.transform_purchase_orders(rows)
+
+        assert len(result) == 1
+        assert result[0]["order_date"] == date(2025, 3, 1)
+        assert result[0]["fx_rate"] == Decimal("1550.000000")
+        assert result[0]["currency"] == "NGN"
+        assert not any(w.field == "order_date" for w in transformer.warnings)
+
     def test_distinct_source_ids_produce_separate_orders(self):
         transformer, product_id = self._transformer_with_product("P1")
         rows = [
@@ -680,12 +717,40 @@ class TestLoader:
     async def test_rollback_deletes_by_migration_id_in_reverse_order(self):
         db = _mock_db()
         result_mock = MagicMock(rowcount=3)
-        db.execute = AsyncMock(return_value=result_mock)
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        # First call is the pre-flight PurchaseOrder-id lookup (empty here —
+        # no purchase orders in this import, so the payment-block check is
+        # skipped) — every remaining call is one of the FK-ordered deletes.
+        db.execute = AsyncMock(side_effect=[empty_scalars] + [result_mock] * 20)
 
         deleted_counts = await loader_rollback(db, uuid.uuid4())
 
         assert deleted_counts["sales"] == 3
-        assert db.execute.await_count == len(deleted_counts)
+        assert db.execute.await_count == len(deleted_counts) + 1
+
+    @pytest.mark.asyncio
+    async def test_rollback_blocked_when_imported_po_has_a_payment_recorded(self):
+        """A payment recorded against an imported PO after the import isn't
+        part of the import (the loader never creates OrderPayment rows) —
+        deleting the PurchaseOrder would violate the order_payments FK (no
+        ON DELETE CASCADE) or silently destroy that real payment. Rollback
+        must refuse before deleting anything."""
+        from src.data_import.exceptions import PurchaseOrderRollbackBlockedError
+
+        db = _mock_db()
+        po_id = uuid.uuid4()
+        po_ids_result = MagicMock()
+        po_ids_result.scalars.return_value.all.return_value = [po_id]
+        blocked_result = MagicMock()
+        blocked_result.scalars.return_value.all.return_value = [po_id]
+        db.execute = AsyncMock(side_effect=[po_ids_result, blocked_result])
+
+        with pytest.raises(PurchaseOrderRollbackBlockedError):
+            await loader_rollback(db, uuid.uuid4())
+
+        # Refused before any delete statement was issued.
+        assert db.execute.await_count == 2
 
 
 class TestLoadPurchaseOrders:

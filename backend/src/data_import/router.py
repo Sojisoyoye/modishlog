@@ -26,6 +26,7 @@ from src.data_import.exceptions import (
     MigrationJobNotFoundError,
     MissingExtractedDataError,
     PurchaseOrderImportError,
+    PurchaseOrderRollbackBlockedError,
     UnsupportedSourceSystemError,
 )
 from src.data_import.models import ExtractionMode, SourceSystem
@@ -292,4 +293,6 @@ async def rollback_job(
     try:
         return await service.rollback_job(db, job)
     except InvalidJobStateError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except PurchaseOrderRollbackBlockedError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))

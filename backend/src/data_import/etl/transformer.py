@@ -526,53 +526,45 @@ class Transformer:
                 )
 
             if source_id not in groups:
-                supplier_id = None
-                if row.get("supplier_source_id"):
-                    supplier_id = self.id_map.lookup(
-                        "suppliers", row["supplier_source_id"]
-                    )
-                location_id = None
-                if row.get("location_source_id"):
-                    location_id = self.id_map.lookup(
-                        "business_locations", row["location_source_id"]
-                    )
-                if order_date is None:
-                    # load_purchase_orders() passes this straight through as
-                    # the DELIVERED transition's actual_delivery_date;
-                    # transition_status() falls back to date.today() when
-                    # it's None, which would backdate every PO missing this
-                    # column to "today" and skew FIFO batch ordering for a
-                    # historical import.
-                    self.warnings.append(
-                        ValidationIssue(
-                            entity="purchase_orders",
-                            row=i,
-                            field="order_date",
-                            severity="warning",
-                            message=(
-                                f"No order_date for {source_id!r} — it will be recorded "
-                                "as delivered today instead of its real historical date, "
-                                "which affects FIFO cost-basis ordering."
-                            ),
-                        )
-                    )
                 groups[source_id] = {
                     "source_id": source_id,
-                    "supplier_id": supplier_id,
+                    "supplier_id": None,
                     "supplier_name": row.get("supplier_name") or source_id,
-                    "location_id": location_id,
-                    "currency": (row.get("currency") or "USD").upper(),
-                    "order_date": order_date,
-                    # Order-level, not per-line-item — the real-time PO flow
-                    # only ever captures one FX rate per order too. If left
-                    # unset, transition_status() falls back to a hardcoded
-                    # 1500 NGN/USD rate, which silently misstates landed
-                    # cost/COGS for any historical purchase where the real
-                    # rate differed.
-                    "fx_rate": fx_rate,
+                    "location_id": None,
+                    "currency": None,
+                    "order_date": None,
+                    "fx_rate": None,
+                    "_first_row": i,
                     "line_items": [],
                 }
                 order.append(groups[source_id])
+
+            # Order-level fields — a business can naturally export them on
+            # whichever line-item row happened to carry the value (e.g. only
+            # the first row of the PO has order_date filled in), so every
+            # row for this source_id gets a chance to fill in whatever the
+            # group is still missing, instead of only ever looking at the
+            # row that happened to create the group.
+            group = groups[source_id]
+            if group["supplier_id"] is None and row.get("supplier_source_id"):
+                group["supplier_id"] = self.id_map.lookup(
+                    "suppliers", row["supplier_source_id"]
+                )
+            if group["location_id"] is None and row.get("location_source_id"):
+                group["location_id"] = self.id_map.lookup(
+                    "business_locations", row["location_source_id"]
+                )
+            if group["currency"] is None and row.get("currency"):
+                group["currency"] = row["currency"].upper()
+            if group["order_date"] is None and order_date is not None:
+                group["order_date"] = order_date
+            # Order-level, not per-line-item — the real-time PO flow only
+            # ever captures one FX rate per order too. If left unset,
+            # transition_status() falls back to a hardcoded 1500 NGN/USD
+            # rate, which silently misstates landed cost/COGS for any
+            # historical purchase where the real rate differed.
+            if group["fx_rate"] is None and fx_rate is not None:
+                group["fx_rate"] = fx_rate
 
             groups[source_id]["line_items"].append(
                 {
@@ -583,7 +575,32 @@ class Transformer:
                 }
             )
 
-        return [g for g in order if g["line_items"]]
+        result = [g for g in order if g["line_items"]]
+        for group in result:
+            if group["currency"] is None:
+                group["currency"] = "USD"
+            if group["order_date"] is None:
+                # load_purchase_orders() passes this straight through as the
+                # DELIVERED transition's actual_delivery_date;
+                # transition_status() falls back to date.today() when it's
+                # None, which would backdate every PO missing this column
+                # (on every one of its rows) to "today" and skew FIFO
+                # batch ordering for a historical import.
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="purchase_orders",
+                        row=group["_first_row"],
+                        field="order_date",
+                        severity="warning",
+                        message=(
+                            f"No order_date for {group['source_id']!r} — it will be "
+                            "recorded as delivered today instead of its real historical "
+                            "date, which affects FIFO cost-basis ordering."
+                        ),
+                    )
+                )
+            del group["_first_row"]
+        return result
 
     def detect_ghost_products(
         self, sales_raw: list[dict], known_product_source_ids: set[str]

@@ -14,10 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.customers.models import Customer
 from src.data_import.etl.transformer import IdMap
+from src.data_import.exceptions import PurchaseOrderRollbackBlockedError
 from src.inventory.models import InventoryBatch, InventoryLevel, StockMovement
 from src.locations.models import BusinessLocation
 from src.orders.models import (
     OrderLineItem,
+    OrderPayment,
     OrderStatus,
     OrderStatusHistory,
     PurchaseOrder,
@@ -244,8 +246,40 @@ async def rollback(db: AsyncSession, migration_id: uuid.UUID) -> dict[str, int]:
     touched here — only the StockMovement audit trail for that change is
     deleted. Correctly reversing that case needs delta-based undo, not
     blanket deletion; that's the recompute service's job, not this one.
+
+    Raises PurchaseOrderRollbackBlockedError, before deleting anything, if
+    the business has recorded a real payment (via the normal orders
+    endpoint, after the import) against one of these purchase orders — that
+    payment isn't part of the import and must not be silently destroyed or
+    left dangling against a deleted order.
     """
     deleted_counts: dict[str, int] = {}
+
+    po_ids = (
+        (
+            await db.execute(
+                select(PurchaseOrder.id).where(
+                    PurchaseOrder.migration_id == migration_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if po_ids:
+        blocked_ids = (
+            (
+                await db.execute(
+                    select(OrderPayment.order_id)
+                    .where(OrderPayment.order_id.in_(po_ids))
+                    .distinct()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if blocked_ids:
+            raise PurchaseOrderRollbackBlockedError(migration_id, list(blocked_ids))
 
     # StockMovement/InventoryLevel reference products.id and must go before
     # the reversed LOAD_ORDER loop deletes products, further down.
