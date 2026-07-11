@@ -423,6 +423,7 @@ _TEMPLATE_COLUMNS: dict[str, list[str]] = {
         "unit_cost",
         "currency",
         "order_date",
+        "fx_rate",
     ],
     "sales": [
         "product_source_id",
@@ -464,6 +465,9 @@ def build_readme() -> str:
         "",
         "purchase_orders.csv: unit_cost must be in USD, matching the FX-based landed-cost",
         "calculation used for every purchase order in ModishLog (not the `currency` column,",
-        "which is only stored for display).",
+        "which is only stored for display). Set fx_rate to the actual NGN/USD rate at the",
+        "time of that purchase, or leave it blank to fall back to a fixed rate — for",
+        "historical imports spanning any real length of time, a fixed rate will misstate",
+        "landed cost and profit margin for every purchase made when the real rate differed.",
     ]
     return "\n".join(lines)

@@ -124,6 +124,35 @@ async def load_purchase_orders(
     InventoryBatch/StockMovement rows itself. Returns the number of orders
     created (groups with no resolvable line items are skipped).
     """
+    # adjust_stock() (called inside transition_status()'s DELIVERED branch)
+    # is an UPDATE, not an upsert. Newly-imported products always get a row
+    # (see load()), but a PO line item can also reference a *deduped*
+    # (pre-existing) product — nothing guarantees those already have one
+    # (e.g. seeded via a path that bypassed create_product()). Without this,
+    # one product missing a row aborts the entire import batch, not just
+    # its own order.
+    referenced_product_ids = {
+        li["product_id"] for group in po_groups for li in group["line_items"]
+    }
+    if referenced_product_ids:
+        existing = await db.execute(
+            select(InventoryLevel.product_id).where(
+                InventoryLevel.product_id.in_(referenced_product_ids),
+                InventoryLevel.variant_id.is_(None),
+            )
+        )
+        missing_ids = referenced_product_ids - set(existing.scalars().all())
+        if missing_ids:
+            db.add_all(
+                [
+                    InventoryLevel(
+                        product_id=pid, quantity_on_hand=0, quantity_reserved=0
+                    )
+                    for pid in missing_ids
+                ]
+            )
+            await db.flush()
+
     count = 0
     for group in po_groups:
         if not group["line_items"]:
@@ -133,6 +162,7 @@ async def load_purchase_orders(
             supplier_name=group["supplier_name"],
             supplier_id=group.get("supplier_id"),
             currency=group.get("currency") or "USD",
+            fx_rate_at_creation=group.get("fx_rate"),
             is_purchase_order=False,
             line_items=[
                 OrderLineItemCreate(

@@ -487,6 +487,29 @@ class TestTransformPurchaseOrders:
         assert result == []
         assert any(w.severity == "error" for w in transformer.warnings)
 
+    def test_fx_rate_is_parsed_onto_the_group(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "A",
+                "product_source_id": "P1",
+                "quantity": "10",
+                "unit_cost": "500",
+                "fx_rate": "1620.50",
+            },
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result[0]["fx_rate"] == Decimal("1620.500000")
+
+    def test_missing_fx_rate_is_none_not_a_default(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "10", "unit_cost": "500"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert result[0]["fx_rate"] is None
+
 
 # ---------------------------------------------------------------------------
 # Loader
@@ -596,6 +619,61 @@ class TestLoadPurchaseOrders:
         return r
 
     @pytest.mark.asyncio
+    async def test_creates_zeroed_inventory_level_for_deduped_product_missing_one(self):
+        """A PO line item can reference a *deduped* (pre-existing) product,
+        not one this loader just created — nothing guarantees that product
+        already has an InventoryLevel row (see load()'s own comment). If it
+        doesn't, adjust_stock() (inside transition_status()) raises
+        ProductStockNotFoundError and aborts the whole import batch, not
+        just this one order."""
+        from src.data_import.etl.loader import load_purchase_orders
+
+        mock_order = MagicMock()
+        mock_order.id = uuid.uuid4()
+        mock_order.line_items = [MagicMock()]
+        product_id = uuid.uuid4()
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                self._empty_scalars(),  # InventoryLevel existence check -> none found
+                self._empty_scalars(),  # InventoryBatch tag sweep
+                self._empty_scalars(),  # StockMovement tag sweep
+                self._empty_scalars(),  # OrderStatusHistory tag sweep
+            ]
+        )
+
+        with (
+            patch("src.data_import.etl.loader.create_order", new=AsyncMock(return_value=mock_order)),
+            patch("src.data_import.etl.loader.transition_status", new=AsyncMock(return_value=mock_order)),
+        ):
+            await load_purchase_orders(
+                db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                po_groups=[
+                    {
+                        "source_id": "PO1",
+                        "supplier_name": "Acme",
+                        "line_items": [
+                            {"product_id": product_id, "variant_id": None, "quantity": 10, "unit_cost": Decimal("5")}
+                        ],
+                    }
+                ],
+            )
+
+        inventory_calls = [
+            call.args[0]
+            for call in db.add_all.call_args_list
+            if call.args[0] and isinstance(call.args[0][0], InventoryLevel)
+        ]
+        assert len(inventory_calls) == 1
+        assert inventory_calls[0][0].product_id == product_id
+        assert inventory_calls[0][0].quantity_on_hand == 0
+        # Untagged — this product isn't newly created by this import, so it
+        # must not be deleted on rollback (unlike load()'s InventoryLevel
+        # rows for genuinely new products).
+        assert inventory_calls[0][0].migration_id is None
+
+    @pytest.mark.asyncio
     async def test_creates_order_and_transitions_through_full_delivery_chain(self):
         from src.data_import.etl.loader import load_purchase_orders
 
@@ -609,7 +687,12 @@ class TestLoadPurchaseOrders:
 
         db = _mock_db()
         db.execute = AsyncMock(
-            side_effect=[self._empty_scalars(), self._empty_scalars(), self._empty_scalars()]
+            side_effect=[
+                self._empty_scalars(),  # InventoryLevel existence check (pre-loop)
+                self._empty_scalars(),  # InventoryBatch tag sweep
+                self._empty_scalars(),  # StockMovement tag sweep
+                self._empty_scalars(),  # OrderStatusHistory tag sweep
+            ]
         )
 
         with (
@@ -629,6 +712,7 @@ class TestLoadPurchaseOrders:
                         "location_id": None,
                         "order_date": date(2026, 1, 1),
                         "currency": "USD",
+                        "fx_rate": Decimal("1620.50"),
                         "line_items": [
                             {"product_id": product_id, "variant_id": None, "quantity": 10, "unit_cost": Decimal("5")}
                         ],
@@ -641,6 +725,7 @@ class TestLoadPurchaseOrders:
         order_create_arg = mock_create.await_args.args[1]
         assert order_create_arg.supplier_name == "Acme"
         assert order_create_arg.is_purchase_order is False
+        assert order_create_arg.fx_rate_at_creation == Decimal("1620.50")
         assert len(order_create_arg.line_items) == 1
         assert order_create_arg.line_items[0].product_id == product_id
 
@@ -681,6 +766,7 @@ class TestLoadPurchaseOrders:
         from src.data_import.etl.loader import load_purchase_orders
 
         db = _mock_db()
+        db.execute = AsyncMock(return_value=self._empty_scalars())
         product_id = uuid.uuid4()
 
         with (
@@ -720,6 +806,7 @@ class TestLoadPurchaseOrders:
         product_id = uuid.uuid4()
 
         db = _mock_db()
+        db.execute = AsyncMock(return_value=self._empty_scalars())
         with (
             patch("src.data_import.etl.loader.create_order", new=AsyncMock(return_value=mock_order)),
             patch(

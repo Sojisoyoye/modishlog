@@ -473,6 +473,9 @@ class Transformer:
                 order_date = (
                     normalize_date(row["order_date"]) if row.get("order_date") else None
                 )
+                fx_rate = (
+                    normalize_amount(row["fx_rate"]) if row.get("fx_rate") else None
+                )
             except (KeyError, ValueError, InvalidOperation) as e:
                 self.warnings.append(
                     ValidationIssue(
@@ -527,6 +530,13 @@ class Transformer:
                     "location_id": location_id,
                     "currency": (row.get("currency") or "USD").upper(),
                     "order_date": order_date,
+                    # Order-level, not per-line-item — the real-time PO flow
+                    # only ever captures one FX rate per order too. If left
+                    # unset, transition_status() falls back to a hardcoded
+                    # 1500 NGN/USD rate, which silently misstates landed
+                    # cost/COGS for any historical purchase where the real
+                    # rate differed.
+                    "fx_rate": fx_rate,
                     "line_items": [],
                 }
                 order.append(groups[source_id])
