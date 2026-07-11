@@ -391,6 +391,27 @@ class TestReorderSuggestions:
         assert "variant_id" not in compiled.lower()
 
     @pytest.mark.anyio
+    async def test_query_scopes_products_to_the_calling_business(self):
+        """This function is now called automatically after every import and
+        rollback (see data_import/recompute.py's
+        regenerate_reorder_suggestions_for_business()) — without a
+        business_id filter on Product, every call would generate
+        suggestions for every business's products and stamp them with the
+        caller's business_id, a cross-tenant data leak on every import."""
+        db = _mock_db()
+        join_result = MagicMock()
+        join_result.all.return_value = []
+        db.execute = AsyncMock(return_value=join_result)
+
+        target_business_id = uuid.uuid4()
+        await generate_reorder_suggestions(db, target_business_id)
+
+        executed_stmt = db.execute.call_args[0][0]
+        compiled = str(executed_stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert target_business_id.hex in compiled.replace("-", "")
+        assert "products.business_id" in compiled.lower()
+
+    @pytest.mark.anyio
     async def test_order_timing_recommendations_sums_inventory_across_every_row(self):
         """Same fix as generate_reorder_suggestions above, applied to its
         sibling — _generate_order_timing_recommendations queried every

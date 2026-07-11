@@ -15,8 +15,8 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    column,
     func,
-    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -63,14 +63,14 @@ class InventoryLevel(UUIDMixin, TimestampMixin, Base):
             "uq_inventory_levels_product_no_variant",
             "product_id",
             unique=True,
-            postgresql_where=text("variant_id IS NULL"),
+            postgresql_where=column("variant_id").is_(None),
         ),
         Index(
             "uq_inventory_levels_product_variant",
             "product_id",
             "variant_id",
             unique=True,
-            postgresql_where=text("variant_id IS NOT NULL"),
+            postgresql_where=column("variant_id").is_not(None),
         ),
     )
 

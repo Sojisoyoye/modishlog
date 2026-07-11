@@ -1137,11 +1137,18 @@ async def generate_reorder_suggestions(
     # with only variant-level sales). Sum on-hand across every row per
     # product instead, so exactly one suggestion is produced per product
     # using its true total stock.
+    #
+    # Product.business_id filter is required, not optional — this function
+    # is now called automatically after every import/rollback (see
+    # data_import/recompute.py's regenerate_reorder_suggestions_for_business()),
+    # so without it every call would generate suggestions for every
+    # business's products, not just the caller's, and stamp them with the
+    # caller's business_id — a cross-tenant data leak on every import.
     inventory_subq = inventory_on_hand_by_product_subquery()
     result = await db.execute(
         select(inventory_subq.c.quantity_on_hand, Product)
         .join(Product, Product.id == inventory_subq.c.product_id)
-        .where(Product.is_active.is_(True))
+        .where(Product.is_active.is_(True), Product.business_id == business_id)
     )
     rows = result.all()
 
