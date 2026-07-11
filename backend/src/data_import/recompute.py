@@ -544,18 +544,39 @@ async def recompute_after_import(
         )
         errors.extend(deduct_errors)
     except Exception as e:
+        # An exception here means _deduct_imported_sales_stock() failed
+        # entirely (one of its own top-level queries, not a per-item
+        # backfill/adjust_stock call — those are already isolated and
+        # reported via deduct_errors above) — which pairs, if any, actually
+        # got deducted is unknown. failed_deduction_pairs is still its
+        # initial empty set() at this point; proceeding to FIFO COGS below
+        # with an empty set would make every sale in this job look like its
+        # stock deduction succeeded when none of it is known to have run.
+        # The `else` clause on the try/except below skips FIFO COGS
+        # entirely for this case instead.
         await logger.aexception("recompute_step_failed", step="deduct_sales_stock")
         errors.append({"step": "deduct_sales_stock", "error": str(e)})
-
-    try:
-        errors.extend(
-            await _compute_fifo_cogs_for_imported_sales(
-                db, job_id, failed_deduction_pairs
-            )
+        errors.append(
+            {
+                "step": "fifo_cogs",
+                "error": (
+                    "Skipped — stock deduction failed entirely for this "
+                    "job, so which sales were actually deducted is "
+                    "unknown; fix the underlying issue and re-run "
+                    "recompute."
+                ),
+            }
         )
-    except Exception as e:
-        await logger.aexception("recompute_step_failed", step="fifo_cogs")
-        errors.append({"step": "fifo_cogs", "error": str(e)})
+    else:
+        try:
+            errors.extend(
+                await _compute_fifo_cogs_for_imported_sales(
+                    db, job_id, failed_deduction_pairs
+                )
+            )
+        except Exception as e:
+            await logger.aexception("recompute_step_failed", step="fifo_cogs")
+            errors.append({"step": "fifo_cogs", "error": str(e)})
 
     for step_name, coro in [
         ("opening_price_history", _create_opening_price_history(db, job_id, user_id)),

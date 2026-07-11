@@ -376,6 +376,23 @@ class TestListInventoryEndpoint(_InventoryEndpointBase):
         assert data["total"] == 5
         assert len(data["items"]) == 1
 
+    def test_list_inventory_exposes_variant_id(self):
+        """A product can have more than one InventoryLevel row — the
+        aggregate row plus one per variant (see data_import/recompute.py).
+        Without variant_id in the response, two rows for the same
+        product_id would be indistinguishable duplicates to the caller."""
+        self._override_auth()
+        variant_id = uuid.uuid4()
+        inv = _make_inventory(variant_id=variant_id, quantity_on_hand=5)
+        db = _mock_db_paginated(items=[inv], total=1)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/inventory")
+
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["variant_id"] == str(variant_id)
+
     def test_list_inventory_empty(self):
         """GET /inventory with no data returns empty items list with total=0."""
         self._override_auth()

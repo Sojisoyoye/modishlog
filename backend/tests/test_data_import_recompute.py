@@ -1016,11 +1016,17 @@ class TestRecomputeAfterImport:
 
     @pytest.mark.asyncio
     async def test_one_steps_unexpected_exception_does_not_stop_later_steps(self):
-        """Every step is independently isolated — an unhandled exception in
-        one step (not just a per-item error the step already catches
-        itself) must not prevent the remaining steps from running, since
-        the import itself has already committed and each step operates on
-        an independent slice of derived state."""
+        """Every *independent* step must keep running when an earlier,
+        unrelated one raises unexpectedly (not just a per-item error the
+        step already catches itself) — the import itself has already
+        committed and each of these steps operates on an independent slice
+        of derived state. fifo_cogs is the one exception: it is NOT
+        independent of deduct_sales_stock — when that step fails entirely
+        (not a per-item failure, which returns a set of failed pairs; a
+        raised exception, which leaves failed_deduction_pairs at its empty
+        default), which sales actually had their stock deducted is
+        unknown, so fifo_cogs must be skipped rather than run as if every
+        sale succeeded."""
         from src.data_import.recompute import recompute_after_import
 
         with (
@@ -1050,5 +1056,10 @@ class TestRecomputeAfterImport:
             )
 
         assert any(e["step"] == "deduct_sales_stock" for e in result["errors"])
-        for m in (m2, m3, m4, m5):
+        assert any(
+            e["step"] == "fifo_cogs" and "Skipped" in e["error"]
+            for e in result["errors"]
+        )
+        m2.assert_not_awaited()
+        for m in (m3, m4, m5):
             m.assert_awaited_once()

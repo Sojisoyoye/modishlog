@@ -17,6 +17,11 @@ class InventoryLevelRead(BaseModel):
 
     id: uuid.UUID
     product_id: uuid.UUID
+    # NULL for a product's aggregate row; set for a variant-level row (see
+    # data_import/recompute.py) — without this, list_inventory_levels()
+    # returning more than one row for the same product_id would be
+    # indistinguishable duplicates to an API consumer.
+    variant_id: uuid.UUID | None = None
     quantity_on_hand: int
     quantity_reserved: int
     low_stock_threshold: int

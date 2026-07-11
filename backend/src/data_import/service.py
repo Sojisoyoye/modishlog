@@ -459,42 +459,62 @@ async def _run_recompute(db: AsyncSession, job: MigrationJob) -> None:
     job.recompute_completed_at = datetime.now(timezone.utc)
 
 
+async def _claim_job_status(
+    db: AsyncSession,
+    job: MigrationJob,
+    *,
+    from_status: MigrationJobStatus,
+    to_status: MigrationJobStatus,
+) -> None:
+    """Atomically transitions job.status from_status -> to_status with a
+    conditional UPDATE, rather than a plain `if job.status != from_status`
+    read-then-write check — two concurrent callers would otherwise both
+    read the same status and both proceed, e.g. double-deducting stock or
+    racing a rollback against a still-running recompute. The UPDATE's WHERE
+    clause only matches while status is still from_status; Postgres
+    serializes concurrent UPDATEs to the same row via the row lock, so the
+    loser's WHERE clause finds status already changed and its rowcount is 0.
+
+    Shared by recompute_job() (DONE -> RECOMPUTING) and rollback_job()
+    (DONE -> ROLLED_BACK) — both need the identical claim-or-raise sequence
+    against the same status column.
+
+    Mutates `job.status` to to_status on success; raises InvalidJobStateError
+    (reporting the job's actual current status, re-read since `job.status`
+    is stale the moment the UPDATE doesn't match) on a lost race.
+    """
+    result = await db.execute(
+        update(MigrationJob)
+        .where(MigrationJob.id == job.id, MigrationJob.status == from_status)
+        .values(status=to_status)
+    )
+    if result.rowcount == 0:
+        current = await db.execute(
+            select(MigrationJob.status).where(MigrationJob.id == job.id)
+        )
+        actual_status = current.scalar_one_or_none()
+        raise InvalidJobStateError(
+            job.id,
+            from_status.value,
+            actual_status.value if actual_status else "unknown",
+        )
+    job.status = to_status
+
+
 async def recompute_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
     """Manual re-trigger for a completed import — retries a failed
     recompute, or refreshes derived state (price suggestions, reorder
     suggestions) against data that's changed since the import ran.
 
     Guards against a concurrent re-trigger (e.g. a double-click, or two
-    racing requests) with a conditional UPDATE rather than the plain
-    `if job.status != DONE` read-then-write check alone — two concurrent
-    calls would otherwise both read status=DONE and both run the recompute
-    steps against the same rows, double-deducting stock or double-consuming
-    FIFO batches. The UPDATE's WHERE clause only matches while status is
-    still DONE; Postgres serializes the two UPDATEs via the row lock, so
-    the second request's WHERE clause finds status already flipped to
-    RECOMPUTING and its rowcount is 0.
+    racing requests) — see _claim_job_status()'s docstring.
     """
-    result = await db.execute(
-        update(MigrationJob)
-        .where(
-            MigrationJob.id == job.id, MigrationJob.status == MigrationJobStatus.DONE
-        )
-        .values(status=MigrationJobStatus.RECOMPUTING)
+    await _claim_job_status(
+        db,
+        job,
+        from_status=MigrationJobStatus.DONE,
+        to_status=MigrationJobStatus.RECOMPUTING,
     )
-    if result.rowcount == 0:
-        # `job.status` here is whatever was loaded before this call — since
-        # the UPDATE's WHERE clause didn't match, that's stale by
-        # definition (the row's real status has since changed). Re-read it
-        # so the error actually reflects the job's current state instead of
-        # always claiming "done".
-        current = await db.execute(
-            select(MigrationJob.status).where(MigrationJob.id == job.id)
-        )
-        actual_status = current.scalar_one_or_none()
-        raise InvalidJobStateError(
-            job.id, "done", actual_status.value if actual_status else "unknown"
-        )
-    job.status = MigrationJobStatus.RECOMPUTING
 
     await _run_recompute(db, job)
     job.status = MigrationJobStatus.DONE
@@ -508,36 +528,27 @@ async def recompute_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
 
 
 async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
-    """Guards against a concurrently-running recompute_job() the same way
-    recompute_job() itself guards against a concurrent re-trigger — a
-    conditional UPDATE rather than a plain `if job.status != DONE` check.
-    Since recompute_job() can now hold RECOMPUTING for the full duration of
-    a real recompute run (not just a brief window), a rollback request that
-    only checked-then-wrote could pass its read while a recompute is still
-    mid-flight, then delete/reverse StockMovement rows concurrently with
-    that recompute's own writes to the same rows — a torn rollback that
-    only reverses part of the concurrent recompute. Claiming ROLLED_BACK
-    immediately (rather than only at the end, once the work is done) is
-    intentional: this function is best-effort past this point regardless
-    of any later per-item failure (recorded in recompute_errors, never
-    raised), so committing to ROLLED_BACK up front matches that guarantee
-    and — more importantly — the row lock is what excludes a concurrent
-    recompute_job() from starting on this job at all.
+    """Guards against a concurrently-running recompute_job() — see
+    _claim_job_status()'s docstring. Since recompute_job() can now hold
+    RECOMPUTING for the full duration of a real recompute run (not just a
+    brief window), a rollback request that only checked-then-wrote could
+    pass its read while a recompute is still mid-flight, then delete/
+    reverse StockMovement rows concurrently with that recompute's own
+    writes to the same rows — a torn rollback that only reverses part of
+    the concurrent recompute. Claiming ROLLED_BACK immediately (rather than
+    only at the end, once the work is done) is intentional: this function
+    is best-effort past this point regardless of any later per-item
+    failure (recorded in recompute_errors, never raised), so committing to
+    ROLLED_BACK up front matches that guarantee and — more importantly —
+    the row lock is what excludes a concurrent recompute_job() from
+    starting on this job at all.
     """
-    result = await db.execute(
-        update(MigrationJob)
-        .where(MigrationJob.id == job.id, MigrationJob.status == MigrationJobStatus.DONE)
-        .values(status=MigrationJobStatus.ROLLED_BACK)
+    await _claim_job_status(
+        db,
+        job,
+        from_status=MigrationJobStatus.DONE,
+        to_status=MigrationJobStatus.ROLLED_BACK,
     )
-    if result.rowcount == 0:
-        current = await db.execute(
-            select(MigrationJob.status).where(MigrationJob.id == job.id)
-        )
-        actual_status = current.scalar_one_or_none()
-        raise InvalidJobStateError(
-            job.id, "done", actual_status.value if actual_status else "unknown"
-        )
-    job.status = MigrationJobStatus.ROLLED_BACK
 
     # Compute reversal deltas from the audit trail BEFORE loader_rollback()
     # deletes those StockMovement rows — both the PO-delivery ORDER_RECEIVED
