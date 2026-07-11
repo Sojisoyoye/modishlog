@@ -51,6 +51,23 @@ LOAD_ORDER: list[tuple[str, type]] = [
 ]
 
 
+def _zeroed_inventory_level(
+    product_id: uuid.UUID, migration_id: uuid.UUID | None
+) -> InventoryLevel:
+    """A product-level (variant_id=None) InventoryLevel row starting at zero.
+
+    `migration_id=None` for a product this loader didn't create itself
+    (a deduped/pre-existing product) — tagging it would make rollback
+    incorrectly delete a pre-existing product's inventory row.
+    """
+    return InventoryLevel(
+        product_id=product_id,
+        quantity_on_hand=0,
+        quantity_reserved=0,
+        migration_id=migration_id,
+    )
+
+
 async def load(
     db: AsyncSession,
     migration_id: uuid.UUID,
@@ -96,12 +113,7 @@ async def load(
                 # seed it with — see purchase_orders import for real stock).
                 db.add_all(
                     [
-                        InventoryLevel(
-                            product_id=product.id,
-                            quantity_on_hand=0,
-                            quantity_reserved=0,
-                            migration_id=migration_id,
-                        )
+                        _zeroed_inventory_level(product.id, migration_id)
                         for product in objs
                     ]
                 )
@@ -143,17 +155,10 @@ async def load_purchase_orders(
         )
         missing_ids = referenced_product_ids - set(existing.scalars().all())
         if missing_ids:
-            db.add_all(
-                [
-                    InventoryLevel(
-                        product_id=pid, quantity_on_hand=0, quantity_reserved=0
-                    )
-                    for pid in missing_ids
-                ]
-            )
+            db.add_all([_zeroed_inventory_level(pid, None) for pid in missing_ids])
             await db.flush()
 
-    count = 0
+    order_ids: list[uuid.UUID] = []
     for group in po_groups:
         if not group["line_items"]:
             continue
@@ -196,32 +201,34 @@ async def load_purchase_orders(
             )
             order = await transition_status(db, order.id, transition, user_id)
 
-        # create_order()/transition_status() write InventoryBatch/
-        # StockMovement/OrderStatusHistory rows, none of whose functions
-        # accept a migration_id — tag them afterward by the order/reference
-        # they were just created for.
+        order_ids.append(order.id)
+
+    # create_order()/transition_status() write InventoryBatch/StockMovement/
+    # OrderStatusHistory rows, none of whose functions accept a migration_id
+    # — tag them afterward by the orders/references just created. Batched
+    # into 3 queries total (not 3 per order) now that every order_id is known.
+    if order_ids:
         batches = await db.execute(
-            select(InventoryBatch).where(InventoryBatch.order_id == order.id)
+            select(InventoryBatch).where(InventoryBatch.order_id.in_(order_ids))
         )
         for batch in batches.scalars().all():
             batch.migration_id = migration_id
         movements = await db.execute(
             select(StockMovement).where(
-                StockMovement.reference_id == order.id,
+                StockMovement.reference_id.in_(order_ids),
                 StockMovement.reference_type == "purchase_order",
             )
         )
         for movement in movements.scalars().all():
             movement.migration_id = migration_id
         history_rows = await db.execute(
-            select(OrderStatusHistory).where(OrderStatusHistory.order_id == order.id)
+            select(OrderStatusHistory).where(OrderStatusHistory.order_id.in_(order_ids))
         )
         for history in history_rows.scalars().all():
             history.migration_id = migration_id
         await db.flush()
 
-        count += 1
-    return count
+    return len(order_ids)
 
 
 async def rollback(db: AsyncSession, migration_id: uuid.UUID) -> dict[str, int]:

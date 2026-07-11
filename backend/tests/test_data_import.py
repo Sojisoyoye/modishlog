@@ -195,6 +195,36 @@ class TestValidateEntityRows:
         issues = validate_entity_rows("purchase_orders", rows)
         assert any(i.field == "unit_cost" and i.severity == "error" for i in issues)
 
+    def test_purchase_order_zero_quantity_is_error(self):
+        """OrderLineItemCreate requires quantity > 0 (not just >= 0) — a
+        zero value must be caught here, not surface as a raw pydantic
+        error deep inside load_purchase_orders() at confirm time."""
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "0", "unit_cost": "10"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(
+            i.field == "quantity" and i.severity == "error" and "greater than zero" in i.message
+            for i in issues
+        )
+
+    def test_purchase_order_zero_unit_cost_is_error(self):
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "10", "unit_cost": "0"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(
+            i.field == "unit_cost" and i.severity == "error" and "greater than zero" in i.message
+            for i in issues
+        )
+
+    def test_purchase_order_decimal_and_comma_quantity_is_valid(self):
+        """quantity is validated leniently (parse_flexible_amount, matching
+        transform_purchase_orders()'s own parsing) — "10.0" and "1,000" must
+        not be rejected here."""
+        rows = [
+            {"source_id": "PO1", "product_source_id": "P1", "quantity": "10.0", "unit_cost": "5"},
+            {"source_id": "PO2", "product_source_id": "P1", "quantity": "1,000", "unit_cost": "5"},
+        ]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert not any(i.field == "quantity" for i in issues)
+
     def test_purchase_order_rows_sharing_source_id_are_not_flagged_as_duplicates(self):
         """Multiple rows with the same source_id are one multi-line-item
         order by design (see transform_purchase_orders) — not a duplicate,
@@ -510,6 +540,23 @@ class TestTransformPurchaseOrders:
         result = transformer.transform_purchase_orders(rows)
         assert result[0]["fx_rate"] is None
 
+    def test_decimal_and_comma_quantity_parse_instead_of_being_dropped(self):
+        """validate_entity_rows() accepts "10.0"/"1,000" for quantity (it
+        validates via the same lenient parse_flexible_amount() as every
+        other amount field) — a strict int(row["quantity"]) here would
+        reject what validation just accepted, silently dropping the line
+        item at confirm time on a row the user was told was valid."""
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "10.0", "unit_cost": "5"},
+            {"source_id": "PO2", "supplier_name": "A", "product_source_id": "P1", "quantity": "1,000", "unit_cost": "5"},
+        ]
+        result = transformer.transform_purchase_orders(rows)
+        assert len(result) == 2
+        assert result[0]["line_items"][0]["quantity"] == 10
+        assert result[1]["line_items"][0]["quantity"] == 1000
+        assert not transformer.warnings
+
 
 # ---------------------------------------------------------------------------
 # Loader
@@ -754,6 +801,56 @@ class TestLoadPurchaseOrders:
 
         assert count == 0
         mock_create.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_tag_sweep_queries_are_batched_not_per_order(self):
+        """3 sweep queries total (InventoryBatch/StockMovement/
+        OrderStatusHistory), regardless of how many orders were created —
+        not 3 per order."""
+        from src.data_import.etl.loader import load_purchase_orders
+
+        order_a, order_b = MagicMock(), MagicMock()
+        order_a.id, order_b.id = uuid.uuid4(), uuid.uuid4()
+        order_a.line_items, order_b.line_items = [MagicMock()], [MagicMock()]
+        product_a, product_b = uuid.uuid4(), uuid.uuid4()
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[self._empty_scalars() for _ in range(4)])
+
+        with (
+            patch(
+                "src.data_import.etl.loader.create_order",
+                new=AsyncMock(side_effect=[order_a, order_b]),
+            ),
+            patch(
+                "src.data_import.etl.loader.transition_status",
+                new=AsyncMock(side_effect=[order_a] * 4 + [order_b] * 4),
+            ),
+        ):
+            count = await load_purchase_orders(
+                db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                po_groups=[
+                    {
+                        "source_id": "PO1",
+                        "supplier_name": "A",
+                        "line_items": [
+                            {"product_id": product_a, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
+                        ],
+                    },
+                    {
+                        "source_id": "PO2",
+                        "supplier_name": "B",
+                        "line_items": [
+                            {"product_id": product_b, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
+                        ],
+                    },
+                ],
+            )
+
+        assert count == 2
+        # 1 InventoryLevel existence check + 3 batched sweeps = 4, not
+        # 1 + (3 x 2 orders) = 7.
+        assert db.execute.await_count == 4
 
     @pytest.mark.asyncio
     async def test_create_order_error_propagates_without_being_swallowed(self):

@@ -8,8 +8,9 @@ service layer merges both lists before deciding whether a job can move to
 from src.data_import.etl.extractor import parse_flexible_amount, parse_flexible_date
 from src.data_import.schemas import ValidationIssue
 
-# entity -> (required fields, date fields, non-negative amount fields)
-ENTITY_RULES: dict[str, dict[str, tuple[str, ...]]] = {
+# entity -> rules: required/dates/amounts/positive_amounts are field-name
+# tuples; unique_source_id is a bool (defaults True — see validate_entity_rows).
+ENTITY_RULES: dict[str, dict[str, tuple[str, ...] | bool]] = {
     "product_categories": {"required": ("name",), "dates": (), "amounts": ()},
     "products": {
         "required": ("name",),
@@ -32,12 +33,59 @@ ENTITY_RULES: dict[str, dict[str, tuple[str, ...]]] = {
     "purchase_orders": {
         "required": ("product_source_id", "quantity", "unit_cost"),
         "dates": ("order_date",),
-        "amounts": ("quantity", "unit_cost"),
+        "amounts": (),
+        # Stricter than "amounts" (>= 0) — OrderLineItemCreate requires
+        # quantity/unit_cost to be strictly positive (Field(..., gt=0)); a
+        # zero value here would otherwise pass validation clean and only
+        # blow up as a raw pydantic error inside load_purchase_orders() at
+        # confirm time, rolling back the whole import.
+        "positive_amounts": ("quantity", "unit_cost"),
         # Rows sharing the same source_id are one multi-line-item order by
         # design (see transform_purchase_orders) — not a duplicate.
         "unique_source_id": False,
     },
 }
+
+
+def _check_amount(
+    entity: str, row: int, data: dict, field: str, *, require_positive: bool
+) -> list[ValidationIssue]:
+    value = data.get(field)
+    if not value:
+        return []
+    try:
+        amount = parse_flexible_amount(value)
+    except Exception:
+        return [
+            ValidationIssue(
+                entity=entity,
+                row=row,
+                field=field,
+                severity="error",
+                message=f"Not a numeric amount: {value!r}",
+            )
+        ]
+    if require_positive and amount <= 0:
+        return [
+            ValidationIssue(
+                entity=entity,
+                row=row,
+                field=field,
+                severity="error",
+                message=f"{field} must be greater than zero",
+            )
+        ]
+    if not require_positive and amount < 0:
+        return [
+            ValidationIssue(
+                entity=entity,
+                row=row,
+                field=field,
+                severity="error",
+                message=f"{field} cannot be negative",
+            )
+        ]
+    return []
 
 
 def validate_entity_rows(entity: str, rows: list[dict]) -> list[ValidationIssue]:
@@ -78,31 +126,10 @@ def validate_entity_rows(entity: str, rows: list[dict]) -> list[ValidationIssue]
                     )
 
         for field in rules["amounts"]:
-            value = row.get(field)
-            if value:
-                try:
-                    amount = parse_flexible_amount(value)
-                except Exception:
-                    issues.append(
-                        ValidationIssue(
-                            entity=entity,
-                            row=i,
-                            field=field,
-                            severity="error",
-                            message=f"Not a numeric amount: {value!r}",
-                        )
-                    )
-                else:
-                    if amount < 0:
-                        issues.append(
-                            ValidationIssue(
-                                entity=entity,
-                                row=i,
-                                field=field,
-                                severity="error",
-                                message=f"{field} cannot be negative",
-                            )
-                        )
+            issues.extend(_check_amount(entity, i, row, field, require_positive=False))
+
+        for field in rules.get("positive_amounts", ()):
+            issues.extend(_check_amount(entity, i, row, field, require_positive=True))
 
         source_id = row.get("source_id")
         if source_id and rules.get("unique_source_id", True):

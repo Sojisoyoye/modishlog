@@ -468,7 +468,12 @@ class Transformer:
                 continue
 
             try:
-                quantity = int(row["quantity"])
+                # Parsed the same lenient way validate_entity_rows() checks
+                # it (comma-thousands, decimal strings) — a plain int(row[...])
+                # here would reject values the validator already accepted
+                # (e.g. "1,000" or "10.0"), silently dropping the line item
+                # at confirm time on a row that passed validation clean.
+                quantity = int(normalize_amount(row["quantity"]))
                 unit_cost = normalize_amount(row["unit_cost"])
                 order_date = (
                     normalize_date(row["order_date"]) if row.get("order_date") else None
