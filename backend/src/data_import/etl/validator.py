@@ -29,6 +29,14 @@ ENTITY_RULES: dict[str, dict[str, tuple[str, ...]]] = {
         "dates": ("sale_date",),
         "amounts": ("unit_price",),
     },
+    "purchase_orders": {
+        "required": ("product_source_id", "quantity", "unit_cost"),
+        "dates": ("order_date",),
+        "amounts": ("quantity", "unit_cost"),
+        # Rows sharing the same source_id are one multi-line-item order by
+        # design (see transform_purchase_orders) — not a duplicate.
+        "unique_source_id": False,
+    },
 }
 
 
@@ -45,7 +53,10 @@ def validate_entity_rows(entity: str, rows: list[dict]) -> list[ValidationIssue]
             if not (row.get(field) or "").strip():
                 issues.append(
                     ValidationIssue(
-                        entity=entity, row=i, field=field, severity="error",
+                        entity=entity,
+                        row=i,
+                        field=field,
+                        severity="error",
                         message=f"{field} is required",
                     )
                 )
@@ -58,7 +69,10 @@ def validate_entity_rows(entity: str, rows: list[dict]) -> list[ValidationIssue]
                 except ValueError:
                     issues.append(
                         ValidationIssue(
-                            entity=entity, row=i, field=field, severity="error",
+                            entity=entity,
+                            row=i,
+                            field=field,
+                            severity="error",
                             message=f"Unrecognised date: {value!r}",
                         )
                     )
@@ -71,7 +85,10 @@ def validate_entity_rows(entity: str, rows: list[dict]) -> list[ValidationIssue]
                 except Exception:
                     issues.append(
                         ValidationIssue(
-                            entity=entity, row=i, field=field, severity="error",
+                            entity=entity,
+                            row=i,
+                            field=field,
+                            severity="error",
                             message=f"Not a numeric amount: {value!r}",
                         )
                     )
@@ -79,17 +96,23 @@ def validate_entity_rows(entity: str, rows: list[dict]) -> list[ValidationIssue]
                     if amount < 0:
                         issues.append(
                             ValidationIssue(
-                                entity=entity, row=i, field=field, severity="error",
+                                entity=entity,
+                                row=i,
+                                field=field,
+                                severity="error",
                                 message=f"{field} cannot be negative",
                             )
                         )
 
         source_id = row.get("source_id")
-        if source_id:
+        if source_id and rules.get("unique_source_id", True):
             if source_id in seen_source_ids:
                 issues.append(
                     ValidationIssue(
-                        entity=entity, row=i, field="source_id", severity="error",
+                        entity=entity,
+                        row=i,
+                        field="source_id",
+                        severity="error",
                         message=f"Duplicate source_id {source_id!r} within this upload",
                     )
                 )

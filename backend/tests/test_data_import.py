@@ -172,6 +172,40 @@ class TestValidateEntityRows:
         rows = [{"source_id": "P1", "name": "Widget", "unit_cost": "5", "selling_price": "10"}]
         assert validate_entity_rows("products", rows) == []
 
+    def test_purchase_order_missing_required_field_is_error(self):
+        rows = [{"source_id": "PO1", "product_source_id": "", "quantity": "10", "unit_cost": "5"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(i.field == "product_source_id" and i.severity == "error" for i in issues)
+
+    def test_purchase_order_invalid_date_is_error(self):
+        rows = [
+            {
+                "source_id": "PO1",
+                "product_source_id": "P1",
+                "quantity": "10",
+                "unit_cost": "5",
+                "order_date": "not-a-date",
+            }
+        ]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(i.field == "order_date" and i.severity == "error" for i in issues)
+
+    def test_purchase_order_negative_unit_cost_is_error(self):
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "10", "unit_cost": "-5"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(i.field == "unit_cost" and i.severity == "error" for i in issues)
+
+    def test_purchase_order_rows_sharing_source_id_are_not_flagged_as_duplicates(self):
+        """Multiple rows with the same source_id are one multi-line-item
+        order by design (see transform_purchase_orders) — not a duplicate,
+        unlike every other entity's source_id semantics."""
+        rows = [
+            {"source_id": "PO1", "product_source_id": "P1", "quantity": "10", "unit_cost": "5"},
+            {"source_id": "PO1", "product_source_id": "P2", "quantity": "5", "unit_cost": "10"},
+        ]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert not any("Duplicate source_id" in i.message for i in issues)
+
     def test_unknown_entity_returns_no_issues(self):
         assert validate_entity_rows("not_a_real_entity", [{"anything": "x"}]) == []
 
@@ -635,6 +669,84 @@ class TestLoadPurchaseOrders:
 
         assert count == 0
         mock_create.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_create_order_error_propagates_without_being_swallowed(self):
+        """A product referenced by a line item can be deleted between
+        validation and confirm — create_order() raises OrderLineItemError in
+        that case. The loader must not swallow it (the caller's
+        request-scoped transaction is what rolls the whole import back)."""
+        from src.orders.exceptions import OrderLineItemError
+
+        from src.data_import.etl.loader import load_purchase_orders
+
+        db = _mock_db()
+        product_id = uuid.uuid4()
+
+        with (
+            patch(
+                "src.data_import.etl.loader.create_order",
+                new=AsyncMock(side_effect=OrderLineItemError(None, [product_id])),
+            ),
+            patch("src.data_import.etl.loader.transition_status", new=AsyncMock()) as mock_transition,
+        ):
+            with pytest.raises(OrderLineItemError):
+                await load_purchase_orders(
+                    db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                    po_groups=[
+                        {
+                            "source_id": "PO1",
+                            "supplier_name": "Acme",
+                            "line_items": [
+                                {"product_id": product_id, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
+                            ],
+                        }
+                    ],
+                )
+
+        mock_transition.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_transition_status_error_mid_chain_propagates(self):
+        """A failure partway through the 4-step delivery chain (e.g. a
+        concurrent modification) must not be swallowed either."""
+        from src.orders.exceptions import InvalidStatusTransitionError
+
+        from src.data_import.etl.loader import load_purchase_orders
+
+        mock_order = MagicMock()
+        mock_order.id = uuid.uuid4()
+        mock_order.line_items = [MagicMock()]
+        product_id = uuid.uuid4()
+
+        db = _mock_db()
+        with (
+            patch("src.data_import.etl.loader.create_order", new=AsyncMock(return_value=mock_order)),
+            patch(
+                "src.data_import.etl.loader.transition_status",
+                new=AsyncMock(
+                    side_effect=[
+                        mock_order,
+                        InvalidStatusTransitionError(mock_order.id, "SHIPPING", "CLEARED", []),
+                    ]
+                ),
+            ) as mock_transition,
+        ):
+            with pytest.raises(InvalidStatusTransitionError):
+                await load_purchase_orders(
+                    db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                    po_groups=[
+                        {
+                            "source_id": "PO1",
+                            "supplier_name": "Acme",
+                            "line_items": [
+                                {"product_id": product_id, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
+                            ],
+                        }
+                    ],
+                )
+
+        assert mock_transition.await_count == 2
 
 
 # ---------------------------------------------------------------------------

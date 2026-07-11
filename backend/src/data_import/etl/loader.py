@@ -146,8 +146,13 @@ async def load_purchase_orders(
         )
         order = await create_order(db, order_data, user_id, business_id)
         order.migration_id = migration_id
+        # order_date/location_id aren't in OrderCreate (only order_date is
+        # accepted at all, and create_order() never actually writes it —
+        # see the model directly instead of going through the schema).
         if group.get("order_date"):
             order.order_date = group["order_date"]
+        if group.get("location_id"):
+            order.location_id = group["location_id"]
         for line_item in order.line_items:
             line_item.migration_id = migration_id
         await db.flush()

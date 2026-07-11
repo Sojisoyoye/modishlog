@@ -13,6 +13,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user, get_current_business_id
@@ -36,6 +37,11 @@ from src.data_import.schemas import (
     TestConnectionRequest,
     TestConnectionResponse,
 )
+from src.inventory.exceptions import (
+    InvalidStockAdjustmentError,
+    ProductStockNotFoundError,
+)
+from src.orders.exceptions import InvalidStatusTransitionError, OrderLineItemError
 
 logger = structlog.get_logger()
 
@@ -266,6 +272,21 @@ async def confirm_job(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
+    except (
+        OrderLineItemError,
+        InvalidStatusTransitionError,
+        ProductStockNotFoundError,
+        InvalidStockAdjustmentError,
+    ) as e:
+        # Purchase-order import (load_purchase_orders()) reuses the real
+        # order create/deliver flow, which can raise these if a referenced
+        # product was deleted or a resolved reference otherwise went stale
+        # between validation and confirm. The whole import rolls back (one
+        # request-scoped transaction) — the job reverts to
+        # awaiting_confirmation and the client can retry.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except ValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.delete("/jobs/{job_id}", response_model=MigrationJobRead)

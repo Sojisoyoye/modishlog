@@ -470,6 +470,9 @@ class Transformer:
             try:
                 quantity = int(row["quantity"])
                 unit_cost = normalize_amount(row["unit_cost"])
+                order_date = (
+                    normalize_date(row["order_date"]) if row.get("order_date") else None
+                )
             except (KeyError, ValueError, InvalidOperation) as e:
                 self.warnings.append(
                     ValidationIssue(
@@ -485,6 +488,25 @@ class Transformer:
             if row.get("variant_source_id"):
                 variant_id = self.id_map.lookup(
                     "product_variants", row["variant_source_id"]
+                )
+                # Purchase-order delivery (transition_status(), reused as-is
+                # from the real-time order flow) applies stock/FIFO-batch
+                # changes at the product level only — it has no variant-aware
+                # path today, imported or not. Surface that honestly rather
+                # than silently mis-tracking a specific variant's stock.
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="purchase_orders",
+                        row=i,
+                        field="variant_source_id",
+                        severity="warning",
+                        message=(
+                            f"{quantity} units will be added to "
+                            f"{row.get('product_source_id')!r}'s overall stock, not "
+                            "tracked against this specific variant — purchase-order "
+                            "delivery doesn't support variant-level stock yet."
+                        ),
+                    )
                 )
 
             if source_id not in groups:
@@ -504,9 +526,7 @@ class Transformer:
                     "supplier_name": row.get("supplier_name") or source_id,
                     "location_id": location_id,
                     "currency": (row.get("currency") or "USD").upper(),
-                    "order_date": normalize_date(row["order_date"])
-                    if row.get("order_date")
-                    else None,
+                    "order_date": order_date,
                     "line_items": [],
                 }
                 order.append(groups[source_id])
