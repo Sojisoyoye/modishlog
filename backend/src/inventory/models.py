@@ -10,12 +10,13 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
-    UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -51,9 +52,25 @@ class InventoryLevel(UUIDMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "inventory_levels"
+    # A plain UNIQUE(product_id, variant_id) constraint would NOT prevent
+    # two variant_id=NULL rows for the same product — Postgres treats NULLs
+    # as distinct for uniqueness purposes. Two partial unique indexes
+    # express what's actually wanted: at most one aggregate (variant_id
+    # NULL) row per product, and at most one row per real (product_id,
+    # variant_id) pair.
     __table_args__ = (
-        UniqueConstraint(
-            "product_id", "variant_id", name="uq_inventory_levels_product_variant"
+        Index(
+            "uq_inventory_levels_product_no_variant",
+            "product_id",
+            unique=True,
+            postgresql_where=text("variant_id IS NULL"),
+        ),
+        Index(
+            "uq_inventory_levels_product_variant",
+            "product_id",
+            "variant_id",
+            unique=True,
+            postgresql_where=text("variant_id IS NOT NULL"),
         ),
     )
 

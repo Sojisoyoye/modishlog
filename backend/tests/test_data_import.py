@@ -32,31 +32,10 @@ from src.data_import.models import (
     SourceSystem,
 )
 from src.data_import.service import build_confirmation_snapshot, confirm_job, rollback_job
+from tests.conftest import mock_db as _mock_db
 
 BUSINESS_ID = uuid.uuid4()
 CREATED_BY = uuid.uuid4()
-
-
-class _NestedTransaction:
-    """AsyncSession.begin_nested() is a sync method returning an async
-    context manager (an AsyncSessionTransaction) — a bare AsyncMock's
-    auto-specced children would make `db.begin_nested()` itself return a
-    coroutine instead, breaking `async with db.begin_nested():`."""
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc_info):
-        return False
-
-
-def _mock_db():
-    db = AsyncMock()
-    db.flush = AsyncMock()
-    db.add = MagicMock()
-    db.add_all = MagicMock()
-    db.begin_nested = MagicMock(return_value=_NestedTransaction())
-    return db
 
 
 def _none_result():

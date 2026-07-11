@@ -1,6 +1,7 @@
 """Shared test fixtures for ModishLog backend tests."""
 
 import os
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -20,6 +21,30 @@ os.environ.setdefault("UPLOAD_DIR", "/tmp/modishlog_test_uploads")
 def anyio_backend():
     """Use asyncio as the async backend for tests."""
     return "asyncio"
+
+
+class NestedTransaction:
+    """AsyncSession.begin_nested() is a sync method returning an async
+    context manager (an AsyncSessionTransaction) — a bare AsyncMock's
+    auto-specced children would make `db.begin_nested()` itself return a
+    coroutine instead, breaking `async with db.begin_nested():`."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
+def mock_db():
+    """A mocked AsyncSession good enough for service/module-level unit
+    tests: db.execute is left for the caller to configure per-test."""
+    db = AsyncMock()
+    db.flush = AsyncMock()
+    db.add = MagicMock()
+    db.add_all = MagicMock()
+    db.begin_nested = MagicMock(return_value=NestedTransaction())
+    return db
 
 
 # TODO: Add fixtures as domain modules are implemented:
