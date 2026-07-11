@@ -5,6 +5,11 @@ export default defineConfig({
   testMatch: '**/*.spec.ts', // only files inside e2e/
   testIgnore: '**/business-isolation-verify.spec.ts', // requires live dev DB — run via isolation-verify.config.ts
   fullyParallel: false, // sequential — tests share the same backend DB
+  // fullyParallel only serializes tests *within* a file — without pinning
+  // workers, Playwright still runs multiple spec files concurrently across
+  // workers, racing each other against the same shared test-DB/business
+  // state and doubling CPU/browser load on the CI runner.
+  workers: 1,
   retries: 0,
   timeout: 30_000,
   reporter: [['list']],
