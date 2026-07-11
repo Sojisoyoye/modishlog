@@ -1199,6 +1199,58 @@ class TestConfirmationGate:
         assert result.status == MigrationJobStatus.ROLLED_BACK
 
     @pytest.mark.asyncio
+    async def test_rollback_resolves_alert_for_product_with_only_a_variant_level_row(self):
+        """A product imported with only variant-level sales may have no
+        variant_id=NULL aggregate InventoryLevel row at all — the alert
+        re-evaluation must check every row for the product (matching
+        recompute.py's _recompute_low_stock_alerts, which can trigger an
+        alert off a variant row in the first place), not just the aggregate
+        one, or the alert would stay ACTIVE forever after a rollback that
+        actually restored the variant's stock above threshold."""
+        from src.inventory.models import AlertStatus
+
+        job = _make_job(status=MigrationJobStatus.DONE)
+        deduped_product_id = uuid.uuid4()
+
+        db = _mock_db()
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        movement_deltas = MagicMock()
+        movement_deltas.all.return_value = [(deduped_product_id, uuid.uuid4(), -20)]
+
+        variant_row = MagicMock()
+        variant_row.product_id = deduped_product_id
+        variant_row.quantity_on_hand = 50
+        variant_row.low_stock_threshold = 10
+        variant_level_result = MagicMock()
+        variant_level_result.scalars.return_value.all.return_value = [variant_row]
+
+        db.execute = AsyncMock(
+            side_effect=[
+                movement_deltas,
+                empty_scalars,
+                MagicMock(),  # delete(PriceHistory)
+                variant_level_result,  # LowStockAlert re-evaluation InventoryLevel select
+                MagicMock(),  # UPDATE LowStockAlert -> RESOLVED
+                MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
+            ]
+        )
+
+        with (
+            patch("src.data_import.service.loader_rollback", new=AsyncMock(return_value={})),
+            patch("src.data_import.service.adjust_stock", new=AsyncMock()),
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            await rollback_job(db, job)
+
+        resolve_stmt = db.execute.await_args_list[4].args[0]
+        compiled = resolve_stmt.compile(compile_kwargs={"literal_binds": True})
+        assert "RESOLVED" in str(compiled) or AlertStatus.RESOLVED.value in str(compiled)
+
+    @pytest.mark.asyncio
     async def test_rollback_ignores_product_stock_not_found_for_already_deleted_products(self):
         """A product genuinely *created* by this import is fully deleted by
         loader_rollback() (including its InventoryLevel row) — reversing

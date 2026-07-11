@@ -199,6 +199,46 @@ class TestDeductImportedSalesStock:
         assert created.migration_id is None
 
     @pytest.mark.asyncio
+    async def test_inventory_level_backfill_failure_is_isolated_per_pair(self):
+        """A collision on the new partial unique indexes (e.g. a concurrent
+        recompute retrigger backfilling the same missing pair) must fail
+        only that one pair — recorded as an error and skipped, adjust_stock
+        never called for it — not raise out of an unguarded flush() and
+        poison the whole outer transaction this step (and every later
+        recompute step) runs inside."""
+        from sqlalchemy.exc import IntegrityError
+
+        from src.data_import.recompute import _deduct_imported_sales_stock
+
+        product_id, variant_id = uuid.uuid4(), uuid.uuid4()
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result([]),
+                _rows_result([(product_id, variant_id, 5)]),
+                _rows_result([]),  # no existing InventoryLevel row
+                _scalars_result([product_id]),  # product IS new
+            ]
+        )
+        db.flush = AsyncMock(
+            side_effect=IntegrityError(
+                "INSERT", {}, Exception("duplicate key value violates unique constraint")
+            )
+        )
+
+        with patch(
+            "src.data_import.recompute.adjust_stock", new=AsyncMock()
+        ) as mock_adjust:
+            errors, failed_pairs = await _deduct_imported_sales_stock(
+                db, BUSINESS_ID, JOB_ID, USER_ID
+            )
+
+        assert failed_pairs == {(product_id, variant_id)}
+        assert len(errors) == 1
+        mock_adjust.assert_not_awaited()
+        db.begin_nested.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_missing_product_level_inventory_row_is_also_backfilled(self):
         """load()/load_purchase_orders() aren't guaranteed to have created a
         product-level (variant_id=None) InventoryLevel row for a deduped

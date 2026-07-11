@@ -124,6 +124,9 @@ async def _deduct_imported_sales_stock(
     # backfill for the same reason), and no path at all creates a
     # variant-level row before this one. Create whatever's missing —
     # product-level or variant-level — for every group before deducting.
+    errors: list[dict] = []
+    failed_pairs: set[tuple[uuid.UUID, uuid.UUID | None]] = set()
+
     all_pairs = {(pid, vid) for pid, vid, _ in groups}
     if all_pairs:
         product_ids_in_groups = {pid for pid, _, _ in groups}
@@ -151,24 +154,51 @@ async def _deduct_imported_sales_stock(
                 )
             )
             new_product_ids = set(new_products.scalars().all())
-            for product_id, variant_id in missing:
+
+            async def _create_missing_inventory_level(pid, vid, tag):
                 db.add(
                     InventoryLevel(
-                        product_id=product_id,
-                        variant_id=variant_id,
+                        product_id=pid,
+                        variant_id=vid,
                         quantity_on_hand=0,
                         quantity_reserved=0,
                         low_stock_threshold=10,
-                        migration_id=(
-                            job_id if product_id in new_product_ids else None
-                        ),
+                        migration_id=tag,
                     )
                 )
-            await db.flush()
+                await db.flush()
 
-    errors: list[dict] = []
-    failed_pairs: set[tuple[uuid.UUID, uuid.UUID | None]] = set()
+            # Each row's insert+flush is isolated in its own SAVEPOINT
+            # (matching every other DB write in this module) — a collision
+            # on the new partial unique indexes (e.g. a concurrent
+            # recompute retrigger backfilling the same missing pair) must
+            # only fail that one pair, not poison the whole outer
+            # transaction this step (and every later recompute step) runs
+            # inside.
+            for product_id, variant_id in missing:
+                tag = job_id if product_id in new_product_ids else None
+                _, backfill_error = await run_isolated(
+                    db,
+                    lambda pid=product_id, vid=variant_id, t=tag: (
+                        _create_missing_inventory_level(pid, vid, t)
+                    ),
+                    log_event="recompute_inventory_level_backfill_failed",
+                    error_entry={
+                        "step": "deduct_sales_stock",
+                        "product_id": str(product_id),
+                        "variant_id": str(variant_id) if variant_id else None,
+                    },
+                )
+                if backfill_error:
+                    errors.append(backfill_error)
+                    failed_pairs.add((product_id, variant_id))
+
     for product_id, variant_id, total_quantity in groups:
+        if (product_id, variant_id) in failed_pairs:
+            # Its InventoryLevel row failed to backfill above — adjust_stock()
+            # would just fail again with a less specific error (no row
+            # found) for the same underlying reason; already recorded.
+            continue
         _, error = await run_isolated(
             db,
             lambda pid=product_id, vid=variant_id, qty=total_quantity: adjust_stock(

@@ -612,19 +612,29 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
     # `products.id`-scoped delete above never reaches it. If the reversal
     # loop above restored its stock back above threshold, the alert must be
     # resolved here or it stays ACTIVE forever.
+    #
+    # Checks every InventoryLevel row for the product (aggregate and every
+    # variant), not just the variant_id=NULL one — a product imported with
+    # only variant-level sales may have no aggregate row at all, and
+    # recompute.py's alert-triggering logic (_recompute_low_stock_alerts)
+    # already considers any row, aggregate or variant, when deciding
+    # whether to raise the alert in the first place. A product only counts
+    # as "now OK" once every one of its rows is back above its own
+    # threshold — one still-critical row is enough to keep the alert ACTIVE.
     reversed_product_ids = {pid for pid, _, _ in movement_deltas}
     if reversed_product_ids:
         inventory_result = await db.execute(
             select(InventoryLevel).where(
-                InventoryLevel.product_id.in_(reversed_product_ids),
-                InventoryLevel.variant_id.is_(None),
+                InventoryLevel.product_id.in_(reversed_product_ids)
             )
         )
-        now_ok_product_ids = {
-            inv.product_id
-            for inv in inventory_result.scalars().all()
-            if inv.quantity_on_hand > inv.low_stock_threshold
-        }
+        still_low_product_ids: set[uuid.UUID] = set()
+        seen_product_ids: set[uuid.UUID] = set()
+        for inv in inventory_result.scalars().all():
+            seen_product_ids.add(inv.product_id)
+            if inv.quantity_on_hand <= inv.low_stock_threshold:
+                still_low_product_ids.add(inv.product_id)
+        now_ok_product_ids = seen_product_ids - still_low_product_ids
         if now_ok_product_ids:
             await db.execute(
                 update(LowStockAlert)
