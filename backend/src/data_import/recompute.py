@@ -312,7 +312,13 @@ async def _compute_fifo_cogs_for_imported_sales(
                 }
             )
         sale.fifo_cogs = cogs
-        sale.fifo_gross_profit = sale.total_amount - cogs
+        # Left unset (None) rather than total_amount - cogs when understated
+        # — a P&L report reading sale.fifo_gross_profit directly (not the
+        # job's recompute_errors) would otherwise see a precise-looking but
+        # silently overstated figure, with no indication in the report
+        # itself that it's unreliable. fifo_cogs is still recorded (partial
+        # COGS is still useful), just not the derived profit built on it.
+        sale.fifo_gross_profit = None if understated else sale.total_amount - cogs
     return errors
 
 

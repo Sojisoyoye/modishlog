@@ -487,9 +487,11 @@ class TestComputeFifoCogsForImportedSales:
         """fifo_deduct() only logs a warning (never raises) when batches
         run short, returning whatever partial COGS it could match — with
         no signal distinguishing that from a fully-matched result. The
-        caller must surface the shortfall itself so understated COGS/
-        overstated gross-profit isn't silently mistaken for a clean
-        result."""
+        caller must surface the shortfall itself so understated COGS isn't
+        silently mistaken for a clean result, and fifo_gross_profit (which
+        a P&L report may read directly, without ever seeing
+        recompute_errors) must not be left holding a precise-looking but
+        silently overstated value derived from that understated COGS."""
         from src.data_import.recompute import _compute_fifo_cogs_for_imported_sales
 
         sale = MagicMock()
@@ -513,6 +515,9 @@ class TestComputeFifoCogsForImportedSales:
         assert "4" in errors[0]["error"] and "10" in errors[0]["error"]
         # Still records the partial result — some COGS is better than none.
         assert sale.fifo_cogs == Decimal("40")
+        # But gross_profit built on that understated COGS is left unset
+        # rather than silently overstated.
+        assert sale.fifo_gross_profit is None
 
     @pytest.mark.asyncio
     async def test_fifo_deduct_is_wrapped_in_a_per_item_savepoint(self):
