@@ -27,6 +27,10 @@ class MigrationJobRead(BaseModel):
     validation_warnings: list
     created_at: datetime
     completed_at: datetime | None
+    recompute_status: str | None = None
+    recompute_started_at: datetime | None = None
+    recompute_completed_at: datetime | None = None
+    recompute_errors: list = []
 
 
 class MigrationJobListResponse(BaseModel):

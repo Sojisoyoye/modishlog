@@ -60,6 +60,8 @@ def _populate_defaults(obj) -> None:
         obj.validation_errors = []
     if getattr(obj, "validation_warnings", None) is None:
         obj.validation_warnings = []
+    if getattr(obj, "recompute_errors", None) is None:
+        obj.recompute_errors = []
     if getattr(obj, "row_counts", None) is None:
         obj.row_counts = {}
 
