@@ -705,6 +705,10 @@ class TestLoader:
         assert inventory_rows[0].variant_id is None
         assert inventory_rows[0].quantity_on_hand == 0
         assert inventory_rows[0].migration_id == migration_id
+        # Matches initialize_inventory()'s own explicit default — passed
+        # explicitly here too, not left to the column default, so the two
+        # construction sites can't silently drift apart.
+        assert inventory_rows[0].low_stock_threshold == 10
 
     @pytest.mark.asyncio
     async def test_load_skips_unset_entities(self):
@@ -740,17 +744,15 @@ class TestLoader:
 
         db = _mock_db()
         po_id = uuid.uuid4()
-        po_ids_result = MagicMock()
-        po_ids_result.scalars.return_value.all.return_value = [po_id]
         blocked_result = MagicMock()
         blocked_result.scalars.return_value.all.return_value = [po_id]
-        db.execute = AsyncMock(side_effect=[po_ids_result, blocked_result])
+        db.execute = AsyncMock(return_value=blocked_result)
 
         with pytest.raises(PurchaseOrderRollbackBlockedError):
             await loader_rollback(db, uuid.uuid4())
 
         # Refused before any delete statement was issued.
-        assert db.execute.await_count == 2
+        assert db.execute.await_count == 1
 
 
 class TestLoadPurchaseOrders:

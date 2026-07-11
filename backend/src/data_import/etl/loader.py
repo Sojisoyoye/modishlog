@@ -61,11 +61,17 @@ def _zeroed_inventory_level(
     `migration_id=None` for a product this loader didn't create itself
     (a deduped/pre-existing product) — tagging it would make rollback
     incorrectly delete a pre-existing product's inventory row.
+
+    low_stock_threshold is passed explicitly (matching
+    src.inventory.service.initialize_inventory()'s own default) rather than
+    left to InventoryLevel's column default, so the two construction sites
+    can't silently drift apart if either one's default ever changes.
     """
     return InventoryLevel(
         product_id=product_id,
         quantity_on_hand=0,
         quantity_reserved=0,
+        low_stock_threshold=10,
         migration_id=migration_id,
     )
 
@@ -255,31 +261,25 @@ async def rollback(db: AsyncSession, migration_id: uuid.UUID) -> dict[str, int]:
     """
     deleted_counts: dict[str, int] = {}
 
-    po_ids = (
+    blocked_ids = (
         (
             await db.execute(
-                select(PurchaseOrder.id).where(
-                    PurchaseOrder.migration_id == migration_id
+                select(OrderPayment.order_id)
+                .where(
+                    OrderPayment.order_id.in_(
+                        select(PurchaseOrder.id).where(
+                            PurchaseOrder.migration_id == migration_id
+                        )
+                    )
                 )
+                .distinct()
             )
         )
         .scalars()
         .all()
     )
-    if po_ids:
-        blocked_ids = (
-            (
-                await db.execute(
-                    select(OrderPayment.order_id)
-                    .where(OrderPayment.order_id.in_(po_ids))
-                    .distinct()
-                )
-            )
-            .scalars()
-            .all()
-        )
-        if blocked_ids:
-            raise PurchaseOrderRollbackBlockedError(migration_id, list(blocked_ids))
+    if blocked_ids:
+        raise PurchaseOrderRollbackBlockedError(migration_id, list(blocked_ids))
 
     # StockMovement/InventoryLevel reference products.id and must go before
     # the reversed LOAD_ORDER loop deletes products, further down.
