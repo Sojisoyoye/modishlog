@@ -62,6 +62,12 @@ def _scalar_one_or_none_result(value):
     return r
 
 
+def _scalar_result(value):
+    r = MagicMock()
+    r.scalar.return_value = value
+    return r
+
+
 # ---------------------------------------------------------------------------
 # _deduct_imported_sales_stock
 # ---------------------------------------------------------------------------
@@ -76,7 +82,7 @@ class TestDeductImportedSalesStock:
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[
-                _scalar_one_or_none_result(None),  # not already applied
+                _rows_result([]),  # no groups already applied
                 _rows_result([(product_id, None, 15)]),  # aggregate group query
                 MagicMock(),  # migration_id tag sweep on the new StockMovement
             ]
@@ -141,9 +147,10 @@ class TestDeductImportedSalesStock:
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[
-                _scalar_one_or_none_result(None),  # not already applied
+                _rows_result([]),  # no groups already applied
                 _rows_result([(product_id, variant_id, 5)]),
                 _rows_result([]),  # no existing variant-level InventoryLevel rows
+                _scalars_result([product_id]),  # product IS new (migration_id==job_id)
                 MagicMock(),  # migration_id tag sweep on the new StockMovement
             ]
         )
@@ -161,8 +168,39 @@ class TestDeductImportedSalesStock:
         assert created.product_id == product_id
         assert created.variant_id == variant_id
         assert created.quantity_on_hand == 0
+        # The product is new (migration_id == job_id) — the new
+        # variant-level row must be tagged too, or rollback's generic
+        # migration_id-scoped delete would orphan it and later fail
+        # deleting the product with an FK violation.
+        assert created.migration_id == JOB_ID
         mock_adjust.assert_awaited_once()
         assert mock_adjust.call_args.kwargs["variant_id"] == variant_id
+
+    @pytest.mark.asyncio
+    async def test_missing_variant_row_for_a_deduped_product_is_left_untagged(self):
+        """Mirrors etl/loader.py's _zeroed_inventory_level() precedent —
+        tagging a deduped (pre-existing) product's new row with this
+        migration_id would make rollback incorrectly delete a row for a
+        product it didn't create."""
+        from src.data_import.recompute import _deduct_imported_sales_stock
+
+        product_id, variant_id = uuid.uuid4(), uuid.uuid4()
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result([]),
+                _rows_result([(product_id, variant_id, 5)]),
+                _rows_result([]),
+                _scalars_result([]),  # product is NOT new — deduped
+                MagicMock(),
+            ]
+        )
+
+        with patch("src.data_import.recompute.adjust_stock", new=AsyncMock()):
+            await _deduct_imported_sales_stock(db, BUSINESS_ID, JOB_ID, USER_ID)
+
+        created = db.add.call_args[0][0]
+        assert created.migration_id is None
 
     @pytest.mark.asyncio
     async def test_one_groups_negative_stock_error_does_not_stop_the_others(self):
@@ -176,7 +214,7 @@ class TestDeductImportedSalesStock:
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[
-                _scalar_one_or_none_result(None),  # not already applied
+                _rows_result([]),  # no groups already applied
                 _rows_result([(product_a, None, 100), (product_b, None, 5)]),
                 MagicMock(),  # migration_id tag sweep (product_b succeeded)
             ]
@@ -207,7 +245,7 @@ class TestDeductImportedSalesStock:
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[
-                _scalar_one_or_none_result(None),  # not already applied
+                _rows_result([]),  # no groups already applied
                 _rows_result([(product_id, None, 5)]),
             ]
         )
@@ -226,16 +264,24 @@ class TestDeductImportedSalesStock:
         assert db.execute.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_already_applied_deduction_is_skipped_not_repeated(self):
-        """A second call (via POST /jobs/{id}/recompute) must not deduct
-        the same imported sales' stock again — this step's own tag sweep
-        (reference_id=job_id, reference_type='data_import_recompute') is
-        exactly the marker that lets it detect it already ran."""
+    async def test_already_applied_group_is_skipped_but_others_still_run(self):
+        """A second call (via POST /jobs/{id}/recompute) must not deduct an
+        already-tagged (product, variant) group's stock again — but a
+        step-level 'any tag exists -> skip everything' check would
+        permanently strand any OTHER group that failed (or was never
+        reached) on the first attempt. Only the specific already-applied
+        group is skipped; the rest of the groups still run normally."""
         from src.data_import.recompute import _deduct_imported_sales_stock
 
+        done_product, pending_product = uuid.uuid4(), uuid.uuid4()
         db = _mock_db()
-        already_tagged = _scalar_one_or_none_result(uuid.uuid4())
-        db.execute = AsyncMock(return_value=already_tagged)
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result([(done_product, None)]),  # already-applied pairs
+                _rows_result([(done_product, None, 5), (pending_product, None, 3)]),
+                MagicMock(),  # tag sweep for the newly-succeeded group
+            ]
+        )
 
         with patch(
             "src.data_import.recompute.adjust_stock", new=AsyncMock()
@@ -245,9 +291,8 @@ class TestDeductImportedSalesStock:
             )
 
         assert errors == []
-        mock_adjust.assert_not_awaited()
-        # Only the already-applied check — never reaches the aggregate query.
-        assert db.execute.await_count == 1
+        mock_adjust.assert_awaited_once()
+        assert mock_adjust.call_args.kwargs["product_id"] == pending_product
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +312,7 @@ class TestComputeFifoCogsForImportedSales:
         sale.total_amount = Decimal("300")
 
         db = _mock_db()
-        db.execute = AsyncMock(return_value=_scalars_result([sale]))
+        db.execute = AsyncMock(side_effect=[_scalars_result([sale]), _scalar_result(3)])
 
         with patch(
             "src.data_import.recompute.fifo_deduct",
@@ -290,7 +335,13 @@ class TestComputeFifoCogsForImportedSales:
         sale_a.total_amount, sale_b.total_amount = Decimal("10"), Decimal("20")
 
         db = _mock_db()
-        db.execute = AsyncMock(return_value=_scalars_result([sale_a, sale_b]))
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalars_result([sale_a, sale_b]),
+                _scalar_result(1),
+                _scalar_result(2),
+            ]
+        )
 
         with patch(
             "src.data_import.recompute.fifo_deduct",
@@ -320,6 +371,40 @@ class TestComputeFifoCogsForImportedSales:
             )
         )
         assert "fifo_cogs IS NULL" in compiled_where
+
+    @pytest.mark.asyncio
+    async def test_insufficient_batches_reported_as_an_error_not_silently_understated(
+        self,
+    ):
+        """fifo_deduct() only logs a warning (never raises) when batches
+        run short, returning whatever partial COGS it could match — with
+        no signal distinguishing that from a fully-matched result. The
+        caller must surface the shortfall itself so understated COGS/
+        overstated gross-profit isn't silently mistaken for a clean
+        result."""
+        from src.data_import.recompute import _compute_fifo_cogs_for_imported_sales
+
+        sale = MagicMock()
+        sale.id = uuid.uuid4()
+        sale.product_id = uuid.uuid4()
+        sale.quantity = 10
+        sale.total_amount = Decimal("1000")
+
+        db = _mock_db()
+        # Only 4 units of matching batch remain for a 10-unit sale.
+        db.execute = AsyncMock(side_effect=[_scalars_result([sale]), _scalar_result(4)])
+
+        with patch(
+            "src.data_import.recompute.fifo_deduct",
+            new=AsyncMock(return_value=Decimal("40")),
+        ):
+            errors = await _compute_fifo_cogs_for_imported_sales(db, JOB_ID)
+
+        assert len(errors) == 1
+        assert errors[0]["sale_id"] == str(sale.id)
+        assert "4" in errors[0]["error"] and "10" in errors[0]["error"]
+        # Still records the partial result — some COGS is better than none.
+        assert sale.fifo_cogs == Decimal("40")
 
 
 # ---------------------------------------------------------------------------

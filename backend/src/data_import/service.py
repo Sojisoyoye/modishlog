@@ -15,8 +15,7 @@ from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.ai_engine.models import ReorderStatus, ReorderSuggestion
-from src.ai_engine.service import generate_reorder_suggestions
+from src.ai_engine.models import ReorderSuggestion
 from src.core.config import settings
 from src.data_import.etl.adapters.registry import API_ADAPTERS, CSV_ADAPTERS
 from src.data_import.etl.extractor import CSVExtractor
@@ -40,7 +39,10 @@ from src.data_import.models import (
     MigrationJobStatus,
     SourceSystem,
 )
-from src.data_import.recompute import recompute_after_import
+from src.data_import.recompute import (
+    recompute_after_import,
+    regenerate_reorder_suggestions_for_business,
+)
 from src.data_import.schemas import (
     ConfirmationSnapshot,
     SnapshotEntity,
@@ -508,6 +510,7 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
     # isn't migration_id-tagged, so it survived the generic delete above
     # with its quantity still reflecting this import's PO deliveries and
     # sales deductions.
+    skipped_reversals: list[dict] = []
     for product_id, variant_id, net_delta in movement_deltas:
         reversal = -int(net_delta)
         if reversal == 0:
@@ -533,6 +536,7 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
                 ),
                 reason="Migration rollback — reversing imported stock movement",
                 user_id=job.created_by,
+                business_id=job.business_id,
                 variant_id=variant_id,
             )
         except ProductStockNotFoundError:
@@ -544,29 +548,37 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
             # against a deduped product, or this delta was already
             # reversed) — the reversal would go negative. Best-effort:
             # skip it rather than leave the rollback unusable and the job
-            # stuck never reaching ROLLED_BACK.
+            # stuck never reaching ROLLED_BACK — but surface it via the
+            # API (recompute_errors is generic enough to double as this;
+            # a silent server-side-only log would leave the trader
+            # believing the import was fully undone when this product's
+            # on-hand quantity is still inflated by it).
             await logger.awarning(
                 "rollback_stock_reversal_skipped",
                 job_id=str(job.id),
                 product_id=str(product_id),
             )
+            skipped_reversals.append(
+                {
+                    "step": "rollback_stock_reversal",
+                    "product_id": str(product_id),
+                    "error": (
+                        "Could not reverse this product's stock — it would "
+                        "go negative (stock likely moved since the import). "
+                        "Its on-hand quantity may still be inflated."
+                    ),
+                }
+            )
 
-    # Suggestions reference stock/prices that just changed, and aren't
-    # migration_id-tagged, so "only what this import caused" isn't
-    # identifiable after the fact — regenerate rather than surgically undo.
-    await db.execute(
-        delete(ReorderSuggestion).where(
-            ReorderSuggestion.business_id == job.business_id,
-            ReorderSuggestion.status == ReorderStatus.PENDING,
-        )
+    reorder_error = await regenerate_reorder_suggestions_for_business(
+        db, job.business_id, log_event="rollback_reorder_regeneration_failed"
     )
-    try:
-        await generate_reorder_suggestions(db, job.business_id)
-    except Exception as e:
-        await logger.awarning(
-            "rollback_reorder_regeneration_failed", job_id=str(job.id), error=str(e)
+    if reorder_error:
+        skipped_reversals.append(
+            {"step": "reorder_suggestions", "error": reorder_error}
         )
 
+    job.recompute_errors = skipped_reversals
     job.status = MigrationJobStatus.ROLLED_BACK
     await db.flush()
     logger.info(

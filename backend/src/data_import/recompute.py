@@ -29,6 +29,7 @@ from src.ai_engine.models import ReorderStatus, ReorderSuggestion
 from src.ai_engine.service import generate_reorder_suggestions
 from src.inventory.models import (
     AlertStatus,
+    InventoryBatch,
     InventoryLevel,
     LowStockAlert,
     MovementType,
@@ -53,29 +54,26 @@ async def _deduct_imported_sales_stock(
     group — not once per sale, matching the task's own performance guidance
     (a single aggregate query, not a row-by-row replay).
 
-    Idempotent: if this job's deduction already ran (marked by the tag
-    sweep at the end of a prior run), skip entirely rather than deduct the
-    same imported sales' stock again — recompute_after_import() can be
-    re-triggered manually (POST /jobs/{id}/recompute) after already
-    succeeding once.
+    Idempotent per group: a re-trigger (POST /jobs/{id}/recompute) skips
+    only the (product, variant) groups already tagged by a prior run's tag
+    sweep, and still retries whatever group failed or was never reached
+    last time — a step-level "any tag exists -> skip everything" check
+    would permanently strand any group that failed on the first attempt.
     """
     already_applied = await db.execute(
-        select(StockMovement.id)
-        .where(
+        select(StockMovement.product_id, StockMovement.variant_id).where(
             StockMovement.reference_id == job_id,
             StockMovement.reference_type == "data_import_recompute",
         )
-        .limit(1)
     )
-    if already_applied.scalar_one_or_none() is not None:
-        return []
+    already_applied_pairs = set(already_applied.all())
 
     result = await db.execute(
         select(Sale.product_id, Sale.variant_id, func.sum(Sale.quantity))
         .where(Sale.migration_id == job_id)
         .group_by(Sale.product_id, Sale.variant_id)
     )
-    groups = result.all()
+    groups = [g for g in result.all() if (g[0], g[1]) not in already_applied_pairs]
     if not groups:
         return []
 
@@ -96,17 +94,36 @@ async def _deduct_imported_sales_stock(
         )
         existing_pairs = set(existing.all())
         missing = variant_pairs - existing_pairs
-        for product_id, variant_id in missing:
-            db.add(
-                InventoryLevel(
-                    product_id=product_id,
-                    variant_id=variant_id,
-                    quantity_on_hand=0,
-                    quantity_reserved=0,
-                    low_stock_threshold=10,
+        if missing:
+            # Tag the new row with migration_id only if the *product* is
+            # also new (migration_id == job_id) — mirrors
+            # etl/loader.py's _zeroed_inventory_level() precedent: tagging
+            # a deduped (pre-existing) product's row would make rollback
+            # incorrectly delete it. A row left untagged here for a new
+            # product would instead orphan it from rollback's generic
+            # migration_id-scoped delete, and then loader_rollback()'s
+            # `DELETE FROM products` would hit an FK violation from this
+            # surviving InventoryLevel row still referencing it.
+            missing_product_ids = {pid for pid, _ in missing}
+            new_products = await db.execute(
+                select(Product.id).where(
+                    Product.id.in_(missing_product_ids), Product.migration_id == job_id
                 )
             )
-        if missing:
+            new_product_ids = set(new_products.scalars().all())
+            for product_id, variant_id in missing:
+                db.add(
+                    InventoryLevel(
+                        product_id=product_id,
+                        variant_id=variant_id,
+                        quantity_on_hand=0,
+                        quantity_reserved=0,
+                        low_stock_threshold=10,
+                        migration_id=(
+                            job_id if product_id in new_product_ids else None
+                        ),
+                    )
+                )
             await db.flush()
 
     errors: list[dict] = []
@@ -180,6 +197,33 @@ async def _compute_fifo_cogs_for_imported_sales(
 
     errors: list[dict] = []
     for sale in sales:
+        # fifo_deduct() only *logs* a warning when batches run short — it
+        # still returns whatever partial COGS it could match, with no way
+        # for the caller to tell "fully matched" from "understated" from
+        # the return value alone. Check first so an understated COGS/
+        # overstated gross-profit figure is visible in job.recompute_errors
+        # instead of silently looking like a normal result.
+        available = await db.execute(
+            select(func.sum(InventoryBatch.quantity_remaining)).where(
+                InventoryBatch.product_id == sale.product_id,
+                InventoryBatch.quantity_remaining > 0,
+            )
+        )
+        available_units = available.scalar() or 0
+        if available_units < sale.quantity:
+            errors.append(
+                {
+                    "step": "fifo_cogs",
+                    "sale_id": str(sale.id),
+                    "error": (
+                        f"Only {available_units} of {sale.quantity} units have "
+                        "matching purchase-order batches — fifo_cogs/"
+                        "fifo_gross_profit for this sale is understated/"
+                        "overstated."
+                    ),
+                }
+            )
+
         try:
             cogs = await fifo_deduct(db, sale.product_id, sale.quantity)
         except Exception as e:
@@ -269,16 +313,17 @@ async def _recompute_low_stock_alerts(db: AsyncSession, job_id: uuid.UUID) -> No
         await db.flush()
 
 
-async def _recompute_ai_signals(
-    db: AsyncSession, business_id: uuid.UUID, job_id: uuid.UUID
-) -> list[dict]:
-    """Regenerate reorder suggestions for the whole business (they aren't
-    migration_id-tagged, so a full regenerate — not a scoped one — is the
-    only way to keep them consistent with the now-current stock levels) and
-    price suggestions for the products this import actually created.
+async def regenerate_reorder_suggestions_for_business(
+    db: AsyncSession, business_id: uuid.UUID, *, log_event: str
+) -> str | None:
+    """Clear PENDING reorder suggestions and regenerate them against
+    current stock levels. Shared by recompute_after_import() (after an
+    import changes stock) and rollback_job() (after a rollback changes it
+    back) — suggestions aren't migration_id-tagged, so "only what this
+    import/rollback caused" isn't identifiable after the fact; a full
+    regenerate is the only way to keep them consistent. Returns an error
+    string (not raised) if regeneration fails, or None on success.
     """
-    errors: list[dict] = []
-
     await db.execute(
         delete(ReorderSuggestion).where(
             ReorderSuggestion.business_id == business_id,
@@ -288,8 +333,24 @@ async def _recompute_ai_signals(
     try:
         await generate_reorder_suggestions(db, business_id)
     except Exception as e:
-        await logger.awarning("recompute_reorder_suggestions_failed", error=str(e))
-        errors.append({"step": "reorder_suggestions", "error": str(e)})
+        await logger.awarning(log_event, error=str(e))
+        return str(e)
+    return None
+
+
+async def _recompute_ai_signals(
+    db: AsyncSession, business_id: uuid.UUID, job_id: uuid.UUID
+) -> list[dict]:
+    """Regenerates reorder suggestions for the whole business, and price
+    suggestions for the products this import actually created.
+    """
+    errors: list[dict] = []
+
+    reorder_error = await regenerate_reorder_suggestions_for_business(
+        db, business_id, log_event="recompute_reorder_suggestions_failed"
+    )
+    if reorder_error:
+        errors.append({"step": "reorder_suggestions", "error": reorder_error})
 
     result = await db.execute(select(Product.id).where(Product.migration_id == job_id))
     product_ids = result.scalars().all()

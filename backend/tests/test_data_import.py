@@ -1193,7 +1193,7 @@ class TestConfirmationGate:
             ) as mock_loader_rollback,
             patch("src.data_import.service.adjust_stock", new=AsyncMock()) as mock_adjust,
             patch(
-                "src.data_import.service.generate_reorder_suggestions",
+                "src.data_import.recompute.generate_reorder_suggestions",
                 new=AsyncMock(return_value=[]),
             ) as mock_regen,
         ):
@@ -1249,7 +1249,7 @@ class TestConfirmationGate:
                 new=AsyncMock(side_effect=ProductStockNotFoundError(new_product_id)),
             ),
             patch(
-                "src.data_import.service.generate_reorder_suggestions",
+                "src.data_import.recompute.generate_reorder_suggestions",
                 new=AsyncMock(return_value=[]),
             ),
         ):
@@ -1294,13 +1294,18 @@ class TestConfirmationGate:
                 ),
             ),
             patch(
-                "src.data_import.service.generate_reorder_suggestions",
+                "src.data_import.recompute.generate_reorder_suggestions",
                 new=AsyncMock(return_value=[]),
             ),
         ):
             result = await rollback_job(db, job)
 
         assert result.status == MigrationJobStatus.ROLLED_BACK
+        # Must not just log server-side — the trader needs to know this
+        # product's stock is still inflated, not believe the rollback
+        # fully undid the import.
+        assert len(result.recompute_errors) == 1
+        assert result.recompute_errors[0]["product_id"] == str(deduped_product_id)
 
     @pytest.mark.asyncio
     async def test_recompute_job_requires_done_status(self):
