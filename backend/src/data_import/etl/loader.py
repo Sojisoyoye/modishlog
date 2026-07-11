@@ -174,7 +174,9 @@ async def load_purchase_orders(
         order_data = OrderCreate(
             supplier_name=group["supplier_name"],
             supplier_id=group.get("supplier_id"),
-            currency=group.get("currency") or "USD",
+            # transform_purchase_orders() already backfills a "USD" default
+            # for every group it returns — no fallback needed here.
+            currency=group["currency"],
             fx_rate_at_creation=group.get("fx_rate"),
             is_purchase_order=False,
             line_items=[

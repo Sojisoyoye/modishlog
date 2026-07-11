@@ -38,8 +38,15 @@ ENTITY_RULES: dict[str, dict[str, tuple[str, ...] | bool]] = {
         # quantity/unit_cost to be strictly positive (Field(..., gt=0)); a
         # zero value here would otherwise pass validation clean and only
         # blow up as a raw pydantic error inside load_purchase_orders() at
-        # confirm time, rolling back the whole import.
-        "positive_amounts": ("quantity", "unit_cost"),
+        # confirm time, rolling back the whole import. fx_rate is optional
+        # (not in "required") but, like quantity/unit_cost, must still be a
+        # genuine positive amount when present — transform_purchase_orders()
+        # parses it inside the same try/except as quantity/unit_cost/
+        # order_date, so an unvalidated garbage value (not just a missing
+        # one) would silently drop the entire otherwise-valid line item at
+        # confirm time as a generic "could not parse row" error, with
+        # nothing pointing at fx_rate as the actual cause.
+        "positive_amounts": ("quantity", "unit_cost", "fx_rate"),
         # transform_purchase_orders() does int(normalize_amount(...)) on
         # quantity — a fractional value (e.g. "10.7") would silently lose
         # its remainder at confirm time with no trace of the discrepancy.

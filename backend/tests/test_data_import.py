@@ -214,6 +214,22 @@ class TestValidateEntityRows:
             for i in issues
         )
 
+    def test_purchase_order_malformed_fx_rate_is_error(self):
+        """fx_rate shares transform_purchase_orders()'s single try/except
+        with quantity/unit_cost/order_date — an unvalidated garbage value
+        would silently drop the entire otherwise-valid line item at confirm
+        time as a generic 'could not parse row' error. Must be caught here
+        instead, while the row can still be corrected."""
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "10", "unit_cost": "5", "fx_rate": "N/A"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(i.field == "fx_rate" and i.severity == "error" for i in issues)
+
+    def test_purchase_order_missing_fx_rate_is_valid(self):
+        """fx_rate is optional — omitting it entirely must not be an error."""
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "10", "unit_cost": "5"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert not any(i.field == "fx_rate" for i in issues)
+
     def test_purchase_order_decimal_and_comma_quantity_is_valid(self):
         """quantity is validated leniently (parse_flexible_amount, matching
         transform_purchase_orders()'s own parsing) — "10.0" and "1,000" must
@@ -848,6 +864,7 @@ class TestLoadPurchaseOrders:
                     {
                         "source_id": "PO1",
                         "supplier_name": "Acme",
+                        "currency": "USD",
                         "line_items": [
                             {"product_id": product_id, "variant_id": None, "quantity": 10, "unit_cost": Decimal("5")}
                         ],
@@ -981,6 +998,7 @@ class TestLoadPurchaseOrders:
                     {
                         "source_id": "PO1",
                         "supplier_name": "A",
+                        "currency": "USD",
                         "line_items": [
                             {"product_id": product_a, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
                         ],
@@ -988,6 +1006,7 @@ class TestLoadPurchaseOrders:
                     {
                         "source_id": "PO2",
                         "supplier_name": "B",
+                        "currency": "USD",
                         "line_items": [
                             {"product_id": product_b, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
                         ],
@@ -1028,6 +1047,7 @@ class TestLoadPurchaseOrders:
                         {
                             "source_id": "PO1",
                             "supplier_name": "Acme",
+                            "currency": "USD",
                             "line_items": [
                                 {"product_id": product_id, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
                             ],
@@ -1071,6 +1091,7 @@ class TestLoadPurchaseOrders:
                         {
                             "source_id": "PO1",
                             "supplier_name": "Acme",
+                            "currency": "USD",
                             "line_items": [
                                 {"product_id": product_id, "variant_id": None, "quantity": 1, "unit_cost": Decimal("5")}
                             ],
