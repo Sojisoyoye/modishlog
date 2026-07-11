@@ -22,7 +22,7 @@ import uuid
 from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai_engine.models import ReorderStatus, ReorderSuggestion
@@ -88,7 +88,7 @@ async def _deduct_imported_sales_stock(
     business_id: uuid.UUID,
     job_id: uuid.UUID,
     user_id: uuid.UUID,
-) -> list[dict]:
+) -> tuple[list[dict], set[tuple[uuid.UUID, uuid.UUID | None]]]:
     """Aggregate imported sales per (product, variant) and deduct once per
     group — not once per sale, matching the task's own performance guidance
     (a single aggregate query, not a row-by-row replay).
@@ -114,7 +114,7 @@ async def _deduct_imported_sales_stock(
     )
     groups = [g for g in result.all() if (g[0], g[1]) not in already_applied_pairs]
     if not groups:
-        return []
+        return [], set()
 
     # adjust_stock() is an UPDATE, not an upsert. load() only ever creates a
     # product-level (variant_id=None) InventoryLevel row for a *newly
@@ -167,7 +167,7 @@ async def _deduct_imported_sales_stock(
             await db.flush()
 
     errors: list[dict] = []
-    any_succeeded = False
+    failed_pairs: set[tuple[uuid.UUID, uuid.UUID | None]] = set()
     for product_id, variant_id, total_quantity in groups:
         _, error = await run_isolated(
             db,
@@ -182,34 +182,25 @@ async def _deduct_imported_sales_stock(
                 variant_id=vid,
                 reference_id=job_id,
                 reference_type="data_import_recompute",
+                migration_id=job_id,
             ),
             log_event="recompute_stock_deduction_failed",
-            error_entry={"step": "deduct_sales_stock", "product_id": str(product_id)},
+            error_entry={
+                "step": "deduct_sales_stock",
+                "product_id": str(product_id),
+                "variant_id": str(variant_id) if variant_id else None,
+            },
         )
         if error:
             errors.append(error)
-        else:
-            any_succeeded = True
-
-    if any_succeeded:
-        # adjust_stock() has no migration_id param — it never tags the
-        # StockMovement rows it creates. Tag them afterward by the
-        # reference_id/reference_type just passed in, so rollback's
-        # reversal-delta calculation (which sums StockMovement rows tagged
-        # with this migration_id) can find them.
-        await db.execute(
-            update(StockMovement)
-            .where(
-                StockMovement.reference_id == job_id,
-                StockMovement.reference_type == "data_import_recompute",
-            )
-            .values(migration_id=job_id)
-        )
-    return errors
+            failed_pairs.add((product_id, variant_id))
+    return errors, failed_pairs
 
 
 async def _compute_fifo_cogs_for_imported_sales(
-    db: AsyncSession, job_id: uuid.UUID
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    failed_deduction_pairs: set[tuple[uuid.UUID, uuid.UUID | None]] = frozenset(),
 ) -> list[dict]:
     """For each imported sale, in chronological order per product (matching
     how the batches would actually have been depleted), compute FIFO COGS
@@ -220,6 +211,12 @@ async def _compute_fifo_cogs_for_imported_sales(
     running it against an already-processed sale would double-consume the
     same batches. This also means a re-trigger after a partial failure
     only picks up the sales that didn't get processed last time.
+
+    Skips any sale whose (product_id, variant_id) group failed in
+    _deduct_imported_sales_stock() — consuming its FIFO batches and setting
+    fifo_cogs/fifo_gross_profit here would make the sale *look* fully
+    processed while its InventoryLevel was never actually deducted, and a
+    re-trigger would never revisit it since fifo_cogs would already be set.
     """
     result = await db.execute(
         select(Sale)
@@ -230,12 +227,29 @@ async def _compute_fifo_cogs_for_imported_sales(
 
     errors: list[dict] = []
     for sale in sales:
+        if (sale.product_id, sale.variant_id) in failed_deduction_pairs:
+            errors.append(
+                {
+                    "step": "fifo_cogs",
+                    "sale_id": str(sale.id),
+                    "error": (
+                        "Skipped — stock deduction failed for this "
+                        "product/variant; fix the underlying issue and "
+                        "re-run recompute."
+                    ),
+                }
+            )
+            continue
+
         # fifo_deduct() only *logs* a warning when batches run short — it
         # still returns whatever partial COGS it could match, with no way
         # for the caller to tell "fully matched" from "understated" from
         # the return value alone. Check first so an understated COGS/
         # overstated gross-profit figure is visible in job.recompute_errors
-        # instead of silently looking like a normal result.
+        # instead of silently looking like a normal result. Only append
+        # this once fifo_deduct() itself has succeeded — if it also fails
+        # below, that error already covers this sale; appending both would
+        # double-report the same underlying problem.
         available = await db.execute(
             select(func.sum(InventoryBatch.quantity_remaining)).where(
                 InventoryBatch.product_id == sale.product_id,
@@ -243,7 +257,18 @@ async def _compute_fifo_cogs_for_imported_sales(
             )
         )
         available_units = available.scalar() or 0
-        if available_units < sale.quantity:
+        understated = available_units < sale.quantity
+
+        cogs, error = await run_isolated(
+            db,
+            lambda s=sale: fifo_deduct(db, s.product_id, s.quantity),
+            log_event="recompute_fifo_cogs_failed",
+            error_entry={"step": "fifo_cogs", "sale_id": str(sale.id)},
+        )
+        if error:
+            errors.append(error)
+            continue
+        if understated:
             errors.append(
                 {
                     "step": "fifo_cogs",
@@ -256,16 +281,6 @@ async def _compute_fifo_cogs_for_imported_sales(
                     ),
                 }
             )
-
-        cogs, error = await run_isolated(
-            db,
-            lambda s=sale: fifo_deduct(db, s.product_id, s.quantity),
-            log_event="recompute_fifo_cogs_failed",
-            error_entry={"step": "fifo_cogs", "sale_id": str(sale.id)},
-        )
-        if error:
-            errors.append(error)
-            continue
         sale.fifo_cogs = cogs
         sale.fifo_gross_profit = sale.total_amount - cogs
     return errors
@@ -428,6 +443,28 @@ async def _recompute_ai_signals(
     return errors
 
 
+async def _run_independent_step(
+    db: AsyncSession, step_name: str, coro, errors: list[dict]
+) -> None:
+    """Runs one of recompute_after_import()'s independent steps, folding its
+    own per-item errors (if it returns any) into `errors`, and separately
+    recording an unhandled exception under `step_name`.
+
+    Used only for steps that don't need to pass state to one another (unlike
+    stock deduction -> FIFO COGS, which share failed_deduction_pairs and stay
+    explicit above) — a data-driven list here means a new step can't have its
+    step name drift out of sync with its except clause the way copy-pasting
+    a new try/except block by hand could.
+    """
+    try:
+        result = await coro
+        if result:
+            errors.extend(result)
+    except Exception as e:
+        await logger.aexception("recompute_step_failed", step=step_name)
+        errors.append({"step": step_name, "error": str(e)})
+
+
 async def recompute_after_import(
     db: AsyncSession,
     business_id: uuid.UUID,
@@ -440,37 +477,32 @@ async def recompute_after_import(
     remaining, independent steps from running.
     """
     errors: list[dict] = []
+    failed_deduction_pairs: set[tuple[uuid.UUID, uuid.UUID | None]] = set()
 
     try:
-        errors.extend(
-            await _deduct_imported_sales_stock(db, business_id, job_id, user_id)
+        deduct_errors, failed_deduction_pairs = await _deduct_imported_sales_stock(
+            db, business_id, job_id, user_id
         )
+        errors.extend(deduct_errors)
     except Exception as e:
         await logger.aexception("recompute_step_failed", step="deduct_sales_stock")
         errors.append({"step": "deduct_sales_stock", "error": str(e)})
 
     try:
-        errors.extend(await _compute_fifo_cogs_for_imported_sales(db, job_id))
+        errors.extend(
+            await _compute_fifo_cogs_for_imported_sales(
+                db, job_id, failed_deduction_pairs
+            )
+        )
     except Exception as e:
         await logger.aexception("recompute_step_failed", step="fifo_cogs")
         errors.append({"step": "fifo_cogs", "error": str(e)})
 
-    try:
-        await _create_opening_price_history(db, job_id, user_id)
-    except Exception as e:
-        await logger.aexception("recompute_step_failed", step="opening_price_history")
-        errors.append({"step": "opening_price_history", "error": str(e)})
-
-    try:
-        await _recompute_low_stock_alerts(db, job_id)
-    except Exception as e:
-        await logger.aexception("recompute_step_failed", step="low_stock_alerts")
-        errors.append({"step": "low_stock_alerts", "error": str(e)})
-
-    try:
-        errors.extend(await _recompute_ai_signals(db, business_id, job_id))
-    except Exception as e:
-        await logger.aexception("recompute_step_failed", step="ai_signals")
-        errors.append({"step": "ai_signals", "error": str(e)})
+    for step_name, coro in [
+        ("opening_price_history", _create_opening_price_history(db, job_id, user_id)),
+        ("low_stock_alerts", _recompute_low_stock_alerts(db, job_id)),
+        ("ai_signals", _recompute_ai_signals(db, business_id, job_id)),
+    ]:
+        await _run_independent_step(db, step_name, coro, errors)
 
     return {"errors": errors}

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import anyio
 import structlog
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai_engine.models import ReorderSuggestion
@@ -53,7 +53,13 @@ from src.inventory.exceptions import (
     InvalidStockAdjustmentError,
     ProductStockNotFoundError,
 )
-from src.inventory.models import LowStockAlert, MovementType, StockMovement
+from src.inventory.models import (
+    AlertStatus,
+    InventoryLevel,
+    LowStockAlert,
+    MovementType,
+    StockMovement,
+)
 from src.inventory.service import adjust_stock
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
@@ -451,11 +457,31 @@ async def _run_recompute(db: AsyncSession, job: MigrationJob) -> None:
 async def recompute_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
     """Manual re-trigger for a completed import — retries a failed
     recompute, or refreshes derived state (price suggestions, reorder
-    suggestions) against data that's changed since the import ran."""
-    if job.status != MigrationJobStatus.DONE:
+    suggestions) against data that's changed since the import ran.
+
+    Guards against a concurrent re-trigger (e.g. a double-click, or two
+    racing requests) with a conditional UPDATE rather than the plain
+    `if job.status != DONE` read-then-write check alone — two concurrent
+    calls would otherwise both read status=DONE and both run the recompute
+    steps against the same rows, double-deducting stock or double-consuming
+    FIFO batches. The UPDATE's WHERE clause only matches while status is
+    still DONE; Postgres serializes the two UPDATEs via the row lock, so
+    the second request's WHERE clause finds status already flipped to
+    RECOMPUTING and its rowcount is 0.
+    """
+    result = await db.execute(
+        update(MigrationJob)
+        .where(
+            MigrationJob.id == job.id, MigrationJob.status == MigrationJobStatus.DONE
+        )
+        .values(status=MigrationJobStatus.RECOMPUTING)
+    )
+    if result.rowcount == 0:
         raise InvalidJobStateError(job.id, "done", job.status.value)
+    job.status = MigrationJobStatus.RECOMPUTING
 
     await _run_recompute(db, job)
+    job.status = MigrationJobStatus.DONE
     await db.flush()
     logger.info(
         "data_import_job_recomputed",
@@ -562,6 +588,39 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
         )
         if error:
             skipped_reversals.append(error)
+
+    # Re-evaluate LowStockAlert status for every product this rollback
+    # touched, not just newly-created ones cleared above — a deduped
+    # (pre-existing) product's alert was created by the original import's
+    # recompute run and is not migration_id-tagged, so the generic
+    # `products.id`-scoped delete above never reaches it. If the reversal
+    # loop above restored its stock back above threshold, the alert must be
+    # resolved here or it stays ACTIVE forever.
+    reversed_product_ids = {pid for pid, _, _ in movement_deltas}
+    if reversed_product_ids:
+        inventory_result = await db.execute(
+            select(InventoryLevel).where(
+                InventoryLevel.product_id.in_(reversed_product_ids),
+                InventoryLevel.variant_id.is_(None),
+            )
+        )
+        now_ok_product_ids = {
+            inv.product_id
+            for inv in inventory_result.scalars().all()
+            if inv.quantity_on_hand > inv.low_stock_threshold
+        }
+        if now_ok_product_ids:
+            await db.execute(
+                update(LowStockAlert)
+                .where(
+                    LowStockAlert.product_id.in_(now_ok_product_ids),
+                    LowStockAlert.status == AlertStatus.ACTIVE,
+                )
+                .values(
+                    status=AlertStatus.RESOLVED,
+                    resolved_at=datetime.now(timezone.utc),
+                )
+            )
 
     reorder_error = await regenerate_reorder_suggestions_for_business(
         db, job.business_id, log_event="rollback_reorder_regeneration_failed"

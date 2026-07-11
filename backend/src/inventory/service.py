@@ -186,11 +186,18 @@ async def adjust_stock(
     reference_type: str | None = None,
     business_id: uuid.UUID | None = None,
     variant_id: uuid.UUID | None = None,
+    migration_id: uuid.UUID | None = None,
 ) -> InventoryLevel:
     """Adjust stock and create a StockMovement audit record.
 
     When variant_id is provided the adjustment targets that variant's inventory
     row (product_id, variant_id) and records the variant on the StockMovement.
+
+    migration_id tags the StockMovement row directly at insert time, for
+    callers (e.g. data_import's recompute/rollback) that need to find their
+    own movements later without a follow-up UPDATE keyed on reference_id/
+    reference_type — fields other domains also use, so a blanket UPDATE on
+    them risks retagging unrelated rows.
     """
     if business_id is not None:
         product_result = await db.execute(
@@ -236,6 +243,7 @@ async def adjust_stock(
         reference_type=reference_type,
         reason=reason,
         performed_by=user_id,
+        migration_id=migration_id,
     )
     db.add(movement)
     await db.flush()

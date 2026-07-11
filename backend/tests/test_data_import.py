@@ -1156,11 +1156,14 @@ class TestConfirmationGate:
         # Net +30 from PO deliveries, -50 from sales deductions => -20 net;
         # reversing requires adding back 20.
         movement_deltas.all.return_value = [(deduped_product_id, None, -20)]
+        empty_inventory = MagicMock()
+        empty_inventory.scalars.return_value.all.return_value = []
         db.execute = AsyncMock(
             side_effect=[
                 movement_deltas,  # StockMovement group-by deltas
                 empty_scalars,  # Product.id where migration_id == job.id (none new)
                 MagicMock(),  # delete(PriceHistory)
+                empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
                 MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
             ]
         )
@@ -1210,6 +1213,8 @@ class TestConfirmationGate:
         movement_deltas.all.return_value = [(new_product_id, None, 10)]
         new_products = MagicMock()
         new_products.scalars.return_value.all.return_value = [new_product_id]
+        empty_inventory = MagicMock()
+        empty_inventory.scalars.return_value.all.return_value = []
         db.execute = AsyncMock(
             side_effect=[
                 movement_deltas,
@@ -1217,6 +1222,7 @@ class TestConfirmationGate:
                 MagicMock(),  # delete(LowStockAlert) for new_product_id
                 MagicMock(),  # delete(ReorderSuggestion) for new_product_id
                 MagicMock(),  # delete(PriceHistory)
+                empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
                 MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
             ]
         )
@@ -1255,11 +1261,14 @@ class TestConfirmationGate:
         movement_deltas.all.return_value = [(deduped_product_id, None, 30)]
         empty_scalars = MagicMock()
         empty_scalars.scalars.return_value.all.return_value = []
+        empty_inventory = MagicMock()
+        empty_inventory.scalars.return_value.all.return_value = []
         db.execute = AsyncMock(
             side_effect=[
                 movement_deltas,
                 empty_scalars,  # no new products
                 MagicMock(),  # delete(PriceHistory)
+                empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
                 MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
             ]
         )
@@ -1342,11 +1351,14 @@ class TestConfirmationGate:
         empty_scalars.scalars.return_value.all.return_value = []
         movement_deltas = MagicMock()
         movement_deltas.all.return_value = [(deduped_product_id, None, -20)]
+        empty_inventory = MagicMock()
+        empty_inventory.scalars.return_value.all.return_value = []
         db.execute = AsyncMock(
             side_effect=[
                 movement_deltas,
                 empty_scalars,
                 MagicMock(),  # delete(PriceHistory)
+                empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
                 MagicMock(),  # delete(ReorderSuggestion) PENDING, inside regen's savepoint
             ]
         )
@@ -1369,8 +1381,35 @@ class TestConfirmationGate:
         from src.data_import.service import recompute_job
 
         job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+        no_match = MagicMock()
+        no_match.rowcount = 0
+        db.execute = AsyncMock(return_value=no_match)
         with pytest.raises(InvalidJobStateError):
-            await recompute_job(_mock_db(), job)
+            await recompute_job(db, job)
+
+    @pytest.mark.asyncio
+    async def test_recompute_job_rejects_concurrent_retrigger(self):
+        """Two racing POST /jobs/{id}/recompute calls must not both run the
+        recompute steps against the same rows — the conditional UPDATE's
+        WHERE clause only matches while status is still DONE, so a request
+        that loses the race (status already flipped to RECOMPUTING by the
+        other one) sees rowcount 0 and must raise, not silently proceed."""
+        from src.data_import.service import recompute_job
+
+        job = _make_job(status=MigrationJobStatus.DONE)
+        db = _mock_db()
+        lost_race = MagicMock()
+        lost_race.rowcount = 0
+        db.execute = AsyncMock(return_value=lost_race)
+
+        with patch(
+            "src.data_import.service.recompute_after_import", new=AsyncMock()
+        ) as mock_recompute:
+            with pytest.raises(InvalidJobStateError):
+                await recompute_job(db, job)
+
+        mock_recompute.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_recompute_job_reruns_recompute_and_updates_status(self):
@@ -1378,6 +1417,9 @@ class TestConfirmationGate:
 
         job = _make_job(status=MigrationJobStatus.DONE)
         db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
+        db.execute = AsyncMock(return_value=won_race)
 
         with patch(
             "src.data_import.service.recompute_after_import",
@@ -1390,8 +1432,9 @@ class TestConfirmationGate:
         )
         assert result.recompute_status == "done"
         assert result.recompute_completed_at is not None
-        # Manual retrigger doesn't change the job's terminal status — only
-        # confirm_job()'s own IMPORTING -> RECOMPUTING -> DONE flow does.
+        # A manual retrigger passes through RECOMPUTING while it runs (the
+        # conditional UPDATE guard below), same as confirm_job()'s own
+        # IMPORTING -> RECOMPUTING -> DONE flow, and lands back on DONE.
         assert result.status == MigrationJobStatus.DONE
 
     @pytest.mark.asyncio

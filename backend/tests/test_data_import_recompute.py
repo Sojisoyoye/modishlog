@@ -79,18 +79,18 @@ class TestDeductImportedSalesStock:
                 _rows_result([]),  # no groups already applied
                 _rows_result([(product_id, None, 15)]),  # aggregate group query
                 _rows_result([(product_id, None)]),  # InventoryLevel already exists
-                MagicMock(),  # migration_id tag sweep on the new StockMovement
             ]
         )
 
         with patch(
             "src.data_import.recompute.adjust_stock", new=AsyncMock()
         ) as mock_adjust:
-            errors = await _deduct_imported_sales_stock(
+            errors, failed_pairs = await _deduct_imported_sales_stock(
                 db, BUSINESS_ID, JOB_ID, USER_ID
             )
 
         assert errors == []
+        assert failed_pairs == set()
         mock_adjust.assert_awaited_once()
         _, kwargs = mock_adjust.call_args
         assert kwargs["product_id"] == product_id
@@ -100,11 +100,12 @@ class TestDeductImportedSalesStock:
         assert kwargs["business_id"] == BUSINESS_ID
         assert kwargs["reference_id"] == JOB_ID
         assert kwargs["reference_type"] == "data_import_recompute"
+        # adjust_stock() is tagged with migration_id directly at insert
+        # time now — no separate tag-sweep UPDATE afterward.
+        assert kwargs["migration_id"] == JOB_ID
         # 1 already-applied check + 1 aggregate query + 1 InventoryLevel
-        # existence check + 1 tag sweep — the sweep must run so rollback's
-        # reversal-delta calculation (which sums StockMovement rows tagged
-        # with this migration_id) can find these movements too.
-        assert db.execute.await_count == 4
+        # existence check.
+        assert db.execute.await_count == 3
 
     @pytest.mark.asyncio
     async def test_no_imported_sales_is_a_noop(self):
@@ -118,11 +119,12 @@ class TestDeductImportedSalesStock:
         with patch(
             "src.data_import.recompute.adjust_stock", new=AsyncMock()
         ) as mock_adjust:
-            errors = await _deduct_imported_sales_stock(
+            errors, failed_pairs = await _deduct_imported_sales_stock(
                 db, BUSINESS_ID, JOB_ID, USER_ID
             )
 
         assert errors == []
+        assert failed_pairs == set()
         mock_adjust.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -146,18 +148,18 @@ class TestDeductImportedSalesStock:
                 _rows_result([(product_id, variant_id, 5)]),
                 _rows_result([]),  # no existing variant-level InventoryLevel rows
                 _scalars_result([product_id]),  # product IS new (migration_id==job_id)
-                MagicMock(),  # migration_id tag sweep on the new StockMovement
             ]
         )
 
         with patch(
             "src.data_import.recompute.adjust_stock", new=AsyncMock()
         ) as mock_adjust:
-            errors = await _deduct_imported_sales_stock(
+            errors, failed_pairs = await _deduct_imported_sales_stock(
                 db, BUSINESS_ID, JOB_ID, USER_ID
             )
 
         assert errors == []
+        assert failed_pairs == set()
         assert db.add.call_count == 1
         created = db.add.call_args[0][0]
         assert created.product_id == product_id
@@ -187,7 +189,6 @@ class TestDeductImportedSalesStock:
                 _rows_result([(product_id, variant_id, 5)]),
                 _rows_result([]),
                 _scalars_result([]),  # product is NOT new — deduped
-                MagicMock(),
             ]
         )
 
@@ -216,18 +217,18 @@ class TestDeductImportedSalesStock:
                 _rows_result([(product_id, None, 5)]),
                 _rows_result([]),  # no InventoryLevel row exists at all
                 _scalars_result([]),  # product is NOT new — deduped
-                MagicMock(),
             ]
         )
 
         with patch(
             "src.data_import.recompute.adjust_stock", new=AsyncMock()
         ) as mock_adjust:
-            errors = await _deduct_imported_sales_stock(
+            errors, failed_pairs = await _deduct_imported_sales_stock(
                 db, BUSINESS_ID, JOB_ID, USER_ID
             )
 
         assert errors == []
+        assert failed_pairs == set()
         assert db.add.call_count == 1
         created = db.add.call_args[0][0]
         assert created.product_id == product_id
@@ -252,7 +253,6 @@ class TestDeductImportedSalesStock:
                 _rows_result(
                     [(product_a, None), (product_b, None)]
                 ),  # InventoryLevel rows already exist
-                MagicMock(),  # migration_id tag sweep (product_b succeeded)
             ]
         )
 
@@ -265,16 +265,17 @@ class TestDeductImportedSalesStock:
                 ]
             ),
         ) as mock_adjust:
-            errors = await _deduct_imported_sales_stock(
+            errors, failed_pairs = await _deduct_imported_sales_stock(
                 db, BUSINESS_ID, JOB_ID, USER_ID
             )
 
         assert mock_adjust.await_count == 2
         assert len(errors) == 1
         assert str(product_a) in errors[0]["error"] or "product_id" in errors[0]
+        assert failed_pairs == {(product_a, None)}
 
     @pytest.mark.asyncio
-    async def test_no_tag_sweep_when_every_deduction_fails(self):
+    async def test_every_deduction_failing_reports_all_as_failed_pairs(self):
         from src.data_import.recompute import _deduct_imported_sales_stock
 
         product_id = uuid.uuid4()
@@ -291,13 +292,15 @@ class TestDeductImportedSalesStock:
             "src.data_import.recompute.adjust_stock",
             new=AsyncMock(side_effect=ProductStockNotFoundError(product_id)),
         ):
-            errors = await _deduct_imported_sales_stock(
+            errors, failed_pairs = await _deduct_imported_sales_stock(
                 db, BUSINESS_ID, JOB_ID, USER_ID
             )
 
         assert len(errors) == 1
+        assert failed_pairs == {(product_id, None)}
         # Already-applied check + aggregate query + InventoryLevel
-        # existence check — no tag sweep since nothing succeeded to tag.
+        # existence check — migration_id is passed to adjust_stock()
+        # directly now, no follow-up tag-sweep query.
         assert db.execute.await_count == 3
 
     @pytest.mark.asyncio
@@ -317,7 +320,6 @@ class TestDeductImportedSalesStock:
                 _rows_result([]),
                 _rows_result([(product_id, None, 5)]),
                 _rows_result([(product_id, None)]),  # InventoryLevel already exists
-                MagicMock(),
             ]
         )
 
@@ -345,18 +347,18 @@ class TestDeductImportedSalesStock:
                 _rows_result(
                     [(done_product, None), (pending_product, None)]
                 ),  # InventoryLevel rows already exist
-                MagicMock(),  # tag sweep for the newly-succeeded group
             ]
         )
 
         with patch(
             "src.data_import.recompute.adjust_stock", new=AsyncMock()
         ) as mock_adjust:
-            errors = await _deduct_imported_sales_stock(
+            errors, failed_pairs = await _deduct_imported_sales_stock(
                 db, BUSINESS_ID, JOB_ID, USER_ID
             )
 
         assert errors == []
+        assert failed_pairs == set()
         mock_adjust.assert_awaited_once()
         assert mock_adjust.call_args.kwargs["product_id"] == pending_product
 
@@ -883,7 +885,7 @@ class TestRecomputeAfterImport:
         with (
             patch(
                 "src.data_import.recompute._deduct_imported_sales_stock",
-                new=AsyncMock(return_value=[]),
+                new=AsyncMock(return_value=([], set())),
             ) as m1,
             patch(
                 "src.data_import.recompute._compute_fifo_cogs_for_imported_sales",

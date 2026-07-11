@@ -221,18 +221,31 @@ async def get_supplier_stock_report(
     from src.orders.models import OrderLineItem, PurchaseOrder
     from src.products.models import Product
 
+    # A product can have more than one InventoryLevel row (one per variant,
+    # plus an optional variant_id=NULL aggregate row) — sum them per product
+    # so this per-product report doesn't list the same SKU multiple times
+    # with different quantities.
+    inventory_subq = (
+        select(
+            InventoryLevel.product_id,
+            func.sum(InventoryLevel.quantity_on_hand).label("quantity_on_hand"),
+        )
+        .group_by(InventoryLevel.product_id)
+        .subquery()
+    )
+
     result = await db.execute(
         select(
             Product.id,
             Product.sku,
             Product.name,
             Product.unit_cost,
-            InventoryLevel.quantity_on_hand,
+            inventory_subq.c.quantity_on_hand,
         )
         .join(OrderLineItem, OrderLineItem.product_id == Product.id)
         .join(PurchaseOrder, PurchaseOrder.id == OrderLineItem.order_id)
         .join(Supplier, Supplier.id == PurchaseOrder.supplier_id)
-        .join(InventoryLevel, InventoryLevel.product_id == Product.id)
+        .join(inventory_subq, inventory_subq.c.product_id == Product.id)
         .where(
             PurchaseOrder.supplier_id == supplier_id,
             Supplier.business_id == business_id,

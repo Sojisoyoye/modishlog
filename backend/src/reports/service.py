@@ -293,6 +293,19 @@ async def get_stock_report(
         sold_subq_base = sold_subq_base.where(Sale.business_id == business_id)
     sold_subq = sold_subq_base.group_by(Sale.product_id).subquery()
 
+    # A product can have more than one InventoryLevel row (one per variant,
+    # plus an optional variant_id=NULL aggregate row for non-variant stock) —
+    # sum them per product so this per-product report doesn't duplicate a
+    # row for every InventoryLevel row a product happens to have.
+    inventory_subq = (
+        select(
+            InventoryLevel.product_id,
+            func.sum(InventoryLevel.quantity_on_hand).label("quantity_on_hand"),
+        )
+        .group_by(InventoryLevel.product_id)
+        .subquery()
+    )
+
     query = (
         select(
             Product.id.label("product_id"),
@@ -301,10 +314,10 @@ async def get_stock_report(
             ProductCategory.name.label("category"),
             Product.unit_cost.label("unit_cost"),
             Product.selling_price.label("selling_price"),
-            InventoryLevel.quantity_on_hand.label("quantity_on_hand"),
+            inventory_subq.c.quantity_on_hand.label("quantity_on_hand"),
             func.coalesce(sold_subq.c.total_sold, 0).label("total_sold"),
         )
-        .join(InventoryLevel, InventoryLevel.product_id == Product.id)
+        .join(inventory_subq, inventory_subq.c.product_id == Product.id)
         .join(ProductCategory, ProductCategory.id == Product.category_id)
         .outerjoin(sold_subq, sold_subq.c.product_id == Product.id)
         .where(Product.is_active == True)  # noqa: E712
