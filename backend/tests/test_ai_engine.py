@@ -368,13 +368,15 @@ class TestReorderSuggestions:
         assert result.status == ReorderStatus.APPROVED
 
     @pytest.mark.anyio
-    async def test_query_excludes_variant_level_inventory_rows(self):
-        """A product can now have variant-level InventoryLevel rows
-        alongside its product-level (variant_id=None) one (see
-        data_import/recompute.py) — this function was never made
-        variant-aware, so without this filter a product with N variants
-        would join to N+1 InventoryLevel rows and get N+1 duplicate
-        suggestions instead of one."""
+    async def test_query_sums_inventory_across_every_row_per_product(self):
+        """A product can have more than one InventoryLevel row (the
+        aggregate row plus one per variant, see data_import/recompute.py).
+        Joining directly would duplicate a product with multiple rows into
+        multiple suggestions; filtering to variant_id IS NULL only would
+        silently skip a product that has no aggregate row at all (e.g. one
+        imported with only variant-level sales). The query must instead sum
+        on-hand across every row per product via a GROUP BY, so it neither
+        duplicates nor drops a product regardless of which rows it has."""
         db = _mock_db()
         join_result = MagicMock()
         join_result.all.return_value = []
@@ -382,56 +384,49 @@ class TestReorderSuggestions:
 
         await generate_reorder_suggestions(db, uuid.uuid4())
 
-        compiled_where = str(
-            db.execute.call_args[0][0].whereclause.compile(
-                compile_kwargs={"literal_binds": True}
-            )
-        )
-        assert "variant_id IS NULL" in compiled_where
+        executed_stmt = db.execute.call_args[0][0]
+        compiled = str(executed_stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "group by" in compiled.lower()
+        assert "sum(inventory_levels.quantity_on_hand)" in compiled.lower()
+        assert "variant_id" not in compiled.lower()
 
     @pytest.mark.anyio
-    async def test_order_timing_recommendations_excludes_variant_level_inventory_rows(
-        self,
-    ):
+    async def test_order_timing_recommendations_sums_inventory_across_every_row(self):
         """Same fix as generate_reorder_suggestions above, applied to its
         sibling — _generate_order_timing_recommendations queried every
         InventoryLevel row for a product with no variant_id filter, so a
         product with N variants below threshold produced N+1 duplicate
-        reorder recommendations instead of one."""
+        reorder recommendations instead of one. It must sum on-hand and use
+        the most restrictive threshold across every row per product,
+        producing exactly one recommendation per product."""
         from src.ai_engine.service import _generate_order_timing_recommendations
 
         db = _mock_db()
         empty_result = MagicMock()
-        empty_result.scalars.return_value.all.return_value = []
+        empty_result.all.return_value = []
         db.execute = AsyncMock(return_value=empty_result)
 
         await _generate_order_timing_recommendations(db, NOW)
 
-        compiled_where = str(
-            db.execute.call_args[0][0].whereclause.compile(
-                compile_kwargs={"literal_binds": True}
-            )
-        )
-        assert "variant_id IS NULL" in compiled_where
+        executed_stmt = db.execute.call_args[0][0]
+        compiled = str(executed_stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "group by" in compiled.lower()
+        assert "sum(inventory_levels.quantity_on_hand)" in compiled.lower()
+        assert "min(inventory_levels.low_stock_threshold)" in compiled.lower()
 
     @pytest.mark.anyio
     async def test_generate_reorder_suggestions_stamps_data_points_used(self):
         """E1: data_points_used must reflect the count of distinct sale-days
         backing the demand estimate, not just whether any sales existed."""
         from src.ai_engine.models import ReorderSuggestion as _ReorderSuggestion
-        from src.inventory.models import InventoryLevel
         from src.products.models import Product
 
-        inv = MagicMock(spec=InventoryLevel)
-        inv.product_id = uuid.uuid4()
-        inv.quantity_on_hand = 5
-
         product = MagicMock(spec=Product)
-        product.id = inv.product_id
+        product.id = uuid.uuid4()
         product.unit_cost = Decimal("100")
 
         join_result = MagicMock()
-        join_result.all.return_value = [(inv, product)]
+        join_result.all.return_value = [(5, product)]  # summed on-hand quantity
 
         sales_result = MagicMock()
         sales_result.one.return_value = (300, 17)  # 300 units sold over 17 distinct days
@@ -450,19 +445,14 @@ class TestReorderSuggestions:
     async def test_generate_reorder_suggestions_zero_data_points_when_no_sales(self):
         """No sales in the lookback window means data_points_used stays 0 and
         the product is skipped entirely (not enough signal to suggest a reorder)."""
-        from src.inventory.models import InventoryLevel
         from src.products.models import Product
 
-        inv = MagicMock(spec=InventoryLevel)
-        inv.product_id = uuid.uuid4()
-        inv.quantity_on_hand = 5
-
         product = MagicMock(spec=Product)
-        product.id = inv.product_id
+        product.id = uuid.uuid4()
         product.unit_cost = Decimal("100")
 
         join_result = MagicMock()
-        join_result.all.return_value = [(inv, product)]
+        join_result.all.return_value = [(5, product)]  # summed on-hand quantity
 
         sales_result = MagicMock()
         sales_result.one.return_value = (None, None)
