@@ -1164,6 +1164,7 @@ class TestConfirmationGate:
                 empty_scalars,  # Product.id where migration_id == job.id (none new)
                 MagicMock(),  # delete(PriceHistory)
                 empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
+                MagicMock(),  # UPDATE LowStockAlert -> RESOLVED (no InventoryLevel rows left)
                 MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
             ]
         )
@@ -1275,6 +1276,7 @@ class TestConfirmationGate:
                 MagicMock(),  # delete(ReorderSuggestion) for new_product_id
                 MagicMock(),  # delete(PriceHistory)
                 empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
+                MagicMock(),  # UPDATE LowStockAlert -> RESOLVED (no InventoryLevel rows left)
                 MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
             ]
         )
@@ -1321,6 +1323,7 @@ class TestConfirmationGate:
                 empty_scalars,  # no new products
                 MagicMock(),  # delete(PriceHistory)
                 empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
+                MagicMock(),  # UPDATE LowStockAlert -> RESOLVED (no InventoryLevel rows left)
                 MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
             ]
         )
@@ -1411,6 +1414,7 @@ class TestConfirmationGate:
                 empty_scalars,
                 MagicMock(),  # delete(PriceHistory)
                 empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
+                MagicMock(),  # UPDATE LowStockAlert -> RESOLVED (no InventoryLevel rows left)
                 MagicMock(),  # delete(ReorderSuggestion) PENDING, inside regen's savepoint
             ]
         )

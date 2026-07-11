@@ -427,13 +427,37 @@ class TestReorderSuggestions:
         empty_result.all.return_value = []
         db.execute = AsyncMock(return_value=empty_result)
 
-        await _generate_order_timing_recommendations(db, NOW)
+        await _generate_order_timing_recommendations(db, NOW, uuid.uuid4())
 
         executed_stmt = db.execute.call_args[0][0]
         compiled = str(executed_stmt.compile(compile_kwargs={"literal_binds": True}))
         assert "group by" in compiled.lower()
         assert "sum(inventory_levels.quantity_on_hand)" in compiled.lower()
         assert "min(inventory_levels.low_stock_threshold)" in compiled.lower()
+
+    @pytest.mark.anyio
+    async def test_order_timing_recommendations_scopes_products_to_the_calling_business(
+        self,
+    ):
+        """generate_all_recommendations() unconditionally stamps whatever
+        this function returns with the caller's business_id — without a
+        business_id filter here, that leaks other tenants' stock levels
+        and product names into the caller's recommendations (same class of
+        bug fixed in the sibling generate_reorder_suggestions())."""
+        from src.ai_engine.service import _generate_order_timing_recommendations
+
+        db = _mock_db()
+        empty_result = MagicMock()
+        empty_result.all.return_value = []
+        db.execute = AsyncMock(return_value=empty_result)
+
+        target_business_id = uuid.uuid4()
+        await _generate_order_timing_recommendations(db, NOW, target_business_id)
+
+        executed_stmt = db.execute.call_args[0][0]
+        compiled = str(executed_stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert target_business_id.hex in compiled.replace("-", "")
+        assert "products.business_id" in compiled.lower()
 
     @pytest.mark.anyio
     async def test_generate_reorder_suggestions_stamps_data_points_used(self):

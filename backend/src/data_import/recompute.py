@@ -354,18 +354,47 @@ async def _create_opening_price_history(
         await db.flush()
 
 
-async def _recompute_low_stock_alerts(db: AsyncSession, job_id: uuid.UUID) -> None:
-    """LowStockAlert has no variant_id column — it's a product-level signal,
-    but a product's stock can now live across more than one InventoryLevel
-    row (the aggregate row plus one per variant). Checking only the
+async def find_most_critical_inventory_rows(
+    db: AsyncSession, product_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, InventoryLevel]:
+    """For each of the given products, find its most under-threshold
+    InventoryLevel row (aggregate or any variant) — a product is omitted
+    entirely if none of its rows have breached their own threshold.
+
+    A product's stock can live across more than one InventoryLevel row
+    (the aggregate row plus one per variant). Checking only the
     variant_id=NULL row would miss a variant sold out entirely by imported
     sales (_deduct_imported_sales_stock deducts at the variant level), so
-    every row for a relevant product is checked; if any one of them (the
-    aggregate or any variant) has breached its own threshold, the product
-    gets a single alert — using whichever row is most under-threshold, since
+    every row for a relevant product is checked; if any one of them has
+    breached its own threshold, the product is "below threshold" — using
+    whichever row is most under-threshold as the representative row, since
     LowStockAlert has nowhere to record which specific row triggered it.
 
-    Checks every product this job could plausibly have pushed below
+    Shared by _recompute_low_stock_alerts() (decides which products need a
+    new alert) and rollback_job()'s alert re-evaluation (decides which
+    products no longer do) — both need the exact same "is this product
+    below threshold" answer, so a future change to the comparison rule only
+    has to be made once instead of drifting between two copies.
+    """
+    if not product_ids:
+        return {}
+
+    result = await db.execute(
+        select(InventoryLevel).where(InventoryLevel.product_id.in_(product_ids))
+    )
+    rows = result.scalars().all()
+    most_critical_by_product: dict[uuid.UUID, InventoryLevel] = {}
+    for row in rows:
+        if row.quantity_on_hand > row.low_stock_threshold:
+            continue
+        current = most_critical_by_product.get(row.product_id)
+        if current is None or row.quantity_on_hand < current.quantity_on_hand:
+            most_critical_by_product[row.product_id] = row
+    return most_critical_by_product
+
+
+async def _recompute_low_stock_alerts(db: AsyncSession, job_id: uuid.UUID) -> None:
+    """Checks every product this job could plausibly have pushed below
     threshold: products it *created* (whose opening PO-delivered stock
     might already be below whatever threshold applies), and — just as
     importantly — deduped (pre-existing) products it deducted stock from
@@ -381,17 +410,7 @@ async def _recompute_low_stock_alerts(db: AsyncSession, job_id: uuid.UUID) -> No
     if not product_ids:
         return
 
-    result = await db.execute(
-        select(InventoryLevel).where(InventoryLevel.product_id.in_(product_ids))
-    )
-    rows = result.scalars().all()
-    most_critical_by_product: dict[uuid.UUID, InventoryLevel] = {}
-    for row in rows:
-        if row.quantity_on_hand > row.low_stock_threshold:
-            continue
-        current = most_critical_by_product.get(row.product_id)
-        if current is None or row.quantity_on_hand < current.quantity_on_hand:
-            most_critical_by_product[row.product_id] = row
+    most_critical_by_product = await find_most_critical_inventory_rows(db, product_ids)
     below_threshold = list(most_critical_by_product.values())
     if not below_threshold:
         return

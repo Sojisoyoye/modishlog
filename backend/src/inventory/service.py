@@ -1,6 +1,7 @@
 """Inventory domain business logic."""
 
 import uuid
+from collections.abc import Collection
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
@@ -111,7 +112,9 @@ async def get_inventory_level(
     return inventory
 
 
-def inventory_on_hand_by_product_subquery():
+def inventory_on_hand_by_product_subquery(
+    product_ids: Collection[uuid.UUID] | None = None,
+):
     """SQLAlchemy subquery summing quantity_on_hand across every
     InventoryLevel row for each product.
 
@@ -123,15 +126,19 @@ def inventory_on_hand_by_product_subquery():
     product's rows or it will duplicate/miscount that product wherever it
     joins InventoryLevel directly by product_id. Centralized here so a new
     caller doesn't have to rediscover this.
+
+    Pass product_ids when the caller already knows which products it
+    needs (e.g. a stock count's own item list) — it scopes the GROUP BY
+    itself rather than aggregating every product in the database and
+    relying on the outer join to narrow it down afterward.
     """
-    return (
-        select(
-            InventoryLevel.product_id,
-            func.sum(InventoryLevel.quantity_on_hand).label("quantity_on_hand"),
-        )
-        .group_by(InventoryLevel.product_id)
-        .subquery()
+    query = select(
+        InventoryLevel.product_id,
+        func.sum(InventoryLevel.quantity_on_hand).label("quantity_on_hand"),
     )
+    if product_ids is not None:
+        query = query.where(InventoryLevel.product_id.in_(product_ids))
+    return query.group_by(InventoryLevel.product_id).subquery()
 
 
 async def list_inventory_levels(

@@ -159,11 +159,9 @@ async def finalize_stock_count(
     # total.
     if sc.count_type == StockCountType.PRODUCT:
         product_ids = [item.product_id for item in sc.items]
-        inv_subq = inventory_on_hand_by_product_subquery()
+        inv_subq = inventory_on_hand_by_product_subquery(product_ids)
         inv_result = await db.execute(
-            select(inv_subq.c.product_id, inv_subq.c.quantity_on_hand).where(
-                inv_subq.c.product_id.in_(product_ids)
-            )
+            select(inv_subq.c.product_id, inv_subq.c.quantity_on_hand)
         )
         totals_by_product = dict(inv_result.all())
         for item in sc.items:

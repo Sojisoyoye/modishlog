@@ -262,6 +262,7 @@ async def _generate_price_recommendations(
 async def _generate_order_timing_recommendations(
     db: AsyncSession,
     now: datetime,
+    business_id: uuid.UUID,
 ) -> list[AIRecommendation]:
     """Generate reorder recommendations based on inventory depletion and FX forecasts."""
     # A product can have more than one InventoryLevel row (the aggregate
@@ -272,12 +273,21 @@ async def _generate_order_timing_recommendations(
     # sales). Sum on-hand and take the most restrictive threshold across
     # every row for the product instead, so exactly one recommendation is
     # produced per product using its true total stock.
+    #
+    # Joined to Product and filtered by business_id — without it this
+    # scans every business's InventoryLevel rows and generate_all_
+    # recommendations() unconditionally stamps whatever comes back with
+    # the caller's business_id, leaking other tenants' stock levels and
+    # product names into the caller's recommendations (same class of bug
+    # fixed in the sibling generate_reorder_suggestions()).
     result = await db.execute(
         select(
             InventoryLevel.product_id,
             func.sum(InventoryLevel.quantity_on_hand).label("quantity_on_hand"),
             func.min(InventoryLevel.low_stock_threshold).label("low_stock_threshold"),
         )
+        .join(Product, Product.id == InventoryLevel.product_id)
+        .where(Product.business_id == business_id)
         .group_by(InventoryLevel.product_id)
         .having(
             func.sum(InventoryLevel.quantity_on_hand)
@@ -710,7 +720,7 @@ async def generate_all_recommendations(
     price_recs = await _generate_price_recommendations(db, now)
     all_recs.extend(price_recs)
 
-    order_recs = await _generate_order_timing_recommendations(db, now)
+    order_recs = await _generate_order_timing_recommendations(db, now, business_id)
     all_recs.extend(order_recs)
 
     usd_recs = await _generate_usd_hedge_recommendations(db, now)
