@@ -536,6 +536,26 @@ class Transformer:
                     location_id = self.id_map.lookup(
                         "business_locations", row["location_source_id"]
                     )
+                if order_date is None:
+                    # load_purchase_orders() passes this straight through as
+                    # the DELIVERED transition's actual_delivery_date;
+                    # transition_status() falls back to date.today() when
+                    # it's None, which would backdate every PO missing this
+                    # column to "today" and skew FIFO batch ordering for a
+                    # historical import.
+                    self.warnings.append(
+                        ValidationIssue(
+                            entity="purchase_orders",
+                            row=i,
+                            field="order_date",
+                            severity="warning",
+                            message=(
+                                f"No order_date for {source_id!r} — it will be recorded "
+                                "as delivered today instead of its real historical date, "
+                                "which affects FIFO cost-basis ordering."
+                            ),
+                        )
+                    )
                 groups[source_id] = {
                     "source_id": source_id,
                     "supplier_id": supplier_id,

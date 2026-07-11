@@ -40,6 +40,11 @@ ENTITY_RULES: dict[str, dict[str, tuple[str, ...] | bool]] = {
         # blow up as a raw pydantic error inside load_purchase_orders() at
         # confirm time, rolling back the whole import.
         "positive_amounts": ("quantity", "unit_cost"),
+        # transform_purchase_orders() does int(normalize_amount(...)) on
+        # quantity — a fractional value (e.g. "10.7") would silently lose
+        # its remainder at confirm time with no trace of the discrepancy.
+        # Reject it here instead, while the row can still be corrected.
+        "integer_amounts": ("quantity",),
         # Rows sharing the same source_id are one multi-line-item order by
         # design (see transform_purchase_orders) — not a duplicate.
         "unique_source_id": False,
@@ -88,6 +93,29 @@ def _check_amount(
     return []
 
 
+def _check_integer(
+    entity: str, row: int, data: dict, field: str
+) -> list[ValidationIssue]:
+    value = data.get(field)
+    if not value:
+        return []
+    try:
+        amount = parse_flexible_amount(value)
+    except Exception:
+        return []  # already reported by the amounts/positive_amounts check
+    if amount != amount.to_integral_value():
+        return [
+            ValidationIssue(
+                entity=entity,
+                row=row,
+                field=field,
+                severity="error",
+                message=f"{field} must be a whole number, got {value!r}",
+            )
+        ]
+    return []
+
+
 def validate_entity_rows(entity: str, rows: list[dict]) -> list[ValidationIssue]:
     rules = ENTITY_RULES.get(entity)
     if rules is None:
@@ -130,6 +158,9 @@ def validate_entity_rows(entity: str, rows: list[dict]) -> list[ValidationIssue]
 
         for field in rules.get("positive_amounts", ()):
             issues.extend(_check_amount(entity, i, row, field, require_positive=True))
+
+        for field in rules.get("integer_amounts", ()):
+            issues.extend(_check_integer(entity, i, row, field))
 
         source_id = row.get("source_id")
         if source_id and rules.get("unique_source_id", True):

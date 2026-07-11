@@ -225,6 +225,17 @@ class TestValidateEntityRows:
         issues = validate_entity_rows("purchase_orders", rows)
         assert not any(i.field == "quantity" for i in issues)
 
+    def test_purchase_order_fractional_quantity_is_error(self):
+        """transform_purchase_orders() does int(normalize_amount(...)) on
+        quantity — a genuinely fractional value like "10.7" would silently
+        lose its remainder at confirm time. Must be rejected here instead."""
+        rows = [{"source_id": "PO1", "product_source_id": "P1", "quantity": "10.7", "unit_cost": "5"}]
+        issues = validate_entity_rows("purchase_orders", rows)
+        assert any(
+            i.field == "quantity" and i.severity == "error" and "whole number" in i.message
+            for i in issues
+        )
+
     def test_purchase_order_rows_sharing_source_id_are_not_flagged_as_duplicates(self):
         """Multiple rows with the same source_id are one multi-line-item
         order by design (see transform_purchase_orders) — not a duplicate,
@@ -455,6 +466,30 @@ class TestTransformPurchaseOrders:
         assert result[0]["line_items"][0]["quantity"] == 10
         assert result[0]["line_items"][0]["unit_cost"] == Decimal("500.000000")
 
+    def test_missing_order_date_produces_warning(self):
+        """load_purchase_orders() passes order_date straight through as the
+        DELIVERED transition's actual_delivery_date; transition_status()
+        falls back to date.today() when it's None, silently backdating a
+        historical import. Must warn, not silently proceed."""
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {
+                "source_id": "PO1",
+                "supplier_name": "Acme Textiles",
+                "product_source_id": "P1",
+                "quantity": "10",
+                "unit_cost": "500",
+            }
+        ]
+        result = transformer.transform_purchase_orders(rows)
+
+        assert len(result) == 1
+        assert result[0]["order_date"] is None
+        assert any(
+            w.field == "order_date" and w.severity == "warning"
+            for w in transformer.warnings
+        )
+
     def test_distinct_source_ids_produce_separate_orders(self):
         transformer, product_id = self._transformer_with_product("P1")
         rows = [
@@ -548,8 +583,8 @@ class TestTransformPurchaseOrders:
         item at confirm time on a row the user was told was valid."""
         transformer, product_id = self._transformer_with_product("P1")
         rows = [
-            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "10.0", "unit_cost": "5"},
-            {"source_id": "PO2", "supplier_name": "A", "product_source_id": "P1", "quantity": "1,000", "unit_cost": "5"},
+            {"source_id": "PO1", "supplier_name": "A", "product_source_id": "P1", "quantity": "10.0", "unit_cost": "5", "order_date": "2024-01-01"},
+            {"source_id": "PO2", "supplier_name": "A", "product_source_id": "P1", "quantity": "1,000", "unit_cost": "5", "order_date": "2024-01-02"},
         ]
         result = transformer.transform_purchase_orders(rows)
         assert len(result) == 2
@@ -1001,6 +1036,45 @@ class TestConfirmationGate:
         ):
             with pytest.raises(PurchaseOrderImportError):
                 await confirm_job(db, job, approved=True)
+
+    @pytest.mark.asyncio
+    async def test_purchase_order_import_error_does_not_leak_cause_text(self):
+        """A pydantic ValidationError's str() includes field paths, input
+        values, and an errors.pydantic.dev URL — none of that belongs in an
+        HTTP response (this codebase already did a dedicated security pass,
+        PR #222, to stop str(e) leaking internals to clients). The raw
+        cause must stay on `.cause` for server-side logging only; the
+        exception's own message must be a fixed, safe string."""
+        from pydantic import BaseModel
+
+        class _Model(BaseModel):
+            quantity: int
+
+        try:
+            _Model(quantity="not-a-number")
+        except Exception as pydantic_error:
+            cause = pydantic_error
+
+        job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+
+        with (
+            patch(
+                "src.data_import.service._extract_and_transform",
+                new=AsyncMock(return_value=({}, {"purchase_orders": []}, MagicMock(id_map=IdMap()))),
+            ),
+            patch("src.data_import.service.loader_load", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.loader_load_purchase_orders",
+                new=AsyncMock(side_effect=cause),
+            ),
+        ):
+            with pytest.raises(PurchaseOrderImportError) as exc_info:
+                await confirm_job(db, job, approved=True)
+
+        assert "not-a-number" not in str(exc_info.value)
+        assert "pydantic.dev" not in str(exc_info.value)
+        assert exc_info.value.cause is cause
 
 
 # ---------------------------------------------------------------------------

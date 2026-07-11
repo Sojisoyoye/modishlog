@@ -9,7 +9,7 @@ extend `LOAD_ORDER` without another schema change.
 
 import uuid
 
-from sqlalchemy import delete, inspect, select
+from sqlalchemy import delete, inspect, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.customers.models import Customer
@@ -205,27 +205,28 @@ async def load_purchase_orders(
 
     # create_order()/transition_status() write InventoryBatch/StockMovement/
     # OrderStatusHistory rows, none of whose functions accept a migration_id
-    # — tag them afterward by the orders/references just created. Batched
-    # into 3 queries total (not 3 per order) now that every order_id is known.
+    # — tag them afterward by the orders/references just created. 3 bulk
+    # UPDATEs total (not 3 per order, and no row materialization needed
+    # since only one column changes) now that every order_id is known.
     if order_ids:
-        batches = await db.execute(
-            select(InventoryBatch).where(InventoryBatch.order_id.in_(order_ids))
+        await db.execute(
+            update(InventoryBatch)
+            .where(InventoryBatch.order_id.in_(order_ids))
+            .values(migration_id=migration_id)
         )
-        for batch in batches.scalars().all():
-            batch.migration_id = migration_id
-        movements = await db.execute(
-            select(StockMovement).where(
+        await db.execute(
+            update(StockMovement)
+            .where(
                 StockMovement.reference_id.in_(order_ids),
                 StockMovement.reference_type == "purchase_order",
             )
+            .values(migration_id=migration_id)
         )
-        for movement in movements.scalars().all():
-            movement.migration_id = migration_id
-        history_rows = await db.execute(
-            select(OrderStatusHistory).where(OrderStatusHistory.order_id.in_(order_ids))
+        await db.execute(
+            update(OrderStatusHistory)
+            .where(OrderStatusHistory.order_id.in_(order_ids))
+            .values(migration_id=migration_id)
         )
-        for history in history_rows.scalars().all():
-            history.migration_id = migration_id
         await db.flush()
 
     return len(order_ids)

@@ -384,7 +384,10 @@ async def confirm_job(
         # unmodified — translate whatever they raise into this domain's own
         # exception so the router (and any other caller) only needs to know
         # about one data_import-owned exception type, not every exception
-        # those unrelated domains happen to raise today.
+        # those unrelated domains happen to raise today. The raw cause (may
+        # include pydantic field/internal detail) is logged here, not
+        # echoed to the client — see PurchaseOrderImportError's docstring.
+        await logger.aexception("purchase_order_import_failed", job_id=str(job.id))
         raise PurchaseOrderImportError(e) from e
 
     job.row_counts = row_counts

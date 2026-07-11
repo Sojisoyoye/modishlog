@@ -63,8 +63,17 @@ class PurchaseOrderImportError(Exception):
     failed schema validation. Wraps the underlying error so the router only
     needs to know about this one data_import-owned exception, not every
     exception type orders/inventory happen to raise today.
+
+    The message is a safe, generic client-facing string — the raw `cause`
+    (which for a pydantic ValidationError includes field paths, input
+    values, and an errors.pydantic.dev URL) is kept on `.cause` for the
+    caller to log server-side, not echoed to the client (see PR #222).
     """
 
     def __init__(self, cause: Exception) -> None:
         self.cause = cause
-        super().__init__(str(cause))
+        super().__init__(
+            "Could not import one or more purchase orders — a referenced "
+            "product, variant, or order may have changed since this job "
+            "was validated. Try re-validating the job."
+        )
