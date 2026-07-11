@@ -36,6 +36,12 @@ class ExtractionMode(str, enum.Enum):
     API = "api"
 
 
+class RecomputeStatus(str, enum.Enum):
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+
+
 class MigrationJob(UUIDMixin, TimestampMixin, Base):
     """Tracks a single data-import run for a business."""
 
@@ -67,11 +73,13 @@ class MigrationJob(UUIDMixin, TimestampMixin, Base):
     validation_warnings: Mapped[list] = mapped_column(JSONB, default=list)
     options: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    # Set by recompute.recompute_after_import() — not an enum (mirrors the
-    # informal 'pending'|'running'|'done'|'failed' vocabulary already used
-    # for MigrationJobStatus's string values) since only this module reads it.
-    recompute_status: Mapped[str | None] = mapped_column(
-        String(20), nullable=True, default=None
+    # NULL until recompute.recompute_after_import() runs at least once —
+    # there's no "pending" member since a job that hasn't recomputed yet is
+    # simply NULL, not a fourth state to track.
+    recompute_status: Mapped[RecomputeStatus | None] = mapped_column(
+        Enum(RecomputeStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=True,
+        default=None,
     )
     recompute_started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None

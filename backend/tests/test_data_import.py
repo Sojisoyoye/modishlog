@@ -1412,6 +1412,30 @@ class TestConfirmationGate:
         mock_recompute.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_recompute_job_lost_race_error_reports_actual_current_status(self):
+        """The in-memory `job` object was loaded before the conditional
+        UPDATE ran, so on a lost race it's stale by definition — the raised
+        error must re-read and report the job's real current status (e.g.
+        'recomputing', because the other request is still running), not
+        always claim 'done' from the stale object."""
+        from src.data_import.service import recompute_job
+
+        job = _make_job(status=MigrationJobStatus.DONE)
+        db = _mock_db()
+        lost_race = MagicMock()
+        lost_race.rowcount = 0
+        current_status = MagicMock()
+        current_status.scalar_one_or_none.return_value = (
+            MigrationJobStatus.RECOMPUTING
+        )
+        db.execute = AsyncMock(side_effect=[lost_race, current_status])
+
+        with pytest.raises(InvalidJobStateError) as exc_info:
+            await recompute_job(db, job)
+
+        assert "recomputing" in str(exc_info.value)
+
+    @pytest.mark.asyncio
     async def test_recompute_job_reruns_recompute_and_updates_status(self):
         from src.data_import.service import recompute_job
 

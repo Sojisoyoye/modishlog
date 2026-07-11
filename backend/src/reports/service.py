@@ -10,7 +10,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
-from src.inventory.models import InventoryBatch, InventoryLevel
+from src.inventory.models import InventoryBatch
+from src.inventory.service import inventory_on_hand_by_product_subquery
 from src.orders.models import OrderPayment, OrderPaymentStatus, PurchaseOrder, PurchaseReturn
 from src.products.models import Product, ProductCategory
 from src.reports.schemas import (
@@ -293,18 +294,7 @@ async def get_stock_report(
         sold_subq_base = sold_subq_base.where(Sale.business_id == business_id)
     sold_subq = sold_subq_base.group_by(Sale.product_id).subquery()
 
-    # A product can have more than one InventoryLevel row (one per variant,
-    # plus an optional variant_id=NULL aggregate row for non-variant stock) —
-    # sum them per product so this per-product report doesn't duplicate a
-    # row for every InventoryLevel row a product happens to have.
-    inventory_subq = (
-        select(
-            InventoryLevel.product_id,
-            func.sum(InventoryLevel.quantity_on_hand).label("quantity_on_hand"),
-        )
-        .group_by(InventoryLevel.product_id)
-        .subquery()
-    )
+    inventory_subq = inventory_on_hand_by_product_subquery()
 
     query = (
         select(

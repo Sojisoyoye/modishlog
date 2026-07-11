@@ -325,9 +325,15 @@ async def _create_opening_price_history(
 
 
 async def _recompute_low_stock_alerts(db: AsyncSession, job_id: uuid.UUID) -> None:
-    """LowStockAlert has no variant_id column — it's a product-level signal
-    only, matching the product-level (variant_id=None) InventoryLevel rows
-    the loader creates for imported products.
+    """LowStockAlert has no variant_id column — it's a product-level signal,
+    but a product's stock can now live across more than one InventoryLevel
+    row (the aggregate row plus one per variant). Checking only the
+    variant_id=NULL row would miss a variant sold out entirely by imported
+    sales (_deduct_imported_sales_stock deducts at the variant level), so
+    every row for a relevant product is checked; if any one of them (the
+    aggregate or any variant) has breached its own threshold, the product
+    gets a single alert — using whichever row is most under-threshold, since
+    LowStockAlert has nowhere to record which specific row triggered it.
 
     Checks every product this job could plausibly have pushed below
     threshold: products it *created* (whose opening PO-delivered stock
@@ -346,13 +352,17 @@ async def _recompute_low_stock_alerts(db: AsyncSession, job_id: uuid.UUID) -> No
         return
 
     result = await db.execute(
-        select(InventoryLevel).where(
-            InventoryLevel.product_id.in_(product_ids),
-            InventoryLevel.variant_id.is_(None),
-        )
+        select(InventoryLevel).where(InventoryLevel.product_id.in_(product_ids))
     )
     rows = result.scalars().all()
-    below_threshold = [r for r in rows if r.quantity_on_hand <= r.low_stock_threshold]
+    most_critical_by_product: dict[uuid.UUID, InventoryLevel] = {}
+    for row in rows:
+        if row.quantity_on_hand > row.low_stock_threshold:
+            continue
+        current = most_critical_by_product.get(row.product_id)
+        if current is None or row.quantity_on_hand < current.quantity_on_hand:
+            most_critical_by_product[row.product_id] = row
+    below_threshold = list(most_critical_by_product.values())
     if not below_threshold:
         return
 

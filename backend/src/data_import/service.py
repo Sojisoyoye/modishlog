@@ -37,6 +37,7 @@ from src.data_import.models import (
     ExtractionMode,
     MigrationJob,
     MigrationJobStatus,
+    RecomputeStatus,
     SourceSystem,
 )
 from src.data_import.recompute import (
@@ -426,7 +427,7 @@ async def _run_recompute(db: AsyncSession, job: MigrationJob) -> None:
     recompute). Mutates `job`'s recompute_* fields in place; does not flush
     or change `job.status` — the caller owns that.
     """
-    job.recompute_status = "running"
+    job.recompute_status = RecomputeStatus.RUNNING
     job.recompute_started_at = datetime.now(timezone.utc)
     await db.flush()
 
@@ -436,7 +437,11 @@ async def _run_recompute(db: AsyncSession, job: MigrationJob) -> None:
                 db, job.business_id, job.id, job.created_by
             )
         job.recompute_errors = recompute_result["errors"]
-        job.recompute_status = "failed" if recompute_result["errors"] else "done"
+        job.recompute_status = (
+            RecomputeStatus.FAILED
+            if recompute_result["errors"]
+            else RecomputeStatus.DONE
+        )
     except Exception:
         # recompute_after_import() already isolates every step's own
         # exceptions into recompute_errors — reaching here means something
@@ -446,7 +451,7 @@ async def _run_recompute(db: AsyncSession, job: MigrationJob) -> None:
         # before this call) is untouched — a recompute failure must never
         # undo real, already-committed import data.
         await logger.aexception("recompute_after_import_failed", job_id=str(job.id))
-        job.recompute_status = "failed"
+        job.recompute_status = RecomputeStatus.FAILED
         job.recompute_errors = [
             {"step": "unknown", "error": "Recompute failed unexpectedly"}
         ]
@@ -477,7 +482,18 @@ async def recompute_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
         .values(status=MigrationJobStatus.RECOMPUTING)
     )
     if result.rowcount == 0:
-        raise InvalidJobStateError(job.id, "done", job.status.value)
+        # `job.status` here is whatever was loaded before this call — since
+        # the UPDATE's WHERE clause didn't match, that's stale by
+        # definition (the row's real status has since changed). Re-read it
+        # so the error actually reflects the job's current state instead of
+        # always claiming "done".
+        current = await db.execute(
+            select(MigrationJob.status).where(MigrationJob.id == job.id)
+        )
+        actual_status = current.scalar_one_or_none()
+        raise InvalidJobStateError(
+            job.id, "done", actual_status.value if actual_status else "unknown"
+        )
     job.status = MigrationJobStatus.RECOMPUTING
 
     await _run_recompute(db, job)

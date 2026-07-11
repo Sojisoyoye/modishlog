@@ -696,6 +696,68 @@ class TestRecomputeLowStockAlerts:
         db.add.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_variant_level_row_below_threshold_triggers_alert(self):
+        """LowStockAlert has no variant_id column, but a variant sold out by
+        imported sales (_deduct_imported_sales_stock deducts at the variant
+        level) must still trigger the product-level alert — checking only
+        the variant_id=NULL aggregate row would miss it entirely."""
+        from src.data_import.recompute import _recompute_low_stock_alerts
+
+        product_id, variant_id = uuid.uuid4(), uuid.uuid4()
+        variant_row = MagicMock()
+        variant_row.product_id = product_id
+        variant_row.variant_id = variant_id
+        variant_row.quantity_on_hand = 0
+        variant_row.low_stock_threshold = 10
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalars_result([product_id]),
+                _scalars_result([variant_row]),
+                _scalars_result([]),  # no existing ACTIVE alerts
+            ]
+        )
+
+        await _recompute_low_stock_alerts(db, JOB_ID)
+
+        db.add.assert_called_once()
+        alert = db.add.call_args[0][0]
+        assert alert.product_id == product_id
+        assert alert.current_quantity == 0
+
+    @pytest.mark.asyncio
+    async def test_most_critical_row_used_when_multiple_rows_below_threshold(self):
+        """A product with several InventoryLevel rows (aggregate + variants)
+        can have more than one below its own threshold at once — only one
+        alert is created per product (LowStockAlert has no variant_id to
+        distinguish them), using whichever row is most depleted."""
+        from src.data_import.recompute import _recompute_low_stock_alerts
+
+        product_id = uuid.uuid4()
+        variant_a, variant_b = MagicMock(), MagicMock()
+        variant_a.product_id = variant_b.product_id = product_id
+        variant_a.quantity_on_hand = 5
+        variant_a.low_stock_threshold = 10
+        variant_b.quantity_on_hand = 1
+        variant_b.low_stock_threshold = 10
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalars_result([product_id]),
+                _scalars_result([variant_a, variant_b]),
+                _scalars_result([]),
+            ]
+        )
+
+        await _recompute_low_stock_alerts(db, JOB_ID)
+
+        db.add.assert_called_once()
+        alert = db.add.call_args[0][0]
+        assert alert.current_quantity == 1
+
+    @pytest.mark.asyncio
     async def test_existing_active_alert_check_is_batched_not_per_item(self):
         """One query for the whole below-threshold set, not one per
         product — this step runs on every confirmed import and every

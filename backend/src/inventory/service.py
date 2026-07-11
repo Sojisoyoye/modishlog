@@ -111,6 +111,29 @@ async def get_inventory_level(
     return inventory
 
 
+def inventory_on_hand_by_product_subquery():
+    """SQLAlchemy subquery summing quantity_on_hand across every
+    InventoryLevel row for each product.
+
+    A product can have more than one InventoryLevel row — the aggregate
+    (variant_id=NULL) row plus one row per variant — since the migration
+    that let a product have variant-level stock alongside its aggregate
+    row. Any caller that needs one on-hand figure per product (not per
+    variant, e.g. a report or a stock count) must sum across all of a
+    product's rows or it will duplicate/miscount that product wherever it
+    joins InventoryLevel directly by product_id. Centralized here so a new
+    caller doesn't have to rediscover this.
+    """
+    return (
+        select(
+            InventoryLevel.product_id,
+            func.sum(InventoryLevel.quantity_on_hand).label("quantity_on_hand"),
+        )
+        .group_by(InventoryLevel.product_id)
+        .subquery()
+    )
+
+
 async def list_inventory_levels(
     db: AsyncSession,
     *,

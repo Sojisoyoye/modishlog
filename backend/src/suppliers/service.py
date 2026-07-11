@@ -217,22 +217,11 @@ async def get_supplier_stock_report(
     business_id: uuid.UUID,
 ) -> list[StockReportItem]:
     """Products with current stock that were sourced from this supplier."""
-    from src.inventory.models import InventoryLevel
+    from src.inventory.service import inventory_on_hand_by_product_subquery
     from src.orders.models import OrderLineItem, PurchaseOrder
     from src.products.models import Product
 
-    # A product can have more than one InventoryLevel row (one per variant,
-    # plus an optional variant_id=NULL aggregate row) — sum them per product
-    # so this per-product report doesn't list the same SKU multiple times
-    # with different quantities.
-    inventory_subq = (
-        select(
-            InventoryLevel.product_id,
-            func.sum(InventoryLevel.quantity_on_hand).label("quantity_on_hand"),
-        )
-        .group_by(InventoryLevel.product_id)
-        .subquery()
-    )
+    inventory_subq = inventory_on_hand_by_product_subquery()
 
     result = await db.execute(
         select(

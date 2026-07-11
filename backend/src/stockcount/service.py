@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.inventory.models import InventoryLevel
+from src.inventory.service import inventory_on_hand_by_product_subquery
 from src.orders.models import OrderLineItem
 from src.products.models import Product
 from src.stockcount.exceptions import StockCountFinalizedError, StockCountNotFoundError
@@ -49,17 +50,21 @@ async def create_stock_count(
     scoped_product_ids = select(Product.id).where(Product.business_id == business_id)
 
     if StockCountType(count_type) == StockCountType.PRODUCT:
+        # A product can have more than one InventoryLevel row (the
+        # aggregate row plus one per variant) — one distinct product_id per
+        # count line, not one line per InventoryLevel row, or a product
+        # with variants would get duplicate lines for the same SKU.
         result = await db.execute(
-            select(InventoryLevel).where(
-                InventoryLevel.product_id.in_(scoped_product_ids)
-            )
+            select(InventoryLevel.product_id)
+            .where(InventoryLevel.product_id.in_(scoped_product_ids))
+            .distinct()
         )
-        levels = result.scalars().all()
-        for level in levels:
+        product_ids = result.scalars().all()
+        for product_id in product_ids:
             db.add(
                 StockCountItem(
                     stock_count_id=sc.id,
-                    product_id=level.product_id,
+                    product_id=product_id,
                     order_line_item_id=None,
                     system_quantity_at_count=None,
                 )
@@ -146,17 +151,24 @@ async def finalize_stock_count(
     if sc.status == StockCountStatus.FINALIZED:
         raise StockCountFinalizedError(stock_count_id)
 
-    # Batch-fetch system quantities — one query regardless of item count
+    # Batch-fetch system quantities — one query regardless of item count.
+    # Summed per product (not a single InventoryLevel row) — a product can
+    # have more than one InventoryLevel row (the aggregate row plus one per
+    # variant), and collapsing them into one row per product_id would
+    # silently pick an arbitrary variant's quantity instead of the true
+    # total.
     if sc.count_type == StockCountType.PRODUCT:
         product_ids = [item.product_id for item in sc.items]
+        inv_subq = inventory_on_hand_by_product_subquery()
         inv_result = await db.execute(
-            select(InventoryLevel).where(InventoryLevel.product_id.in_(product_ids))
+            select(inv_subq.c.product_id, inv_subq.c.quantity_on_hand).where(
+                inv_subq.c.product_id.in_(product_ids)
+            )
         )
-        inv_by_product = {inv.product_id: inv for inv in inv_result.scalars().all()}
+        totals_by_product = dict(inv_result.all())
         for item in sc.items:
-            inv = inv_by_product.get(item.product_id)
-            item.system_quantity_at_count = (
-                Decimal(str(inv.quantity_on_hand)) if inv else Decimal("0")
+            item.system_quantity_at_count = Decimal(
+                str(totals_by_product.get(item.product_id, 0))
             )
     else:
         lot_ids = [
