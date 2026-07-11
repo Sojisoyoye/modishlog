@@ -508,8 +508,36 @@ async def recompute_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
 
 
 async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
-    if job.status != MigrationJobStatus.DONE:
-        raise InvalidJobStateError(job.id, "done", job.status.value)
+    """Guards against a concurrently-running recompute_job() the same way
+    recompute_job() itself guards against a concurrent re-trigger — a
+    conditional UPDATE rather than a plain `if job.status != DONE` check.
+    Since recompute_job() can now hold RECOMPUTING for the full duration of
+    a real recompute run (not just a brief window), a rollback request that
+    only checked-then-wrote could pass its read while a recompute is still
+    mid-flight, then delete/reverse StockMovement rows concurrently with
+    that recompute's own writes to the same rows — a torn rollback that
+    only reverses part of the concurrent recompute. Claiming ROLLED_BACK
+    immediately (rather than only at the end, once the work is done) is
+    intentional: this function is best-effort past this point regardless
+    of any later per-item failure (recorded in recompute_errors, never
+    raised), so committing to ROLLED_BACK up front matches that guarantee
+    and — more importantly — the row lock is what excludes a concurrent
+    recompute_job() from starting on this job at all.
+    """
+    result = await db.execute(
+        update(MigrationJob)
+        .where(MigrationJob.id == job.id, MigrationJob.status == MigrationJobStatus.DONE)
+        .values(status=MigrationJobStatus.ROLLED_BACK)
+    )
+    if result.rowcount == 0:
+        current = await db.execute(
+            select(MigrationJob.status).where(MigrationJob.id == job.id)
+        )
+        actual_status = current.scalar_one_or_none()
+        raise InvalidJobStateError(
+            job.id, "done", actual_status.value if actual_status else "unknown"
+        )
+    job.status = MigrationJobStatus.ROLLED_BACK
 
     # Compute reversal deltas from the audit trail BEFORE loader_rollback()
     # deletes those StockMovement rows — both the PO-delivery ORDER_RECEIVED
@@ -651,7 +679,6 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
     # audit history someone investigating this job later still needs, even
     # though the import itself is now rolled back.
     job.recompute_errors = (job.recompute_errors or []) + skipped_reversals
-    job.status = MigrationJobStatus.ROLLED_BACK
     await db.flush()
     logger.info(
         "data_import_job_rolled_back", job_id=str(job.id), deleted_counts=deleted_counts

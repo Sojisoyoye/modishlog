@@ -115,17 +115,18 @@ async def get_inventory_level(
 def inventory_on_hand_by_product_subquery(
     product_ids: Collection[uuid.UUID] | None = None,
 ):
-    """SQLAlchemy subquery summing quantity_on_hand across every
-    InventoryLevel row for each product.
+    """SQLAlchemy subquery aggregating every InventoryLevel row for each
+    product into one on-hand quantity and one (most restrictive)
+    low-stock threshold.
 
     A product can have more than one InventoryLevel row — the aggregate
     (variant_id=NULL) row plus one row per variant — since the migration
     that let a product have variant-level stock alongside its aggregate
     row. Any caller that needs one on-hand figure per product (not per
-    variant, e.g. a report or a stock count) must sum across all of a
-    product's rows or it will duplicate/miscount that product wherever it
-    joins InventoryLevel directly by product_id. Centralized here so a new
-    caller doesn't have to rediscover this.
+    variant, e.g. a report, a stock count, or a low-stock check) must
+    aggregate across all of a product's rows or it will duplicate/miscount
+    that product wherever it joins InventoryLevel directly by product_id.
+    Centralized here so a new caller doesn't have to rediscover this.
 
     Pass product_ids when the caller already knows which products it
     needs (e.g. a stock count's own item list) — it scopes the GROUP BY
@@ -135,6 +136,7 @@ def inventory_on_hand_by_product_subquery(
     query = select(
         InventoryLevel.product_id,
         func.sum(InventoryLevel.quantity_on_hand).label("quantity_on_hand"),
+        func.min(InventoryLevel.low_stock_threshold).label("low_stock_threshold"),
     )
     if product_ids is not None:
         query = query.where(InventoryLevel.product_id.in_(product_ids))

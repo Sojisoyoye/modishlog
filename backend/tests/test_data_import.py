@@ -1135,8 +1135,33 @@ class TestConfirmationGate:
     @pytest.mark.asyncio
     async def test_rollback_requires_done_status(self):
         job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+        no_match = MagicMock()
+        no_match.rowcount = 0
+        db.execute = AsyncMock(return_value=no_match)
         with pytest.raises(InvalidJobStateError):
-            await rollback_job(_mock_db(), job)
+            await rollback_job(db, job)
+
+    @pytest.mark.asyncio
+    async def test_rollback_rejects_concurrent_recompute(self):
+        """A rollback that loses the race against a concurrently-running
+        recompute_job() (status flipped to RECOMPUTING, still mid-flight)
+        must not proceed — deleting/reversing StockMovement rows while that
+        recompute is still writing to them would produce a torn rollback
+        that only reverses part of its work."""
+        job = _make_job(status=MigrationJobStatus.DONE)
+        db = _mock_db()
+        lost_race = MagicMock()
+        lost_race.rowcount = 0
+        db.execute = AsyncMock(return_value=lost_race)
+
+        with patch(
+            "src.data_import.service.loader_rollback", new=AsyncMock()
+        ) as mock_loader_rollback:
+            with pytest.raises(InvalidJobStateError):
+                await rollback_job(db, job)
+
+        mock_loader_rollback.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_rollback_reverses_deduped_products_stock_movement_and_regenerates_suggestions(self):
@@ -1150,6 +1175,8 @@ class TestConfirmationGate:
         deduped_product_id = uuid.uuid4()
 
         db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
         empty_scalars = MagicMock()
         empty_scalars.scalars.return_value.all.return_value = []
         movement_deltas = MagicMock()
@@ -1160,6 +1187,7 @@ class TestConfirmationGate:
         empty_inventory.scalars.return_value.all.return_value = []
         db.execute = AsyncMock(
             side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
                 movement_deltas,  # StockMovement group-by deltas
                 empty_scalars,  # Product.id where migration_id == job.id (none new)
                 MagicMock(),  # delete(PriceHistory)
@@ -1214,6 +1242,8 @@ class TestConfirmationGate:
         deduped_product_id = uuid.uuid4()
 
         db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
         empty_scalars = MagicMock()
         empty_scalars.scalars.return_value.all.return_value = []
         movement_deltas = MagicMock()
@@ -1228,6 +1258,7 @@ class TestConfirmationGate:
 
         db.execute = AsyncMock(
             side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
                 movement_deltas,
                 empty_scalars,
                 MagicMock(),  # delete(PriceHistory)
@@ -1247,7 +1278,7 @@ class TestConfirmationGate:
         ):
             await rollback_job(db, job)
 
-        resolve_stmt = db.execute.await_args_list[4].args[0]
+        resolve_stmt = db.execute.await_args_list[5].args[0]
         compiled = resolve_stmt.compile(compile_kwargs={"literal_binds": True})
         assert "RESOLVED" in str(compiled) or AlertStatus.RESOLVED.value in str(compiled)
 
@@ -1262,6 +1293,8 @@ class TestConfirmationGate:
         new_product_id = uuid.uuid4()
 
         db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
         movement_deltas = MagicMock()
         movement_deltas.all.return_value = [(new_product_id, None, 10)]
         new_products = MagicMock()
@@ -1270,6 +1303,7 @@ class TestConfirmationGate:
         empty_inventory.scalars.return_value.all.return_value = []
         db.execute = AsyncMock(
             side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
                 movement_deltas,
                 new_products,
                 MagicMock(),  # delete(LowStockAlert) for new_product_id
@@ -1311,6 +1345,8 @@ class TestConfirmationGate:
         deduped_product_id = uuid.uuid4()
 
         db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
         movement_deltas = MagicMock()
         movement_deltas.all.return_value = [(deduped_product_id, None, 30)]
         empty_scalars = MagicMock()
@@ -1319,6 +1355,7 @@ class TestConfirmationGate:
         empty_inventory.scalars.return_value.all.return_value = []
         db.execute = AsyncMock(
             side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
                 movement_deltas,
                 empty_scalars,  # no new products
                 MagicMock(),  # delete(PriceHistory)
@@ -1363,12 +1400,15 @@ class TestConfirmationGate:
         ]
 
         db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
         empty_movements = MagicMock()
         empty_movements.all.return_value = []
         empty_scalars = MagicMock()
         empty_scalars.scalars.return_value.all.return_value = []
         db.execute = AsyncMock(
             side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
                 empty_movements,  # no movement deltas to reverse
                 empty_scalars,  # no new products
                 MagicMock(),  # delete(PriceHistory)
@@ -1402,6 +1442,8 @@ class TestConfirmationGate:
         deduped_product_id = uuid.uuid4()
 
         db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
         empty_scalars = MagicMock()
         empty_scalars.scalars.return_value.all.return_value = []
         movement_deltas = MagicMock()
@@ -1410,6 +1452,7 @@ class TestConfirmationGate:
         empty_inventory.scalars.return_value.all.return_value = []
         db.execute = AsyncMock(
             side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
                 movement_deltas,
                 empty_scalars,
                 MagicMock(),  # delete(PriceHistory)

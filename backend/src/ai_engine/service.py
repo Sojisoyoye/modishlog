@@ -29,7 +29,7 @@ from src.ai_engine.models import (
 )
 from src.cashflow.models import LoanObligation, LoanStatus
 from src.core.ai_safety import contains_pii_check  # noqa: F401  re-exported; E6 PII guard
-from src.inventory.models import InventoryLevel, MovementType, StockMovement
+from src.inventory.models import MovementType, StockMovement
 from src.inventory.service import inventory_on_hand_by_product_subquery
 from src.orders.models import (
     OrderPayment,
@@ -265,14 +265,10 @@ async def _generate_order_timing_recommendations(
     business_id: uuid.UUID,
 ) -> list[AIRecommendation]:
     """Generate reorder recommendations based on inventory depletion and FX forecasts."""
-    # A product can have more than one InventoryLevel row (the aggregate
-    # row plus one per variant, see data_import/recompute.py) — scoping to
-    # variant_id IS NULL only would both duplicate recommendations for a
-    # product with multiple rows AND silently skip a product that has no
-    # aggregate row at all (e.g. one imported with only variant-level
-    # sales). Sum on-hand and take the most restrictive threshold across
-    # every row for the product instead, so exactly one recommendation is
-    # produced per product using its true total stock.
+    # Reuses the shared aggregation helper (see its docstring) instead of
+    # hand-rolling the same sum-across-every-row-per-product query here —
+    # this function and generate_reorder_suggestions() need the identical
+    # rule, and a second inline copy risks drifting from the shared one.
     #
     # Joined to Product and filtered by business_id — without it this
     # scans every business's InventoryLevel rows and generate_all_
@@ -280,18 +276,17 @@ async def _generate_order_timing_recommendations(
     # the caller's business_id, leaking other tenants' stock levels and
     # product names into the caller's recommendations (same class of bug
     # fixed in the sibling generate_reorder_suggestions()).
+    inventory_subq = inventory_on_hand_by_product_subquery()
     result = await db.execute(
         select(
-            InventoryLevel.product_id,
-            func.sum(InventoryLevel.quantity_on_hand).label("quantity_on_hand"),
-            func.min(InventoryLevel.low_stock_threshold).label("low_stock_threshold"),
+            inventory_subq.c.product_id,
+            inventory_subq.c.quantity_on_hand,
+            inventory_subq.c.low_stock_threshold,
         )
-        .join(Product, Product.id == InventoryLevel.product_id)
-        .where(Product.business_id == business_id)
-        .group_by(InventoryLevel.product_id)
-        .having(
-            func.sum(InventoryLevel.quantity_on_hand)
-            <= func.min(InventoryLevel.low_stock_threshold)
+        .join(Product, Product.id == inventory_subq.c.product_id)
+        .where(
+            Product.business_id == business_id,
+            inventory_subq.c.quantity_on_hand <= inventory_subq.c.low_stock_threshold,
         )
     )
     low_stock_items = list(result.all())
