@@ -280,6 +280,22 @@ async def confirm_job(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+@router.post("/jobs/{job_id}/recompute", response_model=MigrationJobRead)
+async def recompute_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    try:
+        job = await service.get_job(db, job_id, business_id=business_id)
+    except MigrationJobNotFoundError:
+        raise HTTPException(status_code=404, detail="Migration job not found")
+    try:
+        return await service.recompute_job(db, job)
+    except InvalidJobStateError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+
 @router.delete("/jobs/{job_id}", response_model=MigrationJobRead)
 async def rollback_job(
     job_id: uuid.UUID,

@@ -12,9 +12,10 @@ from datetime import datetime, timezone
 import anyio
 import structlog
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.ai_engine.models import ReorderSuggestion
 from src.core.config import settings
 from src.data_import.etl.adapters.registry import API_ADAPTERS, CSV_ADAPTERS
 from src.data_import.etl.extractor import CSVExtractor
@@ -36,7 +37,14 @@ from src.data_import.models import (
     ExtractionMode,
     MigrationJob,
     MigrationJobStatus,
+    RecomputeStatus,
     SourceSystem,
+)
+from src.data_import.recompute import (
+    find_most_critical_inventory_rows,
+    recompute_after_import,
+    regenerate_reorder_suggestions_for_business,
+    run_isolated,
 )
 from src.data_import.schemas import (
     ConfirmationSnapshot,
@@ -47,11 +55,19 @@ from src.inventory.exceptions import (
     InvalidStockAdjustmentError,
     ProductStockNotFoundError,
 )
+from src.inventory.models import (
+    AlertStatus,
+    LowStockAlert,
+    MovementType,
+    StockMovement,
+)
+from src.inventory.service import adjust_stock
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
     OrderLineItemError,
     OrderNotFoundError,
 )
+from src.products.models import PriceHistory, Product
 
 logger = structlog.get_logger()
 
@@ -391,19 +407,289 @@ async def confirm_job(
         raise PurchaseOrderImportError(e) from e
 
     job.row_counts = row_counts
+    job.status = MigrationJobStatus.RECOMPUTING
+    await _run_recompute(db, job)
     job.status = MigrationJobStatus.DONE
     job.completed_at = datetime.now(timezone.utc)
     await db.flush()
-    logger.info("data_import_job_confirmed", job_id=str(job.id), row_counts=row_counts)
+    logger.info(
+        "data_import_job_confirmed",
+        job_id=str(job.id),
+        row_counts=row_counts,
+        recompute_status=job.recompute_status,
+    )
+    return job
+
+
+async def _run_recompute(db: AsyncSession, job: MigrationJob) -> None:
+    """Shared by confirm_job() (automatic, right after a successful import)
+    and recompute_job() (manual re-trigger, e.g. to retry a failed
+    recompute). Mutates `job`'s recompute_* fields in place; does not flush
+    or change `job.status` — the caller owns that.
+    """
+    job.recompute_status = RecomputeStatus.RUNNING
+    job.recompute_started_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    try:
+        async with db.begin_nested():
+            recompute_result = await recompute_after_import(
+                db, job.business_id, job.id, job.created_by
+            )
+        job.recompute_errors = recompute_result["errors"]
+        job.recompute_status = (
+            RecomputeStatus.FAILED
+            if recompute_result["errors"]
+            else RecomputeStatus.DONE
+        )
+    except Exception:
+        # recompute_after_import() already isolates every step's own
+        # exceptions into recompute_errors — reaching here means something
+        # entirely unexpected slipped through (a genuine bug, a DB
+        # connectivity blip). The SAVEPOINT rolls back whatever partial
+        # recompute work was in flight; the import itself (already flushed
+        # before this call) is untouched — a recompute failure must never
+        # undo real, already-committed import data.
+        await logger.aexception("recompute_after_import_failed", job_id=str(job.id))
+        job.recompute_status = RecomputeStatus.FAILED
+        job.recompute_errors = [
+            {"step": "unknown", "error": "Recompute failed unexpectedly"}
+        ]
+
+    job.recompute_completed_at = datetime.now(timezone.utc)
+
+
+async def _claim_job_status(
+    db: AsyncSession,
+    job: MigrationJob,
+    *,
+    from_status: MigrationJobStatus,
+    to_status: MigrationJobStatus,
+) -> None:
+    """Atomically transitions job.status from_status -> to_status with a
+    conditional UPDATE, rather than a plain `if job.status != from_status`
+    read-then-write check — two concurrent callers would otherwise both
+    read the same status and both proceed, e.g. double-deducting stock or
+    racing a rollback against a still-running recompute. The UPDATE's WHERE
+    clause only matches while status is still from_status; Postgres
+    serializes concurrent UPDATEs to the same row via the row lock, so the
+    loser's WHERE clause finds status already changed and its rowcount is 0.
+
+    Shared by recompute_job() (DONE -> RECOMPUTING) and rollback_job()
+    (DONE -> ROLLED_BACK) — both need the identical claim-or-raise sequence
+    against the same status column.
+
+    Mutates `job.status` to to_status on success; raises InvalidJobStateError
+    (reporting the job's actual current status, re-read since `job.status`
+    is stale the moment the UPDATE doesn't match) on a lost race.
+    """
+    result = await db.execute(
+        update(MigrationJob)
+        .where(MigrationJob.id == job.id, MigrationJob.status == from_status)
+        .values(status=to_status)
+    )
+    if result.rowcount == 0:
+        current = await db.execute(
+            select(MigrationJob.status).where(MigrationJob.id == job.id)
+        )
+        actual_status = current.scalar_one_or_none()
+        raise InvalidJobStateError(
+            job.id,
+            from_status.value,
+            actual_status.value if actual_status else "unknown",
+        )
+    job.status = to_status
+
+
+async def recompute_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
+    """Manual re-trigger for a completed import — retries a failed
+    recompute, or refreshes derived state (price suggestions, reorder
+    suggestions) against data that's changed since the import ran.
+
+    Guards against a concurrent re-trigger (e.g. a double-click, or two
+    racing requests) — see _claim_job_status()'s docstring.
+    """
+    await _claim_job_status(
+        db,
+        job,
+        from_status=MigrationJobStatus.DONE,
+        to_status=MigrationJobStatus.RECOMPUTING,
+    )
+
+    await _run_recompute(db, job)
+    job.status = MigrationJobStatus.DONE
+    await db.flush()
+    logger.info(
+        "data_import_job_recomputed",
+        job_id=str(job.id),
+        recompute_status=job.recompute_status,
+    )
     return job
 
 
 async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
-    if job.status != MigrationJobStatus.DONE:
-        raise InvalidJobStateError(job.id, "done", job.status.value)
+    """Guards against a concurrently-running recompute_job() — see
+    _claim_job_status()'s docstring. Since recompute_job() can now hold
+    RECOMPUTING for the full duration of a real recompute run (not just a
+    brief window), a rollback request that only checked-then-wrote could
+    pass its read while a recompute is still mid-flight, then delete/
+    reverse StockMovement rows concurrently with that recompute's own
+    writes to the same rows — a torn rollback that only reverses part of
+    the concurrent recompute. Claiming ROLLED_BACK immediately (rather than
+    only at the end, once the work is done) is intentional: this function
+    is best-effort past this point regardless of any later per-item
+    failure (recorded in recompute_errors, never raised), so committing to
+    ROLLED_BACK up front matches that guarantee and — more importantly —
+    the row lock is what excludes a concurrent recompute_job() from
+    starting on this job at all.
+    """
+    await _claim_job_status(
+        db,
+        job,
+        from_status=MigrationJobStatus.DONE,
+        to_status=MigrationJobStatus.ROLLED_BACK,
+    )
+
+    # Compute reversal deltas from the audit trail BEFORE loader_rollback()
+    # deletes those StockMovement rows — both the PO-delivery ORDER_RECEIVED
+    # movements (Part A) and the SALE_DEPLETION movements recompute_after_
+    # import() creates are tagged with this migration_id.
+    movements_result = await db.execute(
+        select(
+            StockMovement.product_id,
+            StockMovement.variant_id,
+            func.sum(StockMovement.quantity_change),
+        )
+        .where(StockMovement.migration_id == job.id)
+        .group_by(StockMovement.product_id, StockMovement.variant_id)
+    )
+    movement_deltas = movements_result.all()
+
+    # PriceHistory/LowStockAlert/ReorderSuggestion reference products.id
+    # with no ON DELETE CASCADE — loader_rollback()'s DELETE FROM products
+    # (for genuinely new products) would hit an FK violation unless these
+    # are cleared first. PriceSuggestion has ondelete="CASCADE" already, so
+    # no explicit cleanup needed for it.
+    new_product_ids_result = await db.execute(
+        select(Product.id).where(Product.migration_id == job.id)
+    )
+    new_product_ids = list(new_product_ids_result.scalars().all())
+    if new_product_ids:
+        await db.execute(
+            delete(LowStockAlert).where(LowStockAlert.product_id.in_(new_product_ids))
+        )
+        await db.execute(
+            delete(ReorderSuggestion).where(
+                ReorderSuggestion.product_id.in_(new_product_ids)
+            )
+        )
+    await db.execute(delete(PriceHistory).where(PriceHistory.migration_id == job.id))
 
     deleted_counts = await loader_rollback(db, job.id)
-    job.status = MigrationJobStatus.ROLLED_BACK
+
+    # Reverse the derived inventory effects loader_rollback() can't reach
+    # generically — a deduped (pre-existing) product's InventoryLevel row
+    # isn't migration_id-tagged, so it survived the generic delete above
+    # with its quantity still reflecting this import's PO deliveries and
+    # sales deductions.
+    skipped_reversals: list[dict] = []
+    for product_id, variant_id, net_delta in movement_deltas:
+        reversal = -int(net_delta)
+        if reversal == 0:
+            continue
+        # Isolated in its own SAVEPOINT — same reasoning as every
+        # DB-mutating recompute loop (see run_isolated's docstring): a real
+        # DB-level failure here must not poison the rest of this loop or
+        # the reorder-suggestion regeneration that follows it.
+        # ProductStockNotFoundError is silently expected (the product was
+        # newly-created by this import and already deleted above by
+        # loader_rollback() — nothing left to reverse); anything else
+        # (including InvalidStockAdjustmentError — stock moved further
+        # since the import and the reversal would go negative) is
+        # best-effort skipped but surfaced via the API, or a trader would
+        # believe the import was fully undone when a product's on-hand
+        # quantity is still inflated by it.
+        _, error = await run_isolated(
+            db,
+            lambda pid=product_id, vid=variant_id, r=reversal: adjust_stock(
+                db,
+                product_id=pid,
+                quantity_change=r,
+                # Not MovementType.STOCK_ADJUSTMENT — the movement_type
+                # Postgres enum has real schema drift (some labels are the
+                # upper-cased Python .name, some are the lower-cased
+                # .value; STOCK_ADJUSTMENT/OPENING_STOCK were only ever
+                # migrated in lower-case, so this values_callable-less
+                # Enum(MovementType) column, which serializes new values
+                # via .name, can't insert "STOCK_ADJUSTMENT"). MANUAL_ADD/
+                # MANUAL_REMOVE are correctly registered and fit a
+                # rollback-driven administrative adjustment just as well.
+                movement_type=(
+                    MovementType.MANUAL_ADD.value
+                    if r > 0
+                    else MovementType.MANUAL_REMOVE.value
+                ),
+                reason="Migration rollback — reversing imported stock movement",
+                user_id=job.created_by,
+                business_id=job.business_id,
+                variant_id=vid,
+            ),
+            log_event="rollback_stock_reversal_failed",
+            error_entry={
+                "step": "rollback_stock_reversal",
+                "product_id": str(product_id),
+            },
+            silent_exceptions=(ProductStockNotFoundError,),
+        )
+        if error:
+            skipped_reversals.append(error)
+
+    # Re-evaluate LowStockAlert status for every product this rollback
+    # touched, not just newly-created ones cleared above — a deduped
+    # (pre-existing) product's alert was created by the original import's
+    # recompute run and is not migration_id-tagged, so the generic
+    # `products.id`-scoped delete above never reaches it. If the reversal
+    # loop above restored its stock back above threshold, the alert must be
+    # resolved here or it stays ACTIVE forever.
+    #
+    # Uses the same find_most_critical_inventory_rows() helper
+    # _recompute_low_stock_alerts() uses to decide whether to *raise* an
+    # alert — sharing the "is this product below threshold" comparison
+    # keeps recompute's alert-raising and rollback's alert-resolving from
+    # silently disagreeing about the same product.
+    reversed_product_ids = {pid for pid, _, _ in movement_deltas}
+    if reversed_product_ids:
+        still_low_product_ids = (
+            await find_most_critical_inventory_rows(db, reversed_product_ids)
+        ).keys()
+        now_ok_product_ids = reversed_product_ids - still_low_product_ids
+        if now_ok_product_ids:
+            await db.execute(
+                update(LowStockAlert)
+                .where(
+                    LowStockAlert.product_id.in_(now_ok_product_ids),
+                    LowStockAlert.status == AlertStatus.ACTIVE,
+                )
+                .values(
+                    status=AlertStatus.RESOLVED,
+                    resolved_at=datetime.now(timezone.utc),
+                )
+            )
+
+    reorder_error = await regenerate_reorder_suggestions_for_business(
+        db, job.business_id, log_event="rollback_reorder_regeneration_failed"
+    )
+    if reorder_error:
+        skipped_reversals.append(
+            {"step": "reorder_suggestions", "error": reorder_error}
+        )
+
+    # Append, don't overwrite — job.recompute_errors may already hold a
+    # record of problems from the original import's confirm_job() recompute
+    # run (e.g. understated FIFO COGS, a missing price suggestion). That's
+    # audit history someone investigating this job later still needs, even
+    # though the import itself is now rolled back.
+    job.recompute_errors = (job.recompute_errors or []) + skipped_reversals
     await db.flush()
     logger.info(
         "data_import_job_rolled_back", job_id=str(job.id), deleted_counts=deleted_counts

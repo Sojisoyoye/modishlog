@@ -217,9 +217,11 @@ async def get_supplier_stock_report(
     business_id: uuid.UUID,
 ) -> list[StockReportItem]:
     """Products with current stock that were sourced from this supplier."""
-    from src.inventory.models import InventoryLevel
+    from src.inventory.service import inventory_on_hand_by_product_subquery
     from src.orders.models import OrderLineItem, PurchaseOrder
     from src.products.models import Product
+
+    inventory_subq = inventory_on_hand_by_product_subquery()
 
     result = await db.execute(
         select(
@@ -227,12 +229,12 @@ async def get_supplier_stock_report(
             Product.sku,
             Product.name,
             Product.unit_cost,
-            InventoryLevel.quantity_on_hand,
+            inventory_subq.c.quantity_on_hand,
         )
         .join(OrderLineItem, OrderLineItem.product_id == Product.id)
         .join(PurchaseOrder, PurchaseOrder.id == OrderLineItem.order_id)
         .join(Supplier, Supplier.id == PurchaseOrder.supplier_id)
-        .join(InventoryLevel, InventoryLevel.product_id == Product.id)
+        .join(inventory_subq, inventory_subq.c.product_id == Product.id)
         .where(
             PurchaseOrder.supplier_id == supplier_id,
             Supplier.business_id == business_id,

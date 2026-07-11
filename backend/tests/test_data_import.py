@@ -17,7 +17,7 @@ from src.data_import.etl.extractor import (
 )
 from src.data_import.etl.loader import load as loader_load
 from src.data_import.etl.loader import rollback as loader_rollback
-from src.inventory.models import InventoryLevel
+from src.inventory.models import InventoryLevel, MovementType
 from src.data_import.etl.transformer import (
     IdMap,
     Transformer,
@@ -32,17 +32,10 @@ from src.data_import.models import (
     SourceSystem,
 )
 from src.data_import.service import build_confirmation_snapshot, confirm_job, rollback_job
+from tests.conftest import mock_db as _mock_db
 
 BUSINESS_ID = uuid.uuid4()
 CREATED_BY = uuid.uuid4()
-
-
-def _mock_db():
-    db = AsyncMock()
-    db.flush = AsyncMock()
-    db.add = MagicMock()
-    db.add_all = MagicMock()
-    return db
 
 
 def _none_result():
@@ -1142,8 +1135,430 @@ class TestConfirmationGate:
     @pytest.mark.asyncio
     async def test_rollback_requires_done_status(self):
         job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+        no_match = MagicMock()
+        no_match.rowcount = 0
+        db.execute = AsyncMock(return_value=no_match)
         with pytest.raises(InvalidJobStateError):
-            await rollback_job(_mock_db(), job)
+            await rollback_job(db, job)
+
+    @pytest.mark.asyncio
+    async def test_rollback_rejects_concurrent_recompute(self):
+        """A rollback that loses the race against a concurrently-running
+        recompute_job() (status flipped to RECOMPUTING, still mid-flight)
+        must not proceed — deleting/reversing StockMovement rows while that
+        recompute is still writing to them would produce a torn rollback
+        that only reverses part of its work."""
+        job = _make_job(status=MigrationJobStatus.DONE)
+        db = _mock_db()
+        lost_race = MagicMock()
+        lost_race.rowcount = 0
+        db.execute = AsyncMock(return_value=lost_race)
+
+        with patch(
+            "src.data_import.service.loader_rollback", new=AsyncMock()
+        ) as mock_loader_rollback:
+            with pytest.raises(InvalidJobStateError):
+                await rollback_job(db, job)
+
+        mock_loader_rollback.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rollback_reverses_deduped_products_stock_movement_and_regenerates_suggestions(self):
+        """A deduped (pre-existing) product's InventoryLevel row isn't
+        migration_id-tagged, so loader_rollback()'s generic delete never
+        touches it — its quantity still reflects this import's PO
+        deliveries/sales deductions after loader_rollback() runs. This must
+        be reversed via adjust_stock(), using the StockMovement audit trail
+        captured *before* loader_rollback() deletes it."""
+        job = _make_job(status=MigrationJobStatus.DONE)
+        deduped_product_id = uuid.uuid4()
+
+        db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        movement_deltas = MagicMock()
+        # Net +30 from PO deliveries, -50 from sales deductions => -20 net;
+        # reversing requires adding back 20.
+        movement_deltas.all.return_value = [(deduped_product_id, None, -20)]
+        empty_inventory = MagicMock()
+        empty_inventory.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(
+            side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
+                movement_deltas,  # StockMovement group-by deltas
+                empty_scalars,  # Product.id where migration_id == job.id (none new)
+                MagicMock(),  # delete(PriceHistory)
+                empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
+                MagicMock(),  # UPDATE LowStockAlert -> RESOLVED (no InventoryLevel rows left)
+                MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
+            ]
+        )
+
+        with (
+            patch(
+                "src.data_import.service.loader_rollback",
+                new=AsyncMock(return_value={"sales": 3}),
+            ) as mock_loader_rollback,
+            patch("src.data_import.service.adjust_stock", new=AsyncMock()) as mock_adjust,
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ) as mock_regen,
+        ):
+            result = await rollback_job(db, job)
+
+        mock_loader_rollback.assert_awaited_once_with(db, job.id)
+        mock_adjust.assert_awaited_once()
+        _, kwargs = mock_adjust.call_args
+        assert kwargs["product_id"] == deduped_product_id
+        assert kwargs["quantity_change"] == 20
+        # Not MovementType.STOCK_ADJUSTMENT — the `movement_type` Postgres
+        # enum has real schema drift (some labels are upper-cased .name,
+        # some are lower-cased .value; STOCK_ADJUSTMENT was only ever
+        # migrated in as lower-case "stock_adjustment", so the
+        # values_callable-less Enum(MovementType) column, which serializes
+        # via .name, can't insert it). MANUAL_ADD/MANUAL_REMOVE are
+        # correctly registered and semantically fit a rollback-driven
+        # administrative adjustment just as well.
+        assert kwargs["movement_type"] == MovementType.MANUAL_ADD.value
+        mock_regen.assert_awaited_once_with(db, job.business_id)
+        assert result.status == MigrationJobStatus.ROLLED_BACK
+
+    @pytest.mark.asyncio
+    async def test_rollback_resolves_alert_for_product_with_only_a_variant_level_row(self):
+        """A product imported with only variant-level sales may have no
+        variant_id=NULL aggregate InventoryLevel row at all — the alert
+        re-evaluation must check every row for the product (matching
+        recompute.py's _recompute_low_stock_alerts, which can trigger an
+        alert off a variant row in the first place), not just the aggregate
+        one, or the alert would stay ACTIVE forever after a rollback that
+        actually restored the variant's stock above threshold."""
+        from src.inventory.models import AlertStatus
+
+        job = _make_job(status=MigrationJobStatus.DONE)
+        deduped_product_id = uuid.uuid4()
+
+        db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        movement_deltas = MagicMock()
+        movement_deltas.all.return_value = [(deduped_product_id, uuid.uuid4(), -20)]
+
+        variant_row = MagicMock()
+        variant_row.product_id = deduped_product_id
+        variant_row.quantity_on_hand = 50
+        variant_row.low_stock_threshold = 10
+        variant_level_result = MagicMock()
+        variant_level_result.scalars.return_value.all.return_value = [variant_row]
+
+        db.execute = AsyncMock(
+            side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
+                movement_deltas,
+                empty_scalars,
+                MagicMock(),  # delete(PriceHistory)
+                variant_level_result,  # LowStockAlert re-evaluation InventoryLevel select
+                MagicMock(),  # UPDATE LowStockAlert -> RESOLVED
+                MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
+            ]
+        )
+
+        with (
+            patch("src.data_import.service.loader_rollback", new=AsyncMock(return_value={})),
+            patch("src.data_import.service.adjust_stock", new=AsyncMock()),
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            await rollback_job(db, job)
+
+        resolve_stmt = db.execute.await_args_list[5].args[0]
+        compiled = resolve_stmt.compile(compile_kwargs={"literal_binds": True})
+        assert "RESOLVED" in str(compiled) or AlertStatus.RESOLVED.value in str(compiled)
+
+    @pytest.mark.asyncio
+    async def test_rollback_ignores_product_stock_not_found_for_already_deleted_products(self):
+        """A product genuinely *created* by this import is fully deleted by
+        loader_rollback() (including its InventoryLevel row) — reversing
+        its stock movement afterward must not fail the whole rollback."""
+        from src.inventory.exceptions import ProductStockNotFoundError
+
+        job = _make_job(status=MigrationJobStatus.DONE)
+        new_product_id = uuid.uuid4()
+
+        db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
+        movement_deltas = MagicMock()
+        movement_deltas.all.return_value = [(new_product_id, None, 10)]
+        new_products = MagicMock()
+        new_products.scalars.return_value.all.return_value = [new_product_id]
+        empty_inventory = MagicMock()
+        empty_inventory.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(
+            side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
+                movement_deltas,
+                new_products,
+                MagicMock(),  # delete(LowStockAlert) for new_product_id
+                MagicMock(),  # delete(ReorderSuggestion) for new_product_id
+                MagicMock(),  # delete(PriceHistory)
+                empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
+                MagicMock(),  # UPDATE LowStockAlert -> RESOLVED (no InventoryLevel rows left)
+                MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
+            ]
+        )
+
+        with (
+            patch("src.data_import.service.loader_rollback", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.adjust_stock",
+                new=AsyncMock(side_effect=ProductStockNotFoundError(new_product_id)),
+            ),
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            result = await rollback_job(db, job)
+
+        assert result.status == MigrationJobStatus.ROLLED_BACK
+
+    @pytest.mark.asyncio
+    async def test_rollback_ignores_invalid_stock_adjustment_for_deduped_product(self):
+        """A deduped product's stock may have moved further since the
+        import (real sales recorded, or recompute already deducted it) —
+        the reversal delta can legitimately push quantity_on_hand negative.
+        adjust_stock() rejects that with InvalidStockAdjustmentError; that
+        must be a best-effort skip (same as a since-deleted product), not
+        an unhandled 500 that leaves the rollback half-applied and the job
+        stuck (never reaching ROLLED_BACK)."""
+        from src.inventory.exceptions import InvalidStockAdjustmentError
+
+        job = _make_job(status=MigrationJobStatus.DONE)
+        deduped_product_id = uuid.uuid4()
+
+        db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
+        movement_deltas = MagicMock()
+        movement_deltas.all.return_value = [(deduped_product_id, None, 30)]
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        empty_inventory = MagicMock()
+        empty_inventory.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(
+            side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
+                movement_deltas,
+                empty_scalars,  # no new products
+                MagicMock(),  # delete(PriceHistory)
+                empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
+                MagicMock(),  # UPDATE LowStockAlert -> RESOLVED (no InventoryLevel rows left)
+                MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
+            ]
+        )
+
+        with (
+            patch("src.data_import.service.loader_rollback", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.adjust_stock",
+                new=AsyncMock(
+                    side_effect=InvalidStockAdjustmentError(deduped_product_id, -30, 10)
+                ),
+            ),
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            result = await rollback_job(db, job)
+
+        assert result.status == MigrationJobStatus.ROLLED_BACK
+        # Must not just log server-side — the trader needs to know this
+        # product's stock is still inflated, not believe the rollback
+        # fully undid the import.
+        assert len(result.recompute_errors) == 1
+        assert result.recompute_errors[0]["product_id"] == str(deduped_product_id)
+
+    @pytest.mark.asyncio
+    async def test_rollback_appends_to_recompute_errors_instead_of_overwriting(self):
+        """job.recompute_errors may already hold a record of problems from
+        the original import's confirm_job() recompute run (e.g. understated
+        FIFO COGS). A clean rollback (nothing skipped) must not silently
+        erase that audit history — someone investigating this job later
+        (e.g. via a support ticket) still needs to see it."""
+        job = _make_job(status=MigrationJobStatus.DONE)
+        job.recompute_errors = [
+            {"step": "fifo_cogs", "sale_id": "abc", "error": "understated"}
+        ]
+
+        db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
+        empty_movements = MagicMock()
+        empty_movements.all.return_value = []
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(
+            side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
+                empty_movements,  # no movement deltas to reverse
+                empty_scalars,  # no new products
+                MagicMock(),  # delete(PriceHistory)
+                MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
+            ]
+        )
+
+        with (
+            patch("src.data_import.service.loader_rollback", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            result = await rollback_job(db, job)
+
+        assert len(result.recompute_errors) == 1
+        assert result.recompute_errors[0]["step"] == "fifo_cogs"
+
+    @pytest.mark.asyncio
+    async def test_rollback_stock_reversal_and_reorder_regen_use_per_item_savepoints(
+        self,
+    ):
+        """rollback_job() has no outer SAVEPOINT of its own (unlike
+        confirm_job()/recompute_job(), which run inside _run_recompute's
+        db.begin_nested()) — a real DB-level failure in either the
+        per-product reversal loop or the reorder-suggestion regeneration
+        must not poison the rest of the rollback. Both must open their own
+        nested SAVEPOINT."""
+        job = _make_job(status=MigrationJobStatus.DONE)
+        deduped_product_id = uuid.uuid4()
+
+        db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        movement_deltas = MagicMock()
+        movement_deltas.all.return_value = [(deduped_product_id, None, -20)]
+        empty_inventory = MagicMock()
+        empty_inventory.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(
+            side_effect=[
+                won_race,  # conditional UPDATE claiming ROLLED_BACK
+                movement_deltas,
+                empty_scalars,
+                MagicMock(),  # delete(PriceHistory)
+                empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
+                MagicMock(),  # UPDATE LowStockAlert -> RESOLVED (no InventoryLevel rows left)
+                MagicMock(),  # delete(ReorderSuggestion) PENDING, inside regen's savepoint
+            ]
+        )
+
+        with (
+            patch("src.data_import.service.loader_rollback", new=AsyncMock(return_value={})),
+            patch("src.data_import.service.adjust_stock", new=AsyncMock()),
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            await rollback_job(db, job)
+
+        # 1 for the stock-reversal item + 1 for the reorder-regen call.
+        assert db.begin_nested.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_recompute_job_requires_done_status(self):
+        from src.data_import.service import recompute_job
+
+        job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+        no_match = MagicMock()
+        no_match.rowcount = 0
+        db.execute = AsyncMock(return_value=no_match)
+        with pytest.raises(InvalidJobStateError):
+            await recompute_job(db, job)
+
+    @pytest.mark.asyncio
+    async def test_recompute_job_rejects_concurrent_retrigger(self):
+        """Two racing POST /jobs/{id}/recompute calls must not both run the
+        recompute steps against the same rows — the conditional UPDATE's
+        WHERE clause only matches while status is still DONE, so a request
+        that loses the race (status already flipped to RECOMPUTING by the
+        other one) sees rowcount 0 and must raise, not silently proceed."""
+        from src.data_import.service import recompute_job
+
+        job = _make_job(status=MigrationJobStatus.DONE)
+        db = _mock_db()
+        lost_race = MagicMock()
+        lost_race.rowcount = 0
+        db.execute = AsyncMock(return_value=lost_race)
+
+        with patch(
+            "src.data_import.service.recompute_after_import", new=AsyncMock()
+        ) as mock_recompute:
+            with pytest.raises(InvalidJobStateError):
+                await recompute_job(db, job)
+
+        mock_recompute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_recompute_job_lost_race_error_reports_actual_current_status(self):
+        """The in-memory `job` object was loaded before the conditional
+        UPDATE ran, so on a lost race it's stale by definition — the raised
+        error must re-read and report the job's real current status (e.g.
+        'recomputing', because the other request is still running), not
+        always claim 'done' from the stale object."""
+        from src.data_import.service import recompute_job
+
+        job = _make_job(status=MigrationJobStatus.DONE)
+        db = _mock_db()
+        lost_race = MagicMock()
+        lost_race.rowcount = 0
+        current_status = MagicMock()
+        current_status.scalar_one_or_none.return_value = (
+            MigrationJobStatus.RECOMPUTING
+        )
+        db.execute = AsyncMock(side_effect=[lost_race, current_status])
+
+        with pytest.raises(InvalidJobStateError) as exc_info:
+            await recompute_job(db, job)
+
+        assert "recomputing" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_recompute_job_reruns_recompute_and_updates_status(self):
+        from src.data_import.service import recompute_job
+
+        job = _make_job(status=MigrationJobStatus.DONE)
+        db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
+        db.execute = AsyncMock(return_value=won_race)
+
+        with patch(
+            "src.data_import.service.recompute_after_import",
+            new=AsyncMock(return_value={"errors": []}),
+        ) as mock_recompute:
+            result = await recompute_job(db, job)
+
+        mock_recompute.assert_awaited_once_with(
+            db, job.business_id, job.id, job.created_by
+        )
+        assert result.recompute_status == "done"
+        assert result.recompute_completed_at is not None
+        # A manual retrigger passes through RECOMPUTING while it runs (the
+        # conditional UPDATE guard below), same as confirm_job()'s own
+        # IMPORTING -> RECOMPUTING -> DONE flow, and lands back on DONE.
+        assert result.status == MigrationJobStatus.DONE
 
     @pytest.mark.asyncio
     async def test_purchase_order_import_errors_are_translated_to_one_domain_exception(self):
@@ -1209,6 +1624,100 @@ class TestConfirmationGate:
         assert "not-a-number" not in str(exc_info.value)
         assert "pydantic.dev" not in str(exc_info.value)
         assert exc_info.value.cause is cause
+
+    @pytest.mark.asyncio
+    async def test_confirm_runs_recompute_after_import_and_marks_job_done(self):
+        job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+
+        with (
+            patch(
+                "src.data_import.service._extract_and_transform",
+                new=AsyncMock(return_value=({}, {"purchase_orders": []}, MagicMock(id_map=IdMap()))),
+            ),
+            patch("src.data_import.service.loader_load", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.loader_load_purchase_orders",
+                new=AsyncMock(return_value=0),
+            ),
+            patch(
+                "src.data_import.service.recompute_after_import",
+                new=AsyncMock(return_value={"errors": []}),
+            ) as mock_recompute,
+        ):
+            result = await confirm_job(db, job, approved=True)
+
+        mock_recompute.assert_awaited_once_with(
+            db, job.business_id, job.id, job.created_by
+        )
+        assert result.status == MigrationJobStatus.DONE
+        assert result.recompute_status == "done"
+        assert result.recompute_errors == []
+        assert result.completed_at is not None
+
+    @pytest.mark.asyncio
+    async def test_confirm_records_recompute_errors_but_still_marks_job_done(self):
+        """A recompute step failing (e.g. one product's price suggestion)
+        is real, already-committed import data's problem to *report*, not a
+        reason to fail the whole job — the import itself succeeded."""
+        job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+        step_errors = [{"step": "price_suggestion", "product_id": "x", "error": "boom"}]
+
+        with (
+            patch(
+                "src.data_import.service._extract_and_transform",
+                new=AsyncMock(return_value=({}, {"purchase_orders": []}, MagicMock(id_map=IdMap()))),
+            ),
+            patch("src.data_import.service.loader_load", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.loader_load_purchase_orders",
+                new=AsyncMock(return_value=0),
+            ),
+            patch(
+                "src.data_import.service.recompute_after_import",
+                new=AsyncMock(return_value={"errors": step_errors}),
+            ),
+        ):
+            result = await confirm_job(db, job, approved=True)
+
+        assert result.status == MigrationJobStatus.DONE
+        assert result.recompute_status == "failed"
+        assert result.recompute_errors == step_errors
+
+    @pytest.mark.asyncio
+    async def test_confirm_survives_recompute_after_import_raising_unexpectedly(self):
+        """recompute_after_import() already isolates every step's own
+        exceptions — an exception escaping it entirely means something
+        genuinely unexpected happened. confirm_job() must still complete
+        and mark the job done; the already-committed import must never be
+        undone by a recompute-layer bug."""
+        job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+
+        with (
+            patch(
+                "src.data_import.service._extract_and_transform",
+                new=AsyncMock(return_value=({}, {"purchase_orders": []}, MagicMock(id_map=IdMap()))),
+            ),
+            patch("src.data_import.service.loader_load", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.loader_load_purchase_orders",
+                new=AsyncMock(return_value=0),
+            ),
+            patch(
+                "src.data_import.service.recompute_after_import",
+                new=AsyncMock(side_effect=RuntimeError("unexpected bug")),
+            ),
+        ):
+            result = await confirm_job(db, job, approved=True)
+
+        assert result.status == MigrationJobStatus.DONE
+        assert result.recompute_status == "failed"
+        assert len(result.recompute_errors) == 1
+        # The raw exception text must not leak into a client-visible field —
+        # same principle as PurchaseOrderImportError (see PR #222).
+        assert "unexpected bug" not in str(result.recompute_errors)
 
 
 # ---------------------------------------------------------------------------

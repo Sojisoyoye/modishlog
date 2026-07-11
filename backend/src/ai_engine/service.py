@@ -29,7 +29,8 @@ from src.ai_engine.models import (
 )
 from src.cashflow.models import LoanObligation, LoanStatus
 from src.core.ai_safety import contains_pii_check  # noqa: F401  re-exported; E6 PII guard
-from src.inventory.models import InventoryLevel, MovementType, StockMovement
+from src.inventory.models import MovementType, StockMovement
+from src.inventory.service import inventory_on_hand_by_product_subquery
 from src.orders.models import (
     OrderPayment,
     OrderStatus,
@@ -261,28 +262,47 @@ async def _generate_price_recommendations(
 async def _generate_order_timing_recommendations(
     db: AsyncSession,
     now: datetime,
+    business_id: uuid.UUID,
 ) -> list[AIRecommendation]:
     """Generate reorder recommendations based on inventory depletion and FX forecasts."""
-    # Get products with low stock
+    # Reuses the shared aggregation helper (see its docstring) instead of
+    # hand-rolling the same sum-across-every-row-per-product query here —
+    # this function and generate_reorder_suggestions() need the identical
+    # rule, and a second inline copy risks drifting from the shared one.
+    #
+    # Joined to Product and filtered by business_id — without it this
+    # scans every business's InventoryLevel rows and generate_all_
+    # recommendations() unconditionally stamps whatever comes back with
+    # the caller's business_id, leaking other tenants' stock levels and
+    # product names into the caller's recommendations (same class of bug
+    # fixed in the sibling generate_reorder_suggestions()).
+    inventory_subq = inventory_on_hand_by_product_subquery()
     result = await db.execute(
-        select(InventoryLevel).where(
-            InventoryLevel.quantity_on_hand <= InventoryLevel.low_stock_threshold
+        select(
+            inventory_subq.c.product_id,
+            inventory_subq.c.quantity_on_hand,
+            inventory_subq.c.low_stock_threshold,
+        )
+        .join(Product, Product.id == inventory_subq.c.product_id)
+        .where(
+            Product.business_id == business_id,
+            inventory_subq.c.quantity_on_hand <= inventory_subq.c.low_stock_threshold,
         )
     )
-    low_stock_items = list(result.scalars().all())
+    low_stock_items = list(result.all())
 
     if not low_stock_items:
         return []
 
     recommendations: list[AIRecommendation] = []
 
-    for inv in low_stock_items:
+    for product_id, quantity_on_hand, low_stock_threshold in low_stock_items:
         # Calculate avg daily depletion
         depletion_result = await db.execute(
             select(
                 func.coalesce(func.sum(func.abs(StockMovement.quantity_change)), 0)
             ).where(
-                StockMovement.product_id == inv.product_id,
+                StockMovement.product_id == product_id,
                 StockMovement.movement_type == MovementType.SALE_DEPLETION,
             )
         )
@@ -292,14 +312,14 @@ async def _generate_order_timing_recommendations(
         if avg_daily <= 0:
             continue
 
-        days_until_stockout = int(inv.quantity_on_hand / avg_daily)
+        days_until_stockout = int(quantity_on_hand / avg_daily)
 
         # Calculate optimal order quantity (demand * lead_time * 1.2 buffer)
         optimal_qty = int(avg_daily * DEFAULT_LEAD_TIME_DAYS * 1.2)
 
         # Estimate cost
         product_result = await db.execute(
-            select(Product).where(Product.id == inv.product_id)
+            select(Product).where(Product.id == product_id)
         )
         product = product_result.scalar_one_or_none()
         if product is None:
@@ -328,8 +348,8 @@ async def _generate_order_timing_recommendations(
             f"at current sales velocity. Immediate reorder of {optimal_qty} units recommended."
         )
         order_evidence = [
-            f"Current stock: {inv.quantity_on_hand} units",
-            f"Low-stock threshold: {inv.low_stock_threshold} units",
+            f"Current stock: {quantity_on_hand} units",
+            f"Low-stock threshold: {low_stock_threshold} units",
             f"Average daily depletion: {avg_daily:.1f} units/day",
             f"Estimated days to stockout: {days_until_stockout}",
             f"Suggested order quantity: {optimal_qty} units",
@@ -339,7 +359,7 @@ async def _generate_order_timing_recommendations(
             category=RecommendationCategory.ORDERS,
             title=f"Reorder {product.name} - {days_until_stockout} days to stockout",
             description=(
-                f"Stock at {inv.quantity_on_hand} units (threshold: {inv.low_stock_threshold}). "
+                f"Stock at {quantity_on_hand} units (threshold: {low_stock_threshold}). "
                 f"Estimated stockout in {days_until_stockout} days at current velocity. "
                 f"Suggested order: {optimal_qty} units."
             ),
@@ -355,13 +375,13 @@ async def _generate_order_timing_recommendations(
             },
             action_type=ActionType.REORDER,
             action_payload={
-                "product_id": str(inv.product_id),
+                "product_id": str(product_id),
                 "product_name": product.name,
                 "suggested_quantity": optimal_qty,
                 "lead_time_days": DEFAULT_LEAD_TIME_DAYS,
                 "estimated_cost_ngn": str(estimated_cost),
             },
-            reference_id=inv.product_id,
+            reference_id=product_id,
             reference_type="product",
             status=RecommendationStatus.PENDING,
             created_at=now,
@@ -695,7 +715,7 @@ async def generate_all_recommendations(
     price_recs = await _generate_price_recommendations(db, now)
     all_recs.extend(price_recs)
 
-    order_recs = await _generate_order_timing_recommendations(db, now)
+    order_recs = await _generate_order_timing_recommendations(db, now, business_id)
     all_recs.extend(order_recs)
 
     usd_recs = await _generate_usd_hedge_recommendations(db, now)
@@ -1114,11 +1134,26 @@ async def generate_reorder_suggestions(
     business_id: uuid.UUID,
 ) -> list[ReorderSuggestion]:
     """Generate reorder suggestions for products at or below reorder point."""
-    # Get all products with inventory
+    # A product can have more than one InventoryLevel row (the aggregate
+    # row plus one per variant, see data_import/recompute.py) — joining
+    # directly would duplicate a product with multiple rows into multiple
+    # suggestions, while scoping to variant_id IS NULL only would silently
+    # skip a product that has no aggregate row at all (e.g. one imported
+    # with only variant-level sales). Sum on-hand across every row per
+    # product instead, so exactly one suggestion is produced per product
+    # using its true total stock.
+    #
+    # Product.business_id filter is required, not optional — this function
+    # is now called automatically after every import/rollback (see
+    # data_import/recompute.py's regenerate_reorder_suggestions_for_business()),
+    # so without it every call would generate suggestions for every
+    # business's products, not just the caller's, and stamp them with the
+    # caller's business_id — a cross-tenant data leak on every import.
+    inventory_subq = inventory_on_hand_by_product_subquery()
     result = await db.execute(
-        select(InventoryLevel, Product)
-        .join(Product, Product.id == InventoryLevel.product_id)
-        .where(Product.is_active.is_(True))
+        select(inventory_subq.c.quantity_on_hand, Product)
+        .join(Product, Product.id == inventory_subq.c.product_id)
+        .where(Product.is_active.is_(True), Product.business_id == business_id)
     )
     rows = result.all()
 
@@ -1126,7 +1161,7 @@ async def generate_reorder_suggestions(
     today = now.date()
     suggestions: list[ReorderSuggestion] = []
 
-    for inv, product in rows:
+    for quantity_on_hand, product in rows:
         # Calculate average daily demand from last 90 days
         ninety_days_ago = today - timedelta(days=90)
         sales_result = await db.execute(
@@ -1159,7 +1194,7 @@ async def generate_reorder_suggestions(
             float(avg_daily_demand) * DEFAULT_LEAD_TIME_DAYS + safety_stock  # financial-float-ok
         )
 
-        if inv.quantity_on_hand > reorder_point:
+        if quantity_on_hand > reorder_point:
             continue
 
         # Economic Order Quantity (Wilson formula simplified)
@@ -1177,7 +1212,7 @@ async def generate_reorder_suggestions(
 
         # Estimate stockout date
         if float(avg_daily_demand) > 0:  # financial-float-ok
-            days_left = int(inv.quantity_on_hand / float(avg_daily_demand))  # financial-float-ok
+            days_left = int(quantity_on_hand / float(avg_daily_demand))  # financial-float-ok
             stockout_date = today + timedelta(days=days_left)
         else:
             days_left = 999
@@ -1185,7 +1220,7 @@ async def generate_reorder_suggestions(
 
         confidence = Decimal("75.00")
         reasoning = (
-            f"Current stock ({inv.quantity_on_hand}) at or below reorder point ({reorder_point}). "
+            f"Current stock ({quantity_on_hand}) at or below reorder point ({reorder_point}). "
             f"Avg daily demand: {float(avg_daily_demand):.1f} units. "  # financial-float-ok
             f"Safety stock: {safety_stock}. Lead time: {DEFAULT_LEAD_TIME_DAYS} days. "
             f"EOQ: {eoq}. Suggested order: {suggested_qty} units."
@@ -1194,7 +1229,7 @@ async def generate_reorder_suggestions(
         suggestion = ReorderSuggestion(
             business_id=business_id,
             product_id=product.id,
-            current_stock=inv.quantity_on_hand,
+            current_stock=quantity_on_hand,
             reorder_point=reorder_point,
             suggested_order_quantity=suggested_qty,
             economic_order_quantity=eoq,

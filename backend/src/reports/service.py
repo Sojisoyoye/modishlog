@@ -10,7 +10,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.models import OperatingCost
-from src.inventory.models import InventoryBatch, InventoryLevel
+from src.inventory.models import InventoryBatch
+from src.inventory.service import inventory_on_hand_by_product_subquery
 from src.orders.models import OrderPayment, OrderPaymentStatus, PurchaseOrder, PurchaseReturn
 from src.products.models import Product, ProductCategory
 from src.reports.schemas import (
@@ -293,6 +294,8 @@ async def get_stock_report(
         sold_subq_base = sold_subq_base.where(Sale.business_id == business_id)
     sold_subq = sold_subq_base.group_by(Sale.product_id).subquery()
 
+    inventory_subq = inventory_on_hand_by_product_subquery()
+
     query = (
         select(
             Product.id.label("product_id"),
@@ -301,10 +304,10 @@ async def get_stock_report(
             ProductCategory.name.label("category"),
             Product.unit_cost.label("unit_cost"),
             Product.selling_price.label("selling_price"),
-            InventoryLevel.quantity_on_hand.label("quantity_on_hand"),
+            inventory_subq.c.quantity_on_hand.label("quantity_on_hand"),
             func.coalesce(sold_subq.c.total_sold, 0).label("total_sold"),
         )
-        .join(InventoryLevel, InventoryLevel.product_id == Product.id)
+        .join(inventory_subq, inventory_subq.c.product_id == Product.id)
         .join(ProductCategory, ProductCategory.id == Product.category_id)
         .outerjoin(sold_subq, sold_subq.c.product_id == Product.id)
         .where(Product.is_active == True)  # noqa: E712

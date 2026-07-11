@@ -1,6 +1,7 @@
 """Inventory domain business logic."""
 
 import uuid
+from collections.abc import Collection
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
@@ -111,6 +112,37 @@ async def get_inventory_level(
     return inventory
 
 
+def inventory_on_hand_by_product_subquery(
+    product_ids: Collection[uuid.UUID] | None = None,
+):
+    """SQLAlchemy subquery aggregating every InventoryLevel row for each
+    product into one on-hand quantity and one (most restrictive)
+    low-stock threshold.
+
+    A product can have more than one InventoryLevel row — the aggregate
+    (variant_id=NULL) row plus one row per variant — since the migration
+    that let a product have variant-level stock alongside its aggregate
+    row. Any caller that needs one on-hand figure per product (not per
+    variant, e.g. a report, a stock count, or a low-stock check) must
+    aggregate across all of a product's rows or it will duplicate/miscount
+    that product wherever it joins InventoryLevel directly by product_id.
+    Centralized here so a new caller doesn't have to rediscover this.
+
+    Pass product_ids when the caller already knows which products it
+    needs (e.g. a stock count's own item list) — it scopes the GROUP BY
+    itself rather than aggregating every product in the database and
+    relying on the outer join to narrow it down afterward.
+    """
+    query = select(
+        InventoryLevel.product_id,
+        func.sum(InventoryLevel.quantity_on_hand).label("quantity_on_hand"),
+        func.min(InventoryLevel.low_stock_threshold).label("low_stock_threshold"),
+    )
+    if product_ids is not None:
+        query = query.where(InventoryLevel.product_id.in_(product_ids))
+    return query.group_by(InventoryLevel.product_id).subquery()
+
+
 async def list_inventory_levels(
     db: AsyncSession,
     *,
@@ -186,11 +218,18 @@ async def adjust_stock(
     reference_type: str | None = None,
     business_id: uuid.UUID | None = None,
     variant_id: uuid.UUID | None = None,
+    migration_id: uuid.UUID | None = None,
 ) -> InventoryLevel:
     """Adjust stock and create a StockMovement audit record.
 
     When variant_id is provided the adjustment targets that variant's inventory
     row (product_id, variant_id) and records the variant on the StockMovement.
+
+    migration_id tags the StockMovement row directly at insert time, for
+    callers (e.g. data_import's recompute/rollback) that need to find their
+    own movements later without a follow-up UPDATE keyed on reference_id/
+    reference_type — fields other domains also use, so a blanket UPDATE on
+    them risks retagging unrelated rows.
     """
     if business_id is not None:
         product_result = await db.execute(
@@ -236,6 +275,7 @@ async def adjust_stock(
         reference_type=reference_type,
         reason=reason,
         performed_by=user_id,
+        migration_id=migration_id,
     )
     db.add(movement)
     await db.flush()

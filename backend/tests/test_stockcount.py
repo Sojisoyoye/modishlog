@@ -231,9 +231,9 @@ class TestFinalizeStockCount:
             if call_count == 1:
                 result.scalar_one_or_none.return_value = sc
             else:
-                # Batch InventoryLevel query returns a list
-                inv = MagicMock(product_id=product_id, quantity_on_hand=100)
-                result.scalars.return_value.all.return_value = [inv]
+                # Batch InventoryLevel-totals-by-product subquery returns
+                # (product_id, summed quantity_on_hand) pairs.
+                result.all.return_value = [(product_id, 100)]
             return result
 
         db.execute = mock_execute
@@ -319,9 +319,9 @@ class TestSystemQuantitySnapshotTiming:
             if call_count == 1:
                 result.scalar_one_or_none.return_value = sc
             else:
-                # Batch InventoryLevel query — stock was 100 at create time, 75 at finalize
-                inv = MagicMock(product_id=product_id, quantity_on_hand=75)
-                result.scalars.return_value.all.return_value = [inv]
+                # Batch InventoryLevel-totals-by-product subquery — stock
+                # was 100 at create time, 75 at finalize.
+                result.all.return_value = [(product_id, 75)]
             return result
 
         db.execute = mock_execute
@@ -499,9 +499,9 @@ async def test_create_stock_count_seeds_only_business_products():
     async def mock_execute(stmt):
         executed_stmts.append(stmt)
         result = MagicMock()
-        # First call: flush triggers no execute; second: InventoryLevel scoped query
-        il = MagicMock(product_id=pid, quantity_on_hand=50)
-        result.scalars.return_value.all.return_value = [il]
+        # First call: flush triggers no execute; second: distinct
+        # InventoryLevel.product_id scoped query
+        result.scalars.return_value.all.return_value = [pid]
         return result
 
     db.execute = mock_execute
