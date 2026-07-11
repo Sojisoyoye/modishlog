@@ -1325,6 +1325,46 @@ class TestConfirmationGate:
         assert result.recompute_errors[0]["step"] == "fifo_cogs"
 
     @pytest.mark.asyncio
+    async def test_rollback_stock_reversal_and_reorder_regen_use_per_item_savepoints(
+        self,
+    ):
+        """rollback_job() has no outer SAVEPOINT of its own (unlike
+        confirm_job()/recompute_job(), which run inside _run_recompute's
+        db.begin_nested()) — a real DB-level failure in either the
+        per-product reversal loop or the reorder-suggestion regeneration
+        must not poison the rest of the rollback. Both must open their own
+        nested SAVEPOINT."""
+        job = _make_job(status=MigrationJobStatus.DONE)
+        deduped_product_id = uuid.uuid4()
+
+        db = _mock_db()
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        movement_deltas = MagicMock()
+        movement_deltas.all.return_value = [(deduped_product_id, None, -20)]
+        db.execute = AsyncMock(
+            side_effect=[
+                movement_deltas,
+                empty_scalars,
+                MagicMock(),  # delete(PriceHistory)
+                MagicMock(),  # delete(ReorderSuggestion) PENDING, inside regen's savepoint
+            ]
+        )
+
+        with (
+            patch("src.data_import.service.loader_rollback", new=AsyncMock(return_value={})),
+            patch("src.data_import.service.adjust_stock", new=AsyncMock()),
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            await rollback_job(db, job)
+
+        # 1 for the stock-reversal item + 1 for the reorder-regen call.
+        assert db.begin_nested.call_count == 2
+
+    @pytest.mark.asyncio
     async def test_recompute_job_requires_done_status(self):
         from src.data_import.service import recompute_job
 

@@ -43,6 +43,46 @@ from src.sales.models import Sale
 logger = structlog.get_logger()
 
 
+async def run_isolated(
+    db: AsyncSession,
+    factory,
+    *,
+    log_event: str,
+    error_entry: dict,
+    silent_exceptions: tuple = (),
+):
+    """Runs factory() — a zero-arg async callable performing one item-level
+    DB write — inside its own nested SAVEPOINT.
+
+    Every recompute/rollback loop that does one DB-mutating operation per
+    item (per sale, per product, per suggestion) needs this: a per-item
+    try/except alone only guards against the specific Python-level
+    exceptions each caller anticipates. A genuine DB-level failure
+    (constraint violation, lock timeout) inside the operation's own flush
+    leaves the underlying Postgres transaction "aborted" until rolled
+    back — every subsequent db.execute()/flush() call, for the rest of
+    that loop and every later step sharing the same outer transaction,
+    would fail too, even though the try/except appears to isolate
+    failures. The SAVEPOINT gives this one item's failure somewhere to
+    roll back to that doesn't touch anything outside it.
+
+    Returns (result, None) on success, or (None, error_dict) on failure,
+    where error_dict is error_entry with an "error" key added — unless the
+    exception is one of silent_exceptions (an entirely expected outcome
+    for some callers, e.g. "this product was already deleted"), in which
+    case it returns (None, None) with nothing logged or recorded.
+    """
+    try:
+        async with db.begin_nested():
+            result = await factory()
+        return result, None
+    except silent_exceptions:
+        return None, None
+    except Exception as e:
+        await logger.awarning(log_event, error=str(e))
+        return None, {**error_entry, "error": str(e)}
+
+
 async def _deduct_imported_sales_stock(
     db: AsyncSession,
     business_id: uuid.UUID,
@@ -128,44 +168,27 @@ async def _deduct_imported_sales_stock(
     errors: list[dict] = []
     any_succeeded = False
     for product_id, variant_id, total_quantity in groups:
-        try:
-            # A per-item SAVEPOINT, not just a per-item try/except: a real
-            # DB-level failure (constraint violation, lock timeout) inside
-            # adjust_stock()'s flush leaves the underlying Postgres
-            # transaction "aborted" until rolled back — a bare try/except
-            # would catch the Python exception but leave every subsequent
-            # db.execute()/flush() call in this and every later recompute
-            # step failing with "current transaction is aborted". The
-            # SAVEPOINT gives this one item's failure somewhere to roll
-            # back to that doesn't touch anything outside it.
-            async with db.begin_nested():
-                await adjust_stock(
-                    db,
-                    product_id=product_id,
-                    quantity_change=-int(total_quantity),
-                    movement_type=MovementType.SALE_DEPLETION.value,
-                    reason="Post-import stock deduction (aggregated from imported sales)",
-                    user_id=user_id,
-                    business_id=business_id,
-                    variant_id=variant_id,
-                    reference_id=job_id,
-                    reference_type="data_import_recompute",
-                )
+        _, error = await run_isolated(
+            db,
+            lambda pid=product_id, vid=variant_id, qty=total_quantity: adjust_stock(
+                db,
+                product_id=pid,
+                quantity_change=-int(qty),
+                movement_type=MovementType.SALE_DEPLETION.value,
+                reason="Post-import stock deduction (aggregated from imported sales)",
+                user_id=user_id,
+                business_id=business_id,
+                variant_id=vid,
+                reference_id=job_id,
+                reference_type="data_import_recompute",
+            ),
+            log_event="recompute_stock_deduction_failed",
+            error_entry={"step": "deduct_sales_stock", "product_id": str(product_id)},
+        )
+        if error:
+            errors.append(error)
+        else:
             any_succeeded = True
-        except Exception as e:
-            await logger.awarning(
-                "recompute_stock_deduction_failed",
-                product_id=str(product_id),
-                variant_id=str(variant_id) if variant_id else None,
-                error=str(e),
-            )
-            errors.append(
-                {
-                    "step": "deduct_sales_stock",
-                    "product_id": str(product_id),
-                    "error": str(e),
-                }
-            )
 
     if any_succeeded:
         # adjust_stock() has no migration_id param — it never tags the
@@ -233,21 +256,14 @@ async def _compute_fifo_cogs_for_imported_sales(
                 }
             )
 
-        try:
-            # Per-item SAVEPOINT — same reasoning as
-            # _deduct_imported_sales_stock: fifo_deduct()'s flush can fail
-            # at the DB level, not just raise a Python exception, which
-            # would otherwise poison the shared outer transaction for
-            # every sale (and every later recompute step) after this one.
-            async with db.begin_nested():
-                cogs = await fifo_deduct(db, sale.product_id, sale.quantity)
-        except Exception as e:
-            await logger.awarning(
-                "recompute_fifo_cogs_failed", sale_id=str(sale.id), error=str(e)
-            )
-            errors.append(
-                {"step": "fifo_cogs", "sale_id": str(sale.id), "error": str(e)}
-            )
+        cogs, error = await run_isolated(
+            db,
+            lambda s=sale: fifo_deduct(db, s.product_id, s.quantity),
+            log_event="recompute_fifo_cogs_failed",
+            error_entry={"step": "fifo_cogs", "sale_id": str(sale.id)},
+        )
+        if error:
+            errors.append(error)
             continue
         sale.fifo_cogs = cogs
         sale.fifo_gross_profit = sale.total_amount - cogs
@@ -304,13 +320,12 @@ async def _recompute_low_stock_alerts(db: AsyncSession, job_id: uuid.UUID) -> No
     via imported sales. Scoping only to newly-created products would miss
     a deduped product's real, current low-stock condition entirely.
     """
-    new_products = await db.execute(
-        select(Product.id).where(Product.migration_id == job_id)
+    relevant_products = await db.execute(
+        select(Product.id)
+        .where(Product.migration_id == job_id)
+        .union(select(Sale.product_id).where(Sale.migration_id == job_id))
     )
-    sale_products = await db.execute(
-        select(Sale.product_id).where(Sale.migration_id == job_id).distinct()
-    )
-    product_ids = set(new_products.scalars().all()) | set(sale_products.scalars().all())
+    product_ids = set(relevant_products.scalars().all())
     if not product_ids:
         return
 
@@ -321,18 +336,21 @@ async def _recompute_low_stock_alerts(db: AsyncSession, job_id: uuid.UUID) -> No
         )
     )
     rows = result.scalars().all()
+    below_threshold = [r for r in rows if r.quantity_on_hand <= r.low_stock_threshold]
+    if not below_threshold:
+        return
+
+    already_active = await db.execute(
+        select(LowStockAlert.product_id).where(
+            LowStockAlert.product_id.in_([r.product_id for r in below_threshold]),
+            LowStockAlert.status == AlertStatus.ACTIVE,
+        )
+    )
+    already_active_ids = set(already_active.scalars().all())
 
     now = datetime.now(timezone.utc)
-    for inventory in rows:
-        if inventory.quantity_on_hand > inventory.low_stock_threshold:
-            continue
-        existing = await db.execute(
-            select(LowStockAlert).where(
-                LowStockAlert.product_id == inventory.product_id,
-                LowStockAlert.status == AlertStatus.ACTIVE,
-            )
-        )
-        if existing.scalar_one_or_none() is not None:
+    for inventory in below_threshold:
+        if inventory.product_id in already_active_ids:
             continue
         db.add(
             LowStockAlert(
@@ -342,8 +360,7 @@ async def _recompute_low_stock_alerts(db: AsyncSession, job_id: uuid.UUID) -> No
                 triggered_at=now,
             )
         )
-    if rows:
-        await db.flush()
+    await db.flush()
 
 
 async def regenerate_reorder_suggestions_for_business(
@@ -356,19 +373,30 @@ async def regenerate_reorder_suggestions_for_business(
     import/rollback caused" isn't identifiable after the fact; a full
     regenerate is the only way to keep them consistent. Returns an error
     string (not raised) if regeneration fails, or None on success.
+
+    Wrapped in its own SAVEPOINT (via run_isolated) so both the delete and
+    the regenerate are isolated as one unit regardless of whether the
+    caller has an outer SAVEPOINT of its own — rollback_job() doesn't.
     """
+    _, error = await run_isolated(
+        db,
+        lambda: _clear_and_regenerate_reorder_suggestions(db, business_id),
+        log_event=log_event,
+        error_entry={},
+    )
+    return error["error"] if error else None
+
+
+async def _clear_and_regenerate_reorder_suggestions(
+    db: AsyncSession, business_id: uuid.UUID
+) -> None:
     await db.execute(
         delete(ReorderSuggestion).where(
             ReorderSuggestion.business_id == business_id,
             ReorderSuggestion.status == ReorderStatus.PENDING,
         )
     )
-    try:
-        await generate_reorder_suggestions(db, business_id)
-    except Exception as e:
-        await logger.awarning(log_event, error=str(e))
-        return str(e)
-    return None
+    await generate_reorder_suggestions(db, business_id)
 
 
 async def _recompute_ai_signals(
@@ -388,23 +416,14 @@ async def _recompute_ai_signals(
     result = await db.execute(select(Product.id).where(Product.migration_id == job_id))
     product_ids = result.scalars().all()
     for product_id in product_ids:
-        try:
-            # Per-item SAVEPOINT, same reasoning as the stock-deduction and
-            # FIFO-COGS loops. Also catches more than PricingSuggestionError
-            # — compute_suggestion() can hit a transient failure (e.g. the
-            # live FX-rate lookup) that isn't that domain's own validation
-            # error, and one product's failure must not abort every
-            # remaining product's price suggestion.
-            async with db.begin_nested():
-                await compute_suggestion(db, product_id)
-        except Exception as e:
-            errors.append(
-                {
-                    "step": "price_suggestion",
-                    "product_id": str(product_id),
-                    "error": str(e),
-                }
-            )
+        _, error = await run_isolated(
+            db,
+            lambda pid=product_id: compute_suggestion(db, pid),
+            log_event="recompute_price_suggestion_failed",
+            error_entry={"step": "price_suggestion", "product_id": str(product_id)},
+        )
+        if error:
+            errors.append(error)
     return errors
 
 

@@ -42,6 +42,7 @@ from src.data_import.models import (
 from src.data_import.recompute import (
     recompute_after_import,
     regenerate_reorder_suggestions_for_business,
+    run_isolated,
 )
 from src.data_import.schemas import (
     ConfirmationSnapshot,
@@ -515,11 +516,24 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
         reversal = -int(net_delta)
         if reversal == 0:
             continue
-        try:
-            await adjust_stock(
+        # Isolated in its own SAVEPOINT — same reasoning as every
+        # DB-mutating recompute loop (see run_isolated's docstring): a real
+        # DB-level failure here must not poison the rest of this loop or
+        # the reorder-suggestion regeneration that follows it.
+        # ProductStockNotFoundError is silently expected (the product was
+        # newly-created by this import and already deleted above by
+        # loader_rollback() — nothing left to reverse); anything else
+        # (including InvalidStockAdjustmentError — stock moved further
+        # since the import and the reversal would go negative) is
+        # best-effort skipped but surfaced via the API, or a trader would
+        # believe the import was fully undone when a product's on-hand
+        # quantity is still inflated by it.
+        _, error = await run_isolated(
+            db,
+            lambda pid=product_id, vid=variant_id, r=reversal: adjust_stock(
                 db,
-                product_id=product_id,
-                quantity_change=reversal,
+                product_id=pid,
+                quantity_change=r,
                 # Not MovementType.STOCK_ADJUSTMENT — the movement_type
                 # Postgres enum has real schema drift (some labels are the
                 # upper-cased Python .name, some are the lower-cased
@@ -531,44 +545,23 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
                 # rollback-driven administrative adjustment just as well.
                 movement_type=(
                     MovementType.MANUAL_ADD.value
-                    if reversal > 0
+                    if r > 0
                     else MovementType.MANUAL_REMOVE.value
                 ),
                 reason="Migration rollback — reversing imported stock movement",
                 user_id=job.created_by,
                 business_id=job.business_id,
-                variant_id=variant_id,
-            )
-        except ProductStockNotFoundError:
-            # Newly-created by this import — already deleted above by
-            # loader_rollback(), nothing left to reverse.
-            pass
-        except InvalidStockAdjustmentError:
-            # Stock moved further since the import (real sales recorded
-            # against a deduped product, or this delta was already
-            # reversed) — the reversal would go negative. Best-effort:
-            # skip it rather than leave the rollback unusable and the job
-            # stuck never reaching ROLLED_BACK — but surface it via the
-            # API (recompute_errors is generic enough to double as this;
-            # a silent server-side-only log would leave the trader
-            # believing the import was fully undone when this product's
-            # on-hand quantity is still inflated by it).
-            await logger.awarning(
-                "rollback_stock_reversal_skipped",
-                job_id=str(job.id),
-                product_id=str(product_id),
-            )
-            skipped_reversals.append(
-                {
-                    "step": "rollback_stock_reversal",
-                    "product_id": str(product_id),
-                    "error": (
-                        "Could not reverse this product's stock — it would "
-                        "go negative (stock likely moved since the import). "
-                        "Its on-hand quantity may still be inflated."
-                    ),
-                }
-            )
+                variant_id=vid,
+            ),
+            log_event="rollback_stock_reversal_failed",
+            error_entry={
+                "step": "rollback_stock_reversal",
+                "product_id": str(product_id),
+            },
+            silent_exceptions=(ProductStockNotFoundError,),
+        )
+        if error:
+            skipped_reversals.append(error)
 
     reorder_error = await regenerate_reorder_suggestions_for_business(
         db, job.business_id, log_event="rollback_reorder_regeneration_failed"

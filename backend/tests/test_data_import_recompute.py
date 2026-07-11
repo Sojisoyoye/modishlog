@@ -546,10 +546,9 @@ class TestRecomputeLowStockAlerts:
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[
-                _scalars_result([product_id]),  # new products
-                _scalars_result([]),  # products referenced by imported sales
+                _scalars_result([product_id]),  # relevant products (new/sold)
                 _scalars_result([inv]),
-                _scalar_one_or_none_result(None),  # no existing ACTIVE alert
+                _scalars_result([]),  # no existing ACTIVE alerts
             ]
         )
 
@@ -566,7 +565,8 @@ class TestRecomputeLowStockAlerts:
         """A deduped (pre-existing) product isn't migration_id-tagged, but
         imported sales against it (Sale.migration_id == job_id) can still
         push it below threshold — scoping only to newly-created products
-        would miss it entirely."""
+        would miss it entirely. The relevant-products query is a single
+        UNION of both sources, not two separate queries."""
         from src.data_import.recompute import _recompute_low_stock_alerts
 
         deduped_product_id = uuid.uuid4()
@@ -578,10 +578,9 @@ class TestRecomputeLowStockAlerts:
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[
-                _scalars_result([]),  # no new products this job
-                _scalars_result([deduped_product_id]),  # sold via imported sales
+                _scalars_result([deduped_product_id]),
                 _scalars_result([inv]),
-                _scalar_one_or_none_result(None),
+                _scalars_result([]),
             ]
         )
 
@@ -595,13 +594,13 @@ class TestRecomputeLowStockAlerts:
         from src.data_import.recompute import _recompute_low_stock_alerts
 
         db = _mock_db()
-        db.execute = AsyncMock(side_effect=[_scalars_result([]), _scalars_result([])])
+        db.execute = AsyncMock(return_value=_scalars_result([]))
 
         await _recompute_low_stock_alerts(db, JOB_ID)
 
         db.add.assert_not_called()
-        # Neither the InventoryLevel lookup nor anything past it ran.
-        assert db.execute.await_count == 2
+        # Just the one relevant-products query — nothing past it ran.
+        assert db.execute.await_count == 1
 
     @pytest.mark.asyncio
     async def test_skips_when_quantity_above_threshold(self):
@@ -615,16 +614,14 @@ class TestRecomputeLowStockAlerts:
 
         db = _mock_db()
         db.execute = AsyncMock(
-            side_effect=[
-                _scalars_result([product_id]),
-                _scalars_result([]),
-                _scalars_result([inv]),
-            ]
+            side_effect=[_scalars_result([product_id]), _scalars_result([inv])]
         )
 
         await _recompute_low_stock_alerts(db, JOB_ID)
 
         db.add.assert_not_called()
+        # Above threshold — the existing-active-alerts query never runs either.
+        assert db.execute.await_count == 2
 
     @pytest.mark.asyncio
     async def test_does_not_duplicate_an_existing_active_alert(self):
@@ -637,19 +634,44 @@ class TestRecomputeLowStockAlerts:
         inv.low_stock_threshold = 10
 
         db = _mock_db()
-        existing_alert = MagicMock()
         db.execute = AsyncMock(
             side_effect=[
                 _scalars_result([product_id]),
-                _scalars_result([]),
                 _scalars_result([inv]),
-                _scalar_one_or_none_result(existing_alert),
+                _scalars_result([product_id]),  # already has an ACTIVE alert
             ]
         )
 
         await _recompute_low_stock_alerts(db, JOB_ID)
 
         db.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_existing_active_alert_check_is_batched_not_per_item(self):
+        """One query for the whole below-threshold set, not one per
+        product — this step runs on every confirmed import and every
+        manual /recompute retry."""
+        from src.data_import.recompute import _recompute_low_stock_alerts
+
+        product_a, product_b = uuid.uuid4(), uuid.uuid4()
+        inv_a, inv_b = MagicMock(), MagicMock()
+        inv_a.product_id, inv_b.product_id = product_a, product_b
+        inv_a.quantity_on_hand = inv_b.quantity_on_hand = 1
+        inv_a.low_stock_threshold = inv_b.low_stock_threshold = 10
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalars_result([product_a, product_b]),
+                _scalars_result([inv_a, inv_b]),
+                _scalars_result([]),
+            ]
+        )
+
+        await _recompute_low_stock_alerts(db, JOB_ID)
+
+        assert db.add.call_count == 2
+        assert db.execute.await_count == 3
 
 
 # ---------------------------------------------------------------------------
@@ -779,7 +801,9 @@ class TestRecomputeAiSignals:
         Python-level PricingSuggestionError) would otherwise poison the
         single SAVEPOINT the whole recompute runs inside, breaking every
         later step. Each product's call must open — and roll back to — its
-        own nested SAVEPOINT."""
+        own nested SAVEPOINT. (One more begin_nested() call happens for
+        the reorder-suggestion regeneration right before this — see
+        TestRegenerateReorderSuggestionsForBusiness.)"""
         from src.data_import.recompute import _recompute_ai_signals
 
         product_id = uuid.uuid4()
@@ -796,7 +820,7 @@ class TestRecomputeAiSignals:
         ):
             await _recompute_ai_signals(db, BUSINESS_ID, JOB_ID)
 
-        db.begin_nested.assert_called_once()
+        assert db.begin_nested.call_count == 2
 
 
 # ---------------------------------------------------------------------------
