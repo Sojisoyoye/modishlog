@@ -539,6 +539,17 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
             # Newly-created by this import — already deleted above by
             # loader_rollback(), nothing left to reverse.
             pass
+        except InvalidStockAdjustmentError:
+            # Stock moved further since the import (real sales recorded
+            # against a deduped product, or this delta was already
+            # reversed) — the reversal would go negative. Best-effort:
+            # skip it rather than leave the rollback unusable and the job
+            # stuck never reaching ROLLED_BACK.
+            await logger.awarning(
+                "rollback_stock_reversal_skipped",
+                job_id=str(job.id),
+                product_id=str(product_id),
+            )
 
     # Suggestions reference stock/prices that just changed, and aren't
     # migration_id-tagged, so "only what this import caused" isn't

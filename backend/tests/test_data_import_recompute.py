@@ -76,6 +76,7 @@ class TestDeductImportedSalesStock:
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[
+                _scalar_one_or_none_result(None),  # not already applied
                 _rows_result([(product_id, None, 15)]),  # aggregate group query
                 MagicMock(),  # migration_id tag sweep on the new StockMovement
             ]
@@ -98,17 +99,20 @@ class TestDeductImportedSalesStock:
         assert kwargs["business_id"] == BUSINESS_ID
         assert kwargs["reference_id"] == JOB_ID
         assert kwargs["reference_type"] == "data_import_recompute"
-        # 1 aggregate query + 1 tag sweep — the sweep must run so rollback's
-        # reversal-delta calculation (which sums StockMovement rows tagged
-        # with this migration_id) can find these movements too.
-        assert db.execute.await_count == 2
+        # 1 already-applied check + 1 aggregate query + 1 tag sweep — the
+        # sweep must run so rollback's reversal-delta calculation (which
+        # sums StockMovement rows tagged with this migration_id) can find
+        # these movements too.
+        assert db.execute.await_count == 3
 
     @pytest.mark.asyncio
     async def test_no_imported_sales_is_a_noop(self):
         from src.data_import.recompute import _deduct_imported_sales_stock
 
         db = _mock_db()
-        db.execute = AsyncMock(return_value=_rows_result([]))
+        db.execute = AsyncMock(
+            side_effect=[_scalar_one_or_none_result(None), _rows_result([])]
+        )
 
         with patch(
             "src.data_import.recompute.adjust_stock", new=AsyncMock()
@@ -137,6 +141,7 @@ class TestDeductImportedSalesStock:
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[
+                _scalar_one_or_none_result(None),  # not already applied
                 _rows_result([(product_id, variant_id, 5)]),
                 _rows_result([]),  # no existing variant-level InventoryLevel rows
                 MagicMock(),  # migration_id tag sweep on the new StockMovement
@@ -171,6 +176,7 @@ class TestDeductImportedSalesStock:
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[
+                _scalar_one_or_none_result(None),  # not already applied
                 _rows_result([(product_a, None, 100), (product_b, None, 5)]),
                 MagicMock(),  # migration_id tag sweep (product_b succeeded)
             ]
@@ -199,7 +205,12 @@ class TestDeductImportedSalesStock:
 
         product_id = uuid.uuid4()
         db = _mock_db()
-        db.execute = AsyncMock(side_effect=[_rows_result([(product_id, None, 5)])])
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalar_one_or_none_result(None),  # not already applied
+                _rows_result([(product_id, None, 5)]),
+            ]
+        )
 
         with patch(
             "src.data_import.recompute.adjust_stock",
@@ -210,7 +221,32 @@ class TestDeductImportedSalesStock:
             )
 
         assert len(errors) == 1
-        # Only the aggregate query — no tag sweep, nothing succeeded to tag.
+        # Already-applied check + aggregate query — no tag sweep since
+        # nothing succeeded to tag.
+        assert db.execute.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_already_applied_deduction_is_skipped_not_repeated(self):
+        """A second call (via POST /jobs/{id}/recompute) must not deduct
+        the same imported sales' stock again — this step's own tag sweep
+        (reference_id=job_id, reference_type='data_import_recompute') is
+        exactly the marker that lets it detect it already ran."""
+        from src.data_import.recompute import _deduct_imported_sales_stock
+
+        db = _mock_db()
+        already_tagged = _scalar_one_or_none_result(uuid.uuid4())
+        db.execute = AsyncMock(return_value=already_tagged)
+
+        with patch(
+            "src.data_import.recompute.adjust_stock", new=AsyncMock()
+        ) as mock_adjust:
+            errors = await _deduct_imported_sales_stock(
+                db, BUSINESS_ID, JOB_ID, USER_ID
+            )
+
+        assert errors == []
+        mock_adjust.assert_not_awaited()
+        # Only the already-applied check — never reaches the aggregate query.
         assert db.execute.await_count == 1
 
 
@@ -265,6 +301,26 @@ class TestComputeFifoCogsForImportedSales:
         assert len(errors) == 1
         assert sale_b.fifo_cogs == Decimal("8")
 
+    @pytest.mark.asyncio
+    async def test_query_excludes_sales_that_already_have_fifo_cogs(self):
+        """Re-running (via POST /jobs/{id}/recompute) must not re-consume
+        InventoryBatch.quantity_remaining for a sale that was already
+        matched — fifo_deduct() has no notion of 'already done', so the
+        query itself is the only thing that can make this idempotent."""
+        from src.data_import.recompute import _compute_fifo_cogs_for_imported_sales
+
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=_scalars_result([]))
+
+        await _compute_fifo_cogs_for_imported_sales(db, JOB_ID)
+
+        compiled_where = str(
+            db.execute.call_args[0][0].whereclause.compile(
+                compile_kwargs={"literal_binds": True}
+            )
+        )
+        assert "fifo_cogs IS NULL" in compiled_where
+
 
 # ---------------------------------------------------------------------------
 # _create_opening_price_history
@@ -283,7 +339,9 @@ class TestCreateOpeningPriceHistory:
         product.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
         db = _mock_db()
-        db.execute = AsyncMock(return_value=_scalars_result([product]))
+        db.execute = AsyncMock(
+            side_effect=[_scalars_result([]), _scalars_result([product])]
+        )
 
         await _create_opening_price_history(db, JOB_ID, USER_ID)
 
@@ -303,11 +361,39 @@ class TestCreateOpeningPriceHistory:
         from src.data_import.recompute import _create_opening_price_history
 
         db = _mock_db()
-        db.execute = AsyncMock(return_value=_scalars_result([]))
+        db.execute = AsyncMock(side_effect=[_scalars_result([]), _scalars_result([])])
 
         await _create_opening_price_history(db, JOB_ID, USER_ID)
 
         db.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_a_product_that_already_has_an_opening_row(self):
+        """Re-running (via POST /jobs/{id}/recompute) must not create a
+        second 'Opening balance from import' row for the same product —
+        that would double-count in any P&L/price-history report."""
+        from src.data_import.recompute import _create_opening_price_history
+
+        already_seeded_product = MagicMock()
+        already_seeded_product.id = uuid.uuid4()
+        pending_product = MagicMock()
+        pending_product.id = uuid.uuid4()
+        pending_product.unit_cost = Decimal("100")
+        pending_product.selling_price = Decimal("200")
+        pending_product.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _scalars_result([already_seeded_product.id]),
+                _scalars_result([already_seeded_product, pending_product]),
+            ]
+        )
+
+        await _create_opening_price_history(db, JOB_ID, USER_ID)
+
+        db.add.assert_called_once()
+        assert db.add.call_args[0][0].product_id == pending_product.id
 
 
 # ---------------------------------------------------------------------------

@@ -1258,6 +1258,51 @@ class TestConfirmationGate:
         assert result.status == MigrationJobStatus.ROLLED_BACK
 
     @pytest.mark.asyncio
+    async def test_rollback_ignores_invalid_stock_adjustment_for_deduped_product(self):
+        """A deduped product's stock may have moved further since the
+        import (real sales recorded, or recompute already deducted it) —
+        the reversal delta can legitimately push quantity_on_hand negative.
+        adjust_stock() rejects that with InvalidStockAdjustmentError; that
+        must be a best-effort skip (same as a since-deleted product), not
+        an unhandled 500 that leaves the rollback half-applied and the job
+        stuck (never reaching ROLLED_BACK)."""
+        from src.inventory.exceptions import InvalidStockAdjustmentError
+
+        job = _make_job(status=MigrationJobStatus.DONE)
+        deduped_product_id = uuid.uuid4()
+
+        db = _mock_db()
+        movement_deltas = MagicMock()
+        movement_deltas.all.return_value = [(deduped_product_id, None, 30)]
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(
+            side_effect=[
+                movement_deltas,
+                empty_scalars,  # no new products
+                MagicMock(),  # delete(PriceHistory)
+                MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
+            ]
+        )
+
+        with (
+            patch("src.data_import.service.loader_rollback", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.adjust_stock",
+                new=AsyncMock(
+                    side_effect=InvalidStockAdjustmentError(deduped_product_id, -30, 10)
+                ),
+            ),
+            patch(
+                "src.data_import.service.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            result = await rollback_job(db, job)
+
+        assert result.status == MigrationJobStatus.ROLLED_BACK
+
+    @pytest.mark.asyncio
     async def test_recompute_job_requires_done_status(self):
         from src.data_import.service import recompute_job
 

@@ -52,7 +52,24 @@ async def _deduct_imported_sales_stock(
     """Aggregate imported sales per (product, variant) and deduct once per
     group — not once per sale, matching the task's own performance guidance
     (a single aggregate query, not a row-by-row replay).
+
+    Idempotent: if this job's deduction already ran (marked by the tag
+    sweep at the end of a prior run), skip entirely rather than deduct the
+    same imported sales' stock again — recompute_after_import() can be
+    re-triggered manually (POST /jobs/{id}/recompute) after already
+    succeeding once.
     """
+    already_applied = await db.execute(
+        select(StockMovement.id)
+        .where(
+            StockMovement.reference_id == job_id,
+            StockMovement.reference_type == "data_import_recompute",
+        )
+        .limit(1)
+    )
+    if already_applied.scalar_one_or_none() is not None:
+        return []
+
     result = await db.execute(
         select(Sale.product_id, Sale.variant_id, func.sum(Sale.quantity))
         .where(Sale.migration_id == job_id)
@@ -147,10 +164,16 @@ async def _compute_fifo_cogs_for_imported_sales(
     """For each imported sale, in chronological order per product (matching
     how the batches would actually have been depleted), compute FIFO COGS
     against the InventoryBatch rows created during purchase-order import.
+
+    Idempotent: only processes sales that don't already have fifo_cogs set
+    — fifo_deduct() consumes InventoryBatch.quantity_remaining, so re-
+    running it against an already-processed sale would double-consume the
+    same batches. This also means a re-trigger after a partial failure
+    only picks up the sales that didn't get processed last time.
     """
     result = await db.execute(
         select(Sale)
-        .where(Sale.migration_id == job_id)
+        .where(Sale.migration_id == job_id, Sale.fifo_cogs.is_(None))
         .order_by(Sale.product_id, Sale.sale_date)
     )
     sales = result.scalars().all()
@@ -178,9 +201,18 @@ async def _create_opening_price_history(
     """No price_history import entity exists — create one opening row per
     imported product from its current cost/price, so P&L reports built on
     price_history don't have a gap for the whole pre-import history.
+
+    Idempotent: skips products that already have an opening row from this
+    job — a re-trigger (POST /jobs/{id}/recompute) must not create
+    duplicates.
     """
+    already_seeded = await db.execute(
+        select(PriceHistory.product_id).where(PriceHistory.migration_id == job_id)
+    )
+    already_seeded_ids = set(already_seeded.scalars().all())
+
     result = await db.execute(select(Product).where(Product.migration_id == job_id))
-    products = result.scalars().all()
+    products = [p for p in result.scalars().all() if p.id not in already_seeded_ids]
     for product in products:
         db.add(
             PriceHistory(
