@@ -1493,6 +1493,37 @@ class TestSuggestionHistoryVariantScoping:
         with pytest.raises(PricingSuggestionError):
             await get_suggestion_history(db, product_id, variant_id=foreign_variant_id)
 
+    @pytest.mark.asyncio
+    async def test_deactivated_variants_history_stays_visible(self):
+        """Unlike compute_suggestion() (which rejects an inactive variant
+        before computing a *new* suggestion), reading a deactivated
+        variant's *past* suggestion history must still succeed — this is
+        a read of history, not a request against the variant's current
+        lot stock, so an is_active=False variant is still a valid
+        ownership match here."""
+        from src.pricing.service import get_suggestion_history
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+
+        db = _mock_db()
+
+        async def mock_execute(stmt):
+            result = MagicMock()
+            # Ownership lookup finds the (inactive) variant just fine —
+            # is_active is never part of this query's WHERE clause.
+            result.scalar_one_or_none.return_value = MagicMock(
+                id=variant_id, product_id=product_id, is_active=False
+            )
+            result.scalars.return_value.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+
+        result = await get_suggestion_history(db, product_id, variant_id=variant_id)
+
+        assert result == []
+
 
 # ---------------------------------------------------------------------------
 # Tests for category-aware price suggestion margin (Task #80)

@@ -1387,8 +1387,11 @@ async def get_suggestion_history(
 
     Raises PricingSuggestionError if variant_id doesn't belong to
     product_id — a mismatched pair would otherwise just silently return
-    an empty list, masking a client-side bug that passed the wrong pair
-    (same ownership check as compute_suggestion(), for consistency)."""
+    an empty list, masking a client-side bug that passed the wrong pair.
+    Deliberately does NOT filter by is_active like compute_suggestion()
+    does: a deactivated variant's *past* suggestions should stay visible
+    (this is a history read, not a request to compute a new suggestion
+    against that variant's current, possibly-gone lot stock)."""
     if variant_id is not None:
         variant_result = await db.execute(
             select(ProductVariant).where(
