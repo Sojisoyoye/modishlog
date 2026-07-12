@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import structlog
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.inventory.exceptions import (
@@ -88,7 +89,7 @@ async def ensure_inventory_level_exists(
     db: AsyncSession,
     product_id: uuid.UUID,
     variant_id: uuid.UUID | None,
-    low_stock_threshold: int = 10,
+    low_stock_threshold: int | None = None,
 ) -> None:
     """Create a zeroed InventoryLevel(product_id, variant_id) row if one
     doesn't already exist.
@@ -101,6 +102,21 @@ async def ensure_inventory_level_exists(
     crediting a PO delivery to a variant for the first time) must call
     this first, or adjust_stock() fails outright for a perfectly valid
     product/variant.
+
+    When low_stock_threshold isn't given and this is a variant row
+    (variant_id is not None), the new row inherits the product's
+    aggregate-row threshold — the business's already-configured
+    expectation for this product — instead of a hardcoded default that
+    would silently override it. Falls back to 10 only if no aggregate row
+    exists either.
+
+    The existence check and insert are not atomic — two concurrent callers
+    backfilling the same (product_id, variant_id) pair for the first time
+    (e.g. two POs for the same new variant delivered at once) can both
+    pass the check before either commits. The insert is wrapped in its own
+    SAVEPOINT so the loser's unique-index violation is caught and
+    swallowed rather than propagating as an unhandled 500 — the row exists
+    either way once the winner's insert commits.
     """
     query = select(InventoryLevel).where(
         InventoryLevel.product_id == product_id,
@@ -109,16 +125,37 @@ async def ensure_inventory_level_exists(
     result = await db.execute(query)
     if result.scalar_one_or_none() is not None:
         return
-    db.add(
-        InventoryLevel(
-            product_id=product_id,
-            variant_id=variant_id,
-            quantity_on_hand=0,
-            quantity_reserved=0,
-            low_stock_threshold=low_stock_threshold,
-        )
-    )
-    await db.flush()
+
+    threshold = low_stock_threshold
+    if threshold is None:
+        threshold = 10
+        if variant_id is not None:
+            aggregate_result = await db.execute(
+                select(InventoryLevel.low_stock_threshold).where(
+                    InventoryLevel.product_id == product_id,
+                    InventoryLevel.variant_id.is_(None),
+                )
+            )
+            aggregate_threshold = aggregate_result.scalar_one_or_none()
+            if aggregate_threshold is not None:
+                threshold = aggregate_threshold
+
+    try:
+        async with db.begin_nested():
+            db.add(
+                InventoryLevel(
+                    product_id=product_id,
+                    variant_id=variant_id,
+                    quantity_on_hand=0,
+                    quantity_reserved=0,
+                    low_stock_threshold=threshold,
+                )
+            )
+            await db.flush()
+    except IntegrityError:
+        # A concurrent caller won the race and created the row first —
+        # it exists now either way, which is all this function promises.
+        pass
 
 
 # ---------------------------------------------------------------------------

@@ -447,6 +447,47 @@ class TestPurchaseReturn:
         assert mock_adjust.call_args.kwargs["variant_id"] == variant_id
 
     @pytest.mark.asyncio
+    async def test_purchase_return_rejects_variant_mismatch_instead_of_silent_zero_cost(
+        self,
+    ):
+        """cost_map is now keyed by (product_id, variant_id) — a return
+        that omits or mismatches variant_id against a variant-specific PO
+        line item must not silently fall back to Decimal('0') cost and an
+        aggregate-row (variant_id=None) adjust_stock() call. Both are
+        wrong: the total_amount would understate the return's value, and
+        the wrong InventoryLevel row would be decremented."""
+        from src.orders.exceptions import OrderLineItemError
+
+        product = _make_product(id=uuid.uuid4())
+        variant_id = uuid.uuid4()
+        line = OrderLineItem(
+            order_id=uuid.uuid4(),
+            product_id=product.id,
+            variant_id=variant_id,
+            quantity=10,
+            unit_cost=Decimal("100"),
+            line_total=Decimal("1000"),
+        )
+        line.id = uuid.uuid4()
+        order = _make_order(status=OrderStatus.DELIVERED, line_items=[line])
+
+        db = _mock_db()
+        order_result = MagicMock()
+        order_result.scalar_one_or_none.return_value = order
+        db.execute = AsyncMock(return_value=order_result)
+
+        # Return omits variant_id even though the original line item had one.
+        data = PurchaseReturnCreate(
+            original_order_id=order.id,
+            notes="Damaged goods",
+            line_items=[PurchaseReturnLineItem(product_id=product.id, quantity=2)],
+        )
+
+        with patch("src.orders.service.adjust_stock", new_callable=AsyncMock):
+            with pytest.raises(OrderLineItemError):
+                await create_purchase_return(db, data, user_id=uuid.uuid4())
+
+    @pytest.mark.asyncio
     async def test_purchase_return_order_not_found(self):
         db = _mock_db_with_execute(scalar_result=None)
         from src.orders.exceptions import OrderNotFoundError

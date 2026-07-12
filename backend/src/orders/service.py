@@ -548,13 +548,19 @@ async def transition_status(
 
         for item in order.line_items:
             item.units_remaining = Decimal(str(item.quantity))
-            # adjust_stock() is a strict lookup, never an upsert — nothing
-            # creates a variant-scoped InventoryLevel row when a variant is
-            # created (products/service.py's create_variant() only inserts
-            # the ProductVariant row), so the first delivery for a variant
-            # must backfill it first or adjust_stock() raises
-            # ProductStockNotFoundError for a perfectly valid variant.
-            await ensure_inventory_level_exists(db, item.product_id, item.variant_id)
+            if item.variant_id is not None:
+                # adjust_stock() is a strict lookup, never an upsert —
+                # nothing creates a variant-scoped InventoryLevel row when
+                # a variant is created (products/service.py's
+                # create_variant() only inserts the ProductVariant row),
+                # so the first delivery for a variant must backfill it
+                # first or adjust_stock() raises ProductStockNotFoundError
+                # for a perfectly valid variant. Non-variant line items
+                # never need this: initialize_inventory() already created
+                # the product's aggregate row at product-creation time.
+                await ensure_inventory_level_exists(
+                    db, item.product_id, item.variant_id
+                )
             await adjust_stock(
                 db,
                 product_id=item.product_id,
@@ -1070,7 +1076,15 @@ async def create_purchase_return(
     total_amount = Decimal("0")
     for line in data.line_items:
         pid = line.product_id
-        unit_cost = cost_map.get((pid, line.variant_id), Decimal("0"))
+        key = (pid, line.variant_id)
+        if key not in cost_map:
+            # Silently falling back to Decimal("0") cost here would
+            # understate total_amount, and proceeding to adjust_stock()
+            # with the caller's (possibly wrong) variant_id would decrement
+            # whichever InventoryLevel row that resolves to — not
+            # necessarily the row this order's delivery actually credited.
+            raise OrderLineItemError(order.id, [pid])
+        unit_cost = cost_map[key]
         total_amount += unit_cost * line.quantity
 
         # Reverse inventory: deduct returned stock. Scoped to the same

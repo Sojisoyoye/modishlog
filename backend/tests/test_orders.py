@@ -46,6 +46,7 @@ from src.orders.service import (
     void_payment,
 )
 from src.products.models import Product
+from tests.conftest import NestedTransaction
 
 VALID_PASSWORD = "Str0ng!Pass#99"
 
@@ -1607,6 +1608,7 @@ class TestLotInventoryTracking:
         order.line_items = [item]
 
         db = _mock_db()
+        db.begin_nested = MagicMock(return_value=NestedTransaction())
         call_count = 0
 
         async def mock_execute(stmt):
@@ -1659,6 +1661,7 @@ class TestLotInventoryTracking:
 
         db = _mock_db()
         db.add = MagicMock()
+        db.begin_nested = MagicMock(return_value=NestedTransaction())
         call_count = 0
 
         async def mock_execute(stmt):
@@ -1669,6 +1672,10 @@ class TestLotInventoryTracking:
                 result.scalar_one_or_none.return_value = order
             elif call_count == 2:
                 # The backfill's own existence check — no row yet.
+                result.scalar_one_or_none.return_value = None
+            elif call_count == 3:
+                # The backfill's aggregate-threshold lookup — no aggregate
+                # row either in this scenario, falls back to the default.
                 result.scalar_one_or_none.return_value = None
             else:
                 # adjust_stock()'s own lookup, after the backfill created
