@@ -4946,11 +4946,11 @@
         "description": "A second, parallel FIFO-like tracking system (OrderLineItem.units_remaining, distinct from InventoryBatch.quantity_remaining) has the identical cross-variant pooling bug that task 165 fixed for InventoryBatch/fifo_deduct.",
         "details": "Found while implementing task 165 (variant-aware FIFO costing, PR for feat/165-variant-aware-fifo-costing). sales/service.py's create_sale() calls two separate consumption mechanisms per sale: fifo_deduct() (now variant-aware) against InventoryBatch, AND _deduct_lot_units() against OrderLineItem.units_remaining — the latter has no variant_id filter at all, even though OrderLineItem already has a variant_id column (task 165 confirmed this while checking prerequisites).\n\n_deduct_lot_units(db, product_id, quantity) queries `OrderLineItem.product_id == product_id, OrderLineItem.units_remaining > 0` ordered by order date, with no variant scoping — so selling variant A can deplete units_remaining on a lot that was actually delivered for variant B.\n\nNot clear whether OrderLineItem.units_remaining and InventoryBatch.quantity_remaining are two independent sources of truth for the same concept (lot-level remaining stock) or serve different purposes (units_remaining backs the /orders/{id}/lots endpoint per test_orders.py's TestLotInventoryTracking). Investigate the relationship between the two systems before deciding whether to add variant scoping to _deduct_lot_units() alone, or consolidate the two mechanisms.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-07-12T10:32:58.421Z"
+        "updatedAt": "2026-07-12T10:54:41.867Z"
       },
       {
         "id": 169,
@@ -4958,10 +4958,11 @@
         "description": "Editing a sale's quantity via update_sale() adjusts InventoryLevel via adjust_stock() but never re-runs fifo_deduct(), so InventoryBatch.quantity_remaining and the sale's fifo_cogs/fifo_gross_profit drift out of sync with the corrected quantity.",
         "details": "Found during task 165's PR #307 review (variant-aware FIFO costing). Confirmed pre-existing and unrelated to variant scoping specifically — sales/service.py's update_sale() was never touched by task 165's changes, and this gap exists for non-variant sales too.\n\nupdate_sale() calls adjust_stock(..., variant_id=...) to correct InventoryLevel.quantity_on_hand when quantity_diff != 0, but never calls fifo_deduct() again. Result: InventoryBatch.quantity_remaining stays based on the sale's original quantity (overstating remaining batch stock after a quantity increase, understating it after a decrease), and sale.fifo_cogs/fifo_gross_profit are never recalculated — a P&L report reading those fields directly sees stale, wrong figures for any edited sale.\n\nFix requires deciding the right correction strategy: naively calling fifo_deduct() again for just the delta would double up (or under-count) against the original consumption unless the original batches consumed are tracked (see task #166's consumption-ledger follow-up — likely a shared prerequisite). A simpler interim fix: reverse the original fifo_cogs proportionally and re-run fifo_deduct() for the new total quantity, accepting that this can still misattribute cost if batches have been partially consumed by other sales in between.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-07-12T10:54:59.135Z"
       },
       {
         "id": 170,
@@ -4984,19 +4985,32 @@
         "dependencies": [],
         "priority": "low",
         "subtasks": []
+      },
+      {
+        "id": 172,
+        "title": "update_sale() doesn't resync OrderLineItem.units_remaining on quantity change",
+        "description": "update_sale()'s FIFO resync (task 169, PR #311) corrects InventoryLevel and InventoryBatch/FifoConsumption when a sale's quantity is edited, but never touches OrderLineItem.units_remaining — the parallel lot-tracking ledger _deduct_lot_units() (task 168) depletes on sale creation. Editing a sale's quantity down leaves units_remaining permanently short by the difference; editing it up doesn't restore/re-deduct it either. Same root cause as task #170 (void_sale() has the identical gap) — no ledger exists yet to reverse a specific sale's units_remaining consumption precisely.",
+        "details": "Found during PR #311's review (task 169). Should likely be fixed together with task #170 once the lot-consumption reversal ledger design lands — investigate whether one shared ledger (e.g. LotConsumption(sale_id, order_line_item_id, quantity_consumed)) can serve both void_sale() and update_sale(), the same way FifoConsumption (task 166) serves both void_sale() and update_sale()'s InventoryBatch-side resync.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [
+          170
+        ],
+        "priority": "low",
+        "subtasks": []
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-07-12T10:32:58.423Z",
-      "taskCount": 169,
-      "completedCount": 167,
+      "lastModified": "2026-07-12T10:54:59.150Z",
+      "taskCount": 171,
+      "completedCount": 168,
       "tags": [
         "master"
       ],
-      "created": "2026-07-12T10:48:21.803Z",
+      "created": "2026-07-12T11:06:27.675Z",
       "description": "Tasks for master context",
-      "updated": "2026-07-12T10:48:28.567Z"
+      "updated": "2026-07-12T11:06:27.810Z"
     }
   }
 }

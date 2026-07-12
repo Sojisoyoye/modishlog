@@ -308,6 +308,11 @@ class TestUpdateSale:
 
     @pytest.mark.asyncio
     async def test_update_sale_quantity_adjusts_inventory(self):
+        # fifo_cogs is left at its default (None) — this sale was never
+        # FIFO-tracked, so the FIFO-resync branch added for task 169 must
+        # be skipped entirely (explicitly patched+asserted below, rather
+        # than relying on an unconfigured mock's default empty iteration
+        # to silently no-op the same code path).
         product_id = uuid.uuid4()
         sale = _make_sale(product_id=product_id, quantity=5)
         inventory = _make_inventory(product_id=product_id, quantity_on_hand=95)
@@ -331,11 +336,102 @@ class TestUpdateSale:
 
         db.execute = mock_execute
 
-        data = SaleUpdate(quantity=3)
-        result = await update_sale(db, sale.id, data, uuid.uuid4())
+        with patch(
+            "src.sales.service.reverse_fifo_consumption", new_callable=AsyncMock
+        ) as mock_reverse, patch(
+            "src.sales.service.fifo_deduct", new_callable=AsyncMock
+        ) as mock_deduct:
+            data = SaleUpdate(quantity=3)
+            result = await update_sale(db, sale.id, data, uuid.uuid4())
+
         assert result.quantity == 3
         # Stock should be restored: 95 + (5-3) = 97
         assert inventory.quantity_on_hand == 97
+        mock_reverse.assert_not_awaited()
+        mock_deduct.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_update_sale_quantity_change_resyncs_fifo_cogs(self):
+        """Editing quantity must reverse this sale's original FIFO
+        consumption (via the FifoConsumption ledger, task 166) and
+        re-run fifo_deduct() for the corrected quantity — otherwise
+        InventoryBatch.quantity_remaining and sale.fifo_cogs/
+        fifo_gross_profit drift out of sync with the new quantity."""
+        product_id = uuid.uuid4()
+        sale = _make_sale(
+            product_id=product_id,
+            quantity=5,
+            fifo_cogs=Decimal("500"),
+            fifo_gross_profit=Decimal("250"),
+        )
+        db = _mock_db_with_execute(scalar_result=sale)
+
+        with patch(
+            "src.sales.service.adjust_stock", new_callable=AsyncMock
+        ), patch(
+            "src.sales.service.reverse_fifo_consumption", new_callable=AsyncMock
+        ) as mock_reverse, patch(
+            "src.sales.service.fifo_deduct",
+            new_callable=AsyncMock,
+            return_value=Decimal("900"),
+        ) as mock_deduct:
+            data = SaleUpdate(quantity=3)
+            result = await update_sale(db, sale.id, data, uuid.uuid4())
+
+        mock_reverse.assert_awaited_once_with(db, [sale.id])
+        mock_deduct.assert_awaited_once()
+        args, kwargs = mock_deduct.call_args
+        assert args == (db, product_id, 3)
+        assert kwargs["variant_id"] == getattr(sale, "variant_id", None)
+        assert kwargs["sale_id"] == sale.id
+        assert result.fifo_cogs == Decimal("900")
+        assert result.fifo_gross_profit == result.total_amount - Decimal("900")
+
+    @pytest.mark.asyncio
+    async def test_update_sale_quantity_change_skips_fifo_resync_for_untracked_sale(self):
+        """A sale with fifo_cogs=None was never FIFO-tracked in the first
+        place (e.g. inserted directly by scripts/pos_migrate.py, which has
+        no FifoConsumption ledger row for it) — editing its quantity must
+        still correct InventoryLevel via adjust_stock(), but must NOT run
+        fifo_deduct(), which would fabricate a COGS figure and drain real
+        InventoryBatch stock never actually allocated to this sale."""
+        product_id = uuid.uuid4()
+        sale = _make_sale(product_id=product_id, quantity=5, fifo_cogs=None)
+        db = _mock_db_with_execute(scalar_result=sale)
+
+        with patch(
+            "src.sales.service.adjust_stock", new_callable=AsyncMock
+        ) as mock_adjust, patch(
+            "src.sales.service.reverse_fifo_consumption", new_callable=AsyncMock
+        ) as mock_reverse, patch(
+            "src.sales.service.fifo_deduct", new_callable=AsyncMock
+        ) as mock_deduct:
+            data = SaleUpdate(quantity=3)
+            result = await update_sale(db, sale.id, data, uuid.uuid4())
+
+        mock_adjust.assert_awaited_once()
+        mock_reverse.assert_not_awaited()
+        mock_deduct.assert_not_awaited()
+        assert result.fifo_cogs is None
+
+    @pytest.mark.asyncio
+    async def test_update_sale_without_quantity_change_does_not_resync_fifo(self):
+        """Editing a field other than quantity (e.g. notes) must not touch
+        FIFO consumption at all — nothing to reverse or re-deduct."""
+        sale = _make_sale(quantity=5, fifo_cogs=Decimal("500"))
+        db = _mock_db_with_execute(scalar_result=sale)
+
+        with patch(
+            "src.sales.service.reverse_fifo_consumption", new_callable=AsyncMock
+        ) as mock_reverse, patch(
+            "src.sales.service.fifo_deduct", new_callable=AsyncMock
+        ) as mock_deduct:
+            data = SaleUpdate(notes="Just a note change")
+            result = await update_sale(db, sale.id, data, uuid.uuid4())
+
+        mock_reverse.assert_not_awaited()
+        mock_deduct.assert_not_awaited()
+        assert result.fifo_cogs == Decimal("500")
 
     @pytest.mark.asyncio
     async def test_update_voided_sale_raises(self):
