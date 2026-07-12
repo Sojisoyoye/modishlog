@@ -28,6 +28,23 @@ that specific latent hazard.
 An in-memory SQLite engine is not a "live DB" in the production sense —
 no external service, no Docker, no CI change, sub-millisecond — just a
 real Inspector with real reflection semantics.
+
+WHY THIS FILE DOESN'T ALSO COVER aaf1881e3f19 / 00db7d1e1a78 /
+78362e79f979: those three add a column + a *standalone* foreign key
+(via op.create_foreign_key() as an ALTER, not inline in create_table())
+to an already-existing table. Confirmed directly against a live SQLite
+connection: op.create_foreign_key() outside batch mode raises
+`NotImplementedError: No support for ALTER of constraints in SQLite
+dialect` — SQLite categorically can't run the DDL these three migrations
+issue. Rewriting them to use op.batch_alter_table() would exercise a
+completely different code path (SQLite's batch mode recreates the whole
+table under the hood) that says nothing about their real behavior against
+Postgres, which is what actually runs in production. Real-engine coverage
+for these three would need a live Postgres in CI, which this repo doesn't
+have (see migration_test_utils.py's docstring). Their mocked content
+tests plus manual tracing through the actual check order (see
+src/core/migration_utils.py's docstring and the reasoning above) is the
+coverage that's actually achievable here.
 """
 
 import importlib.util

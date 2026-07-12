@@ -45,6 +45,14 @@ def mock_inspector(
         already present, routed to their real, separate Postgres-
         reporting methods (get_foreign_keys vs get_unique_constraints)
         so a bug in either code path is actually exercised.
+
+    LIMITATION: this is a fixed snapshot for the whole test — it does not
+    update itself when the migration's mocked `op` issues DDL mid-run, so
+    it cannot catch the "stale Inspector after DDL" class of bug (see
+    src/core/migration_utils.py's CAUTION section). test_migration_
+    sqlite_integration.py's real, non-mocked Inspector closes that gap for
+    the two migrations where it's technically possible to (see that file's
+    docstring for why it can't be extended to the others).
     """
     columns = columns or {}
     foreign_keys = foreign_keys or {}
@@ -72,6 +80,9 @@ def mock_inspector(
     inspector.get_indexes.side_effect = lambda table: [
         {"name": n} for n in indexes.get(table, [])
     ]
+    inspector.has_index.side_effect = (
+        lambda table, name: table in tables and name in indexes.get(table, [])
+    )
     return inspector
 
 

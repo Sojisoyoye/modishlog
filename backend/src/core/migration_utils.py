@@ -93,6 +93,4 @@ def has_constraint(table: str, name: str, insp: Inspector | None = None) -> bool
 
 def has_index(table: str, name: str, insp: Inspector | None = None) -> bool:
     insp = insp or sa.inspect(op.get_bind())
-    if not has_table(table, insp=insp):
-        return False
-    return name in {i["name"] for i in insp.get_indexes(table)}
+    return insp.has_index(table, name)
