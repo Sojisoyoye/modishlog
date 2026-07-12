@@ -25,24 +25,28 @@ and permanently blocking every migration after it.
 Each function accepts an optional pre-built `insp`. A migration checking
 several things in one upgrade()/downgrade() call should build one
 Inspector via `sa.inspect(op.get_bind())` and pass it to every has_*
-call, rather than letting each call construct its own — this only saves
-the Inspector *construction* cost, not the live has_table() re-query
-each has_* call still performs, since SQLAlchemy's Inspector does not
-cache plain `insp.has_table()`/`insp.get_*()` calls made without an
-explicit info_cache.
+call, rather than letting each call construct its own. This isn't just
+construction-cost savings: SQLAlchemy's Inspector caches reflection
+results per-instance per (table, reflection-type) — confirmed by
+counting actual SQL issued on a live connection, e.g. three `has_table()`
+calls for the same table on the same `insp` issue exactly one PRAGMA/
+catalog query, not three. So passing one `insp` into has_column(),
+has_constraint(), has_index() for the *same* table (as
+aaf1881e3f19_add_missing_image_url_and_mix_target_business_id.py's
+upgrade() does for product_mix_targets) really does eliminate the
+redundant round-trips, not just Inspector construction.
 
-CAUTION — the one place this reuse is NOT safe: SQLAlchemy's Inspector
-*does* cache reflection results per-instance once it has answered a
-given (table, reflection-type) question once (confirmed against a live
+CAUTION — the one place this reuse is NOT safe: that same per-instance
+cache goes stale if a migration issues DDL between two checks of the
+same reflection type on the same table (confirmed against a live
 connection: `insp.has_table('t')` returns False, the table is then
 created on the same connection, and the *same* `insp.has_table('t')`
 still returns the stale False — a fresh `sa.inspect()` call correctly
-returns True). If a migration issues DDL between two checks of the same
-reflection type on the same table (e.g. create_table() then a later
-has_index() on that table, which re-derives has_table() internally),
-rebuild `insp = sa.inspect(op.get_bind())` after the DDL before the next
-check — see 9100b1b36d72_add_fifo_consumptions_table.py's upgrade() for
-the pattern.
+returns True). E.g. create_table() then a later has_index() on that
+table (which re-derives has_table() internally) would see the stale
+pre-creation state. Rebuild `insp = sa.inspect(op.get_bind())` after the
+DDL before the next check — see
+9100b1b36d72_add_fifo_consumptions_table.py's upgrade() for the pattern.
 
 IMPORTING THIS MODULE: every caller does
 `from src.core.migration_utils import ...` *inside* upgrade()/

@@ -21,6 +21,7 @@ never actually succeeded against a real environment. Without these guards,
 `alembic upgrade head` fails with DuplicateColumnError on `products.image_url`
 and permanently blocks every migration after this one.
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -29,8 +30,8 @@ from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'aaf1881e3f19'
-down_revision: Union[str, None] = '5b084b6ad359'
+revision: str = "aaf1881e3f19"
+down_revision: Union[str, None] = "5b084b6ad359"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -40,9 +41,9 @@ def upgrade() -> None:
     # docstring ("IMPORTING THIS MODULE") for why.
     from src.core.migration_utils import has_column, has_constraint, has_index
 
-    # One Inspector, reused for every check below — this only saves the
-    # Inspector *construction* cost, not every individual has_table()/
-    # get_*() re-query each has_* call below still performs (see
+    # One Inspector, reused for every check below — SQLAlchemy caches
+    # reflection results per-instance per table, so this eliminates
+    # redundant round-trips, not just Inspector construction cost (see
     # src/core/migration_utils.py's docstring). mix_target_cols is built
     # here directly (rather than solely via has_column()) because the
     # nullable-aware business_id check just below needs the column's
@@ -69,7 +70,10 @@ def upgrade() -> None:
     # same `mix_target_cols` snapshot rather than using the shared helper
     # (existence alone is checked via has_column() just above, for
     # consistency with every other check in this function).
-    if "business_id" not in mix_target_cols or mix_target_cols["business_id"]["nullable"]:
+    if (
+        "business_id" not in mix_target_cols
+        or mix_target_cols["business_id"]["nullable"]
+    ):
         op.execute(
             "UPDATE product_mix_targets SET business_id = "
             "(SELECT id FROM businesses ORDER BY created_at LIMIT 1) "

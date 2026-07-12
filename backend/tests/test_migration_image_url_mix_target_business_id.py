@@ -13,14 +13,10 @@ tracking — the original (non-idempotent) version failed with
 DuplicateColumnError and permanently blocked every migration after it.
 """
 
-from unittest.mock import patch
-
 from tests.migration_test_utils import load_migration
-from tests.migration_test_utils import mock_inspector as _mock_inspector
+from tests.migration_test_utils import patched_migration_utils as _patched
 
-MIGRATION_FILENAME = (
-    "aaf1881e3f19_add_missing_image_url_and_mix_target_business_id.py"
-)
+MIGRATION_FILENAME = "aaf1881e3f19_add_missing_image_url_and_mix_target_business_id.py"
 
 
 def _load_migration():
@@ -34,9 +30,7 @@ class TestImageUrlMixTargetBusinessIdMigrationUpgrade:
         backfilled + made NOT NULL."""
         migration = _load_migration()
 
-        with patch.object(migration, "op") as mock_op, patch.object(
-            migration.sa, "inspect", return_value=_mock_inspector()
-        ):
+        with _patched(migration) as mock_op:
             migration.upgrade()
 
         add_column_tables = [c.args[0] for c in mock_op.add_column.call_args_list]
@@ -54,14 +48,12 @@ class TestImageUrlMixTargetBusinessIdMigrationUpgrade:
         added via emergency raw SQL before this migration ever ran, but
         product_mix_targets.business_id was not touched by that patch."""
         migration = _load_migration()
-        inspector = _mock_inspector(
+
+        with _patched(
+            migration,
             tables={"products", "product_mix_targets"},
             columns={"products": {"image_url": {"nullable": True}}},
-        )
-
-        with patch.object(migration, "op") as mock_op, patch.object(
-            migration.sa, "inspect", return_value=inspector
-        ):
+        ) as mock_op:
             migration.upgrade()
 
         add_column_tables = [c.args[0] for c in mock_op.add_column.call_args_list]
@@ -81,17 +73,15 @@ class TestImageUrlMixTargetBusinessIdMigrationUpgrade:
         left with a NULL business_id that the ORM model and application
         code assume is always populated."""
         migration = _load_migration()
-        inspector = _mock_inspector(
+
+        with _patched(
+            migration,
             tables={"products", "product_mix_targets"},
             columns={
                 "products": {"image_url": {"nullable": True}},
                 "product_mix_targets": {"business_id": {"nullable": True}},
             },
-        )
-
-        with patch.object(migration, "op") as mock_op, patch.object(
-            migration.sa, "inspect", return_value=inspector
-        ):
+        ) as mock_op:
             migration.upgrade()
 
         # Column already exists — must not try to add it again.
@@ -108,7 +98,9 @@ class TestImageUrlMixTargetBusinessIdMigrationUpgrade:
         idempotent-migration case) must not attempt to add, backfill, or
         constrain anything a second time."""
         migration = _load_migration()
-        inspector = _mock_inspector(
+
+        with _patched(
+            migration,
             tables={"products", "product_mix_targets"},
             columns={
                 "products": {"image_url": {"nullable": True}},
@@ -121,11 +113,7 @@ class TestImageUrlMixTargetBusinessIdMigrationUpgrade:
                 "product_mix_targets": ["uq_mix_target_category_business"]
             },
             indexes={"product_mix_targets": ["ix_product_mix_targets_business_id"]},
-        )
-
-        with patch.object(migration, "op") as mock_op, patch.object(
-            migration.sa, "inspect", return_value=inspector
-        ):
+        ) as mock_op:
             migration.upgrade()
 
         mock_op.add_column.assert_not_called()
@@ -141,7 +129,9 @@ class TestImageUrlMixTargetBusinessIdMigrationDowngrade:
         """The normal case: everything this migration created still
         exists, so downgrade() removes all of it."""
         migration = _load_migration()
-        inspector = _mock_inspector(
+
+        with _patched(
+            migration,
             tables={"products", "product_mix_targets"},
             columns={
                 "products": {"image_url": {"nullable": True}},
@@ -154,11 +144,7 @@ class TestImageUrlMixTargetBusinessIdMigrationDowngrade:
                 "product_mix_targets": ["uq_mix_target_category_business"]
             },
             indexes={"product_mix_targets": ["ix_product_mix_targets_business_id"]},
-        )
-
-        with patch.object(migration, "op") as mock_op, patch.object(
-            migration.sa, "inspect", return_value=inspector
-        ):
+        ) as mock_op:
             migration.downgrade()
 
         mock_op.drop_constraint.assert_any_call(
@@ -185,18 +171,16 @@ class TestImageUrlMixTargetBusinessIdMigrationDowngrade:
         of what a naive downgrade would try to drop was never actually
         created by *this* migration in the first place."""
         migration = _load_migration()
-        inspector = _mock_inspector(
+
+        with _patched(
+            migration,
             tables={"products", "product_mix_targets"},
             columns={"products": {"image_url": {"nullable": True}}},
             # product_mix_targets.business_id and its FK/index/constraint
             # were never added — e.g. upgrade() no-op'd on a DB where
             # they didn't exist and business_id ended up populated by
             # some other means outside this migration's control.
-        )
-
-        with patch.object(migration, "op") as mock_op, patch.object(
-            migration.sa, "inspect", return_value=inspector
-        ):
+        ) as mock_op:
             migration.downgrade()  # must not raise
 
         mock_op.drop_constraint.assert_not_called()
@@ -206,11 +190,8 @@ class TestImageUrlMixTargetBusinessIdMigrationDowngrade:
 
     def test_full_noop_when_nothing_exists(self):
         migration = _load_migration()
-        inspector = _mock_inspector()
 
-        with patch.object(migration, "op") as mock_op, patch.object(
-            migration.sa, "inspect", return_value=inspector
-        ):
+        with _patched(migration) as mock_op:
             migration.downgrade()  # must not raise
 
         mock_op.drop_constraint.assert_not_called()
