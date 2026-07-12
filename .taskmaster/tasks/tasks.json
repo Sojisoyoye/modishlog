@@ -4970,11 +4970,11 @@
         "description": "void_sale() reverses InventoryLevel and InventoryBatch.quantity_remaining (via reverse_fifo_consumption()'s FifoConsumption ledger, task 166) but has no mechanism to restore OrderLineItem.units_remaining consumed by _deduct_lot_units(). There's no ledger recording which specific lots a sale's _deduct_lot_units() call touched, so voiding a sale leaves that lot's units_remaining permanently short — under-reporting available units on the /orders/{id}/lots endpoint and LOT-type stock counts indefinitely.",
         "details": "Found during PR #310's review (task 168). Likely fix mirrors task 166's FifoConsumption pattern: add a ledger table (e.g. LotConsumption(sale_id, order_line_item_id, quantity_consumed)) written by _deduct_lot_units(), then a reverse_lot_consumption(db, sale_ids) helper called from void_sale() and data_import's rollback_job(), analogous to reverse_fifo_consumption(). Investigate whether a lighter-weight approach (recording just enough to reverse, without a full new table) is possible before committing to the full ledger design.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-07-12T11:11:59.443Z"
+        "updatedAt": "2026-07-12T11:43:48.043Z"
       },
       {
         "id": "171",
@@ -4982,10 +4982,11 @@
         "description": "pricing/service.py's compute_suggestion() (around line 1233-1267) computes a weighted-average unit_cost_ngn across all OrderLineItem lots with units_remaining > 0 for a product, but has no variant_id filter — the same cross-variant pooling bug task 165 fixed for fifo_deduct()/InventoryBatch and task 168 fixed for _deduct_lot_units()/OrderLineItem, on a third consumer of the units_remaining ledger. For a product with variants of differing cost, this blends sibling variants' lot costs into one product-level price suggestion instead of a per-variant one.",
         "details": "Found during PR #310's review (task 168). Fix should mirror task 168's approach: accept a variant_id param on compute_suggestion()'s cost-lookup query and apply src/core/query_helpers.py's variant_or_untagged_filter(OrderLineItem.variant_id, variant_id) (added in task 168, shared with sales/service.py's _deduct_lot_units() and inventory/service.py's fifo_deduct()). Check compute_suggestion()'s call sites to confirm a variant_id is available/threadable through to this query.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-07-12T11:44:16.147Z"
       },
       {
         "id": "172",
@@ -4993,19 +4994,20 @@
         "description": "update_sale()'s FIFO resync (task 169, PR #311) corrects InventoryLevel and InventoryBatch/FifoConsumption when a sale's quantity is edited, but never touches OrderLineItem.units_remaining — the parallel lot-tracking ledger _deduct_lot_units() (task 168) depletes on sale creation. Editing a sale's quantity down leaves units_remaining permanently short by the difference; editing it up doesn't restore/re-deduct it either. Same root cause as task #170 (void_sale() has the identical gap) — no ledger exists yet to reverse a specific sale's units_remaining consumption precisely.",
         "details": "Found during PR #311's review (task 169). Should likely be fixed together with task #170 once the lot-consumption reversal ledger design lands — investigate whether one shared ledger (e.g. LotConsumption(sale_id, order_line_item_id, quantity_consumed)) can serve both void_sale() and update_sale(), the same way FifoConsumption (task 166) serves both void_sale() and update_sale()'s InventoryBatch-side resync.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "170"
         ],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-07-12T11:43:52.392Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-07-12T11:11:59.449Z",
+      "lastModified": "2026-07-12T11:44:16.147Z",
       "taskCount": 172,
-      "completedCount": 169,
+      "completedCount": 171,
       "tags": [
         "master"
       ]
