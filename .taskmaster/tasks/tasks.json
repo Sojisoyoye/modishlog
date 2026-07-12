@@ -4922,11 +4922,11 @@
         "description": "Neither void_sale() nor data_import rollback restores InventoryBatch.quantity_remaining consumed by fifo_deduct(), because there's no record of which batches a given sale actually consumed.",
         "details": "Found during task 164's PR #306 review (round 16). Confirmed pre-existing and systemic: sales/service.py's void_sale() already only restores InventoryLevel.quantity_on_hand via adjust_stock() — it never touches InventoryBatch.quantity_remaining. data_import's rollback_job() has the identical gap for imported sales whose stock was FIFO-deducted during recompute.\n\nSymptom: after a voided sale or a rolled-back import, on-hand quantity looks correct again, but the InventoryBatch rows that fifo_deduct() decremented stay short. Future real sales run out of matching FIFO batches earlier than they should, silently understating COGS / overstating gross profit going forward.\n\nFix requires a proper consumption ledger (e.g. a SaleBatchConsumption table recording {sale_id, batch_id, quantity_consumed} written by fifo_deduct() at consumption time), then:\n1. New migration for the ledger table\n2. fifo_deduct() writes one ledger row per batch it draws from\n3. void_sale() and data_import's rollback_job() use the ledger to restore exact quantities to exact batches instead of guessing\n4. Handle the case where a ledger-referenced batch was itself deleted (e.g. by data_import rollback's loader_rollback())\n\nOut of scope for task 164 — this is a sales/inventory domain feature, not specific to data import.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-07-12T08:44:45.535Z"
+        "updatedAt": "2026-07-12T09:24:12.527Z"
       },
       {
         "id": "167",
@@ -4934,10 +4934,11 @@
         "description": "inventory_levels' movement_type Postgres enum has mixed-case labels from past migrations, and the SQLAlchemy column lacks values_callable, making STOCK_ADJUSTMENT and OPENING_STOCK permanently uninsertable.",
         "details": "Found during task 164's PR #306 review (rounds 8/16). backend/src/inventory/models.py's `movement_type: Mapped[MovementType] = mapped_column(Enum(MovementType))` has no values_callable (unlike every other enum column in the codebase, e.g. data_import/models.py's MigrationJobStatus/SourceSystem/ExtractionMode), so it serializes new inserts via the Python enum's .name (upper-case). But STOCK_ADJUSTMENT/OPENING_STOCK were only ever migrated into the Postgres enum type as lower-case values, so inserting either of those two members fails at the DB level.\n\ndata_import/service.py's rollback_job() currently works around this by using MANUAL_ADD/MANUAL_REMOVE instead of the semantically-correct STOCK_ADJUSTMENT — documented in a comment, but any other/future caller that needs to record a genuine stock_adjustment or opening_stock movement will hit the identical silent-until-runtime failure.\n\nFix requires:\n1. Migration to ALTER TYPE the movementtype Postgres enum, normalizing every drifted label to one consistent case (check current DB state first — some labels may already be relied upon by existing rows/queries)\n2. Add values_callable=lambda x: [e.value for e in x] to the Enum(MovementType) column definition\n3. Once fixed, data_import's rollback_job() can use the semantically-correct STOCK_ADJUSTMENT movement type instead of MANUAL_ADD/MANUAL_REMOVE\n\nOut of scope for task 164 — this is inventory-domain schema drift predating this task, not something task 164 introduced.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-07-12T09:28:54.447Z"
       },
       {
         "id": "168",
@@ -4964,9 +4965,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-07-12T08:44:45.537Z",
+      "lastModified": "2026-07-12T09:28:54.448Z",
       "taskCount": 169,
-      "completedCount": 165,
+      "completedCount": 166,
       "tags": [
         "master"
       ]

@@ -1216,15 +1216,13 @@ class TestConfirmationGate:
         _, kwargs = mock_adjust.call_args
         assert kwargs["product_id"] == deduped_product_id
         assert kwargs["quantity_change"] == 20
-        # Not MovementType.STOCK_ADJUSTMENT — the `movement_type` Postgres
-        # enum has real schema drift (some labels are upper-cased .name,
-        # some are lower-cased .value; STOCK_ADJUSTMENT was only ever
-        # migrated in as lower-case "stock_adjustment", so the
-        # values_callable-less Enum(MovementType) column, which serializes
-        # via .name, can't insert it). MANUAL_ADD/MANUAL_REMOVE are
-        # correctly registered and semantically fit a rollback-driven
-        # administrative adjustment just as well.
-        assert kwargs["movement_type"] == MovementType.MANUAL_ADD.value
+        # MovementType.STOCK_ADJUSTMENT is now correctly usable — the
+        # movementtype Postgres enum's schema drift (STOCK_ADJUSTMENT/
+        # OPENING_STOCK only ever existed lower-case, while every other
+        # label — and the column's values_callable-less .name-based
+        # serialization — is upper-case) is fixed by a migration adding
+        # the upper-case labels to match.
+        assert kwargs["movement_type"] == MovementType.STOCK_ADJUSTMENT.value
         mock_regen.assert_awaited_once_with(db, job.business_id)
         assert result.status == MigrationJobStatus.ROLLED_BACK
 
