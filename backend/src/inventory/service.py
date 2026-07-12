@@ -5,7 +5,7 @@ from collections.abc import Collection
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +24,7 @@ from src.inventory.models import (
 )
 from src.inventory.schemas import DepletionForecastRead
 from src.products.models import Product
-from src.core.query_helpers import variant_or_untagged_filter
+from src.core.query_helpers import reverse_ledger_consumption, variant_or_untagged_filter
 
 logger = structlog.get_logger()
 
@@ -664,38 +664,23 @@ async def reverse_fifo_consumption(
     import that's being rolled back, and loader_rollback() deletes
     InventoryBatch rows separately) is silently skipped — there's nothing
     to restore a deleted batch to.
+
+    Delegates the actual algorithm to reverse_ledger_consumption()
+    (src/core/query_helpers.py), shared with orders/service.py's
+    reverse_lot_consumption() (task 170).
     """
-    if not sale_ids:
-        return
-
-    result = await db.execute(
-        select(
-            FifoConsumption.batch_id,
-            func.sum(FifoConsumption.quantity_consumed),
-        )
-        .where(FifoConsumption.sale_id.in_(sale_ids))
-        .group_by(FifoConsumption.batch_id)
+    await reverse_ledger_consumption(
+        db,
+        sale_ids,
+        ledger_model=FifoConsumption,
+        ledger_sale_id_col=FifoConsumption.sale_id,
+        ledger_target_id_col=FifoConsumption.batch_id,
+        ledger_quantity_col=FifoConsumption.quantity_consumed,
+        target_model=InventoryBatch,
+        target_quantity_col=InventoryBatch.quantity_remaining,
+        zero=0,
+        cast=int,
     )
-    deltas = {batch_id: int(total) for batch_id, total in result.all()}
-    if not deltas:
-        return
-
-    # One bulk fetch+lock instead of one SELECT+FOR UPDATE per batch_id —
-    # a data_import rollback can touch hundreds of sales spread across
-    # many batches, and a per-batch round-trip there would hold row locks
-    # far longer than necessary.
-    batches_result = await db.execute(
-        select(InventoryBatch)
-        .where(InventoryBatch.id.in_(deltas.keys()))
-        .with_for_update()
-    )
-    for batch in batches_result.scalars().all():
-        batch.quantity_remaining += deltas[batch.id]
-
-    await db.execute(
-        delete(FifoConsumption).where(FifoConsumption.sale_id.in_(sale_ids))
-    )
-    await db.flush()
 
 
 async def get_liquidation_candidates(
