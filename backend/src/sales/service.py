@@ -455,6 +455,20 @@ async def update_sale(
                 getattr(sale, 'variant_id', None),
             )
 
+            # Same re-sync for the parallel lot-tracking ledger (task 170)
+            # — without this, OrderLineItem.units_remaining stays deducted
+            # for the sale's *original* quantity, and the stale
+            # LotConsumption rows left behind would over/under-credit
+            # units_remaining if this sale is later voided.
+            await reverse_lot_consumption(db, [sale.id])
+            await _deduct_lot_units(
+                db,
+                sale.product_id,
+                Decimal(str(sale.quantity)),
+                variant_id=getattr(sale, 'variant_id', None),
+                sale_id=sale.id,
+            )
+
     await logger.ainfo("sale_updated", sale_id=str(sale_id), changes=field_changes)
     return sale
 

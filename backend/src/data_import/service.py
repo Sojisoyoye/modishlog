@@ -67,6 +67,7 @@ from src.orders.exceptions import (
     OrderLineItemError,
     OrderNotFoundError,
 )
+from src.orders.service import reverse_lot_consumption
 from src.products.models import PriceHistory, Product
 from src.sales.models import Sale
 
@@ -598,6 +599,15 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
     )
     imported_sale_ids = list(imported_sale_ids_result.scalars().all())
     await reverse_fifo_consumption(db, imported_sale_ids)
+
+    # Same reversal for the parallel lot-tracking ledger (task 170) — a
+    # no-op today since recompute.py never calls _deduct_lot_units() for
+    # imported sales (so no LotConsumption rows exist for them), but kept
+    # symmetric with reverse_fifo_consumption() so a future change that
+    # starts lot-tracking imports doesn't silently reintroduce the
+    # permanently-short-units_remaining gap this task closed for
+    # void_sale().
+    await reverse_lot_consumption(db, imported_sale_ids)
 
     deleted_counts = await loader_rollback(db, job.id)
 
