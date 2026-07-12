@@ -3,11 +3,12 @@
 import csv
 import io
 import uuid
+from collections.abc import Collection
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,6 +29,7 @@ from src.orders.exceptions import (
 )
 from src.orders.models import (
     DiscountType,
+    LotConsumption,
     OrderLineItem,
     OrderPayment,
     OrderPaymentStatus,
@@ -604,6 +606,52 @@ async def transition_status(
         to_status=new_status.value,
     )
     return order
+
+
+async def reverse_lot_consumption(
+    db: AsyncSession, sale_ids: Collection[uuid.UUID]
+) -> None:
+    """Restore OrderLineItem.units_remaining for every lot the given sales
+    consumed via sales/service.py's _deduct_lot_units(), then remove their
+    consumption ledger rows.
+
+    Used by void_sale() to undo lot-level consumption exactly, using the
+    LotConsumption ledger _deduct_lot_units() wrote — mirrors
+    inventory/service.py's reverse_fifo_consumption() (task 166) for this
+    parallel units_remaining ledger (task 170).
+
+    A lot that no longer exists is silently skipped — there's nothing to
+    restore a deleted lot to.
+    """
+    if not sale_ids:
+        return
+
+    result = await db.execute(
+        select(
+            LotConsumption.order_line_item_id,
+            func.sum(LotConsumption.quantity_consumed),
+        )
+        .where(LotConsumption.sale_id.in_(sale_ids))
+        .group_by(LotConsumption.order_line_item_id)
+    )
+    deltas = {lot_id: total for lot_id, total in result.all()}
+    if not deltas:
+        return
+
+    # One bulk fetch+lock instead of one SELECT+FOR UPDATE per lot_id —
+    # mirrors reverse_fifo_consumption()'s reasoning.
+    lots_result = await db.execute(
+        select(OrderLineItem)
+        .where(OrderLineItem.id.in_(deltas.keys()))
+        .with_for_update()
+    )
+    for lot in lots_result.scalars().all():
+        lot.units_remaining = (lot.units_remaining or Decimal("0")) + deltas[lot.id]
+
+    await db.execute(
+        delete(LotConsumption).where(LotConsumption.sale_id.in_(sale_ids))
+    )
+    await db.flush()
 
 
 async def get_status_history(

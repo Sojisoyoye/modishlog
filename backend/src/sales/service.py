@@ -14,7 +14,8 @@ from src.core.config import settings
 from src.core.query_helpers import variant_or_untagged_filter
 from src.inventory.models import MovementType
 from src.inventory.service import adjust_stock, fifo_deduct, reverse_fifo_consumption
-from src.orders.models import OrderLineItem, PurchaseOrder
+from src.orders.models import LotConsumption, OrderLineItem, PurchaseOrder
+from src.orders.service import reverse_lot_consumption
 from src.products.models import Product, ProductVariant
 from src.sales.exceptions import (
     BulkUploadJobNotFoundError,
@@ -62,13 +63,19 @@ async def _deduct_lot_units(
     product_id: uuid.UUID,
     quantity: Decimal,
     variant_id: uuid.UUID | None = None,
+    sale_id: uuid.UUID | None = None,
 ) -> None:
     """Deduct quantity from active order lots FIFO (oldest order_date first).
 
     variant_id scopes which lots are eligible via variant_or_untagged_filter()
     (src/core/query_helpers.py) — a variant-specific deduction only draws
     from that variant's own tagged lots plus untagged ones, never a sibling
-    variant's tagged lots (task 168)."""
+    variant's tagged lots (task 168).
+
+    Pass sale_id so voiding this sale can reverse its lot consumption
+    exactly instead of guessing which lots to credit back — mirrors
+    fifo_deduct()'s FifoConsumption ledger (task 166) via the parallel
+    LotConsumption ledger (task 170)."""
     result = await db.execute(
         select(OrderLineItem)
         .join(PurchaseOrder, OrderLineItem.order_id == PurchaseOrder.id)
@@ -90,6 +97,14 @@ async def _deduct_lot_units(
         lot.units_remaining -= deduct
         remaining -= deduct
         deducted_any = True
+        if sale_id is not None:
+            db.add(
+                LotConsumption(
+                    sale_id=sale_id,
+                    order_line_item_id=lot.id,
+                    quantity_consumed=deduct,
+                )
+            )
 
     if deducted_any:
         await db.flush()
@@ -265,7 +280,11 @@ async def create_sale(
 
     # Lot-level FIFO deduction: deplete units_remaining on delivered order lots
     await _deduct_lot_units(
-        db, data.product_id, Decimal(str(data.quantity)), variant_id=data.variant_id
+        db,
+        data.product_id,
+        Decimal(str(data.quantity)),
+        variant_id=data.variant_id,
+        sale_id=sale.id,
     )
 
     await logger.ainfo(
@@ -542,6 +561,12 @@ async def void_sale(
     # InventoryLevel; without this, batches stay permanently short and
     # future sales understate COGS.
     await reverse_fifo_consumption(db, [sale.id])
+
+    # Restore OrderLineItem.units_remaining for exactly what this sale's
+    # _deduct_lot_units() call consumed — the parallel lot-tracking ledger
+    # (task 168) has the same "stays permanently short" gap FifoConsumption
+    # closed for InventoryBatch (task 166, task 170).
+    await reverse_lot_consumption(db, [sale.id])
 
     await logger.ainfo("sale_voided", sale_id=str(sale_id), reason=reason)
     return sale

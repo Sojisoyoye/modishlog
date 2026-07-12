@@ -1748,6 +1748,146 @@ class TestLotInventoryTracking:
 
 
 # ---------------------------------------------------------------------------
+# Lot consumption reversal (task 170)
+# ---------------------------------------------------------------------------
+
+
+def _rows_result(rows):
+    r = MagicMock()
+    r.all.return_value = rows
+    return r
+
+
+def _scalars_result(items):
+    r = MagicMock()
+    r.scalars.return_value.all.return_value = items
+    return r
+
+
+class TestReverseLotConsumption:
+    @pytest.mark.asyncio
+    async def test_restores_units_remaining_for_each_consumed_lot(self):
+        """void_sale() needs this to credit back exactly what
+        _deduct_lot_units() took, not guess at a delta."""
+        from src.orders.service import reverse_lot_consumption
+
+        sale_id = uuid.uuid4()
+        lot1 = _make_line_item(units_remaining=Decimal("0"))
+        lot2 = _make_line_item(units_remaining=Decimal("15"))
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result([(lot1.id, Decimal("10")), (lot2.id, Decimal("5"))]),
+                _scalars_result([lot1, lot2]),
+                MagicMock(),
+            ]
+        )
+
+        await reverse_lot_consumption(db, [sale_id])
+
+        assert lot1.units_remaining == Decimal("10")
+        assert lot2.units_remaining == Decimal("20")
+
+    @pytest.mark.asyncio
+    async def test_lots_are_fetched_in_a_single_bulk_query(self):
+        from src.orders.service import reverse_lot_consumption
+
+        sale_id = uuid.uuid4()
+        lot1 = _make_line_item(units_remaining=Decimal("0"))
+        lot2 = _make_line_item(units_remaining=Decimal("15"))
+        lot3 = _make_line_item(units_remaining=Decimal("3"))
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result(
+                    [
+                        (lot1.id, Decimal("10")),
+                        (lot2.id, Decimal("5")),
+                        (lot3.id, Decimal("2")),
+                    ]
+                ),
+                _scalars_result([lot1, lot2, lot3]),
+                MagicMock(),
+            ]
+        )
+
+        await reverse_lot_consumption(db, [sale_id])
+
+        # Exactly 3 calls total: grouped sum, one bulk lot fetch, delete —
+        # not one lot-fetch call per lot_id.
+        assert db.execute.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_deletes_ledger_rows_after_reversal(self):
+        from sqlalchemy import delete
+
+        from src.orders.models import LotConsumption
+        from src.orders.service import reverse_lot_consumption
+
+        sale_id = uuid.uuid4()
+        lot = _make_line_item(units_remaining=Decimal("0"))
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result([(lot.id, Decimal("10"))]),
+                _scalars_result([lot]),
+                MagicMock(),
+            ]
+        )
+
+        await reverse_lot_consumption(db, [sale_id])
+
+        delete_stmt = db.execute.await_args_list[-1].args[0]
+        assert delete_stmt.table.name == delete(LotConsumption).table.name
+
+    @pytest.mark.asyncio
+    async def test_skips_a_lot_that_no_longer_exists(self):
+        from src.orders.service import reverse_lot_consumption
+
+        sale_id = uuid.uuid4()
+        missing_lot_id = uuid.uuid4()
+
+        db = _mock_db()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result([(missing_lot_id, Decimal("10"))]),
+                _scalars_result([]),  # the bulk fetch finds nothing
+                MagicMock(),
+            ]
+        )
+
+        await reverse_lot_consumption(db, [sale_id])  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_empty_sale_ids_is_a_noop(self):
+        from src.orders.service import reverse_lot_consumption
+
+        db = _mock_db()
+        db.execute = AsyncMock()
+
+        await reverse_lot_consumption(db, [])
+
+        db.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_consumption_rows_for_the_given_sales_is_a_noop(self):
+        """A sale that never went through _deduct_lot_units() with a
+        sale_id (e.g. it predates this ledger) has nothing to reverse —
+        must not attempt a delete against zero rows or fail."""
+        from src.orders.service import reverse_lot_consumption
+
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=_rows_result([]))
+
+        await reverse_lot_consumption(db, [uuid.uuid4()])
+
+        db.execute.assert_awaited_once()  # just the grouped-sum query
+
+
+# ---------------------------------------------------------------------------
 # IDOR ownership checks
 # ---------------------------------------------------------------------------
 
