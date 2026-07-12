@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
@@ -56,10 +56,24 @@ REQUIRED_CSV_HEADERS = {"product_id", "quantity", "unit_price", "sale_date", "ch
 # ---------------------------------------------------------------------------
 
 
+def _order_line_item_variant_filter(variant_id: uuid.UUID | None):
+    """WHERE-clause fragment scoping OrderLineItem lots to a deduction's
+    variant_id — the same "own variant or untagged" rule as
+    inventory_batch_variant_filter() (backend/src/inventory/service.py),
+    applied to this parallel units_remaining ledger (task 168)."""
+    if variant_id is not None:
+        return or_(
+            OrderLineItem.variant_id == variant_id,
+            OrderLineItem.variant_id.is_(None),
+        )
+    return OrderLineItem.variant_id.is_(None)
+
+
 async def _deduct_lot_units(
     db: AsyncSession,
     product_id: uuid.UUID,
     quantity: Decimal,
+    variant_id: uuid.UUID | None = None,
 ) -> None:
     """Deduct quantity from active order lots FIFO (oldest order_date first)."""
     result = await db.execute(
@@ -68,6 +82,7 @@ async def _deduct_lot_units(
         .where(
             OrderLineItem.product_id == product_id,
             OrderLineItem.units_remaining > 0,
+            _order_line_item_variant_filter(variant_id),
         )
         .order_by(PurchaseOrder.order_date.asc(), PurchaseOrder.created_at.asc())
     )
@@ -241,7 +256,9 @@ async def create_sale(
     await db.flush()
 
     # Lot-level FIFO deduction: deplete units_remaining on delivered order lots
-    await _deduct_lot_units(db, data.product_id, Decimal(str(data.quantity)))
+    await _deduct_lot_units(
+        db, data.product_id, Decimal(str(data.quantity)), variant_id=data.variant_id
+    )
 
     await logger.ainfo(
         "sale_created",

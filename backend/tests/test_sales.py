@@ -1430,6 +1430,155 @@ class TestLotFifoDeduction:
 
         assert old_lot.units_remaining == Decimal("0")   # fully consumed
 
+    @pytest.mark.asyncio
+    async def test_without_variant_id_only_matches_untagged_lots(self):
+        """A non-variant sale must only draw from variant_id=NULL lots —
+        mirrors fifo_deduct()'s inventory_batch_variant_filter() (task 165)
+        applied to the parallel OrderLineItem.units_remaining ledger."""
+        from src.sales.service import _deduct_lot_units
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await _deduct_lot_units(db, uuid.uuid4(), Decimal("10"))
+
+        executed_stmt = db.execute.call_args[0][0]
+        compiled = str(
+            executed_stmt.compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        assert "order_line_items.variant_id is null" in compiled
+        assert "order_line_items.variant_id =" not in compiled
+
+    @pytest.mark.asyncio
+    async def test_with_variant_id_matches_that_variant_or_untagged_lots(self):
+        """A variant-specific sale may draw from its own tagged lots AND
+        untagged lots, but never from a sibling variant's tagged lots."""
+        from src.sales.service import _deduct_lot_units
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await _deduct_lot_units(db, product_id, Decimal("10"), variant_id=variant_id)
+
+        executed_stmt = db.execute.call_args[0][0]
+        compiled = str(
+            executed_stmt.compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        assert "order_line_items.variant_id is null" in compiled
+        assert variant_id.hex in compiled.replace("-", "")
+        assert (
+            "order_line_items.variant_id = " in compiled
+            or "order_line_items.variant_id=" in compiled
+        )
+
+    @pytest.mark.asyncio
+    async def test_variant_scoped_deduction_never_touches_sibling_variant_lot(self):
+        """End-to-end consumption check: given a mixed lot set, a variant-A
+        deduction must leave variant B's lot untouched."""
+        from src.orders.models import OrderLineItem
+        from src.sales.service import _deduct_lot_units
+
+        product_id = uuid.uuid4()
+        variant_a = uuid.uuid4()
+        variant_b = uuid.uuid4()
+
+        order = MagicMock()
+        order.order_date = date(2026, 1, 1)
+        order.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        own_lot = MagicMock(spec=OrderLineItem)
+        own_lot.product_id = product_id
+        own_lot.variant_id = variant_a
+        own_lot.units_remaining = Decimal("50")
+        own_lot.order = order
+
+        sibling_lot = MagicMock(spec=OrderLineItem)
+        sibling_lot.product_id = product_id
+        sibling_lot.variant_id = variant_b
+        sibling_lot.units_remaining = Decimal("20")
+        sibling_lot.order = order
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        # The real query would exclude sibling_lot entirely — simulating
+        # that here since the mock doesn't evaluate the WHERE clause itself.
+        scalars_mock.all.return_value = [own_lot]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await _deduct_lot_units(db, product_id, Decimal("10"), variant_id=variant_a)
+
+        assert own_lot.units_remaining == Decimal("40")
+        assert sibling_lot.units_remaining == Decimal("20")
+
+    @pytest.mark.asyncio
+    async def test_create_sale_passes_variant_id_to_deduct_lot_units(self):
+        """A sale of a specific variant must scope its lot-level deduction
+        to that variant — otherwise create_sale() would silently pool
+        units_remaining across sibling variants of the same product, the
+        same bug already fixed for fifo_deduct()/InventoryBatch."""
+        from src.sales.service import create_sale
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        product = _make_product(id=product_id, has_variants=True)
+
+        variant = MagicMock()
+        variant.id = variant_id
+        variant.product_id = product_id
+        variant.price_override = None
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:  # product lookup
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:  # variant lookup
+                result.scalar_one_or_none.return_value = variant
+            else:
+                result.scalar_one_or_none.return_value = None
+                result.scalars.return_value.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+
+        with patch("src.sales.service.adjust_stock", new_callable=AsyncMock), \
+             patch("src.sales.service.fifo_deduct", new_callable=AsyncMock, return_value=Decimal("0")), \
+             patch("src.sales.service._deduct_lot_units", new_callable=AsyncMock) as mock_deduct_lots:
+            data = SaleCreate(
+                product_id=product_id,
+                variant_id=variant_id,
+                quantity=10,
+                unit_price=Decimal("20000"),
+                sale_date=date.today(),
+                channel="retail",
+            )
+            await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
+
+        mock_deduct_lots.assert_awaited_once()
+        args, kwargs = mock_deduct_lots.call_args
+        assert args == (db, product_id, Decimal("10"))
+        assert kwargs["variant_id"] == variant_id
+
 
 # ---------------------------------------------------------------------------
 # IDOR ownership checks
