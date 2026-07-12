@@ -399,6 +399,24 @@ async def update_sale(
             reference_type="sale_update",
         )
 
+        # Re-sync FIFO cost matching to the corrected quantity: reverse this
+        # sale's original consumption via the FifoConsumption ledger (task
+        # 166), then re-run fifo_deduct() for the new quantity — mirrors
+        # void_sale()'s use of reverse_fifo_consumption(). Without this,
+        # InventoryBatch.quantity_remaining and sale.fifo_cogs/
+        # fifo_gross_profit stay based on the sale's original quantity.
+        await reverse_fifo_consumption(db, [sale.id])
+        cogs_result = await fifo_deduct(
+            db,
+            sale.product_id,
+            sale.quantity,
+            variant_id=getattr(sale, 'variant_id', None),
+            sale_id=sale.id,
+        )
+        sale.fifo_cogs = cogs_result
+        sale.fifo_gross_profit = sale.total_amount - cogs_result
+        await db.flush()
+
     await logger.ainfo("sale_updated", sale_id=str(sale_id), changes=field_changes)
     return sale
 
