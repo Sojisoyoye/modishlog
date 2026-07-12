@@ -2,7 +2,7 @@
 
 import enum
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -326,3 +326,41 @@ class PurchaseReturn(UUIDMixin, TimestampMixin, Base):
 
     def __repr__(self) -> str:
         return f"<PurchaseReturn(id={self.id}, order={self.original_order_id})>"
+
+
+class LotConsumption(UUIDMixin, Base):
+    """Ledger of exactly which OrderLineItem lot rows a sale's
+    _deduct_lot_units() call consumed, and how much of each.
+
+    _deduct_lot_units() (src/sales/service.py) decrements
+    OrderLineItem.units_remaining with no other record of the
+    transaction — voiding a sale could only guess which lots to credit
+    back, or simply didn't try, silently leaving lots permanently short.
+    This table lets void_sale() reverse a sale's lot consumption exactly
+    instead of guessing — mirrors FifoConsumption (src/inventory/models.py,
+    task 166) for the parallel units_remaining ledger (task 168).
+
+    Both sale_id and order_line_item_id cascade-delete: a consumption
+    record is meaningless once either side of the transaction it
+    describes is gone.
+    """
+
+    __tablename__ = "lot_consumptions"
+
+    sale_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sales.id", ondelete="CASCADE"), index=True
+    )
+    order_line_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("order_line_items.id", ondelete="CASCADE"), index=True
+    )
+    quantity_consumed: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<LotConsumption(sale_id={self.sale_id}, "
+            f"order_line_item_id={self.order_line_item_id}, "
+            f"quantity_consumed={self.quantity_consumed})>"
+        )

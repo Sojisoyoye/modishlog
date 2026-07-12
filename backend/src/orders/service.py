@@ -3,6 +3,7 @@
 import csv
 import io
 import uuid
+from collections.abc import Collection
 from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -11,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.core.query_helpers import reverse_ledger_consumption
 from src.inventory.models import MovementType
 from src.inventory.service import (
     adjust_stock,
@@ -28,6 +30,7 @@ from src.orders.exceptions import (
 )
 from src.orders.models import (
     DiscountType,
+    LotConsumption,
     OrderLineItem,
     OrderPayment,
     OrderPaymentStatus,
@@ -604,6 +607,37 @@ async def transition_status(
         to_status=new_status.value,
     )
     return order
+
+
+async def reverse_lot_consumption(
+    db: AsyncSession, sale_ids: Collection[uuid.UUID]
+) -> None:
+    """Restore OrderLineItem.units_remaining for every lot the given sales
+    consumed via sales/service.py's _deduct_lot_units(), then remove their
+    consumption ledger rows.
+
+    Used by void_sale() to undo lot-level consumption exactly, using the
+    LotConsumption ledger _deduct_lot_units() wrote — mirrors
+    inventory/service.py's reverse_fifo_consumption() (task 166) for this
+    parallel units_remaining ledger (task 170).
+
+    A lot that no longer exists is silently skipped — there's nothing to
+    restore a deleted lot to.
+
+    Delegates the actual algorithm to reverse_ledger_consumption()
+    (src/core/query_helpers.py), shared with reverse_fifo_consumption().
+    """
+    await reverse_ledger_consumption(
+        db,
+        sale_ids,
+        ledger_model=LotConsumption,
+        ledger_sale_id_col=LotConsumption.sale_id,
+        ledger_target_id_col=LotConsumption.order_line_item_id,
+        ledger_quantity_col=LotConsumption.quantity_consumed,
+        target_model=OrderLineItem,
+        target_quantity_col=OrderLineItem.units_remaining,
+        zero=Decimal("0"),
+    )
 
 
 async def get_status_history(

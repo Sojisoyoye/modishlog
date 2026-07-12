@@ -1266,6 +1266,10 @@ class TestConfirmationGate:
                 new_callable=AsyncMock,
             ) as mock_reverse,
             patch(
+                "src.data_import.service.reverse_lot_consumption",
+                new_callable=AsyncMock,
+            ) as mock_reverse_lots,
+            patch(
                 "src.data_import.recompute.generate_reorder_suggestions",
                 new=AsyncMock(return_value=[]),
             ),
@@ -1273,6 +1277,14 @@ class TestConfirmationGate:
             await rollback_job(db, job)
 
         mock_reverse.assert_awaited_once_with(db, [sale_id])
+        # Symmetry with reverse_fifo_consumption — currently a no-op in
+        # practice (recompute.py never calls _deduct_lot_units() for
+        # imported sales, so no LotConsumption rows exist to reverse), but
+        # rollback_job() must still call it so a future change that starts
+        # lot-tracking imported sales doesn't silently leave
+        # OrderLineItem.units_remaining permanently short after a rollback
+        # (task 170).
+        mock_reverse_lots.assert_awaited_once_with(db, [sale_id])
 
     @pytest.mark.asyncio
     async def test_rollback_resolves_alert_for_product_with_only_a_variant_level_row(self):

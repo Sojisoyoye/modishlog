@@ -374,7 +374,11 @@ class TestUpdateSale:
             "src.sales.service.fifo_deduct",
             new_callable=AsyncMock,
             return_value=Decimal("900"),
-        ) as mock_deduct:
+        ) as mock_deduct, patch(
+            "src.sales.service.reverse_lot_consumption", new_callable=AsyncMock
+        ), patch(
+            "src.sales.service._deduct_lot_units", new_callable=AsyncMock
+        ):
             data = SaleUpdate(quantity=3)
             result = await update_sale(db, sale.id, data, uuid.uuid4())
 
@@ -388,13 +392,52 @@ class TestUpdateSale:
         assert result.fifo_gross_profit == result.total_amount - Decimal("900")
 
     @pytest.mark.asyncio
+    async def test_update_sale_quantity_change_resyncs_lot_consumption(self):
+        """Editing quantity must also reverse+re-run the parallel lot-level
+        ledger (LotConsumption/OrderLineItem.units_remaining, task 170) —
+        otherwise units_remaining drifts out of sync with the corrected
+        quantity, and a later void_sale() would over/under-credit it using
+        the stale LotConsumption rows from before the edit."""
+        product_id = uuid.uuid4()
+        sale = _make_sale(
+            product_id=product_id, quantity=5, fifo_cogs=Decimal("500")
+        )
+        db = _mock_db_with_execute(scalar_result=sale)
+
+        with patch(
+            "src.sales.service.adjust_stock", new_callable=AsyncMock
+        ), patch(
+            "src.sales.service.reverse_fifo_consumption", new_callable=AsyncMock
+        ), patch(
+            "src.sales.service.fifo_deduct",
+            new_callable=AsyncMock,
+            return_value=Decimal("0"),
+        ), patch(
+            "src.sales.service.reverse_lot_consumption", new_callable=AsyncMock
+        ) as mock_reverse_lots, patch(
+            "src.sales.service._deduct_lot_units", new_callable=AsyncMock
+        ) as mock_deduct_lots:
+            data = SaleUpdate(quantity=3)
+            await update_sale(db, sale.id, data, uuid.uuid4())
+
+        mock_reverse_lots.assert_awaited_once_with(db, [sale.id])
+        mock_deduct_lots.assert_awaited_once()
+        args, kwargs = mock_deduct_lots.call_args
+        assert args == (db, product_id, Decimal("3"))
+        assert kwargs["variant_id"] == getattr(sale, "variant_id", None)
+        assert kwargs["sale_id"] == sale.id
+
+    @pytest.mark.asyncio
     async def test_update_sale_quantity_change_skips_fifo_resync_for_untracked_sale(self):
         """A sale with fifo_cogs=None was never FIFO-tracked in the first
         place (e.g. inserted directly by scripts/pos_migrate.py, which has
         no FifoConsumption ledger row for it) — editing its quantity must
         still correct InventoryLevel via adjust_stock(), but must NOT run
         fifo_deduct(), which would fabricate a COGS figure and drain real
-        InventoryBatch stock never actually allocated to this sale."""
+        InventoryBatch stock never actually allocated to this sale. The
+        same guard covers the parallel lot ledger — a sale that never went
+        through create_sale()'s deduction pipeline never drew from a lot
+        either."""
         product_id = uuid.uuid4()
         sale = _make_sale(product_id=product_id, quantity=5, fifo_cogs=None)
         db = _mock_db_with_execute(scalar_result=sale)
@@ -405,13 +448,19 @@ class TestUpdateSale:
             "src.sales.service.reverse_fifo_consumption", new_callable=AsyncMock
         ) as mock_reverse, patch(
             "src.sales.service.fifo_deduct", new_callable=AsyncMock
-        ) as mock_deduct:
+        ) as mock_deduct, patch(
+            "src.sales.service.reverse_lot_consumption", new_callable=AsyncMock
+        ) as mock_reverse_lots, patch(
+            "src.sales.service._deduct_lot_units", new_callable=AsyncMock
+        ) as mock_deduct_lots:
             data = SaleUpdate(quantity=3)
             result = await update_sale(db, sale.id, data, uuid.uuid4())
 
         mock_adjust.assert_awaited_once()
         mock_reverse.assert_not_awaited()
         mock_deduct.assert_not_awaited()
+        mock_reverse_lots.assert_not_awaited()
+        mock_deduct_lots.assert_not_awaited()
         assert result.fifo_cogs is None
 
     @pytest.mark.asyncio
@@ -425,12 +474,18 @@ class TestUpdateSale:
             "src.sales.service.reverse_fifo_consumption", new_callable=AsyncMock
         ) as mock_reverse, patch(
             "src.sales.service.fifo_deduct", new_callable=AsyncMock
-        ) as mock_deduct:
+        ) as mock_deduct, patch(
+            "src.sales.service.reverse_lot_consumption", new_callable=AsyncMock
+        ) as mock_reverse_lots, patch(
+            "src.sales.service._deduct_lot_units", new_callable=AsyncMock
+        ) as mock_deduct_lots:
             data = SaleUpdate(notes="Just a note change")
             result = await update_sale(db, sale.id, data, uuid.uuid4())
 
         mock_reverse.assert_not_awaited()
         mock_deduct.assert_not_awaited()
+        mock_reverse_lots.assert_not_awaited()
+        mock_deduct_lots.assert_not_awaited()
         assert result.fifo_cogs == Decimal("500")
 
     @pytest.mark.asyncio
@@ -512,6 +567,42 @@ class TestVoidSale:
             await void_sale(db, sale.id, "Customer return", uuid.uuid4())
 
         mock_reverse.assert_awaited_once_with(db, [sale.id])
+
+    @pytest.mark.asyncio
+    async def test_void_sale_reverses_lot_consumption(self):
+        """Voiding a sale must credit back the exact OrderLineItem lots
+        _deduct_lot_units() consumed for it — mirrors the InventoryBatch
+        side (test_void_sale_reverses_fifo_consumption) for the parallel
+        units_remaining ledger (task 170)."""
+        product_id = uuid.uuid4()
+        sale = _make_sale(product_id=product_id, quantity=5)
+        inventory = _make_inventory(product_id=product_id, quantity_on_hand=95)
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = sale
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = inventory
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with patch(
+            "src.sales.service.reverse_fifo_consumption", new_callable=AsyncMock
+        ), patch(
+            "src.sales.service.reverse_lot_consumption", new_callable=AsyncMock
+        ) as mock_reverse_lots:
+            await void_sale(db, sale.id, "Customer return", uuid.uuid4())
+
+        mock_reverse_lots.assert_awaited_once_with(db, [sale.id])
 
     @pytest.mark.asyncio
     async def test_void_already_voided_raises(self):
@@ -1632,6 +1723,7 @@ class TestLotFifoDeduction:
         to that variant — otherwise create_sale() would silently pool
         units_remaining across sibling variants of the same product, the
         same bug already fixed for fifo_deduct()/InventoryBatch."""
+        from src.sales.models import Sale
         from src.sales.service import create_sale
 
         product_id = uuid.uuid4()
@@ -1644,6 +1736,16 @@ class TestLotFifoDeduction:
         variant.price_override = None
 
         db = _mock_db()
+
+        def _add_and_assign_id(obj):
+            # A real flush() evaluates Sale.id's client-side default
+            # (uuid.uuid4) and syncs it back onto the object — this mock
+            # session never issues real SQL, so simulate that here instead.
+            if isinstance(obj, Sale) and obj.id is None:
+                obj.id = uuid.uuid4()
+
+        db.add = MagicMock(side_effect=_add_and_assign_id)
+
         call_count = 0
 
         async def mock_execute(stmt):
@@ -1678,6 +1780,84 @@ class TestLotFifoDeduction:
         args, kwargs = mock_deduct_lots.call_args
         assert args == (db, product_id, Decimal("10"))
         assert kwargs["variant_id"] == variant_id
+        assert isinstance(kwargs["sale_id"], uuid.UUID)
+
+    @pytest.mark.asyncio
+    async def test_sale_id_writes_one_lot_consumption_row_per_lot_drawn_from(self):
+        """void_sale() needs to know exactly which lots a sale consumed
+        and how much of each, to reverse it precisely instead of guessing
+        — _deduct_lot_units() must record that as it goes, mirroring
+        fifo_deduct()'s FifoConsumption ledger (task 166) for the parallel
+        units_remaining ledger (task 170)."""
+        from src.orders.models import LotConsumption, OrderLineItem
+        from src.sales.service import _deduct_lot_units
+
+        product_id, sale_id = uuid.uuid4(), uuid.uuid4()
+        order = MagicMock()
+        order.order_date = date(2026, 1, 1)
+        order.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        lot1 = MagicMock(spec=OrderLineItem)
+        lot1.id = uuid.uuid4()
+        lot1.product_id = product_id
+        lot1.units_remaining = Decimal("10")
+        lot1.order = order
+
+        lot2 = MagicMock(spec=OrderLineItem)
+        lot2.id = uuid.uuid4()
+        lot2.product_id = product_id
+        lot2.units_remaining = Decimal("20")
+        lot2.order = order
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+        result_mock = MagicMock()
+        result_mock.scalars.return_value.all.return_value = [lot1, lot2]
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await _deduct_lot_units(db, product_id, Decimal("15"), sale_id=sale_id)
+
+        ledger_rows = [
+            call.args[0]
+            for call in db.add.call_args_list
+            if isinstance(call.args[0], LotConsumption)
+        ]
+        assert len(ledger_rows) == 2
+        assert {(r.order_line_item_id, r.quantity_consumed) for r in ledger_rows} == {
+            (lot1.id, Decimal("10")),
+            (lot2.id, Decimal("5")),
+        }
+        assert all(r.sale_id == sale_id for r in ledger_rows)
+
+    @pytest.mark.asyncio
+    async def test_without_sale_id_writes_no_lot_consumption_rows(self):
+        """Backward-compatible: a caller that doesn't pass sale_id gets the
+        prior behaviour — no ledger writes, just the units_remaining
+        decrement."""
+        from src.orders.models import OrderLineItem
+        from src.sales.service import _deduct_lot_units
+
+        product_id = uuid.uuid4()
+        order = MagicMock()
+        order.order_date = date(2026, 1, 1)
+        order.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        lot = MagicMock(spec=OrderLineItem)
+        lot.id = uuid.uuid4()
+        lot.product_id = product_id
+        lot.units_remaining = Decimal("10")
+        lot.order = order
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+        result_mock = MagicMock()
+        result_mock.scalars.return_value.all.return_value = [lot]
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await _deduct_lot_units(db, product_id, Decimal("5"))
+
+        db.add.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
