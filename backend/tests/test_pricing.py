@@ -610,6 +610,39 @@ class TestPricingEndpoints:
         _, kwargs = mock_compute.call_args
         assert kwargs["variant_id"] == variant_id
 
+    def test_suggestion_history_endpoint_returns_422_for_mismatched_variant(self):
+        """GET /suggest/{product_id}/history?variant_id=... must convert
+        get_suggestion_history()'s PricingSuggestionError (raised when
+        variant_id doesn't belong to product_id) to a 422 — mirrors
+        compute_suggestion_endpoint's identical try/except. Exercised at
+        the router layer, not just get_suggestion_history() directly, so
+        a miswired except clause (wrong status, wrong exception type, or
+        an unhandled 500) would actually be caught."""
+        from src.pricing.exceptions import PricingSuggestionError
+
+        self._override_auth()
+        db = _mock_db()
+        self._override_db(db)
+        product_id = uuid.uuid4()
+        foreign_variant_id = uuid.uuid4()
+
+        with patch(
+            "src.pricing.router.get_suggestion_history",
+            new_callable=AsyncMock,
+            side_effect=PricingSuggestionError(
+                product_id, "variant does not belong to this product"
+            ),
+        ):
+            headers, _ = self._auth_headers()
+            with TestClient(self.app) as client:
+                resp = client.get(
+                    f"/api/v1/pricing/suggest/{product_id}/history",
+                    headers=headers,
+                    params={"variant_id": str(foreign_variant_id)},
+                )
+
+        assert resp.status_code == 422
+
     def test_margin_targets_empty(self):
         self._override_auth()
         db = _mock_db_with_execute(scalars_result=[])
