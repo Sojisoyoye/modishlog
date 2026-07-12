@@ -517,8 +517,15 @@ async def _recompute_ai_signals(
         # A variant-tagged product needs one suggestion per variant — task
         # 171's variant_or_untagged_filter() scoping means a single
         # variant_id=None call would now match only untagged lots, which
-        # variant-tracked opening-stock imports never create.
-        variant_ids = [v.id for v in product.variants] if product.has_variants else [None]
+        # variant-tracked opening-stock imports never create. Falls back to
+        # a single variant_id=None attempt if has_variants=True but no
+        # ProductVariant rows actually loaded (a data anomaly) — every
+        # product in this loop must get at least one run_isolated()
+        # attempt, or a failure here silently vanishes instead of landing
+        # in errors.
+        variant_ids = (
+            [v.id for v in product.variants] if product.variants else [None]
+        )
         for variant_id in variant_ids:
             _, error = await run_isolated(
                 db,

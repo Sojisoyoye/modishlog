@@ -36,7 +36,7 @@ from src.pricing.models import (
     ProductMixTarget,
     RecommendationStatus,
 )
-from src.products.models import PriceHistory, Product, ProductCategory
+from src.products.models import PriceHistory, Product, ProductCategory, ProductVariant
 from src.sales.models import Sale, SaleStatus
 
 logger = structlog.get_logger()
@@ -1277,32 +1277,36 @@ async def compute_suggestion(
 
     avg_cost_ngn = (total_cost / total_units).quantize(Decimal("0.000001"))
 
-    # Load product with category + parent for margin resolution, catalog
-    # price, and (if variant_id given) the variant itself.
+    # A variant_id belonging to a different product (or an inactive one)
+    # must be rejected before persisting a suggestion —
+    # variant_or_untagged_filter()'s untagged-lot fallback would otherwise
+    # let this product's own lots silently get mislabeled with a
+    # variant_id that isn't really eligible. Mirrors sales/service.py's
+    # create_sale() variant-ownership check (same query shape, same
+    # is_active filter) rather than a separate ad-hoc idiom.
+    variant: ProductVariant | None = None
+    if variant_id is not None:
+        variant_result = await db.execute(
+            select(ProductVariant).where(
+                ProductVariant.id == variant_id,
+                ProductVariant.product_id == product_id,
+                ProductVariant.is_active == True,  # noqa: E712
+            )
+        )
+        variant = variant_result.scalar_one_or_none()
+        if variant is None:
+            raise PricingSuggestionError(
+                product_id,
+                f"variant {variant_id} does not belong to this product, or is inactive",
+            )
+
+    # Load product with category + parent for margin resolution and catalog price
     prod_result = await db.execute(
         select(Product)
-        .options(
-            selectinload(Product.category).selectinload(ProductCategory.parent),
-            selectinload(Product.variants),
-        )
+        .options(selectinload(Product.category).selectinload(ProductCategory.parent))
         .where(Product.id == product_id)
     )
     product = prod_result.scalar_one_or_none()
-
-    # A variant_id belonging to a different product must be rejected before
-    # persisting a suggestion — variant_or_untagged_filter()'s untagged-lot
-    # fallback would otherwise let this product's own lots silently get
-    # mislabeled with a variant_id that belongs to some other product.
-    variant = None
-    if variant_id is not None:
-        variant = next(
-            (v for v in (product.variants if product else []) if v.id == variant_id),
-            None,
-        )
-        if variant is None:
-            raise PricingSuggestionError(
-                product_id, f"variant {variant_id} does not belong to this product"
-            )
 
     # Resolve effective margin: caller override → sub-category → parent → system default
     if target_margin is None:
@@ -1370,10 +1374,23 @@ async def get_suggestion_history(
     db: AsyncSession,
     product_id: uuid.UUID,
     limit: int = 30,
+    variant_id: uuid.UUID | None = None,
 ) -> list:
+    """Return the last `limit` price suggestions for a product, newest
+    first.
+
+    variant_id narrows to suggestions computed for exactly that variant —
+    omitting it (the default) preserves prior behaviour: every suggestion
+    for the product, regardless of which variant (or none) it was for.
+    Without this, a product's variants' suggestion histories interleave
+    with no way to tell them apart (task 171)."""
+    where_clauses = [PriceSuggestion.product_id == product_id]
+    if variant_id is not None:
+        where_clauses.append(PriceSuggestion.variant_id == variant_id)
+
     result = await db.execute(
         select(PriceSuggestion)
-        .where(PriceSuggestion.product_id == product_id)
+        .where(*where_clauses)
         .order_by(PriceSuggestion.suggested_at.desc())
         .limit(limit)
     )

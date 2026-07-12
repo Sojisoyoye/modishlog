@@ -1091,6 +1091,37 @@ class TestRecomputeAiSignals:
             call.args == (db, product.id) for call in mock_price.call_args_list
         )
 
+    @pytest.mark.asyncio
+    async def test_variant_flagged_product_with_no_variant_rows_still_attempts_once(
+        self,
+    ):
+        """has_variants=True with zero loaded ProductVariant rows (a data
+        anomaly — e.g. every variant was later deleted) must still get one
+        compute_suggestion() attempt and one accounted-for outcome, not
+        silently zero calls and zero error entries. Every other product in
+        this loop gets exactly this guarantee via run_isolated(); an empty
+        variant_ids list would quietly break it for this one."""
+        from src.data_import.recompute import _recompute_ai_signals
+
+        product = _make_product_for_recompute(variant_ids=[])
+        product.has_variants = True  # the anomaly: flagged, but no rows
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[MagicMock(), _scalars_result([product])])
+
+        with (
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "src.data_import.recompute.compute_suggestion", new=AsyncMock()
+            ) as mock_price,
+        ):
+            errors = await _recompute_ai_signals(db, BUSINESS_ID, JOB_ID)
+
+        assert errors == []
+        mock_price.assert_awaited_once_with(db, product.id, variant_id=None)
+
 
 # ---------------------------------------------------------------------------
 # recompute_after_import — orchestration / error isolation
