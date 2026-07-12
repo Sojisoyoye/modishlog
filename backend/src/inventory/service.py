@@ -69,6 +69,45 @@ async def initialize_inventory(
     return inventory
 
 
+async def ensure_inventory_level_exists(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID | None,
+    low_stock_threshold: int = 10,
+) -> None:
+    """Create a zeroed InventoryLevel(product_id, variant_id) row if one
+    doesn't already exist.
+
+    adjust_stock() is a strict UPDATE-only lookup, never an upsert — it
+    raises ProductStockNotFoundError if no row matches. products/
+    service.py's create_variant() only ever inserts the ProductVariant
+    row, never a matching InventoryLevel row, so any caller that can pass
+    a variant_id whose InventoryLevel row might not exist yet (e.g.
+    crediting a PO delivery to a variant for the first time) must call
+    this first, or adjust_stock() fails outright for a perfectly valid
+    product/variant.
+    """
+    query = select(InventoryLevel).where(InventoryLevel.product_id == product_id)
+    query = query.where(
+        InventoryLevel.variant_id == variant_id
+        if variant_id is not None
+        else InventoryLevel.variant_id.is_(None)
+    )
+    result = await db.execute(query)
+    if result.scalar_one_or_none() is not None:
+        return
+    db.add(
+        InventoryLevel(
+            product_id=product_id,
+            variant_id=variant_id,
+            quantity_on_hand=0,
+            quantity_reserved=0,
+            low_stock_threshold=low_stock_threshold,
+        )
+    )
+    await db.flush()
+
+
 # ---------------------------------------------------------------------------
 # Stock level queries
 # ---------------------------------------------------------------------------
@@ -161,9 +200,7 @@ async def list_inventory_levels(
         scoped_product_ids = select(Product.id).where(
             Product.business_id == business_id
         )
-        base_query = base_query.where(
-            InventoryLevel.product_id.in_(scoped_product_ids)
-        )
+        base_query = base_query.where(InventoryLevel.product_id.in_(scoped_product_ids))
     if low_stock_only:
         base_query = base_query.where(
             InventoryLevel.quantity_on_hand <= InventoryLevel.low_stock_threshold
@@ -174,7 +211,9 @@ async def list_inventory_levels(
     total = count_result.scalar()
     offset = (page - 1) * page_size
     items_result = await db.execute(
-        base_query.order_by(InventoryLevel.quantity_on_hand.asc()).offset(offset).limit(page_size)
+        base_query.order_by(InventoryLevel.quantity_on_hand.asc())
+        .offset(offset)
+        .limit(page_size)
     )
     return list(items_result.scalars().all()), total
 
@@ -479,13 +518,9 @@ async def get_batches_for_product(
     return list(result.scalars().all())
 
 
-async def fifo_deduct(
-    db: AsyncSession,
-    product_id: uuid.UUID,
-    quantity: int,
-    variant_id: uuid.UUID | None = None,
-) -> Decimal:
-    """FIFO cost matching: deduct quantity from oldest batches first.
+def inventory_batch_variant_filter(variant_id: uuid.UUID | None):
+    """WHERE-clause fragment scoping InventoryBatch rows to a deduction's
+    variant_id.
 
     A variant-specific deduction (variant_id given) may draw from that
     variant's own tagged batches AND from untagged (variant_id=NULL)
@@ -496,22 +531,36 @@ async def fifo_deduct(
     batches, mirroring how InventoryLevel/adjust_stock scope aggregate vs.
     variant-level rows.
 
-    Returns total FIFO COGS for the consumed units.
+    Shared by fifo_deduct() and data_import/recompute.py's insufficient-
+    batches pre-check — both need the exact same "which batches would
+    actually be drawn from" answer, or the pre-check could count batches
+    fifo_deduct() would never touch and report a wrong understated/
+    overstated COGS warning.
     """
-    variant_filter = (
-        or_(
+    if variant_id is not None:
+        return or_(
             InventoryBatch.variant_id == variant_id,
             InventoryBatch.variant_id.is_(None),
         )
-        if variant_id is not None
-        else InventoryBatch.variant_id.is_(None)
-    )
+    return InventoryBatch.variant_id.is_(None)
+
+
+async def fifo_deduct(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    quantity: int,
+    variant_id: uuid.UUID | None = None,
+) -> Decimal:
+    """FIFO cost matching: deduct quantity from oldest batches first.
+
+    Returns total FIFO COGS for the consumed units.
+    """
     result = await db.execute(
         select(InventoryBatch)
         .where(
             InventoryBatch.product_id == product_id,
             InventoryBatch.quantity_remaining > 0,
-            variant_filter,
+            inventory_batch_variant_filter(variant_id),
         )
         .order_by(InventoryBatch.received_at.asc())
         .with_for_update()

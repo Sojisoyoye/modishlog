@@ -963,7 +963,7 @@ class TestTransitionStatus:
             if call_count == 1:
                 # get_order
                 result.scalar_one_or_none.return_value = order
-            elif call_count == 2:
+            elif call_count in (2, 3):
                 # get_inventory_level (inside adjust_stock)
                 result.scalar_one_or_none.return_value = inventory
             else:
@@ -1003,7 +1003,7 @@ class TestTransitionStatus:
             result = MagicMock()
             if call_count == 1:
                 result.scalar_one_or_none.return_value = order
-            elif call_count == 2:
+            elif call_count in (2, 3):
                 result.scalar_one_or_none.return_value = inventory
             else:
                 result.scalar_one_or_none.return_value = None
@@ -1040,7 +1040,7 @@ class TestTransitionStatus:
             result = MagicMock()
             if call_count == 1:
                 result.scalar_one_or_none.return_value = order
-            elif call_count == 2:
+            elif call_count in (2, 3):
                 result.scalar_one_or_none.return_value = inventory
             else:
                 result.scalar_one_or_none.return_value = None
@@ -1088,7 +1088,7 @@ class TestTransitionStatus:
             result = MagicMock()
             if call_count == 1:
                 result.scalar_one_or_none.return_value = order
-            elif call_count == 2:
+            elif call_count in (2, 3):
                 result.scalar_one_or_none.return_value = inventory
             else:
                 result.scalar_one_or_none.return_value = None
@@ -1634,6 +1634,72 @@ class TestLotInventoryTracking:
 
         assert mock_adjust.call_args.kwargs["variant_id"] == variant_id
         assert mock_create_batch.call_args.kwargs["variant_id"] == variant_id
+
+    @pytest.mark.asyncio
+    async def test_order_delivered_backfills_missing_variant_inventory_level(self):
+        """adjust_stock() is a strict lookup, never an upsert — it raises
+        ProductStockNotFoundError if no InventoryLevel(product_id,
+        variant_id) row exists yet. Nothing creates one when a variant is
+        created (products/service.py's create_variant() only inserts the
+        ProductVariant row), so delivering a PO line item for a
+        newly-created variant must backfill the missing row first, or
+        every such delivery fails outright instead of the prior (wrong but
+        non-crashing) behaviour of crediting the product's aggregate row."""
+        from src.orders.service import transition_status
+        from src.orders.schemas import StatusTransition
+        from src.inventory.exceptions import ProductStockNotFoundError
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        item = _make_line_item(
+            product_id=product_id, variant_id=variant_id, quantity=50
+        )
+        order = _make_order(status=OrderStatus.CLEARED)
+        order.line_items = [item]
+
+        db = _mock_db()
+        db.add = MagicMock()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                # The backfill's own existence check — no row yet.
+                result.scalar_one_or_none.return_value = None
+            else:
+                # adjust_stock()'s own lookup, after the backfill created
+                # the row.
+                backfilled = InventoryLevel(
+                    product_id=product_id,
+                    variant_id=variant_id,
+                    quantity_on_hand=0,
+                    quantity_reserved=0,
+                    low_stock_threshold=10,
+                )
+                result.scalar_one_or_none.return_value = backfilled
+            result.scalars.return_value.all.return_value = []
+            result.scalar.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with patch("src.orders.service.create_batch", new_callable=AsyncMock):
+            try:
+                await transition_status(
+                    db,
+                    order.id,
+                    StatusTransition(new_status="DELIVERED"),
+                    uuid.uuid4(),
+                )
+            except ProductStockNotFoundError:
+                pytest.fail(
+                    "delivering a variant PO line item must backfill a "
+                    "missing InventoryLevel row instead of raising"
+                )
 
     def test_units_remaining_null_before_delivery(self):
         """units_remaining stays None for orders that have not reached DELIVERED."""

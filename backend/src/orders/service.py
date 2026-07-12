@@ -12,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.inventory.models import MovementType
-from src.inventory.service import adjust_stock, create_batch
+from src.inventory.service import (
+    adjust_stock,
+    create_batch,
+    ensure_inventory_level_exists,
+)
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
     OrderLineItemError,
@@ -544,6 +548,13 @@ async def transition_status(
 
         for item in order.line_items:
             item.units_remaining = Decimal(str(item.quantity))
+            # adjust_stock() is a strict lookup, never an upsert — nothing
+            # creates a variant-scoped InventoryLevel row when a variant is
+            # created (products/service.py's create_variant() only inserts
+            # the ProductVariant row), so the first delivery for a variant
+            # must backfill it first or adjust_stock() raises
+            # ProductStockNotFoundError for a perfectly valid variant.
+            await ensure_inventory_level_exists(db, item.product_id, item.variant_id)
             await adjust_stock(
                 db,
                 product_id=item.product_id,
@@ -812,9 +823,9 @@ async def get_orders_summary(
     total_value = row[1]
 
     # Count by status
-    status_query = select(
-        PurchaseOrder.status, func.count(PurchaseOrder.id)
-    ).group_by(PurchaseOrder.status)
+    status_query = select(PurchaseOrder.status, func.count(PurchaseOrder.id)).group_by(
+        PurchaseOrder.status
+    )
     if business_id is not None:
         status_query = status_query.where(PurchaseOrder.business_id == business_id)
     status_result = await db.execute(status_query)
@@ -1597,13 +1608,13 @@ async def list_purchase_returns(
     if business_id is not None:
         base_q = base_q.where(PurchaseReturn.business_id == business_id)
 
-    count_result = await db.execute(
-        select(func.count()).select_from(base_q.subquery())
-    )
+    count_result = await db.execute(select(func.count()).select_from(base_q.subquery()))
     total = count_result.scalar() or 0
 
     items_result = await db.execute(
-        base_q.order_by(PurchaseReturn.return_date.desc(), PurchaseReturn.created_at.desc())
+        base_q.order_by(
+            PurchaseReturn.return_date.desc(), PurchaseReturn.created_at.desc()
+        )
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
