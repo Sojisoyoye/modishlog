@@ -13,25 +13,17 @@ tracking — the original (non-idempotent) version failed with
 DuplicateColumnError and permanently blocked every migration after it.
 """
 
-import importlib.util
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-MIGRATION_PATH = (
-    Path(__file__).parent.parent
-    / "alembic"
-    / "versions"
-    / "aaf1881e3f19_add_missing_image_url_and_mix_target_business_id.py"
+from tests.migration_test_utils import load_migration
+
+MIGRATION_FILENAME = (
+    "aaf1881e3f19_add_missing_image_url_and_mix_target_business_id.py"
 )
 
 
 def _load_migration():
-    spec = importlib.util.spec_from_file_location(
-        "migration_aaf1881e3f19", MIGRATION_PATH
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_migration(MIGRATION_FILENAME)
 
 
 def _mock_inspector(columns=None, foreign_keys=None, unique_constraints=None, indexes=None):
