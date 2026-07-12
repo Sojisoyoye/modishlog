@@ -67,6 +67,38 @@ test.describe('Forgot-password form (login page)', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
+  test('a success message does not resurface on a second visit to the forgot-password view', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'Forgot password?' }).click();
+    await page.locator('#forgot-email').fill(E2E_EMAIL);
+    await page.getByRole('button', { name: 'Send Reset Link' }).click();
+    await expect(page.getByText(/reset link has been sent/i)).toBeVisible({ timeout: 10_000 });
+
+    // Leave and come back without submitting anything new
+    await page.getByRole('button', { name: /back to sign in/i }).click();
+    await page.getByRole('button', { name: 'Forgot password?' }).click();
+
+    await expect(page.getByText(/reset link has been sent/i)).not.toBeVisible();
+    await expect(page.locator('#forgot-email')).toHaveValue('');
+  });
+
+  test('a stale login error does not resurface after visiting and leaving the forgot-password view', async ({
+    page,
+  }) => {
+    // Trigger a login error
+    await page.locator('#login-email').fill(E2E_EMAIL);
+    await page.locator('#login-password').fill('DefinitelyWrongPassword!999');
+    await page.getByRole('button', { name: /sign in/i }).click();
+    await expect(page.getByRole('alert')).toBeVisible({ timeout: 10_000 });
+
+    // Go to forgot-password and back without logging in again
+    await page.getByRole('button', { name: 'Forgot password?' }).click();
+    await page.getByRole('button', { name: /back to sign in/i }).click();
+
+    await expect(page.getByRole('alert')).not.toBeVisible();
+  });
+
   test('submitting forgot-password with unknown email still shows success (no enumeration)', async ({
     page,
   }) => {

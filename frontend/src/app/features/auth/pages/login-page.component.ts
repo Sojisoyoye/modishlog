@@ -131,7 +131,7 @@ import { AuthService } from '../../../core/services/auth.service';
             <div class="mt-4 text-center">
               <button
                 type="button"
-                (click)="showForgotPassword.set(true)"
+                (click)="toggleForgotPassword(true)"
                 class="text-sm text-primary hover:underline"
               >
                 Forgot password?
@@ -149,6 +149,17 @@ import { AuthService } from '../../../core/services/auth.service';
             <p class="mb-6 text-sm text-gray-500 text-center lg:text-left">
               Enter your email address and we'll send you a reset link.
             </p>
+
+            @if (lockoutDisplay()) {
+              <div
+                role="alert"
+                aria-live="polite"
+                class="mb-4 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700"
+              >
+                <i class="pi pi-clock"></i>
+                Your account is still locked. Try again in {{ lockoutDisplay() }} — a password reset won't lift the lockout early.
+              </div>
+            }
 
             @if (forgotPasswordMessage()) {
               <div
@@ -198,7 +209,7 @@ import { AuthService } from '../../../core/services/auth.service';
             <div class="mt-4 text-center">
               <button
                 type="button"
-                (click)="showForgotPassword.set(false)"
+                (click)="toggleForgotPassword(false)"
                 class="text-sm text-primary hover:underline"
               >
                 &larr; Back to sign in
@@ -267,6 +278,19 @@ export class LoginPageComponent implements OnDestroy {
         this.lockoutSeconds.set(current - 1);
       }
     }, 1000);
+  }
+
+  /** Switching views must not leak stale state — a leftover error/success
+   * banner or a previously typed reset email from an earlier visit should
+   * never resurface on a view the user hasn't acted on yet. lockoutSeconds/
+   * lockoutTimer are deliberately left untouched: that's real, enforced
+   * lockout state (it must keep counting down and re-block Sign In when the
+   * user comes back), not stale UI to clear. */
+  toggleForgotPassword(show: boolean): void {
+    this.showForgotPassword.set(show);
+    this.errorMessage.set('');
+    this.forgotPasswordMessage.set('');
+    this.forgotEmail = '';
   }
 
   onLogin(): void {

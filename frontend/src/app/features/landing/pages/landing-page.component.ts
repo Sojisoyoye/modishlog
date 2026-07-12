@@ -177,7 +177,7 @@ import { RouterLink } from '@angular/router';
     </section>
 
     <!-- ============================================================
-         D. FEATURE PREVIEW — "Add Sale" mockup
+         C. FEATURE PREVIEW — "Add Sale" mockup
          ============================================================ -->
     <section class="py-20 bg-white">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -266,7 +266,7 @@ import { RouterLink } from '@angular/router';
     </section>
 
     <!-- ============================================================
-         E. COMPETITOR COMPARISON TABLE
+         D. COMPETITOR COMPARISON TABLE
          ============================================================ -->
     <section id="features" class="py-20 bg-gray-50">
       <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
@@ -360,7 +360,7 @@ import { RouterLink } from '@angular/router';
     </section>
 
     <!-- ============================================================
-         F. 3-TIER PRICING BLOCK
+         E. 3-TIER PRICING BLOCK
          ============================================================ -->
     <section id="pricing" class="py-20 bg-gray-900 text-white">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -451,7 +451,7 @@ import { RouterLink } from '@angular/router';
     </section>
 
     <!-- ============================================================
-         G. TESTIMONIAL GRID
+         F. TESTIMONIAL GRID
          ============================================================ -->
     <section class="py-20 bg-white">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -508,7 +508,7 @@ import { RouterLink } from '@angular/router';
       </div>
     </section>
 
-    <!-- H. FOUNDER MESSAGE — hidden until ready
+    <!-- G. FOUNDER MESSAGE — hidden until ready
     <section class="py-20 bg-gray-50">
       <div class="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 text-center">
         <h2 class="text-2xl sm:text-3xl font-extrabold text-gray-900 mb-8">A message from our founder</h2>
@@ -525,7 +525,7 @@ import { RouterLink } from '@angular/router';
     -->
 
     <!-- ============================================================
-         I. FOOTER
+         H. FOOTER
          ============================================================ -->
     <footer class="bg-gray-900 text-gray-400 py-12">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
