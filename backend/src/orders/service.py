@@ -12,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.inventory.models import MovementType
-from src.inventory.service import adjust_stock, create_batch
+from src.inventory.service import (
+    adjust_stock,
+    create_batch,
+    ensure_inventory_level_exists,
+)
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
     OrderLineItemError,
@@ -544,9 +548,23 @@ async def transition_status(
 
         for item in order.line_items:
             item.units_remaining = Decimal(str(item.quantity))
+            if item.variant_id is not None:
+                # adjust_stock() is a strict lookup, never an upsert —
+                # nothing creates a variant-scoped InventoryLevel row when
+                # a variant is created (products/service.py's
+                # create_variant() only inserts the ProductVariant row),
+                # so the first delivery for a variant must backfill it
+                # first or adjust_stock() raises ProductStockNotFoundError
+                # for a perfectly valid variant. Non-variant line items
+                # never need this: initialize_inventory() already created
+                # the product's aggregate row at product-creation time.
+                await ensure_inventory_level_exists(
+                    db, item.product_id, item.variant_id
+                )
             await adjust_stock(
                 db,
                 product_id=item.product_id,
+                variant_id=item.variant_id,
                 quantity_change=item.quantity,
                 movement_type=MovementType.ORDER_RECEIVED.value,
                 reason=f"Order {order.order_number} delivered",
@@ -558,6 +576,7 @@ async def transition_status(
                 db,
                 product_id=item.product_id,
                 order_id=order.id,
+                variant_id=item.variant_id,
                 quantity=item.quantity,
                 unit_cost_usd=item.unit_cost,
                 fx_rate_at_arrival=fx_rate,
@@ -810,9 +829,9 @@ async def get_orders_summary(
     total_value = row[1]
 
     # Count by status
-    status_query = select(
-        PurchaseOrder.status, func.count(PurchaseOrder.id)
-    ).group_by(PurchaseOrder.status)
+    status_query = select(PurchaseOrder.status, func.count(PurchaseOrder.id)).group_by(
+        PurchaseOrder.status
+    )
     if business_id is not None:
         status_query = status_query.where(PurchaseOrder.business_id == business_id)
     status_result = await db.execute(status_query)
@@ -1045,21 +1064,37 @@ async def create_purchase_return(
     """Record a return of goods against a purchase order."""
     order = await get_order(db, data.original_order_id, business_id)
 
-    # Build a map of product_id -> unit_cost from the original order
-    cost_map: dict[uuid.UUID, Decimal] = {
-        item.product_id: item.unit_cost for item in order.line_items
+    # Build a map of (product_id, variant_id) -> unit_cost from the
+    # original order — keyed by product_id alone, an order with separate
+    # line items for two variants of the same product would collapse to
+    # whichever line item's unit_cost happened to be inserted into the
+    # dict last.
+    cost_map: dict[tuple[uuid.UUID, uuid.UUID | None], Decimal] = {
+        (item.product_id, item.variant_id): item.unit_cost for item in order.line_items
     }
 
     total_amount = Decimal("0")
     for line in data.line_items:
         pid = line.product_id
-        unit_cost = cost_map.get(pid, Decimal("0"))
+        key = (pid, line.variant_id)
+        if key not in cost_map:
+            # Silently falling back to Decimal("0") cost here would
+            # understate total_amount, and proceeding to adjust_stock()
+            # with the caller's (possibly wrong) variant_id would decrement
+            # whichever InventoryLevel row that resolves to — not
+            # necessarily the row this order's delivery actually credited.
+            raise OrderLineItemError(order.id, [pid])
+        unit_cost = cost_map[key]
         total_amount += unit_cost * line.quantity
 
-        # Reverse inventory: deduct returned stock
+        # Reverse inventory: deduct returned stock. Scoped to the same
+        # variant transition_status() delivered it onto — the aggregate
+        # (variant_id=NULL) row is a different row entirely once a PO line
+        # item is variant-specific.
         await adjust_stock(
             db,
             product_id=pid,
+            variant_id=line.variant_id,
             quantity_change=-line.quantity,
             movement_type=MovementType.MANUAL_REMOVE.value,
             reason=f"Purchase return for order {order.order_number}",
@@ -1595,13 +1630,13 @@ async def list_purchase_returns(
     if business_id is not None:
         base_q = base_q.where(PurchaseReturn.business_id == business_id)
 
-    count_result = await db.execute(
-        select(func.count()).select_from(base_q.subquery())
-    )
+    count_result = await db.execute(select(func.count()).select_from(base_q.subquery()))
     total = count_result.scalar() or 0
 
     items_result = await db.execute(
-        base_q.order_by(PurchaseReturn.return_date.desc(), PurchaseReturn.created_at.desc())
+        base_q.order_by(
+            PurchaseReturn.return_date.desc(), PurchaseReturn.created_at.desc()
+        )
         .offset((page - 1) * page_size)
         .limit(page_size)
     )

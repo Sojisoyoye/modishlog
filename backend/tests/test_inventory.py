@@ -663,3 +663,125 @@ class TestVariantScopedInventory:
         assert updated_inv.quantity_on_hand == 85
         assert len(captured_movements) == 1
         assert captured_movements[0].variant_id is None
+
+
+class TestEnsureInventoryLevelExists:
+    """Tests for the backfill helper orders/service.py's transition_status()
+    calls before crediting a PO delivery to a variant's InventoryLevel row —
+    adjust_stock() is a strict lookup, never an upsert, and nothing else
+    creates a variant-scoped row when a variant is created."""
+
+    @pytest.mark.asyncio
+    async def test_noop_when_row_already_exists(self):
+        from src.inventory.service import ensure_inventory_level_exists
+
+        product_id, variant_id = uuid.uuid4(), uuid.uuid4()
+        existing = _make_inventory(product_id=product_id, variant_id=variant_id)
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = existing
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await ensure_inventory_level_exists(db, product_id, variant_id)
+
+        db.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_creates_zeroed_row_when_missing(self):
+        from src.inventory.service import ensure_inventory_level_exists
+        from tests.conftest import NestedTransaction
+
+        product_id, variant_id = uuid.uuid4(), uuid.uuid4()
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+        db.begin_nested = MagicMock(return_value=NestedTransaction())
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            # First call: existence check (no row). Second call (if any):
+            # the aggregate-row threshold lookup.
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        await ensure_inventory_level_exists(db, product_id, variant_id)
+
+        db.add.assert_called_once()
+        created = db.add.call_args[0][0]
+        assert created.product_id == product_id
+        assert created.variant_id == variant_id
+        assert created.quantity_on_hand == 0
+
+    @pytest.mark.asyncio
+    async def test_concurrent_creation_race_is_swallowed_not_raised(self):
+        """Two concurrent PO deliveries crediting the same new variant for
+        the first time can both pass the existence check before either
+        INSERT commits — the loser's flush hits the partial unique index
+        and must not propagate as an unhandled 500; the row exists either
+        way once the winner commits."""
+        from sqlalchemy.exc import IntegrityError
+
+        from src.inventory.service import ensure_inventory_level_exists
+        from tests.conftest import NestedTransaction
+
+        product_id, variant_id = uuid.uuid4(), uuid.uuid4()
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock(
+            side_effect=IntegrityError("INSERT", {}, Exception("duplicate key"))
+        )
+        db.begin_nested = MagicMock(return_value=NestedTransaction())
+
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=result_mock)
+
+        # Must not raise.
+        await ensure_inventory_level_exists(db, product_id, variant_id)
+
+    @pytest.mark.asyncio
+    async def test_variant_backfill_inherits_the_products_configured_threshold(self):
+        """A variant's first-ever delivery must not silently reset the
+        business's configured low-stock threshold to a hardcoded default —
+        it should inherit the product's own aggregate-row threshold."""
+        from src.inventory.service import ensure_inventory_level_exists
+        from tests.conftest import NestedTransaction
+
+        product_id, variant_id = uuid.uuid4(), uuid.uuid4()
+        aggregate = _make_inventory(
+            product_id=product_id, variant_id=None, low_stock_threshold=25
+        )
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+        db.begin_nested = MagicMock(return_value=NestedTransaction())
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = None  # no variant row yet
+            else:
+                result.scalar_one_or_none.return_value = (
+                    aggregate.low_stock_threshold
+                )
+            return result
+
+        db.execute = mock_execute
+
+        await ensure_inventory_level_exists(db, product_id, variant_id)
+
+        created = db.add.call_args[0][0]
+        assert created.low_stock_threshold == 25

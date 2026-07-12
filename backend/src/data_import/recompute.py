@@ -35,7 +35,11 @@ from src.inventory.models import (
     MovementType,
     StockMovement,
 )
-from src.inventory.service import adjust_stock, fifo_deduct
+from src.inventory.service import (
+    adjust_stock,
+    fifo_deduct,
+    inventory_batch_variant_filter,
+)
 from src.pricing.service import compute_suggestion
 from src.products.models import PriceHistory, Product
 from src.sales.models import Sale
@@ -280,10 +284,16 @@ async def _compute_fifo_cogs_for_imported_sales(
         # this once fifo_deduct() itself has succeeded — if it also fails
         # below, that error already covers this sale; appending both would
         # double-report the same underlying problem.
+        # Reuses fifo_deduct()'s own variant filter (see its docstring) —
+        # counting a different set of batches here than fifo_deduct() will
+        # actually draw from would make this understated/overstated check
+        # wrong, and duplicating the filter logic risks the two silently
+        # drifting apart.
         available = await db.execute(
             select(func.sum(InventoryBatch.quantity_remaining)).where(
                 InventoryBatch.product_id == sale.product_id,
                 InventoryBatch.quantity_remaining > 0,
+                inventory_batch_variant_filter(sale.variant_id),
             )
         )
         available_units = available.scalar() or 0
@@ -291,7 +301,9 @@ async def _compute_fifo_cogs_for_imported_sales(
 
         cogs, error = await run_isolated(
             db,
-            lambda s=sale: fifo_deduct(db, s.product_id, s.quantity),
+            lambda s=sale: fifo_deduct(
+                db, s.product_id, s.quantity, variant_id=s.variant_id
+            ),
             log_event="recompute_fifo_cogs_failed",
             error_entry={"step": "fifo_cogs", "sale_id": str(sale.id)},
         )

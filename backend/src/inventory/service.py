@@ -5,7 +5,8 @@ from collections.abc import Collection
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.inventory.exceptions import (
@@ -69,6 +70,94 @@ async def initialize_inventory(
     return inventory
 
 
+def inventory_level_variant_filter(variant_id: uuid.UUID | None):
+    """WHERE-clause fragment scoping InventoryLevel rows to a specific
+    variant, or to the aggregate (variant_id=NULL) row when variant_id is
+    None — the exact-match version of inventory_batch_variant_filter()
+    above, used everywhere an InventoryLevel row is looked up for a
+    specific (product_id, variant_id) pair. Centralized so this exact
+    "variant_id == X, else variant_id IS NULL" comparison — repeated
+    across get_inventory_level(), adjust_stock(), and
+    ensure_inventory_level_exists() — can't silently drift between them.
+    """
+    if variant_id is not None:
+        return InventoryLevel.variant_id == variant_id
+    return InventoryLevel.variant_id.is_(None)
+
+
+async def ensure_inventory_level_exists(
+    db: AsyncSession,
+    product_id: uuid.UUID,
+    variant_id: uuid.UUID | None,
+    low_stock_threshold: int | None = None,
+) -> None:
+    """Create a zeroed InventoryLevel(product_id, variant_id) row if one
+    doesn't already exist.
+
+    adjust_stock() is a strict UPDATE-only lookup, never an upsert — it
+    raises ProductStockNotFoundError if no row matches. products/
+    service.py's create_variant() only ever inserts the ProductVariant
+    row, never a matching InventoryLevel row, so any caller that can pass
+    a variant_id whose InventoryLevel row might not exist yet (e.g.
+    crediting a PO delivery to a variant for the first time) must call
+    this first, or adjust_stock() fails outright for a perfectly valid
+    product/variant.
+
+    When low_stock_threshold isn't given and this is a variant row
+    (variant_id is not None), the new row inherits the product's
+    aggregate-row threshold — the business's already-configured
+    expectation for this product — instead of a hardcoded default that
+    would silently override it. Falls back to 10 only if no aggregate row
+    exists either.
+
+    The existence check and insert are not atomic — two concurrent callers
+    backfilling the same (product_id, variant_id) pair for the first time
+    (e.g. two POs for the same new variant delivered at once) can both
+    pass the check before either commits. The insert is wrapped in its own
+    SAVEPOINT so the loser's unique-index violation is caught and
+    swallowed rather than propagating as an unhandled 500 — the row exists
+    either way once the winner's insert commits.
+    """
+    query = select(InventoryLevel).where(
+        InventoryLevel.product_id == product_id,
+        inventory_level_variant_filter(variant_id),
+    )
+    result = await db.execute(query)
+    if result.scalar_one_or_none() is not None:
+        return
+
+    threshold = low_stock_threshold
+    if threshold is None:
+        threshold = 10
+        if variant_id is not None:
+            aggregate_result = await db.execute(
+                select(InventoryLevel.low_stock_threshold).where(
+                    InventoryLevel.product_id == product_id,
+                    InventoryLevel.variant_id.is_(None),
+                )
+            )
+            aggregate_threshold = aggregate_result.scalar_one_or_none()
+            if aggregate_threshold is not None:
+                threshold = aggregate_threshold
+
+    try:
+        async with db.begin_nested():
+            db.add(
+                InventoryLevel(
+                    product_id=product_id,
+                    variant_id=variant_id,
+                    quantity_on_hand=0,
+                    quantity_reserved=0,
+                    low_stock_threshold=threshold,
+                )
+            )
+            await db.flush()
+    except IntegrityError:
+        # A concurrent caller won the race and created the row first —
+        # it exists now either way, which is all this function promises.
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Stock level queries
 # ---------------------------------------------------------------------------
@@ -99,11 +188,10 @@ async def get_inventory_level(
         if product_result.scalar_one_or_none() is None:
             raise ProductStockNotFoundError(product_id)
 
-    query = select(InventoryLevel).where(InventoryLevel.product_id == product_id)
-    if variant_id is not None:
-        query = query.where(InventoryLevel.variant_id == variant_id)
-    else:
-        query = query.where(InventoryLevel.variant_id.is_(None))
+    query = select(InventoryLevel).where(
+        InventoryLevel.product_id == product_id,
+        inventory_level_variant_filter(variant_id),
+    )
 
     result = await db.execute(query)
     inventory = result.scalar_one_or_none()
@@ -161,9 +249,7 @@ async def list_inventory_levels(
         scoped_product_ids = select(Product.id).where(
             Product.business_id == business_id
         )
-        base_query = base_query.where(
-            InventoryLevel.product_id.in_(scoped_product_ids)
-        )
+        base_query = base_query.where(InventoryLevel.product_id.in_(scoped_product_ids))
     if low_stock_only:
         base_query = base_query.where(
             InventoryLevel.quantity_on_hand <= InventoryLevel.low_stock_threshold
@@ -174,7 +260,9 @@ async def list_inventory_levels(
     total = count_result.scalar()
     offset = (page - 1) * page_size
     items_result = await db.execute(
-        base_query.order_by(InventoryLevel.quantity_on_hand.asc()).offset(offset).limit(page_size)
+        base_query.order_by(InventoryLevel.quantity_on_hand.asc())
+        .offset(offset)
+        .limit(page_size)
     )
     return list(items_result.scalars().all()), total
 
@@ -241,12 +329,14 @@ async def adjust_stock(
         if product_result.scalar_one_or_none() is None:
             raise ProductStockNotFoundError(product_id)
 
-    inv_query = select(InventoryLevel).where(InventoryLevel.product_id == product_id)
-    if variant_id is not None:
-        inv_query = inv_query.where(InventoryLevel.variant_id == variant_id)
-    else:
-        inv_query = inv_query.where(InventoryLevel.variant_id.is_(None))
-    inv_query = inv_query.with_for_update()
+    inv_query = (
+        select(InventoryLevel)
+        .where(
+            InventoryLevel.product_id == product_id,
+            inventory_level_variant_filter(variant_id),
+        )
+        .with_for_update()
+    )
 
     result = await db.execute(inv_query)
     inventory = result.scalar_one_or_none()
@@ -414,14 +504,22 @@ async def create_batch(
     fx_rate_at_arrival: Decimal,
     logistics_allocation_per_unit: Decimal = Decimal("0"),
     received_at: date | None = None,
+    variant_id: uuid.UUID | None = None,
 ) -> InventoryBatch:
-    """Create an inventory batch when an order is delivered."""
+    """Create an inventory batch when an order is delivered.
+
+    variant_id should be set from the PO line item's own variant_id when
+    the delivered item is for a specific variant, so fifo_deduct() can
+    later scope FIFO consumption to that variant instead of pooling it
+    with every other variant of the same product.
+    """
     landed = compute_landed_cost(
         unit_cost_usd, fx_rate_at_arrival, logistics_allocation_per_unit
     )
     batch = InventoryBatch(
         product_id=product_id,
         order_id=order_id,
+        variant_id=variant_id,
         quantity_received=quantity,
         quantity_remaining=quantity,
         unit_cost_usd=unit_cost_usd,
@@ -471,10 +569,38 @@ async def get_batches_for_product(
     return list(result.scalars().all())
 
 
+def inventory_batch_variant_filter(variant_id: uuid.UUID | None):
+    """WHERE-clause fragment scoping InventoryBatch rows to a deduction's
+    variant_id.
+
+    A variant-specific deduction (variant_id given) may draw from that
+    variant's own tagged batches AND from untagged (variant_id=NULL)
+    batches — stock received before variant tracking existed, or genuinely
+    shared stock — but never from a *different* variant's tagged batches,
+    which would misattribute that variant's landed cost onto this one. A
+    non-variant deduction (variant_id=None) only draws from untagged
+    batches, mirroring how InventoryLevel/adjust_stock scope aggregate vs.
+    variant-level rows.
+
+    Shared by fifo_deduct() and data_import/recompute.py's insufficient-
+    batches pre-check — both need the exact same "which batches would
+    actually be drawn from" answer, or the pre-check could count batches
+    fifo_deduct() would never touch and report a wrong understated/
+    overstated COGS warning.
+    """
+    if variant_id is not None:
+        return or_(
+            InventoryBatch.variant_id == variant_id,
+            InventoryBatch.variant_id.is_(None),
+        )
+    return InventoryBatch.variant_id.is_(None)
+
+
 async def fifo_deduct(
     db: AsyncSession,
     product_id: uuid.UUID,
     quantity: int,
+    variant_id: uuid.UUID | None = None,
 ) -> Decimal:
     """FIFO cost matching: deduct quantity from oldest batches first.
 
@@ -485,6 +611,7 @@ async def fifo_deduct(
         .where(
             InventoryBatch.product_id == product_id,
             InventoryBatch.quantity_remaining > 0,
+            inventory_batch_variant_filter(variant_id),
         )
         .order_by(InventoryBatch.received_at.asc())
         .with_for_update()

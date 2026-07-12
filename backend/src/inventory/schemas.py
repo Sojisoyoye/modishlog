@@ -82,6 +82,9 @@ class InventoryBatchRead(BaseModel):
 
     id: uuid.UUID
     product_id: uuid.UUID
+    # NULL for a non-variant product's batch (or one received before
+    # variant tracking existed) — see InventoryBatch.variant_id.
+    variant_id: uuid.UUID | None = None
     order_id: uuid.UUID
     quantity_received: int
     quantity_remaining: int
