@@ -10,8 +10,10 @@ upgrade()/downgrade() behavior via mocked op/sa.inspect.
 """
 
 import importlib.util
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from types import ModuleType
+from unittest.mock import MagicMock, patch
 
 VERSIONS_DIR = Path(__file__).parent.parent / "alembic" / "versions"
 
@@ -26,3 +28,90 @@ def load_migration(filename: str) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def mock_inspector(
+    tables=(), columns=None, foreign_keys=None, unique_constraints=None, indexes=None
+):
+    """Stand-in for sa.inspect(op.get_bind()), shared across migration
+    content tests.
+
+    tables: set/collection of table names that "exist" (has_table()).
+    columns: table -> either a list of column names, or a dict of
+        {column_name: {"nullable": bool}} when a test cares about
+        nullability (e.g. a column that exists but was never finalized).
+        The plain-list form defaults every column to nullable=True.
+    foreign_keys / unique_constraints / indexes: table -> list of names
+        already present, routed to their real, separate Postgres-
+        reporting methods (get_foreign_keys vs get_unique_constraints)
+        so a bug in either code path is actually exercised.
+
+    LIMITATION: this is a fixed snapshot for the whole test — it does not
+    update itself when the migration's mocked `op` issues DDL mid-run, so
+    it cannot catch the "stale Inspector after DDL" class of bug (see
+    src/core/migration_utils.py's CAUTION section). test_migration_
+    sqlite_integration.py's real, non-mocked Inspector closes that gap for
+    the two migrations where it's technically possible to (see that file's
+    docstring for why it can't be extended to the others).
+    """
+    columns = columns or {}
+    foreign_keys = foreign_keys or {}
+    unique_constraints = unique_constraints or {}
+    indexes = indexes or {}
+
+    def _columns_for(table):
+        table_columns = columns.get(table, {})
+        if not isinstance(table_columns, dict):
+            table_columns = {name: {"nullable": True} for name in table_columns}
+        return [
+            {"name": name, "nullable": info.get("nullable", True)}
+            for name, info in table_columns.items()
+        ]
+
+    inspector = MagicMock()
+    inspector.has_table.side_effect = lambda table: table in tables
+    inspector.get_columns.side_effect = _columns_for
+    inspector.get_foreign_keys.side_effect = lambda table: [
+        {"name": n} for n in foreign_keys.get(table, [])
+    ]
+    inspector.get_unique_constraints.side_effect = lambda table: [
+        {"name": n} for n in unique_constraints.get(table, [])
+    ]
+    inspector.get_indexes.side_effect = lambda table: [
+        {"name": n} for n in indexes.get(table, [])
+    ]
+    inspector.has_index.side_effect = (
+        lambda table, name: table in tables and name in indexes.get(table, [])
+    )
+    return inspector
+
+
+@contextmanager
+def patched_migration_utils(migration=None, **inspector_kwargs):
+    """Patch src.core.migration_utils' `op` (so op.get_bind() doesn't hit
+    the real Alembic proxy, which raises outside an active migration
+    context) and `sa.inspect` (to return a fixed mock_inspector(**kwargs)
+    regardless of what op.get_bind() returns) — shared across
+    test_migration_utils.py (tests migration_utils' functions directly)
+    and every migration content test (tests a migration module's own
+    upgrade()/downgrade(), which call into migration_utils).
+
+    If `migration` is given, also patches *its own* `op` (capturing/
+    no-op'ing its direct DDL calls like add_column/create_table) and
+    yields that mock; otherwise yields None.
+    """
+    from src.core import migration_utils
+
+    with ExitStack() as stack:
+        mock_op = None
+        if migration is not None:
+            mock_op = stack.enter_context(patch.object(migration, "op"))
+        stack.enter_context(patch.object(migration_utils, "op", MagicMock()))
+        stack.enter_context(
+            patch.object(
+                migration_utils.sa,
+                "inspect",
+                return_value=mock_inspector(**inspector_kwargs),
+            )
+        )
+        yield mock_op

@@ -4,6 +4,12 @@ Revision ID: 00db7d1e1a78
 Revises: ad3a7417f748
 Create Date: 2026-07-11 22:00:00.000000
 
+Made idempotent after discovering staging's actual schema had drifted
+ahead of alembic_version — inventory_batches.variant_id already existed
+on staging (outside Alembic tracking) when a real deploy first tried to
+run this migration, blocking every migration after it with
+DuplicateColumnError. See migration aaf1881e3f19 for the first instance
+of this class of bug and src/core/migration_utils.py for the shared fix.
 """
 
 from typing import Sequence, Union
@@ -20,29 +26,51 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "inventory_batches",
-        sa.Column(
-            "variant_id",
-            postgresql.UUID(as_uuid=True),
-            nullable=True,
-        ),
-    )
-    op.create_foreign_key(
-        "fk_inventory_batches_variant_id",
-        "inventory_batches",
-        "product_variants",
-        ["variant_id"],
-        ["id"],
-    )
-    op.create_index(
-        "ix_inventory_batches_variant_id", "inventory_batches", ["variant_id"]
-    )
+    # Deferred, not module-level — see src/core/migration_utils.py's
+    # docstring ("IMPORTING THIS MODULE") for why.
+    from src.core.migration_utils import has_column, has_constraint, has_index
+
+    insp = sa.inspect(op.get_bind())
+
+    if not has_column("inventory_batches", "variant_id", insp=insp):
+        op.add_column(
+            "inventory_batches",
+            sa.Column(
+                "variant_id",
+                postgresql.UUID(as_uuid=True),
+                nullable=True,
+            ),
+        )
+    if not has_constraint(
+        "inventory_batches", "fk_inventory_batches_variant_id", insp=insp
+    ):
+        op.create_foreign_key(
+            "fk_inventory_batches_variant_id",
+            "inventory_batches",
+            "product_variants",
+            ["variant_id"],
+            ["id"],
+        )
+    if not has_index("inventory_batches", "ix_inventory_batches_variant_id", insp=insp):
+        op.create_index(
+            "ix_inventory_batches_variant_id", "inventory_batches", ["variant_id"]
+        )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_inventory_batches_variant_id", table_name="inventory_batches")
-    op.drop_constraint(
-        "fk_inventory_batches_variant_id", "inventory_batches", type_="foreignkey"
-    )
-    op.drop_column("inventory_batches", "variant_id")
+    from src.core.migration_utils import has_column, has_constraint, has_index
+
+    insp = sa.inspect(op.get_bind())
+
+    if has_index("inventory_batches", "ix_inventory_batches_variant_id", insp=insp):
+        op.drop_index(
+            "ix_inventory_batches_variant_id", table_name="inventory_batches"
+        )
+    if has_constraint(
+        "inventory_batches", "fk_inventory_batches_variant_id", insp=insp
+    ):
+        op.drop_constraint(
+            "fk_inventory_batches_variant_id", "inventory_batches", type_="foreignkey"
+        )
+    if has_column("inventory_batches", "variant_id", insp=insp):
+        op.drop_column("inventory_batches", "variant_id")

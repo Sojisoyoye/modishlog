@@ -21,6 +21,7 @@ never actually succeeded against a real environment. Without these guards,
 `alembic upgrade head` fails with DuplicateColumnError on `products.image_url`
 and permanently blocks every migration after this one.
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -29,33 +30,31 @@ from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'aaf1881e3f19'
-down_revision: Union[str, None] = '5b084b6ad359'
+revision: str = "aaf1881e3f19"
+down_revision: Union[str, None] = "5b084b6ad359"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def _mix_target_constraint_names(insp) -> set:
-    names = {c["name"] for c in insp.get_unique_constraints("product_mix_targets")}
-    names |= {c["name"] for c in insp.get_foreign_keys("product_mix_targets")}
-    return names
-
-
 def upgrade() -> None:
-    # One inspection, reused for every check below — six separate
-    # sa.inspect(op.get_bind()) calls would mean six real round-trips to
-    # Postgres for a migration that already has a history of blocking
-    # every deploy behind it if it's slow or fails.
-    insp = sa.inspect(op.get_bind())
-    product_cols = {c["name"]: c for c in insp.get_columns("products")}
-    mix_target_cols = {c["name"]: c for c in insp.get_columns("product_mix_targets")}
-    mix_target_constraints = _mix_target_constraint_names(insp)
-    mix_target_indexes = {i["name"] for i in insp.get_indexes("product_mix_targets")}
+    # Deferred, not module-level — see src/core/migration_utils.py's
+    # docstring ("IMPORTING THIS MODULE") for why.
+    from src.core.migration_utils import has_column, has_constraint, has_index
 
-    if "image_url" not in product_cols:
+    # One Inspector, reused for every check below — SQLAlchemy caches
+    # reflection results per-instance per table, so this eliminates
+    # redundant round-trips, not just Inspector construction cost (see
+    # src/core/migration_utils.py's docstring). mix_target_cols is built
+    # here directly (rather than solely via has_column()) because the
+    # nullable-aware business_id check just below needs the column's
+    # nullable flag, which has_column() doesn't expose.
+    insp = sa.inspect(op.get_bind())
+    mix_target_cols = {c["name"]: c for c in insp.get_columns("product_mix_targets")}
+
+    if not has_column("products", "image_url", insp=insp):
         op.add_column("products", sa.Column("image_url", sa.String(500), nullable=True))
 
-    if "business_id" not in mix_target_cols:
+    if not has_column("product_mix_targets", "business_id", insp=insp):
         op.add_column(
             "product_mix_targets",
             sa.Column("business_id", postgresql.UUID(as_uuid=True), nullable=True),
@@ -66,8 +65,15 @@ def upgrade() -> None:
     # but was never finalized" (e.g. a prior migration attempt that
     # failed partway through, or some other partial manual fix). Column
     # *existence* alone is not "already done": a drifted DB could have
-    # the column with every row still NULL.
-    if "business_id" not in mix_target_cols or mix_target_cols["business_id"]["nullable"]:
+    # the column with every row still NULL. has_column() can't express
+    # nullability, so this specific check stays a raw dict lookup off the
+    # same `mix_target_cols` snapshot rather than using the shared helper
+    # (existence alone is checked via has_column() just above, for
+    # consistency with every other check in this function).
+    if (
+        "business_id" not in mix_target_cols
+        or mix_target_cols["business_id"]["nullable"]
+    ):
         op.execute(
             "UPDATE product_mix_targets SET business_id = "
             "(SELECT id FROM businesses ORDER BY created_at LIMIT 1) "
@@ -75,7 +81,9 @@ def upgrade() -> None:
         )
         op.alter_column("product_mix_targets", "business_id", nullable=False)
 
-    if "fk_product_mix_targets_business_id" not in mix_target_constraints:
+    if not has_constraint(
+        "product_mix_targets", "fk_product_mix_targets_business_id", insp=insp
+    ):
         op.create_foreign_key(
             "fk_product_mix_targets_business_id",
             "product_mix_targets",
@@ -83,11 +91,15 @@ def upgrade() -> None:
             ["business_id"],
             ["id"],
         )
-    if "ix_product_mix_targets_business_id" not in mix_target_indexes:
+    if not has_index(
+        "product_mix_targets", "ix_product_mix_targets_business_id", insp=insp
+    ):
         op.create_index(
             "ix_product_mix_targets_business_id", "product_mix_targets", ["business_id"]
         )
-    if "uq_mix_target_category_business" not in mix_target_constraints:
+    if not has_constraint(
+        "product_mix_targets", "uq_mix_target_category_business", insp=insp
+    ):
         op.create_unique_constraint(
             "uq_mix_target_category_business",
             "product_mix_targets",
@@ -100,28 +112,32 @@ def downgrade() -> None:
     # have partially (or fully) no-op'd against a drifted DB, so a plain
     # unconditional drop_* sequence could hit an UndefinedColumn/
     # ProgrammingError partway through and leave the DB half-reverted.
-    insp = sa.inspect(op.get_bind())
-    mix_target_cols = {c["name"] for c in insp.get_columns("product_mix_targets")}
-    mix_target_constraints = _mix_target_constraint_names(insp)
-    mix_target_indexes = {i["name"] for i in insp.get_indexes("product_mix_targets")}
-    product_cols = {c["name"] for c in insp.get_columns("products")}
+    from src.core.migration_utils import has_column, has_constraint, has_index
 
-    if "uq_mix_target_category_business" in mix_target_constraints:
+    insp = sa.inspect(op.get_bind())
+
+    if has_constraint(
+        "product_mix_targets", "uq_mix_target_category_business", insp=insp
+    ):
         op.drop_constraint(
             "uq_mix_target_category_business", "product_mix_targets", type_="unique"
         )
-    if "ix_product_mix_targets_business_id" in mix_target_indexes:
+    if has_index(
+        "product_mix_targets", "ix_product_mix_targets_business_id", insp=insp
+    ):
         op.drop_index(
             "ix_product_mix_targets_business_id", table_name="product_mix_targets"
         )
-    if "fk_product_mix_targets_business_id" in mix_target_constraints:
+    if has_constraint(
+        "product_mix_targets", "fk_product_mix_targets_business_id", insp=insp
+    ):
         op.drop_constraint(
             "fk_product_mix_targets_business_id",
             "product_mix_targets",
             type_="foreignkey",
         )
-    if "business_id" in mix_target_cols:
+    if has_column("product_mix_targets", "business_id", insp=insp):
         op.drop_column("product_mix_targets", "business_id")
 
-    if "image_url" in product_cols:
+    if has_column("products", "image_url", insp=insp):
         op.drop_column("products", "image_url")
