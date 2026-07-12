@@ -30,7 +30,9 @@ def upgrade() -> None:
     # here would break `alembic heads`/`history`/`upgrade` outright.
     from src.core.migration_utils import has_column, has_constraint, has_index
 
-    if not has_column("price_suggestions", "variant_id"):
+    insp = sa.inspect(op.get_bind())
+
+    if not has_column("price_suggestions", "variant_id", insp=insp):
         op.add_column(
             "price_suggestions",
             sa.Column(
@@ -39,7 +41,9 @@ def upgrade() -> None:
                 nullable=True,
             ),
         )
-    if not has_constraint("price_suggestions", "fk_price_suggestions_variant_id"):
+    if not has_constraint(
+        "price_suggestions", "fk_price_suggestions_variant_id", insp=insp
+    ):
         op.create_foreign_key(
             "fk_price_suggestions_variant_id",
             "price_suggestions",
@@ -47,7 +51,7 @@ def upgrade() -> None:
             ["variant_id"],
             ["id"],
         )
-    if not has_index("price_suggestions", "ix_price_suggestions_variant_id"):
+    if not has_index("price_suggestions", "ix_price_suggestions_variant_id", insp=insp):
         op.create_index(
             "ix_price_suggestions_variant_id", "price_suggestions", ["variant_id"]
         )
@@ -56,13 +60,17 @@ def upgrade() -> None:
 def downgrade() -> None:
     from src.core.migration_utils import has_column, has_constraint, has_index
 
-    if has_index("price_suggestions", "ix_price_suggestions_variant_id"):
+    insp = sa.inspect(op.get_bind())
+
+    if has_index("price_suggestions", "ix_price_suggestions_variant_id", insp=insp):
         op.drop_index(
             "ix_price_suggestions_variant_id", table_name="price_suggestions"
         )
-    if has_constraint("price_suggestions", "fk_price_suggestions_variant_id"):
+    if has_constraint(
+        "price_suggestions", "fk_price_suggestions_variant_id", insp=insp
+    ):
         op.drop_constraint(
             "fk_price_suggestions_variant_id", "price_suggestions", type_="foreignkey"
         )
-    if has_column("price_suggestions", "variant_id"):
+    if has_column("price_suggestions", "variant_id", insp=insp):
         op.drop_column("price_suggestions", "variant_id")

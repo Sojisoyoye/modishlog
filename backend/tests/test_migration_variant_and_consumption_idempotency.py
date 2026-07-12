@@ -13,29 +13,7 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 from src.core import migration_utils
-from tests.migration_test_utils import load_migration
-
-
-def _mock_inspector(tables=(), columns=None, foreign_keys=None, unique_constraints=None, indexes=None):
-    columns = columns or {}
-    foreign_keys = foreign_keys or {}
-    unique_constraints = unique_constraints or {}
-    indexes = indexes or {}
-    inspector = MagicMock()
-    inspector.has_table.side_effect = lambda table: table in tables
-    inspector.get_columns.side_effect = lambda table: [
-        {"name": n} for n in columns.get(table, [])
-    ]
-    inspector.get_foreign_keys.side_effect = lambda table: [
-        {"name": n} for n in foreign_keys.get(table, [])
-    ]
-    inspector.get_unique_constraints.side_effect = lambda table: [
-        {"name": n} for n in unique_constraints.get(table, [])
-    ]
-    inspector.get_indexes.side_effect = lambda table: [
-        {"name": n} for n in indexes.get(table, [])
-    ]
-    return inspector
+from tests.migration_test_utils import load_migration, mock_inspector
 
 
 @contextmanager
@@ -46,7 +24,7 @@ def _patched(migration, **inspector_kwargs):
     with patch.object(migration, "op") as mock_op, patch.object(
         migration_utils, "op", MagicMock()
     ), patch.object(
-        migration_utils.sa, "inspect", return_value=_mock_inspector(**inspector_kwargs)
+        migration_utils.sa, "inspect", return_value=mock_inspector(**inspector_kwargs)
     ):
         yield mock_op
 
@@ -130,6 +108,24 @@ class TestFifoConsumptionsTableMigration:
         mock_op.drop_table.assert_not_called()
         mock_op.drop_index.assert_not_called()
 
+    def test_downgrade_skips_an_already_missing_index(self):
+        """The table exists but ix_fifo_consumptions_batch_id was already
+        dropped by some prior partial operation — downgrade() must not
+        hard-fail trying to drop a nonexistent index (the exact class of
+        drift bug this PR fixes elsewhere)."""
+        migration = load_migration(self.FILENAME)
+
+        with _patched(
+            migration,
+            tables={"fifo_consumptions"},
+            indexes={"fifo_consumptions": ["ix_fifo_consumptions_sale_id"]},
+        ) as mock_op:
+            migration.downgrade()  # must not raise
+
+        dropped_indexes = [c.args[0] for c in mock_op.drop_index.call_args_list]
+        assert dropped_indexes == ["ix_fifo_consumptions_sale_id"]
+        mock_op.drop_table.assert_called_once()
+
 
 class TestLotConsumptionsTableMigration:
     FILENAME = "fdb77f054f7e_add_lot_consumptions_table.py"
@@ -169,6 +165,23 @@ class TestLotConsumptionsTableMigration:
 
         mock_op.drop_table.assert_not_called()
         mock_op.drop_index.assert_not_called()
+
+    def test_downgrade_skips_an_already_missing_index(self):
+        """The table exists but ix_lot_consumptions_order_line_item_id was
+        already dropped by some prior partial operation — downgrade()
+        must not hard-fail trying to drop a nonexistent index."""
+        migration = load_migration(self.FILENAME)
+
+        with _patched(
+            migration,
+            tables={"lot_consumptions"},
+            indexes={"lot_consumptions": ["ix_lot_consumptions_sale_id"]},
+        ) as mock_op:
+            migration.downgrade()  # must not raise
+
+        dropped_indexes = [c.args[0] for c in mock_op.drop_index.call_args_list]
+        assert dropped_indexes == ["ix_lot_consumptions_sale_id"]
+        mock_op.drop_table.assert_called_once()
 
 
 class TestPriceSuggestionsVariantIdMigration:

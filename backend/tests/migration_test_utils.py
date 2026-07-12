@@ -12,6 +12,7 @@ upgrade()/downgrade() behavior via mocked op/sa.inspect.
 import importlib.util
 from pathlib import Path
 from types import ModuleType
+from unittest.mock import MagicMock
 
 VERSIONS_DIR = Path(__file__).parent.parent / "alembic" / "versions"
 
@@ -26,3 +27,46 @@ def load_migration(filename: str) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def mock_inspector(tables=(), columns=None, foreign_keys=None, unique_constraints=None, indexes=None):
+    """Stand-in for sa.inspect(op.get_bind()), shared across migration
+    content tests.
+
+    tables: set/collection of table names that "exist" (has_table()).
+    columns: table -> either a list of column names, or a dict of
+        {column_name: {"nullable": bool}} when a test cares about
+        nullability (e.g. a column that exists but was never finalized).
+        The plain-list form defaults every column to nullable=True.
+    foreign_keys / unique_constraints / indexes: table -> list of names
+        already present, routed to their real, separate Postgres-
+        reporting methods (get_foreign_keys vs get_unique_constraints)
+        so a bug in either code path is actually exercised.
+    """
+    columns = columns or {}
+    foreign_keys = foreign_keys or {}
+    unique_constraints = unique_constraints or {}
+    indexes = indexes or {}
+
+    def _columns_for(table):
+        table_columns = columns.get(table, {})
+        if not isinstance(table_columns, dict):
+            table_columns = {name: {"nullable": True} for name in table_columns}
+        return [
+            {"name": name, "nullable": info.get("nullable", True)}
+            for name, info in table_columns.items()
+        ]
+
+    inspector = MagicMock()
+    inspector.has_table.side_effect = lambda table: table in tables
+    inspector.get_columns.side_effect = _columns_for
+    inspector.get_foreign_keys.side_effect = lambda table: [
+        {"name": n} for n in foreign_keys.get(table, [])
+    ]
+    inspector.get_unique_constraints.side_effect = lambda table: [
+        {"name": n} for n in unique_constraints.get(table, [])
+    ]
+    inspector.get_indexes.side_effect = lambda table: [
+        {"name": n} for n in indexes.get(table, [])
+    ]
+    return inspector

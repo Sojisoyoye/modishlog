@@ -35,7 +35,9 @@ def upgrade() -> None:
     # sys.path already has the backend root on it.
     from src.core.migration_utils import has_column, has_constraint, has_index
 
-    if not has_column("inventory_batches", "variant_id"):
+    insp = sa.inspect(op.get_bind())
+
+    if not has_column("inventory_batches", "variant_id", insp=insp):
         op.add_column(
             "inventory_batches",
             sa.Column(
@@ -44,7 +46,9 @@ def upgrade() -> None:
                 nullable=True,
             ),
         )
-    if not has_constraint("inventory_batches", "fk_inventory_batches_variant_id"):
+    if not has_constraint(
+        "inventory_batches", "fk_inventory_batches_variant_id", insp=insp
+    ):
         op.create_foreign_key(
             "fk_inventory_batches_variant_id",
             "inventory_batches",
@@ -52,7 +56,7 @@ def upgrade() -> None:
             ["variant_id"],
             ["id"],
         )
-    if not has_index("inventory_batches", "ix_inventory_batches_variant_id"):
+    if not has_index("inventory_batches", "ix_inventory_batches_variant_id", insp=insp):
         op.create_index(
             "ix_inventory_batches_variant_id", "inventory_batches", ["variant_id"]
         )
@@ -61,13 +65,17 @@ def upgrade() -> None:
 def downgrade() -> None:
     from src.core.migration_utils import has_column, has_constraint, has_index
 
-    if has_index("inventory_batches", "ix_inventory_batches_variant_id"):
+    insp = sa.inspect(op.get_bind())
+
+    if has_index("inventory_batches", "ix_inventory_batches_variant_id", insp=insp):
         op.drop_index(
             "ix_inventory_batches_variant_id", table_name="inventory_batches"
         )
-    if has_constraint("inventory_batches", "fk_inventory_batches_variant_id"):
+    if has_constraint(
+        "inventory_batches", "fk_inventory_batches_variant_id", insp=insp
+    ):
         op.drop_constraint(
             "fk_inventory_batches_variant_id", "inventory_batches", type_="foreignkey"
         )
-    if has_column("inventory_batches", "variant_id"):
+    if has_column("inventory_batches", "variant_id", insp=insp):
         op.drop_column("inventory_batches", "variant_id")

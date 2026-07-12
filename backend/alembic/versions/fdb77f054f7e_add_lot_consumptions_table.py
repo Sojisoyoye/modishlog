@@ -30,7 +30,9 @@ def upgrade() -> None:
     # here would break `alembic heads`/`history`/`upgrade` outright.
     from src.core.migration_utils import has_index, has_table
 
-    if not has_table("lot_consumptions"):
+    insp = sa.inspect(op.get_bind())
+
+    if not has_table("lot_consumptions", insp=insp):
         op.create_table(
             "lot_consumptions",
             sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
@@ -54,10 +56,10 @@ def upgrade() -> None:
                 server_default=sa.func.now(),
             ),
         )
-    if not has_index("lot_consumptions", "ix_lot_consumptions_sale_id"):
+    if not has_index("lot_consumptions", "ix_lot_consumptions_sale_id", insp=insp):
         op.create_index("ix_lot_consumptions_sale_id", "lot_consumptions", ["sale_id"])
     if not has_index(
-        "lot_consumptions", "ix_lot_consumptions_order_line_item_id"
+        "lot_consumptions", "ix_lot_consumptions_order_line_item_id", insp=insp
     ):
         op.create_index(
             "ix_lot_consumptions_order_line_item_id",
@@ -67,11 +69,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    from src.core.migration_utils import has_table
+    from src.core.migration_utils import has_index, has_table
 
-    if has_table("lot_consumptions"):
+    insp = sa.inspect(op.get_bind())
+
+    if has_index(
+        "lot_consumptions", "ix_lot_consumptions_order_line_item_id", insp=insp
+    ):
         op.drop_index(
             "ix_lot_consumptions_order_line_item_id", table_name="lot_consumptions"
         )
+    if has_index("lot_consumptions", "ix_lot_consumptions_sale_id", insp=insp):
         op.drop_index("ix_lot_consumptions_sale_id", table_name="lot_consumptions")
+    if has_table("lot_consumptions", insp=insp):
         op.drop_table("lot_consumptions")

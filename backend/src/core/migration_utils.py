@@ -21,32 +21,43 @@ These helpers let a migration check "does this already exist?" before
 issuing DDL, so `alembic upgrade head` self-heals against that drift
 instead of hard failing with e.g. DuplicateColumnError/DuplicateTable
 and permanently blocking every migration after it.
+
+Each function accepts an optional pre-built `insp`. A migration checking
+several things in one upgrade()/downgrade() call should build one
+Inspector via `sa.inspect(op.get_bind())` and pass it to every has_*
+call, rather than letting each call construct (and re-run has_table()
+against) its own — up to 6 redundant catalog round-trips otherwise for a
+single migration that checks a column, a constraint, and an index.
 """
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.engine import Inspector
 
 
-def has_table(table: str) -> bool:
-    return sa.inspect(op.get_bind()).has_table(table)
+def has_table(table: str, insp: Inspector | None = None) -> bool:
+    insp = insp or sa.inspect(op.get_bind())
+    return insp.has_table(table)
 
 
-def has_column(table: str, column: str) -> bool:
-    if not has_table(table):
+def has_column(table: str, column: str, insp: Inspector | None = None) -> bool:
+    insp = insp or sa.inspect(op.get_bind())
+    if not has_table(table, insp=insp):
         return False
-    return column in {c["name"] for c in sa.inspect(op.get_bind()).get_columns(table)}
+    return column in {c["name"] for c in insp.get_columns(table)}
 
 
-def has_constraint(table: str, name: str) -> bool:
-    if not has_table(table):
+def has_constraint(table: str, name: str, insp: Inspector | None = None) -> bool:
+    insp = insp or sa.inspect(op.get_bind())
+    if not has_table(table, insp=insp):
         return False
-    insp = sa.inspect(op.get_bind())
     names = {c["name"] for c in insp.get_unique_constraints(table)}
     names |= {c["name"] for c in insp.get_foreign_keys(table)}
     return name in names
 
 
-def has_index(table: str, name: str) -> bool:
-    if not has_table(table):
+def has_index(table: str, name: str, insp: Inspector | None = None) -> bool:
+    insp = insp or sa.inspect(op.get_bind())
+    if not has_table(table, insp=insp):
         return False
-    return name in {i["name"] for i in sa.inspect(op.get_bind()).get_indexes(table)}
+    return name in {i["name"] for i in insp.get_indexes(table)}

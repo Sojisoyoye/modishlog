@@ -13,9 +13,10 @@ tracking — the original (non-idempotent) version failed with
 DuplicateColumnError and permanently blocked every migration after it.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from tests.migration_test_utils import load_migration
+from tests.migration_test_utils import mock_inspector as _mock_inspector
 
 MIGRATION_FILENAME = (
     "aaf1881e3f19_add_missing_image_url_and_mix_target_business_id.py"
@@ -24,38 +25,6 @@ MIGRATION_FILENAME = (
 
 def _load_migration():
     return load_migration(MIGRATION_FILENAME)
-
-
-def _mock_inspector(columns=None, foreign_keys=None, unique_constraints=None, indexes=None):
-    """Stand-in for sa.inspect(op.get_bind()).
-
-    columns: table -> {column_name: {"nullable": bool}} — a column absent
-    from this dict simply doesn't exist yet.
-    foreign_keys / unique_constraints / indexes: table -> list of names
-    already present. Routed to their real Postgres-reporting methods
-    separately (get_foreign_keys vs get_unique_constraints) so a bug in
-    either code path is actually exercised, not silently masked by an
-    OR-together check that only ever gets fed one of the two.
-    """
-    columns = columns or {}
-    foreign_keys = foreign_keys or {}
-    unique_constraints = unique_constraints or {}
-    indexes = indexes or {}
-    inspector = MagicMock()
-    inspector.get_columns.side_effect = lambda table: [
-        {"name": name, "nullable": info["nullable"]}
-        for name, info in columns.get(table, {}).items()
-    ]
-    inspector.get_foreign_keys.side_effect = lambda table: [
-        {"name": n} for n in foreign_keys.get(table, [])
-    ]
-    inspector.get_unique_constraints.side_effect = lambda table: [
-        {"name": n} for n in unique_constraints.get(table, [])
-    ]
-    inspector.get_indexes.side_effect = lambda table: [
-        {"name": n} for n in indexes.get(table, [])
-    ]
-    return inspector
 
 
 class TestImageUrlMixTargetBusinessIdMigrationUpgrade:
