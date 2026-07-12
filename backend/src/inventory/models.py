@@ -103,6 +103,14 @@ class StockMovement(UUIDMixin, Base):
     variant_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("product_variants.id"), nullable=True, default=None, index=True
     )
+    # Intentionally no values_callable, unlike CLAUDE.md's rule for *new*
+    # Enum columns — this one predates that rule, and every existing
+    # movementtype Postgres enum label (and every row ever written) is
+    # upper-case, matching this column's default .name-based serialization.
+    # Switching to values_callable now would require rewriting every
+    # existing StockMovement row's stored value for no behavioural gain;
+    # see migration 7a29c684a562 for the schema-drift fix that made
+    # STOCK_ADJUSTMENT/OPENING_STOCK usable without that rewrite.
     movement_type: Mapped[MovementType] = mapped_column(Enum(MovementType))
     quantity_change: Mapped[int] = mapped_column(Integer)
     quantity_before: Mapped[int] = mapped_column(Integer)

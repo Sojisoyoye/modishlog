@@ -629,20 +629,7 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
                 db,
                 product_id=pid,
                 quantity_change=r,
-                # Not MovementType.STOCK_ADJUSTMENT — the movement_type
-                # Postgres enum has real schema drift (some labels are the
-                # upper-cased Python .name, some are the lower-cased
-                # .value; STOCK_ADJUSTMENT/OPENING_STOCK were only ever
-                # migrated in lower-case, so this values_callable-less
-                # Enum(MovementType) column, which serializes new values
-                # via .name, can't insert "STOCK_ADJUSTMENT"). MANUAL_ADD/
-                # MANUAL_REMOVE are correctly registered and fit a
-                # rollback-driven administrative adjustment just as well.
-                movement_type=(
-                    MovementType.MANUAL_ADD.value
-                    if r > 0
-                    else MovementType.MANUAL_REMOVE.value
-                ),
+                movement_type=MovementType.STOCK_ADJUSTMENT.value,
                 reason="Migration rollback — reversing imported stock movement",
                 user_id=job.created_by,
                 business_id=job.business_id,
