@@ -26,8 +26,31 @@ test.describe('Forgot-password form (login page)', () => {
 
   test('clicking "Forgot password?" reveals the inline reset-request form', async ({ page }) => {
     await page.getByRole('button', { name: 'Forgot password?' }).click();
-    await expect(page.getByPlaceholder('you@example.com').nth(1)).toBeVisible();
+    await expect(page.locator('#forgot-email')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send Reset Link' })).toBeVisible();
+  });
+
+  test('clicking "Forgot password?" removes the login email/password inputs from the page', async ({
+    page,
+  }) => {
+    await expect(page.locator('#login-email')).toBeVisible();
+    await expect(page.locator('#login-password')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Forgot password?' }).click();
+
+    await expect(page.locator('#login-email')).not.toBeAttached();
+    await expect(page.locator('#login-password')).not.toBeAttached();
+  });
+
+  test('"Back to sign in" returns to the login form', async ({ page }) => {
+    await page.getByRole('button', { name: 'Forgot password?' }).click();
+    await expect(page.locator('#forgot-email')).toBeVisible();
+
+    await page.getByRole('button', { name: /back to sign in/i }).click();
+
+    await expect(page.locator('#login-email')).toBeVisible();
+    await expect(page.locator('#login-password')).toBeVisible();
+    await expect(page.locator('#forgot-email')).not.toBeAttached();
   });
 
   test('submitting forgot-password with any email shows a success message', async ({ page }) => {

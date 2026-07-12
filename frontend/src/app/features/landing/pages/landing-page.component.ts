@@ -177,54 +177,6 @@ import { RouterLink } from '@angular/router';
     </section>
 
     <!-- ============================================================
-         C. SOCIAL PROOF BAND
-         ============================================================ -->
-    <section class="bg-gray-50 py-16">
-      <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <p class="text-center text-sm font-semibold uppercase tracking-widest text-gray-400 mb-10">
-          What traders say about ModishLog
-        </p>
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
-          <!-- Quote 1 -->
-          <div class="rounded-xl bg-white border border-gray-100 shadow-sm p-6">
-            <div class="flex items-center gap-3 mb-4">
-              <div class="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 font-bold text-sm">A</div>
-              <div>
-                <p class="text-sm font-semibold text-gray-900">Amaka Obi</p>
-                <p class="text-xs text-gray-400">Fabric &amp; Fashion, Lagos Island</p>
-              </div>
-            </div>
-            <p class="text-sm text-gray-600 leading-relaxed">"Before ModishLog I had no idea which fabrics were actually profitable. Now I can see it in seconds."</p>
-          </div>
-
-          <!-- Quote 2 -->
-          <div class="rounded-xl bg-white border border-gray-100 shadow-sm p-6">
-            <div class="flex items-center gap-3 mb-4">
-              <div class="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-blue-700 font-bold text-sm">K</div>
-              <div>
-                <p class="text-sm font-semibold text-gray-900">Kelechi Nwosu</p>
-                <p class="text-xs text-gray-400">Electronics Trader, Onitsha</p>
-              </div>
-            </div>
-            <p class="text-sm text-gray-600 leading-relaxed">"The FX rate tracking alone saved me — I used to lose money on dollar products without even knowing."</p>
-          </div>
-
-          <!-- Quote 3 -->
-          <div class="rounded-xl bg-white border border-gray-100 shadow-sm p-6">
-            <div class="flex items-center gap-3 mb-4">
-              <div class="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100 text-purple-700 font-bold text-sm">F</div>
-              <div>
-                <p class="text-sm font-semibold text-gray-900">Fatima Sule</p>
-                <p class="text-xs text-gray-400">Cosmetics &amp; Skincare, Abuja</p>
-              </div>
-            </div>
-            <p class="text-sm text-gray-600 leading-relaxed">"I used to spend Sunday evenings reconciling sales. Now my books close in under 5 minutes. Game changer."</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================
          D. FEATURE PREVIEW — "Add Sale" mockup
          ============================================================ -->
     <section class="py-20 bg-white">
@@ -319,8 +271,8 @@ import { RouterLink } from '@angular/router';
     <section id="features" class="py-20 bg-gray-50">
       <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
         <div class="text-center mb-12">
-          <h2 class="text-3xl sm:text-4xl font-extrabold text-gray-900">Why switch from spreadsheets?</h2>
-          <p class="mt-3 text-lg text-gray-500">Everything you were trying to do in Excel — done automatically.</p>
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-gray-900">Why switch to ModishLog?</h2>
+          <p class="mt-3 text-lg text-gray-500">Everything you were trying to do in spreadsheets or other apps — done automatically.</p>
         </div>
 
         <div class="overflow-x-auto rounded-2xl border border-gray-200 shadow-sm">

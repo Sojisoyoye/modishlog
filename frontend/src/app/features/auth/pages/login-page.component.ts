@@ -44,154 +44,167 @@ import { AuthService } from '../../../core/services/auth.service';
             <span class="text-2xl font-bold text-gray-900">ModishLog</span>
           </div>
 
-          <h2 class="mb-8 text-2xl font-bold text-gray-900 text-center lg:text-left">Sign in to your account</h2>
+          @if (!showForgotPassword()) {
+            <h2 class="mb-8 text-2xl font-bold text-gray-900 text-center lg:text-left">Sign in to your account</h2>
 
-          @if (lockoutDisplay()) {
-            <div
-              role="alert"
-              aria-live="polite"
-              class="mb-4 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700"
-            >
-              <i class="pi pi-clock"></i>
-              Account locked. Try again in {{ lockoutDisplay() }}
+            @if (lockoutDisplay()) {
+              <div
+                role="alert"
+                aria-live="polite"
+                class="mb-4 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700"
+              >
+                <i class="pi pi-clock"></i>
+                Account locked. Try again in {{ lockoutDisplay() }}
+              </div>
+            } @else if (errorMessage()) {
+              <div
+                role="alert"
+                aria-live="polite"
+                class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-danger"
+              >
+                <i class="pi pi-exclamation-circle"></i>
+                {{ errorMessage() }}
+              </div>
+            }
+
+            <form (ngSubmit)="onLogin()">
+              <div class="mb-4">
+                <label for="login-email" class="mb-1.5 block text-sm font-medium text-gray-700">Email</label>
+                <div class="relative">
+                  <i
+                    class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
+                  ></i>
+                  <input
+                    id="login-email"
+                    type="email"
+                    [(ngModel)]="email"
+                    name="email"
+                    autocomplete="email"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
+                    placeholder="you@example.com"
+                    required
+                  />
+                </div>
+              </div>
+              <div class="mb-6">
+                <label for="login-password" class="mb-1.5 block text-sm font-medium text-gray-700">Password</label>
+                <div class="relative">
+                  <i
+                    class="pi pi-lock absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
+                  ></i>
+                  <input
+                    id="login-password"
+                    [type]="showPassword() ? 'text' : 'password'"
+                    [(ngModel)]="password"
+                    name="password"
+                    autocomplete="current-password"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10 pr-10"
+                    required
+                    minlength="8"
+                  />
+                  <button
+                    type="button"
+                    data-testid="toggle-password"
+                    (click)="showPassword.set(!showPassword())"
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 focus:outline-none"
+                    [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
+                  >
+                    <i [class]="showPassword() ? 'pi pi-eye-slash text-sm' : 'pi pi-eye text-sm'"></i>
+                  </button>
+                </div>
+              </div>
+              <button
+                type="submit"
+                [disabled]="loading() || lockoutSeconds() > 0"
+                class="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-secondary disabled:opacity-50 min-h-[44px] flex items-center justify-center gap-2"
+              >
+                @if (loading()) {
+                  <i class="pi pi-spinner pi-spin text-sm"></i>
+                  Signing in...
+                } @else {
+                  Sign In
+                }
+              </button>
+            </form>
+
+            <!-- Forgot password link -->
+            <div class="mt-4 text-center">
+              <button
+                type="button"
+                (click)="showForgotPassword.set(true)"
+                class="text-sm text-primary hover:underline"
+              >
+                Forgot password?
+              </button>
             </div>
-          } @else if (errorMessage()) {
-            <div
-              role="alert"
-              aria-live="polite"
-              class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-danger"
-            >
-              <i class="pi pi-exclamation-circle"></i>
-              {{ errorMessage() }}
+
+            <!-- Footer text -->
+            <p class="mt-8 text-center text-xs text-gray-400">
+              Don't have an account? <a routerLink="/register" class="font-medium text-emerald-600 hover:text-emerald-700">Sign up</a>
+            </p>
+          } @else {
+            <!-- Forgot password: replaces the login form entirely (no email/password
+                 login inputs rendered here) so this view stays short on every device. -->
+            <h2 class="mb-2 text-2xl font-bold text-gray-900 text-center lg:text-left">Reset your password</h2>
+            <p class="mb-6 text-sm text-gray-500 text-center lg:text-left">
+              Enter your email address and we'll send you a reset link.
+            </p>
+
+            @if (forgotPasswordMessage()) {
+              <div
+                role="alert"
+                aria-live="polite"
+                class="mb-4 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700"
+              >
+                <i class="pi pi-check-circle"></i>
+                {{ forgotPasswordMessage() }}
+              </div>
+            }
+
+            <form (ngSubmit)="onForgotPassword()">
+              <div class="mb-4">
+                <label for="forgot-email" class="mb-1.5 block text-sm font-medium text-gray-700">Email</label>
+                <div class="relative">
+                  <i
+                    class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
+                  ></i>
+                  <input
+                    id="forgot-email"
+                    type="email"
+                    [(ngModel)]="forgotEmail"
+                    name="forgotEmail"
+                    autocomplete="email"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
+                    placeholder="you@example.com"
+                    required
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                [disabled]="forgotLoading()"
+                class="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-secondary disabled:opacity-50 min-h-[44px] flex items-center justify-center gap-2"
+              >
+                @if (forgotLoading()) {
+                  <i class="pi pi-spinner pi-spin text-sm"></i>
+                  Sending...
+                } @else {
+                  Send Reset Link
+                }
+              </button>
+            </form>
+
+            <!-- Back to sign in -->
+            <div class="mt-4 text-center">
+              <button
+                type="button"
+                (click)="showForgotPassword.set(false)"
+                class="text-sm text-primary hover:underline"
+              >
+                &larr; Back to sign in
+              </button>
             </div>
           }
-
-          <form (ngSubmit)="onLogin()">
-            <div class="mb-4">
-              <label for="login-email" class="mb-1.5 block text-sm font-medium text-gray-700">Email</label>
-              <div class="relative">
-                <i
-                  class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
-                ></i>
-                <input
-                  id="login-email"
-                  type="email"
-                  [(ngModel)]="email"
-                  name="email"
-                  autocomplete="email"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
-                  placeholder="you@example.com"
-                  required
-                />
-              </div>
-            </div>
-            <div class="mb-6">
-              <label for="login-password" class="mb-1.5 block text-sm font-medium text-gray-700">Password</label>
-              <div class="relative">
-                <i
-                  class="pi pi-lock absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
-                ></i>
-                <input
-                  id="login-password"
-                  [type]="showPassword() ? 'text' : 'password'"
-                  [(ngModel)]="password"
-                  name="password"
-                  autocomplete="current-password"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10 pr-10"
-                  required
-                  minlength="8"
-                />
-                <button
-                  type="button"
-                  data-testid="toggle-password"
-                  (click)="showPassword.set(!showPassword())"
-                  class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 focus:outline-none"
-                  [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
-                >
-                  <i [class]="showPassword() ? 'pi pi-eye-slash text-sm' : 'pi pi-eye text-sm'"></i>
-                </button>
-              </div>
-            </div>
-            <button
-              type="submit"
-              [disabled]="loading() || lockoutSeconds() > 0"
-              class="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-secondary disabled:opacity-50 min-h-[44px] flex items-center justify-center gap-2"
-            >
-              @if (loading()) {
-                <i class="pi pi-spinner pi-spin text-sm"></i>
-                Signing in...
-              } @else {
-                Sign In
-              }
-            </button>
-          </form>
-
-          <!-- Forgot password link -->
-          <div class="mt-4 text-center">
-            <button
-              type="button"
-              (click)="showForgotPassword.set(!showForgotPassword())"
-              class="text-sm text-primary hover:underline"
-            >
-              Forgot password?
-            </button>
-          </div>
-
-          <!-- Forgot password inline form -->
-          @if (showForgotPassword()) {
-            <div class="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <p class="mb-3 text-sm text-gray-500">
-                Enter your email address and we'll send you a reset link.
-              </p>
-
-              @if (forgotPasswordMessage()) {
-                <div
-                  class="mb-3 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700"
-                >
-                  <i class="pi pi-check-circle"></i>
-                  {{ forgotPasswordMessage() }}
-                </div>
-              }
-
-              <form (ngSubmit)="onForgotPassword()">
-                <div class="mb-3">
-                  <label for="forgot-email" class="sr-only">Email for password reset</label>
-                  <div class="relative">
-                    <i
-                      class="pi pi-envelope absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
-                    ></i>
-                    <input
-                      id="forgot-email"
-                      type="email"
-                      [(ngModel)]="forgotEmail"
-                      name="forgotEmail"
-                      autocomplete="email"
-                      class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
-                      placeholder="you@example.com"
-                      required
-                    />
-                  </div>
-                </div>
-                <button
-                  type="submit"
-                  [disabled]="forgotLoading()"
-                  class="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-secondary disabled:opacity-50 min-h-[44px] flex items-center justify-center gap-2"
-                >
-                  @if (forgotLoading()) {
-                    <i class="pi pi-spinner pi-spin text-sm"></i>
-                    Sending...
-                  } @else {
-                    Send Reset Link
-                  }
-                </button>
-              </form>
-            </div>
-          }
-
-          <!-- Footer text -->
-          <p class="mt-8 text-center text-xs text-gray-400">
-            Don't have an account? <a routerLink="/register" class="font-medium text-emerald-600 hover:text-emerald-700">Sign up</a>
-          </p>
         </div>
       </div>
     </div>
