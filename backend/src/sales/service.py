@@ -63,7 +63,12 @@ async def _deduct_lot_units(
     quantity: Decimal,
     variant_id: uuid.UUID | None = None,
 ) -> None:
-    """Deduct quantity from active order lots FIFO (oldest order_date first)."""
+    """Deduct quantity from active order lots FIFO (oldest order_date first).
+
+    variant_id scopes which lots are eligible via variant_or_untagged_filter()
+    (src/core/query_helpers.py) — a variant-specific deduction only draws
+    from that variant's own tagged lots plus untagged ones, never a sibling
+    variant's tagged lots (task 168)."""
     result = await db.execute(
         select(OrderLineItem)
         .join(PurchaseOrder, OrderLineItem.order_id == PurchaseOrder.id)
