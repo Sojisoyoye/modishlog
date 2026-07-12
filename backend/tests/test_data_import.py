@@ -1191,6 +1191,7 @@ class TestConfirmationGate:
                 movement_deltas,  # StockMovement group-by deltas
                 empty_scalars,  # Product.id where migration_id == job.id (none new)
                 MagicMock(),  # delete(PriceHistory)
+                empty_scalars,  # Sale.id for this job (none) — reverse_fifo_consumption no-ops
                 empty_inventory,  # LowStockAlert re-evaluation InventoryLevel select
                 MagicMock(),  # UPDATE LowStockAlert -> RESOLVED (no InventoryLevel rows left)
                 MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
@@ -1228,6 +1229,54 @@ class TestConfirmationGate:
         assert result.status == MigrationJobStatus.ROLLED_BACK
 
     @pytest.mark.asyncio
+    async def test_rollback_reverses_fifo_consumption_before_loader_rollback_deletes_sales(
+        self,
+    ):
+        """loader_rollback() deletes both the imported Sale rows and any
+        InventoryBatch rows this import's own PO delivery created — the
+        FifoConsumption ledger (and what it references) must be read and
+        reversed before that happens, or InventoryBatch.quantity_remaining
+        stays permanently short by whatever this import's sales consumed."""
+        job = _make_job(status=MigrationJobStatus.DONE)
+        sale_id = uuid.uuid4()
+
+        db = _mock_db()
+        won_race = MagicMock()
+        won_race.rowcount = 1
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        empty_movements = MagicMock()
+        empty_movements.all.return_value = []
+        imported_sales = MagicMock()
+        imported_sales.scalars.return_value.all.return_value = [sale_id]
+
+        db.execute = AsyncMock(
+            side_effect=[
+                won_race,
+                empty_movements,  # no movement deltas to reverse
+                empty_scalars,  # no new products
+                MagicMock(),  # delete(PriceHistory)
+                imported_sales,  # Sale.id for this job
+                MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
+            ]
+        )
+
+        with (
+            patch("src.data_import.service.loader_rollback", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.reverse_fifo_consumption",
+                new_callable=AsyncMock,
+            ) as mock_reverse,
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            await rollback_job(db, job)
+
+        mock_reverse.assert_awaited_once_with(db, [sale_id])
+
+    @pytest.mark.asyncio
     async def test_rollback_resolves_alert_for_product_with_only_a_variant_level_row(self):
         """A product imported with only variant-level sales may have no
         variant_id=NULL aggregate InventoryLevel row at all — the alert
@@ -1262,6 +1311,7 @@ class TestConfirmationGate:
                 movement_deltas,
                 empty_scalars,
                 MagicMock(),  # delete(PriceHistory)
+                empty_scalars,  # Sale.id for this job (none) — reverse_fifo_consumption no-ops
                 variant_level_result,  # LowStockAlert re-evaluation InventoryLevel select
                 MagicMock(),  # UPDATE LowStockAlert -> RESOLVED
                 MagicMock(),  # delete(ReorderSuggestion) PENDING, pre-regen
@@ -1278,7 +1328,7 @@ class TestConfirmationGate:
         ):
             await rollback_job(db, job)
 
-        resolve_stmt = db.execute.await_args_list[5].args[0]
+        resolve_stmt = db.execute.await_args_list[6].args[0]
         compiled = resolve_stmt.compile(compile_kwargs={"literal_binds": True})
         assert "RESOLVED" in str(compiled) or AlertStatus.RESOLVED.value in str(compiled)
 

@@ -5,7 +5,7 @@ from collections.abc import Collection
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +16,7 @@ from src.inventory.exceptions import (
 from decimal import ROUND_HALF_UP, Decimal
 
 from src.inventory.models import (
+    FifoConsumption,
     InventoryBatch,
     InventoryLevel,
     MovementType,
@@ -601,8 +602,16 @@ async def fifo_deduct(
     product_id: uuid.UUID,
     quantity: int,
     variant_id: uuid.UUID | None = None,
+    sale_id: uuid.UUID | None = None,
 ) -> Decimal:
     """FIFO cost matching: deduct quantity from oldest batches first.
+
+    Pass sale_id so voiding this sale, or rolling back the import it came
+    from, can reverse its FIFO consumption exactly instead of guessing
+    which batches to credit back — every real caller (create_sale(),
+    data_import's FIFO COGS step) should pass it; omitting it silently
+    reproduces the original "can't be reversed" gap this ledger exists to
+    close.
 
     Returns total FIFO COGS for the consumed units.
     """
@@ -629,6 +638,14 @@ async def fifo_deduct(
         total_cogs += Decimal(str(consume)) * batch.landed_cost_per_unit
         batch.quantity_remaining -= consume
         remaining_to_deduct -= consume
+        if sale_id is not None:
+            db.add(
+                FifoConsumption(
+                    sale_id=sale_id,
+                    batch_id=batch.id,
+                    quantity_consumed=consume,
+                )
+            )
 
     if remaining_to_deduct > 0:
         await logger.awarning(
@@ -640,6 +657,57 @@ async def fifo_deduct(
 
     await db.flush()
     return total_cogs.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+
+async def reverse_fifo_consumption(
+    db: AsyncSession, sale_ids: Collection[uuid.UUID]
+) -> None:
+    """Restore InventoryBatch.quantity_remaining for every batch the given
+    sales consumed via fifo_deduct(), then remove their consumption ledger
+    rows.
+
+    Used by void_sale() (a single sale) and data_import's rollback_job()
+    (every imported sale being rolled back) — both need to undo FIFO batch
+    consumption exactly, using the FifoConsumption ledger fifo_deduct()
+    wrote, rather than guessing which batches to credit back or leaving
+    them permanently short.
+
+    A batch that no longer exists (e.g. it was itself created by an
+    import that's being rolled back, and loader_rollback() deletes
+    InventoryBatch rows separately) is silently skipped — there's nothing
+    to restore a deleted batch to.
+    """
+    if not sale_ids:
+        return
+
+    result = await db.execute(
+        select(
+            FifoConsumption.batch_id,
+            func.sum(FifoConsumption.quantity_consumed),
+        )
+        .where(FifoConsumption.sale_id.in_(sale_ids))
+        .group_by(FifoConsumption.batch_id)
+    )
+    deltas = {batch_id: int(total) for batch_id, total in result.all()}
+    if not deltas:
+        return
+
+    # One bulk fetch+lock instead of one SELECT+FOR UPDATE per batch_id —
+    # a data_import rollback can touch hundreds of sales spread across
+    # many batches, and a per-batch round-trip there would hold row locks
+    # far longer than necessary.
+    batches_result = await db.execute(
+        select(InventoryBatch)
+        .where(InventoryBatch.id.in_(deltas.keys()))
+        .with_for_update()
+    )
+    for batch in batches_result.scalars().all():
+        batch.quantity_remaining += deltas[batch.id]
+
+    await db.execute(
+        delete(FifoConsumption).where(FifoConsumption.sale_id.in_(sale_ids))
+    )
+    await db.flush()
 
 
 async def get_liquidation_candidates(

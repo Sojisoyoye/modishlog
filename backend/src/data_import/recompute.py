@@ -302,7 +302,7 @@ async def _compute_fifo_cogs_for_imported_sales(
         cogs, error = await run_isolated(
             db,
             lambda s=sale: fifo_deduct(
-                db, s.product_id, s.quantity, variant_id=s.variant_id
+                db, s.product_id, s.quantity, variant_id=s.variant_id, sale_id=s.id
             ),
             log_event="recompute_fifo_cogs_failed",
             error_entry={"step": "fifo_cogs", "sale_id": str(sale.id)},

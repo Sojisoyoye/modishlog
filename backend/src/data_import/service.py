@@ -61,13 +61,14 @@ from src.inventory.models import (
     MovementType,
     StockMovement,
 )
-from src.inventory.service import adjust_stock
+from src.inventory.service import adjust_stock, reverse_fifo_consumption
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
     OrderLineItemError,
     OrderNotFoundError,
 )
 from src.products.models import PriceHistory, Product
+from src.sales.models import Sale
 
 logger = structlog.get_logger()
 
@@ -584,6 +585,19 @@ async def rollback_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
             )
         )
     await db.execute(delete(PriceHistory).where(PriceHistory.migration_id == job.id))
+
+    # Reverse FIFO batch consumption for this import's sales BEFORE
+    # loader_rollback() deletes both the Sale rows and any InventoryBatch
+    # rows this import's own PO delivery created — the FifoConsumption
+    # ledger (and the batches/sales it references) must still exist to
+    # read. Without this, InventoryBatch.quantity_remaining stays
+    # permanently short by whatever this import's sales consumed, even
+    # though the import that consumed it has been rolled back.
+    imported_sale_ids_result = await db.execute(
+        select(Sale.id).where(Sale.migration_id == job.id)
+    )
+    imported_sale_ids = list(imported_sale_ids_result.scalars().all())
+    await reverse_fifo_consumption(db, imported_sale_ids)
 
     deleted_counts = await loader_rollback(db, job.id)
 

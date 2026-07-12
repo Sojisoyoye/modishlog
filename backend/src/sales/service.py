@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.inventory.models import MovementType
-from src.inventory.service import adjust_stock, fifo_deduct
+from src.inventory.service import adjust_stock, fifo_deduct, reverse_fifo_consumption
 from src.orders.models import OrderLineItem, PurchaseOrder
 from src.products.models import Product, ProductVariant
 from src.sales.exceptions import (
@@ -234,7 +234,7 @@ async def create_sale(
 
     # FIFO cost matching
     cogs_result = await fifo_deduct(
-        db, data.product_id, data.quantity, variant_id=data.variant_id
+        db, data.product_id, data.quantity, variant_id=data.variant_id, sale_id=sale.id
     )
     sale.fifo_cogs = cogs_result
     sale.fifo_gross_profit = sale.total_amount - cogs_result
@@ -489,6 +489,12 @@ async def void_sale(
         reference_id=sale.id,
         reference_type="sale_void",
     )
+
+    # Restore InventoryBatch.quantity_remaining for exactly what this
+    # sale's fifo_deduct() call consumed — adjust_stock() above only fixes
+    # InventoryLevel; without this, batches stay permanently short and
+    # future sales understate COGS.
+    await reverse_fifo_consumption(db, [sale.id])
 
     await logger.ainfo("sale_voided", sale_id=str(sale_id), reason=reason)
     return sale

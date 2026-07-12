@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.inventory.models import InventoryBatch, InventoryLevel
+from src.inventory.models import FifoConsumption, InventoryBatch, InventoryLevel
 from src.inventory.service import (
     compute_landed_cost,
     create_batch,
@@ -56,6 +56,24 @@ def _make_batch(
     )
     batch.id = uuid.uuid4()
     return batch
+
+
+def _rows_result(rows):
+    r = MagicMock()
+    r.all.return_value = rows
+    return r
+
+
+def _scalar_one_or_none_result(value):
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = value
+    return r
+
+
+def _scalars_result(items):
+    r = MagicMock()
+    r.scalars.return_value.all.return_value = items
+    return r
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +255,78 @@ class TestFifoDeduct:
         assert cogs == Decimal("0")
 
     @pytest.mark.asyncio
+    async def test_sale_id_writes_one_consumption_row_per_batch_drawn_from(self):
+        """void_sale() and data_import's rollback need to know exactly
+        which batches a sale consumed and how much of each, to reverse it
+        precisely instead of guessing — fifo_deduct() must record that as
+        it goes, not just decrement quantity_remaining with no trace."""
+        product_id, sale_id = uuid.uuid4(), uuid.uuid4()
+        batch1 = _make_batch(
+            quantity_remaining=10,
+            unit_cost_usd=Decimal("10"),
+            fx_rate=Decimal("1500"),
+            logistics=Decimal("0"),
+            product_id=product_id,
+        )
+        batch2 = _make_batch(
+            quantity_remaining=20,
+            unit_cost_usd=Decimal("12"),
+            fx_rate=Decimal("1600"),
+            logistics=Decimal("0"),
+            product_id=product_id,
+        )
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [batch1, batch2]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await fifo_deduct(db, product_id, 15, sale_id=sale_id)
+
+        ledger_rows = [
+            call.args[0]
+            for call in db.add.call_args_list
+            if isinstance(call.args[0], FifoConsumption)
+        ]
+        assert len(ledger_rows) == 2
+        assert {(r.batch_id, r.quantity_consumed) for r in ledger_rows} == {
+            (batch1.id, 10),
+            (batch2.id, 5),
+        }
+        assert all(r.sale_id == sale_id for r in ledger_rows)
+
+    @pytest.mark.asyncio
+    async def test_without_sale_id_writes_no_consumption_rows(self):
+        """Backward-compatible: a caller that doesn't pass sale_id (or
+        doesn't care about reversal) gets the prior behaviour — no ledger
+        writes, just the quantity_remaining decrement."""
+        product_id = uuid.uuid4()
+        batch = _make_batch(
+            quantity_remaining=100,
+            unit_cost_usd=Decimal("10"),
+            fx_rate=Decimal("1500"),
+            logistics=Decimal("0"),
+            product_id=product_id,
+        )
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        db.add = MagicMock()
+        result_mock = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = [batch]
+        result_mock.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await fifo_deduct(db, product_id, 10)
+
+        db.add.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_without_variant_id_only_matches_untagged_batches(self):
         """A non-variant sale (or a sale for a product with no variants)
         must only draw from variant_id=NULL batches — not silently pooling
@@ -341,6 +431,146 @@ class TestFifoDeduct:
         assert batch_a.quantity_remaining == 0
         assert batch_untagged.quantity_remaining == 3
         assert batch_b.quantity_remaining == 20
+
+
+# ---------------------------------------------------------------------------
+# FIFO consumption reversal
+# ---------------------------------------------------------------------------
+
+
+class TestReverseFifoConsumption:
+    @pytest.mark.asyncio
+    async def test_restores_quantity_remaining_for_each_consumed_batch(self):
+        """void_sale() and data_import's rollback both need this to credit
+        back exactly what fifo_deduct() took, not guess at a delta."""
+        from src.inventory.service import reverse_fifo_consumption
+
+        sale_id = uuid.uuid4()
+        batch1 = _make_batch(quantity_remaining=0)
+        batch2 = _make_batch(quantity_remaining=15)
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result([(batch1.id, 10), (batch2.id, 5)]),  # grouped ledger sum
+                _scalars_result([batch1, batch2]),  # single bulk batch fetch
+                MagicMock(),  # delete(FifoConsumption)
+            ]
+        )
+
+        await reverse_fifo_consumption(db, [sale_id])
+
+        assert batch1.quantity_remaining == 10
+        assert batch2.quantity_remaining == 20
+
+    @pytest.mark.asyncio
+    async def test_batches_are_fetched_in_a_single_bulk_query(self):
+        """A data_import rollback can touch hundreds of sales spread
+        across many batches — one SELECT+FOR UPDATE per distinct batch_id
+        in a Python loop would be hundreds of sequential round-trips
+        holding row locks longer than necessary. Must be one bulk
+        `.in_(batch_ids)` query instead."""
+        from src.inventory.service import reverse_fifo_consumption
+
+        sale_id = uuid.uuid4()
+        batch1 = _make_batch(quantity_remaining=0)
+        batch2 = _make_batch(quantity_remaining=15)
+        batch3 = _make_batch(quantity_remaining=3)
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result(
+                    [(batch1.id, 10), (batch2.id, 5), (batch3.id, 2)]
+                ),
+                _scalars_result([batch1, batch2, batch3]),
+                MagicMock(),
+            ]
+        )
+
+        await reverse_fifo_consumption(db, [sale_id])
+
+        # Exactly 3 calls total: grouped sum, one bulk batch fetch, delete —
+        # not one batch-fetch call per batch_id.
+        assert db.execute.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_deletes_ledger_rows_after_reversal(self):
+        """Re-running the reversal (or a later void of the same sale, were
+        that ever possible) must not double-credit the same batches — the
+        ledger rows this reversal consumed must be removed."""
+        from sqlalchemy import delete
+
+        from src.inventory.models import FifoConsumption
+        from src.inventory.service import reverse_fifo_consumption
+
+        sale_id = uuid.uuid4()
+        batch = _make_batch(quantity_remaining=0)
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result([(batch.id, 10)]),
+                _scalars_result([batch]),
+                MagicMock(),
+            ]
+        )
+
+        await reverse_fifo_consumption(db, [sale_id])
+
+        delete_stmt = db.execute.await_args_list[-1].args[0]
+        assert delete_stmt.table.name == delete(FifoConsumption).table.name
+
+    @pytest.mark.asyncio
+    async def test_skips_a_batch_that_no_longer_exists(self):
+        """A batch referenced by the ledger can already be gone — e.g. it
+        was created by the same import being rolled back, and
+        loader_rollback() deletes InventoryBatch rows separately. Nothing
+        to restore a deleted batch to; must not raise."""
+        from src.inventory.service import reverse_fifo_consumption
+
+        sale_id = uuid.uuid4()
+        missing_batch_id = uuid.uuid4()
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result([(missing_batch_id, 10)]),
+                _scalars_result([]),  # the bulk fetch finds nothing
+                MagicMock(),
+            ]
+        )
+
+        await reverse_fifo_consumption(db, [sale_id])  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_empty_sale_ids_is_a_noop(self):
+        from src.inventory.service import reverse_fifo_consumption
+
+        db = AsyncMock()
+        db.execute = AsyncMock()
+
+        await reverse_fifo_consumption(db, [])
+
+        db.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_no_consumption_rows_for_the_given_sales_is_a_noop(self):
+        """A sale that never went through fifo_deduct() with a sale_id
+        (e.g. it predates this ledger) has nothing to reverse — must not
+        attempt a delete against zero rows or fail."""
+        from src.inventory.service import reverse_fifo_consumption
+
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=_rows_result([]))
+
+        await reverse_fifo_consumption(db, [uuid.uuid4()])
+
+        db.execute.assert_awaited_once()  # just the grouped-sum query
 
 
 # ---------------------------------------------------------------------------
@@ -518,9 +748,19 @@ class TestFifoWiredToSale:
         variant.product_id = product_id
         variant.price_override = None
 
+        from src.sales.models import Sale
+
         db = AsyncMock()
         db.flush = AsyncMock()
-        db.add = MagicMock()
+
+        def _add_and_assign_id(obj):
+            # A real flush() evaluates Sale.id's client-side default
+            # (uuid.uuid4) and syncs it back onto the object — this mock
+            # session never issues real SQL, so simulate that here instead.
+            if isinstance(obj, Sale) and obj.id is None:
+                obj.id = uuid.uuid4()
+
+        db.add = MagicMock(side_effect=_add_and_assign_id)
 
         call_count = 0
 
@@ -557,6 +797,8 @@ class TestFifoWiredToSale:
         ) as mock_fifo_deduct:
             await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
 
-        mock_fifo_deduct.assert_awaited_once_with(
-            db, product_id, 5, variant_id=variant_id
-        )
+        mock_fifo_deduct.assert_awaited_once()
+        args, kwargs = mock_fifo_deduct.call_args
+        assert args == (db, product_id, 5)
+        assert kwargs["variant_id"] == variant_id
+        assert isinstance(kwargs["sale_id"], uuid.UUID)
