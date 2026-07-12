@@ -1,0 +1,27 @@
+api.modishlog.com {
+    reverse_proxy modishlog-prod-backend:8000
+}
+
+api.staging.modishlog.com {
+    @cors_preflight {
+        method OPTIONS
+    }
+    handle @cors_preflight {
+        header Access-Control-Allow-Origin "https://staging.modishlog.com"
+        header Access-Control-Allow-Credentials "true"
+        header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        header Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
+        header Access-Control-Max-Age "3600"
+        respond 204
+    }
+    handle {
+        reverse_proxy modishlog-backend:8000 {
+            header_down -Access-Control-Allow-Origin
+            header_down -Access-Control-Allow-Credentials
+            header_down -Access-Control-Allow-Methods
+            header_down -Access-Control-Allow-Headers
+        }
+        header Access-Control-Allow-Origin "https://staging.modishlog.com"
+        header Access-Control-Allow-Credentials "true"
+    }
+}

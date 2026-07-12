@@ -1,13 +1,17 @@
 # Production deployment — Hetzner VPS, modishlog.com
 # On the VPS, run:  docker compose --env-file .env.production -f docker-compose.prod.yml up -d
-# Or use scripts/deploy-prod.sh which handles env loading automatically.
+#
+# TLS/routing is handled by the shared Caddy reverse proxy on this box (see
+# deploy/caddy/modishlog.caddy in this repo, and modish-infra's HETZNER-INFRA.md
+# for the shared stack) — this file only ever brings up `db` and `backend`
+# (see .github/workflows/deploy-production.yml). The `nginx`/`certbot` services
+# and scripts/init-letsencrypt.sh that used to live here were from an earlier,
+# standalone-server architecture, before this box's shared Caddy existed —
+# removed 2026-07-12 since they'd conflict with Caddy's port 80/443 binding if
+# ever brought up, and the deploy pipeline never actually started them anyway.
 #
 # Prerequisites:
 #   - .env.production file present (see .env.production.example)
-#   - Let's Encrypt cert already issued (first run: bash scripts/init-letsencrypt.sh)
-#
-# Initial SSL:    bash scripts/init-letsencrypt.sh
-# Deploy update:  bash scripts/deploy-prod.sh [image_tag]
 
 services:
   # ─── PostgreSQL ──────────────────────────────────────────────────────────
@@ -78,34 +82,6 @@ services:
     mem_limit: 1g
     cpus: 1.0
 
-  # ─── Nginx (SSL termination + static files) ───────────────────────────────
-  nginx:
-    image: nginx:1.27-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/snippets:/etc/nginx/snippets:ro
-      - certbot_www:/var/www/certbot:ro
-      - certbot_certs:/etc/letsencrypt:ro
-      - uploads_data:/app/uploads:ro
-    depends_on:
-      - backend
-    mem_limit: 128m
-    cpus: 0.25
-
-  # ─── Certbot (Let's Encrypt auto-renewal) ────────────────────────────────
-  certbot:
-    image: certbot/certbot:latest
-    volumes:
-      - certbot_www:/var/www/certbot
-      - certbot_certs:/etc/letsencrypt
-    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --quiet --webroot --webroot-path=/var/www/certbot; sleep 12h & wait $${!}; done"
-
 volumes:
   postgres_data:
   uploads_data:
-  certbot_www:
-  certbot_certs:
