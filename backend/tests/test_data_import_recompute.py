@@ -457,7 +457,7 @@ class TestComputeFifoCogsForImportedSales:
             await _compute_fifo_cogs_for_imported_sales(db, JOB_ID)
 
         mock_fifo_deduct.assert_awaited_once_with(
-            db, sale.product_id, sale.quantity, variant_id=sale.variant_id
+            db, sale.product_id, sale.quantity, variant_id=sale.variant_id, sale_id=sale.id
         )
 
     @pytest.mark.asyncio

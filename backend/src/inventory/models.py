@@ -181,3 +181,40 @@ class InventoryBatch(UUIDMixin, Base):
 
     def __repr__(self) -> str:
         return f"<InventoryBatch(id={self.id}, product_id={self.product_id}, remaining={self.quantity_remaining})>"
+
+
+class FifoConsumption(UUIDMixin, Base):
+    """Ledger of exactly which InventoryBatch rows a sale's fifo_deduct()
+    call consumed, and how much of each.
+
+    fifo_deduct() decrements InventoryBatch.quantity_remaining with no
+    other record of the transaction — voiding a sale or rolling back an
+    import could only guess which batches to credit back (or simply
+    didn't try, silently leaving batches permanently short). This table
+    lets void_sale() and data_import's rollback_job() reverse a sale's
+    FIFO consumption exactly instead of guessing.
+
+    Both sale_id and batch_id cascade-delete: a consumption record is
+    meaningless once either side of the transaction it describes is gone
+    (e.g. data_import's rollback deletes both the imported Sale rows and
+    any InventoryBatch rows the same import created).
+    """
+
+    __tablename__ = "fifo_consumptions"
+
+    sale_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sales.id", ondelete="CASCADE"), index=True
+    )
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("inventory_batches.id", ondelete="CASCADE"), index=True
+    )
+    quantity_consumed: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<FifoConsumption(sale_id={self.sale_id}, batch_id={self.batch_id}, "
+            f"quantity_consumed={self.quantity_consumed})>"
+        )

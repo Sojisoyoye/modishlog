@@ -384,6 +384,40 @@ class TestVoidSale:
         assert inventory.quantity_on_hand == 100
 
     @pytest.mark.asyncio
+    async def test_void_sale_reverses_fifo_consumption(self):
+        """Voiding a sale must credit back the exact InventoryBatch rows
+        fifo_deduct() consumed for it — restoring InventoryLevel alone
+        (via adjust_stock()) leaves InventoryBatch.quantity_remaining
+        permanently short, understating COGS on future sales."""
+        product_id = uuid.uuid4()
+        sale = _make_sale(product_id=product_id, quantity=5)
+        inventory = _make_inventory(product_id=product_id, quantity_on_hand=95)
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = sale
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = inventory
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with patch(
+            "src.sales.service.reverse_fifo_consumption", new_callable=AsyncMock
+        ) as mock_reverse:
+            await void_sale(db, sale.id, "Customer return", uuid.uuid4())
+
+        mock_reverse.assert_awaited_once_with(db, [sale.id])
+
+    @pytest.mark.asyncio
     async def test_void_already_voided_raises(self):
         sale = _make_sale(status=SaleStatus.VOIDED)
         db = _mock_db_with_execute(scalar_result=sale)
