@@ -82,9 +82,13 @@ def has_constraint(table: str, name: str, insp: Inspector | None = None) -> bool
     insp = insp or sa.inspect(op.get_bind())
     if not has_table(table, insp=insp):
         return False
-    names = {c["name"] for c in insp.get_unique_constraints(table)}
-    names |= {c["name"] for c in insp.get_foreign_keys(table)}
-    return name in names
+    # Foreign keys checked first (and short-circuited on a hit) because
+    # every current caller except one checks an fk_* name — this avoids
+    # the get_unique_constraints() round-trip on the common path where
+    # the constraint already exists.
+    if name in {c["name"] for c in insp.get_foreign_keys(table)}:
+        return True
+    return name in {c["name"] for c in insp.get_unique_constraints(table)}
 
 
 def has_index(table: str, name: str, insp: Inspector | None = None) -> bool:
