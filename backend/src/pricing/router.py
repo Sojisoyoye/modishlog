@@ -412,7 +412,10 @@ async def compute_suggestion_endpoint(
     """Compute and persist a sell-price suggestion from active lot cost basis."""
     try:
         return await compute_suggestion(
-            db, product_id, target_margin=body.target_margin_pct
+            db,
+            product_id,
+            target_margin=body.target_margin_pct,
+            variant_id=body.variant_id,
         )
     except PricingSuggestionError as e:
         raise HTTPException(

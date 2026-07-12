@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.config import settings
+from src.core.query_helpers import variant_or_untagged_filter
 from src.fx.service import get_live_usdngn_rate
 from src.orders.models import OrderLineItem, PurchaseOrder
 from src.fx.exceptions import ForecastTimeoutError
@@ -1227,12 +1228,19 @@ async def compute_suggestion(
     db: AsyncSession,
     product_id: uuid.UUID,
     target_margin: Decimal | None = None,
+    variant_id: uuid.UUID | None = None,
 ) -> "PriceSuggestion":  # noqa: F821 — forward ref resolved at runtime
     """Compute and persist a sell-price suggestion from active lot cost basis.
 
     Weighted-average unit_cost_ngn across all lots with units_remaining > 0.
     Lots without unit_cost_ngn are costed at unit_cost * live FX rate.
     When target_margin is None, resolves from: sub-category → parent → 40% default.
+
+    variant_id scopes which lots are eligible via variant_or_untagged_filter()
+    (src/core/query_helpers.py) — the same cross-variant pooling bug task 165
+    fixed for fifo_deduct() and task 168 fixed for _deduct_lot_units(), on
+    this third units_remaining consumer (task 171). Omitting it (the
+    default) preserves prior behaviour for non-variant products.
     """
     # Fetch active lots joined with their parent order's currency
     lot_result = await db.execute(
@@ -1241,6 +1249,7 @@ async def compute_suggestion(
         .where(
             OrderLineItem.product_id == product_id,
             OrderLineItem.units_remaining > 0,
+            variant_or_untagged_filter(OrderLineItem.variant_id, variant_id),
         )
     )
     lots_with_currency = lot_result.all()
@@ -1312,6 +1321,7 @@ async def compute_suggestion(
 
     suggestion = PriceSuggestion(
         product_id=product_id,
+        variant_id=variant_id,
         unit_cost_ngn=avg_cost_ngn,
         fx_rate_used=fx_rate,
         target_margin_pct=target_margin,
