@@ -56,6 +56,11 @@ def upgrade() -> None:
                 server_default=sa.func.now(),
             ),
         )
+        # SQLAlchemy's Inspector caches has_table()/get_indexes() results
+        # per-instance (confirmed against a live connection) — reusing
+        # `insp` after create_table() just ran would make the has_index()
+        # checks below see the pre-creation state. Rebuild it.
+        insp = sa.inspect(op.get_bind())
     if not has_index("fifo_consumptions", "ix_fifo_consumptions_sale_id", insp=insp):
         op.create_index(
             "ix_fifo_consumptions_sale_id", "fifo_consumptions", ["sale_id"]

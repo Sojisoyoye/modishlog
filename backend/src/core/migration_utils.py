@@ -25,9 +25,24 @@ and permanently blocking every migration after it.
 Each function accepts an optional pre-built `insp`. A migration checking
 several things in one upgrade()/downgrade() call should build one
 Inspector via `sa.inspect(op.get_bind())` and pass it to every has_*
-call, rather than letting each call construct (and re-run has_table()
-against) its own — up to 6 redundant catalog round-trips otherwise for a
-single migration that checks a column, a constraint, and an index.
+call, rather than letting each call construct its own — this only saves
+the Inspector *construction* cost, not the live has_table() re-query
+each has_* call still performs, since SQLAlchemy's Inspector does not
+cache plain `insp.has_table()`/`insp.get_*()` calls made without an
+explicit info_cache.
+
+CAUTION — the one place this reuse is NOT safe: SQLAlchemy's Inspector
+*does* cache reflection results per-instance once it has answered a
+given (table, reflection-type) question once (confirmed against a live
+connection: `insp.has_table('t')` returns False, the table is then
+created on the same connection, and the *same* `insp.has_table('t')`
+still returns the stale False — a fresh `sa.inspect()` call correctly
+returns True). If a migration issues DDL between two checks of the same
+reflection type on the same table (e.g. create_table() then a later
+has_index() on that table, which re-derives has_table() internally),
+rebuild `insp = sa.inspect(op.get_bind())` after the DDL before the next
+check — see 9100b1b36d72_add_fifo_consumptions_table.py's upgrade() for
+the pattern.
 """
 
 import sqlalchemy as sa

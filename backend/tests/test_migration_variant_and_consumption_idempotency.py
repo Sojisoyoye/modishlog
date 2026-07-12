@@ -68,6 +68,39 @@ class TestInventoryBatchesVariantIdMigration:
         mock_op.drop_constraint.assert_not_called()
         mock_op.drop_column.assert_not_called()
 
+    def test_upgrade_adds_only_the_missing_fk_when_column_already_exists(self):
+        """The exact staging drift scenario this PR targets: variant_id
+        already exists (outside Alembic tracking) but its FK/index were
+        never created — must add only what's missing, not re-add the
+        column or skip the still-missing FK/index."""
+        migration = load_migration(self.FILENAME)
+
+        with _patched(
+            migration,
+            tables={"inventory_batches"},
+            columns={"inventory_batches": ["variant_id"]},
+        ) as mock_op:
+            migration.upgrade()
+
+        mock_op.add_column.assert_not_called()
+        mock_op.create_foreign_key.assert_called_once()
+        mock_op.create_index.assert_called_once()
+
+    def test_upgrade_adds_only_the_missing_index_when_fk_already_exists(self):
+        migration = load_migration(self.FILENAME)
+
+        with _patched(
+            migration,
+            tables={"inventory_batches"},
+            columns={"inventory_batches": ["variant_id"]},
+            foreign_keys={"inventory_batches": ["fk_inventory_batches_variant_id"]},
+        ) as mock_op:
+            migration.upgrade()
+
+        mock_op.add_column.assert_not_called()
+        mock_op.create_foreign_key.assert_not_called()
+        mock_op.create_index.assert_called_once()
+
 
 class TestFifoConsumptionsTableMigration:
     FILENAME = "9100b1b36d72_add_fifo_consumptions_table.py"
@@ -98,6 +131,25 @@ class TestFifoConsumptionsTableMigration:
 
         mock_op.create_table.assert_not_called()
         mock_op.create_index.assert_not_called()
+
+    def test_upgrade_adds_only_the_missing_index_when_table_already_exists(self):
+        """The exact staging drift scenario this PR targets: the table
+        exists (outside Alembic tracking) but one index was never
+        created — must not re-create the table, and must add only the
+        genuinely missing index."""
+        migration = load_migration(self.FILENAME)
+
+        with _patched(
+            migration,
+            tables={"fifo_consumptions"},
+            indexes={"fifo_consumptions": ["ix_fifo_consumptions_sale_id"]},
+        ) as mock_op:
+            migration.upgrade()
+
+        mock_op.create_table.assert_not_called()
+        mock_op.create_index.assert_called_once_with(
+            "ix_fifo_consumptions_batch_id", "fifo_consumptions", ["batch_id"]
+        )
 
     def test_downgrade_noop_when_table_missing(self):
         migration = load_migration(self.FILENAME)
@@ -157,6 +209,27 @@ class TestLotConsumptionsTableMigration:
         mock_op.create_table.assert_not_called()
         mock_op.create_index.assert_not_called()
 
+    def test_upgrade_adds_only_the_missing_index_when_table_already_exists(self):
+        """The exact staging drift scenario this PR targets: the table
+        exists (outside Alembic tracking) but one index was never
+        created — must not re-create the table, and must add only the
+        genuinely missing index."""
+        migration = load_migration(self.FILENAME)
+
+        with _patched(
+            migration,
+            tables={"lot_consumptions"},
+            indexes={"lot_consumptions": ["ix_lot_consumptions_sale_id"]},
+        ) as mock_op:
+            migration.upgrade()
+
+        mock_op.create_table.assert_not_called()
+        mock_op.create_index.assert_called_once_with(
+            "ix_lot_consumptions_order_line_item_id",
+            "lot_consumptions",
+            ["order_line_item_id"],
+        )
+
     def test_downgrade_noop_when_table_missing(self):
         migration = load_migration(self.FILENAME)
 
@@ -212,6 +285,39 @@ class TestPriceSuggestionsVariantIdMigration:
         mock_op.add_column.assert_not_called()
         mock_op.create_foreign_key.assert_not_called()
         mock_op.create_index.assert_not_called()
+
+    def test_upgrade_adds_only_the_missing_fk_when_column_already_exists(self):
+        """The exact staging drift scenario this PR targets: variant_id
+        already exists (outside Alembic tracking) but its FK/index were
+        never created — must add only what's missing, not re-add the
+        column or skip the still-missing FK/index."""
+        migration = load_migration(self.FILENAME)
+
+        with _patched(
+            migration,
+            tables={"price_suggestions"},
+            columns={"price_suggestions": ["variant_id"]},
+        ) as mock_op:
+            migration.upgrade()
+
+        mock_op.add_column.assert_not_called()
+        mock_op.create_foreign_key.assert_called_once()
+        mock_op.create_index.assert_called_once()
+
+    def test_upgrade_adds_only_the_missing_index_when_fk_already_exists(self):
+        migration = load_migration(self.FILENAME)
+
+        with _patched(
+            migration,
+            tables={"price_suggestions"},
+            columns={"price_suggestions": ["variant_id"]},
+            foreign_keys={"price_suggestions": ["fk_price_suggestions_variant_id"]},
+        ) as mock_op:
+            migration.upgrade()
+
+        mock_op.add_column.assert_not_called()
+        mock_op.create_foreign_key.assert_not_called()
+        mock_op.create_index.assert_called_once()
 
     def test_downgrade_noop_when_nothing_exists(self):
         migration = load_migration(self.FILENAME)

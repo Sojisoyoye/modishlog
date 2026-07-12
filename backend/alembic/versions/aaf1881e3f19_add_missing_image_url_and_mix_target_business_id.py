@@ -54,7 +54,7 @@ def upgrade() -> None:
     if not has_column("products", "image_url", insp=insp):
         op.add_column("products", sa.Column("image_url", sa.String(500), nullable=True))
 
-    if "business_id" not in mix_target_cols:
+    if not has_column("product_mix_targets", "business_id", insp=insp):
         op.add_column(
             "product_mix_targets",
             sa.Column("business_id", postgresql.UUID(as_uuid=True), nullable=True),
@@ -66,8 +66,10 @@ def upgrade() -> None:
     # failed partway through, or some other partial manual fix). Column
     # *existence* alone is not "already done": a drifted DB could have
     # the column with every row still NULL. has_column() can't express
-    # this (existence only), so this check stays bespoke rather than
-    # using the shared helper.
+    # nullability, so this specific check stays a raw dict lookup off the
+    # same `mix_target_cols` snapshot rather than using the shared helper
+    # (existence alone is checked via has_column() just above, for
+    # consistency with every other check in this function).
     if "business_id" not in mix_target_cols or mix_target_cols["business_id"]["nullable"]:
         op.execute(
             "UPDATE product_mix_targets SET business_id = "
