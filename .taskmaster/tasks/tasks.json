@@ -4948,6 +4948,17 @@
         "dependencies": [],
         "priority": "low",
         "subtasks": []
+      },
+      {
+        "id": 169,
+        "title": "update_sale() doesn't re-run FIFO deduction when quantity changes",
+        "description": "Editing a sale's quantity via update_sale() adjusts InventoryLevel via adjust_stock() but never re-runs fifo_deduct(), so InventoryBatch.quantity_remaining and the sale's fifo_cogs/fifo_gross_profit drift out of sync with the corrected quantity.",
+        "details": "Found during task 165's PR #307 review (variant-aware FIFO costing). Confirmed pre-existing and unrelated to variant scoping specifically — sales/service.py's update_sale() was never touched by task 165's changes, and this gap exists for non-variant sales too.\n\nupdate_sale() calls adjust_stock(..., variant_id=...) to correct InventoryLevel.quantity_on_hand when quantity_diff != 0, but never calls fifo_deduct() again. Result: InventoryBatch.quantity_remaining stays based on the sale's original quantity (overstating remaining batch stock after a quantity increase, understating it after a decrease), and sale.fifo_cogs/fifo_gross_profit are never recalculated — a P&L report reading those fields directly sees stale, wrong figures for any edited sale.\n\nFix requires deciding the right correction strategy: naively calling fifo_deduct() again for just the delta would double up (or under-count) against the original consumption unless the original batches consumed are tracked (see task #166's consumption-ledger follow-up — likely a shared prerequisite). A simpler interim fix: reverse the original fifo_cogs proportionally and re-run fifo_deduct() for the new total quantity, accepting that this can still misattribute cost if batches have been partially consumed by other sales in between.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
       }
     ],
     "metadata": {
@@ -4960,7 +4971,7 @@
       ],
       "created": "2026-07-12T06:48:36.292Z",
       "description": "Tasks for master context",
-      "updated": "2026-07-12T06:48:36.458Z"
+      "updated": "2026-07-12T07:27:36.182Z"
     }
   }
 }

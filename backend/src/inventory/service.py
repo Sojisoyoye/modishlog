@@ -69,6 +69,21 @@ async def initialize_inventory(
     return inventory
 
 
+def inventory_level_variant_filter(variant_id: uuid.UUID | None):
+    """WHERE-clause fragment scoping InventoryLevel rows to a specific
+    variant, or to the aggregate (variant_id=NULL) row when variant_id is
+    None — the exact-match version of inventory_batch_variant_filter()
+    above, used everywhere an InventoryLevel row is looked up for a
+    specific (product_id, variant_id) pair. Centralized so this exact
+    "variant_id == X, else variant_id IS NULL" comparison — repeated
+    across get_inventory_level(), adjust_stock(), and
+    ensure_inventory_level_exists() — can't silently drift between them.
+    """
+    if variant_id is not None:
+        return InventoryLevel.variant_id == variant_id
+    return InventoryLevel.variant_id.is_(None)
+
+
 async def ensure_inventory_level_exists(
     db: AsyncSession,
     product_id: uuid.UUID,
@@ -87,11 +102,9 @@ async def ensure_inventory_level_exists(
     this first, or adjust_stock() fails outright for a perfectly valid
     product/variant.
     """
-    query = select(InventoryLevel).where(InventoryLevel.product_id == product_id)
-    query = query.where(
-        InventoryLevel.variant_id == variant_id
-        if variant_id is not None
-        else InventoryLevel.variant_id.is_(None)
+    query = select(InventoryLevel).where(
+        InventoryLevel.product_id == product_id,
+        inventory_level_variant_filter(variant_id),
     )
     result = await db.execute(query)
     if result.scalar_one_or_none() is not None:
@@ -138,11 +151,10 @@ async def get_inventory_level(
         if product_result.scalar_one_or_none() is None:
             raise ProductStockNotFoundError(product_id)
 
-    query = select(InventoryLevel).where(InventoryLevel.product_id == product_id)
-    if variant_id is not None:
-        query = query.where(InventoryLevel.variant_id == variant_id)
-    else:
-        query = query.where(InventoryLevel.variant_id.is_(None))
+    query = select(InventoryLevel).where(
+        InventoryLevel.product_id == product_id,
+        inventory_level_variant_filter(variant_id),
+    )
 
     result = await db.execute(query)
     inventory = result.scalar_one_or_none()
@@ -280,12 +292,14 @@ async def adjust_stock(
         if product_result.scalar_one_or_none() is None:
             raise ProductStockNotFoundError(product_id)
 
-    inv_query = select(InventoryLevel).where(InventoryLevel.product_id == product_id)
-    if variant_id is not None:
-        inv_query = inv_query.where(InventoryLevel.variant_id == variant_id)
-    else:
-        inv_query = inv_query.where(InventoryLevel.variant_id.is_(None))
-    inv_query = inv_query.with_for_update()
+    inv_query = (
+        select(InventoryLevel)
+        .where(
+            InventoryLevel.product_id == product_id,
+            inventory_level_variant_filter(variant_id),
+        )
+        .with_for_update()
+    )
 
     result = await db.execute(inv_query)
     inventory = result.scalar_one_or_none()

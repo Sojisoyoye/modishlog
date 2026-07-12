@@ -1058,21 +1058,29 @@ async def create_purchase_return(
     """Record a return of goods against a purchase order."""
     order = await get_order(db, data.original_order_id, business_id)
 
-    # Build a map of product_id -> unit_cost from the original order
-    cost_map: dict[uuid.UUID, Decimal] = {
-        item.product_id: item.unit_cost for item in order.line_items
+    # Build a map of (product_id, variant_id) -> unit_cost from the
+    # original order — keyed by product_id alone, an order with separate
+    # line items for two variants of the same product would collapse to
+    # whichever line item's unit_cost happened to be inserted into the
+    # dict last.
+    cost_map: dict[tuple[uuid.UUID, uuid.UUID | None], Decimal] = {
+        (item.product_id, item.variant_id): item.unit_cost for item in order.line_items
     }
 
     total_amount = Decimal("0")
     for line in data.line_items:
         pid = line.product_id
-        unit_cost = cost_map.get(pid, Decimal("0"))
+        unit_cost = cost_map.get((pid, line.variant_id), Decimal("0"))
         total_amount += unit_cost * line.quantity
 
-        # Reverse inventory: deduct returned stock
+        # Reverse inventory: deduct returned stock. Scoped to the same
+        # variant transition_status() delivered it onto — the aggregate
+        # (variant_id=NULL) row is a different row entirely once a PO line
+        # item is variant-specific.
         await adjust_stock(
             db,
             product_id=pid,
+            variant_id=line.variant_id,
             quantity_change=-line.quantity,
             movement_type=MovementType.MANUAL_REMOVE.value,
             reason=f"Purchase return for order {order.order_number}",

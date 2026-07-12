@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -396,6 +396,55 @@ class TestPurchaseReturn:
         ret = await create_purchase_return(db, data, user_id=uuid.uuid4())
         assert ret.original_order_id == order.id
         assert ret.total_amount == Decimal("200.000000")
+
+    @pytest.mark.asyncio
+    async def test_purchase_return_scopes_adjust_stock_to_the_returned_variant(self):
+        """A PO line item for a specific variant is now delivered onto that
+        variant's own InventoryLevel row (not the product's aggregate row).
+        A return of that same stock must reverse it on the same
+        variant-scoped row — decrementing the aggregate row instead would
+        either fail outright (no aggregate row for that variant's stock)
+        or silently corrupt an unrelated row's on-hand count."""
+        product = _make_product(id=uuid.uuid4())
+        variant_id = uuid.uuid4()
+        inv = _make_inventory(
+            product_id=product.id, variant_id=variant_id, quantity_on_hand=50
+        )
+        line = OrderLineItem(
+            order_id=uuid.uuid4(),
+            product_id=product.id,
+            variant_id=variant_id,
+            quantity=10,
+            unit_cost=Decimal("100"),
+            line_total=Decimal("1000"),
+        )
+        line.id = uuid.uuid4()
+        order = _make_order(status=OrderStatus.DELIVERED, line_items=[line])
+
+        db = _mock_db()
+        order_result = MagicMock()
+        order_result.scalar_one_or_none.return_value = order
+        inv_result = MagicMock()
+        inv_result.scalar_one_or_none.return_value = inv
+
+        db.execute = AsyncMock(side_effect=[order_result, inv_result])
+
+        data = PurchaseReturnCreate(
+            original_order_id=order.id,
+            notes="Damaged goods",
+            line_items=[
+                PurchaseReturnLineItem(
+                    product_id=product.id, variant_id=variant_id, quantity=2
+                )
+            ],
+        )
+
+        with patch(
+            "src.orders.service.adjust_stock", new_callable=AsyncMock
+        ) as mock_adjust:
+            await create_purchase_return(db, data, user_id=uuid.uuid4())
+
+        assert mock_adjust.call_args.kwargs["variant_id"] == variant_id
 
     @pytest.mark.asyncio
     async def test_purchase_return_order_not_found(self):
