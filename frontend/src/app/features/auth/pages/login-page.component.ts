@@ -1,13 +1,14 @@
 import { Component, ChangeDetectionStrategy, signal, computed, inject, OnDestroy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
+import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   selector: 'app-login-page',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, NgTemplateOutlet],
   template: `
     <div class="flex min-h-screen">
       <!-- Left brand panel (hidden on mobile) -->
@@ -48,14 +49,10 @@ import { AuthService } from '../../../core/services/auth.service';
             <h2 class="mb-8 text-2xl font-bold text-gray-900 text-center lg:text-left">Sign in to your account</h2>
 
             @if (lockoutDisplay()) {
-              <div
-                role="alert"
-                aria-live="polite"
-                class="mb-4 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700"
-              >
-                <i class="pi pi-clock"></i>
-                Account locked. Try again in {{ lockoutDisplay() }}
-              </div>
+              <ng-container
+                [ngTemplateOutlet]="lockoutBanner"
+                [ngTemplateOutletContext]="{ $implicit: loginViewLockoutMessage() }"
+              ></ng-container>
             } @else if (errorMessage()) {
               <div
                 role="alert"
@@ -138,10 +135,6 @@ import { AuthService } from '../../../core/services/auth.service';
               </button>
             </div>
 
-            <!-- Footer text -->
-            <p class="mt-8 text-center text-xs text-gray-400">
-              Don't have an account? <a routerLink="/register" class="font-medium text-emerald-600 hover:text-emerald-700">Sign up</a>
-            </p>
           } @else {
             <!-- Forgot password: replaces the login form entirely (no email/password
                  login inputs rendered here) so this view stays short on every device. -->
@@ -151,14 +144,10 @@ import { AuthService } from '../../../core/services/auth.service';
             </p>
 
             @if (lockoutDisplay()) {
-              <div
-                role="alert"
-                aria-live="polite"
-                class="mb-4 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700"
-              >
-                <i class="pi pi-clock"></i>
-                Your account is still locked. Try again in {{ lockoutDisplay() }} — a password reset won't lift the lockout early.
-              </div>
+              <ng-container
+                [ngTemplateOutlet]="lockoutBanner"
+                [ngTemplateOutletContext]="{ $implicit: forgotViewLockoutMessage() }"
+              ></ng-container>
             }
 
             @if (forgotPasswordMessage()) {
@@ -216,9 +205,29 @@ import { AuthService } from '../../../core/services/auth.service';
               </button>
             </div>
           }
+
+          <!-- Footer text -- always visible, in both the sign-in and
+               forgot-password views, so there's always a way to Sign up. -->
+          <p class="mt-8 text-center text-xs text-gray-400">
+            Don't have an account? <a routerLink="/register" class="font-medium text-emerald-600 hover:text-emerald-700">Sign up</a>
+          </p>
         </div>
       </div>
     </div>
+
+    <!-- Shared lockout-banner markup for both views; each caller supplies
+         its own message text via context since the forgot-password view's
+         wording adds "a password reset won't lift the lockout early". -->
+    <ng-template #lockoutBanner let-message>
+      <div
+        role="alert"
+        aria-live="polite"
+        class="mb-4 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700"
+      >
+        <i class="pi pi-clock"></i>
+        {{ message }}
+      </div>
+    </ng-template>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -242,6 +251,11 @@ export class LoginPageComponent implements OnDestroy {
     const s = secs % 60;
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   });
+  loginViewLockoutMessage = computed(() => `Account locked. Try again in ${this.lockoutDisplay()}`);
+  forgotViewLockoutMessage = computed(
+    () =>
+      `Your account is still locked. Try again in ${this.lockoutDisplay()} — a password reset won't lift the lockout early.`,
+  );
 
   // Forgot password state
   showForgotPassword = signal(false);
