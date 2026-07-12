@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.query_helpers import variant_or_untagged_filter
 from src.inventory.models import MovementType
 from src.inventory.service import adjust_stock, fifo_deduct, reverse_fifo_consumption
 from src.orders.models import OrderLineItem, PurchaseOrder
@@ -60,14 +61,21 @@ async def _deduct_lot_units(
     db: AsyncSession,
     product_id: uuid.UUID,
     quantity: Decimal,
+    variant_id: uuid.UUID | None = None,
 ) -> None:
-    """Deduct quantity from active order lots FIFO (oldest order_date first)."""
+    """Deduct quantity from active order lots FIFO (oldest order_date first).
+
+    variant_id scopes which lots are eligible via variant_or_untagged_filter()
+    (src/core/query_helpers.py) — a variant-specific deduction only draws
+    from that variant's own tagged lots plus untagged ones, never a sibling
+    variant's tagged lots (task 168)."""
     result = await db.execute(
         select(OrderLineItem)
         .join(PurchaseOrder, OrderLineItem.order_id == PurchaseOrder.id)
         .where(
             OrderLineItem.product_id == product_id,
             OrderLineItem.units_remaining > 0,
+            variant_or_untagged_filter(OrderLineItem.variant_id, variant_id),
         )
         .order_by(PurchaseOrder.order_date.asc(), PurchaseOrder.created_at.asc())
     )
@@ -241,7 +249,9 @@ async def create_sale(
     await db.flush()
 
     # Lot-level FIFO deduction: deplete units_remaining on delivered order lots
-    await _deduct_lot_units(db, data.product_id, Decimal(str(data.quantity)))
+    await _deduct_lot_units(
+        db, data.product_id, Decimal(str(data.quantity)), variant_id=data.variant_id
+    )
 
     await logger.ainfo(
         "sale_created",
