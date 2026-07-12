@@ -4982,11 +4982,11 @@
         "description": "pricing/service.py's compute_suggestion() (around line 1233-1267) computes a weighted-average unit_cost_ngn across all OrderLineItem lots with units_remaining > 0 for a product, but has no variant_id filter — the same cross-variant pooling bug task 165 fixed for fifo_deduct()/InventoryBatch and task 168 fixed for _deduct_lot_units()/OrderLineItem, on a third consumer of the units_remaining ledger. For a product with variants of differing cost, this blends sibling variants' lot costs into one product-level price suggestion instead of a per-variant one.",
         "details": "Found during PR #310's review (task 168). Fix should mirror task 168's approach: accept a variant_id param on compute_suggestion()'s cost-lookup query and apply src/core/query_helpers.py's variant_or_untagged_filter(OrderLineItem.variant_id, variant_id) (added in task 168, shared with sales/service.py's _deduct_lot_units() and inventory/service.py's fifo_deduct()). Check compute_suggestion()'s call sites to confirm a variant_id is available/threadable through to this query.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-07-12T11:44:16.147Z"
+        "updatedAt": "2026-07-12T12:45:42.225Z"
       },
       {
         "id": "172",
@@ -5005,9 +5005,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-07-12T11:44:16.147Z",
+      "lastModified": "2026-07-12T12:45:42.226Z",
       "taskCount": 172,
-      "completedCount": 171,
+      "completedCount": 172,
       "tags": [
         "master"
       ]
