@@ -55,7 +55,8 @@ class TestImageUrlMixTargetBusinessIdMigrationUpgrade:
         product_mix_targets.business_id was not touched by that patch."""
         migration = _load_migration()
         inspector = _mock_inspector(
-            columns={"products": {"image_url": {"nullable": True}}}
+            tables={"products", "product_mix_targets"},
+            columns={"products": {"image_url": {"nullable": True}}},
         )
 
         with patch.object(migration, "op") as mock_op, patch.object(
@@ -81,10 +82,11 @@ class TestImageUrlMixTargetBusinessIdMigrationUpgrade:
         code assume is always populated."""
         migration = _load_migration()
         inspector = _mock_inspector(
+            tables={"products", "product_mix_targets"},
             columns={
                 "products": {"image_url": {"nullable": True}},
                 "product_mix_targets": {"business_id": {"nullable": True}},
-            }
+            },
         )
 
         with patch.object(migration, "op") as mock_op, patch.object(
@@ -107,6 +109,7 @@ class TestImageUrlMixTargetBusinessIdMigrationUpgrade:
         constrain anything a second time."""
         migration = _load_migration()
         inspector = _mock_inspector(
+            tables={"products", "product_mix_targets"},
             columns={
                 "products": {"image_url": {"nullable": True}},
                 "product_mix_targets": {"business_id": {"nullable": False}},
@@ -139,6 +142,7 @@ class TestImageUrlMixTargetBusinessIdMigrationDowngrade:
         exists, so downgrade() removes all of it."""
         migration = _load_migration()
         inspector = _mock_inspector(
+            tables={"products", "product_mix_targets"},
             columns={
                 "products": {"image_url": {"nullable": True}},
                 "product_mix_targets": {"business_id": {"nullable": False}},
@@ -182,7 +186,8 @@ class TestImageUrlMixTargetBusinessIdMigrationDowngrade:
         created by *this* migration in the first place."""
         migration = _load_migration()
         inspector = _mock_inspector(
-            columns={"products": {"image_url": {"nullable": True}}}
+            tables={"products", "product_mix_targets"},
+            columns={"products": {"image_url": {"nullable": True}}},
             # product_mix_targets.business_id and its FK/index/constraint
             # were never added — e.g. upgrade() no-op'd on a DB where
             # they didn't exist and business_id ended up populated by
