@@ -688,20 +688,21 @@ async def reverse_fifo_consumption(
         .where(FifoConsumption.sale_id.in_(sale_ids))
         .group_by(FifoConsumption.batch_id)
     )
-    deltas = result.all()
+    deltas = {batch_id: int(total) for batch_id, total in result.all()}
     if not deltas:
         return
 
-    for batch_id, total_consumed in deltas:
-        batch_result = await db.execute(
-            select(InventoryBatch)
-            .where(InventoryBatch.id == batch_id)
-            .with_for_update()
-        )
-        batch = batch_result.scalar_one_or_none()
-        if batch is None:
-            continue
-        batch.quantity_remaining += int(total_consumed)
+    # One bulk fetch+lock instead of one SELECT+FOR UPDATE per batch_id —
+    # a data_import rollback can touch hundreds of sales spread across
+    # many batches, and a per-batch round-trip there would hold row locks
+    # far longer than necessary.
+    batches_result = await db.execute(
+        select(InventoryBatch)
+        .where(InventoryBatch.id.in_(deltas.keys()))
+        .with_for_update()
+    )
+    for batch in batches_result.scalars().all():
+        batch.quantity_remaining += deltas[batch.id]
 
     await db.execute(
         delete(FifoConsumption).where(FifoConsumption.sale_id.in_(sale_ids))

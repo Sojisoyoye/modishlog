@@ -70,6 +70,12 @@ def _scalar_one_or_none_result(value):
     return r
 
 
+def _scalars_result(items):
+    r = MagicMock()
+    r.scalars.return_value.all.return_value = items
+    return r
+
+
 # ---------------------------------------------------------------------------
 # Landed cost calculation
 # ---------------------------------------------------------------------------
@@ -448,8 +454,7 @@ class TestReverseFifoConsumption:
         db.execute = AsyncMock(
             side_effect=[
                 _rows_result([(batch1.id, 10), (batch2.id, 5)]),  # grouped ledger sum
-                _scalar_one_or_none_result(batch1),
-                _scalar_one_or_none_result(batch2),
+                _scalars_result([batch1, batch2]),  # single bulk batch fetch
                 MagicMock(),  # delete(FifoConsumption)
             ]
         )
@@ -458,6 +463,38 @@ class TestReverseFifoConsumption:
 
         assert batch1.quantity_remaining == 10
         assert batch2.quantity_remaining == 20
+
+    @pytest.mark.asyncio
+    async def test_batches_are_fetched_in_a_single_bulk_query(self):
+        """A data_import rollback can touch hundreds of sales spread
+        across many batches — one SELECT+FOR UPDATE per distinct batch_id
+        in a Python loop would be hundreds of sequential round-trips
+        holding row locks longer than necessary. Must be one bulk
+        `.in_(batch_ids)` query instead."""
+        from src.inventory.service import reverse_fifo_consumption
+
+        sale_id = uuid.uuid4()
+        batch1 = _make_batch(quantity_remaining=0)
+        batch2 = _make_batch(quantity_remaining=15)
+        batch3 = _make_batch(quantity_remaining=3)
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+        db.execute = AsyncMock(
+            side_effect=[
+                _rows_result(
+                    [(batch1.id, 10), (batch2.id, 5), (batch3.id, 2)]
+                ),
+                _scalars_result([batch1, batch2, batch3]),
+                MagicMock(),
+            ]
+        )
+
+        await reverse_fifo_consumption(db, [sale_id])
+
+        # Exactly 3 calls total: grouped sum, one bulk batch fetch, delete —
+        # not one batch-fetch call per batch_id.
+        assert db.execute.await_count == 3
 
     @pytest.mark.asyncio
     async def test_deletes_ledger_rows_after_reversal(self):
@@ -477,7 +514,7 @@ class TestReverseFifoConsumption:
         db.execute = AsyncMock(
             side_effect=[
                 _rows_result([(batch.id, 10)]),
-                _scalar_one_or_none_result(batch),
+                _scalars_result([batch]),
                 MagicMock(),
             ]
         )
@@ -503,7 +540,7 @@ class TestReverseFifoConsumption:
         db.execute = AsyncMock(
             side_effect=[
                 _rows_result([(missing_batch_id, 10)]),
-                _scalar_one_or_none_result(None),
+                _scalars_result([]),  # the bulk fetch finds nothing
                 MagicMock(),
             ]
         )
