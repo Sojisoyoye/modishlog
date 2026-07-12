@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.config import settings
-from src.core.query_helpers import variant_or_untagged_filter
+from src.core.query_helpers import find_product_variant, variant_or_untagged_filter
 from src.fx.service import get_live_usdngn_rate
 from src.orders.models import OrderLineItem, PurchaseOrder
 from src.fx.exceptions import ForecastTimeoutError
@@ -1246,34 +1246,39 @@ async def compute_suggestion(
     # must be rejected up front — before the lot query, and before the
     # live FX-rate fetch below (which can hit an external API and persist
     # a new FXRate row on a cache miss). Checking first avoids paying for
-    # both on a request that's going to fail validation anyway. Mirrors
-    # sales/service.py's create_sale() variant-ownership check (same query
-    # shape, same is_active filter) rather than a separate ad-hoc idiom.
+    # both on a request that's going to fail validation anyway.
     variant: ProductVariant | None = None
     if variant_id is not None:
-        variant_result = await db.execute(
-            select(ProductVariant).where(
-                ProductVariant.id == variant_id,
-                ProductVariant.product_id == product_id,
-                ProductVariant.is_active == True,  # noqa: E712
-            )
-        )
-        variant = variant_result.scalar_one_or_none()
+        variant = await find_product_variant(db, variant_id, product_id)
         if variant is None:
             raise PricingSuggestionError(
                 product_id,
                 f"variant {variant_id} does not belong to this product, or is inactive",
             )
 
-    # Fetch active lots joined with their parent order's currency
+    # Fetch active lots joined with their parent order's currency.
+    # variant_id=None (the default) intentionally does NOT filter by
+    # variant at all — unlike fifo_deduct()/_deduct_lot_units(), where a
+    # None variant_id means "this really is a non-variant sale" (enforced
+    # upfront by create_sale()), a caller here may simply not know/care
+    # about variant scoping (e.g. the existing products-page.component.ts
+    # "suggest price" button, which never passes variant_id). Pooling
+    # across every variant is this function's original, still-supported
+    # behaviour for that case. Only an explicit variant_id narrows the
+    # query, via variant_or_untagged_filter() (own variant + untagged,
+    # never a sibling's — task 165's rule).
+    where_clauses = [
+        OrderLineItem.product_id == product_id,
+        OrderLineItem.units_remaining > 0,
+    ]
+    if variant_id is not None:
+        where_clauses.append(
+            variant_or_untagged_filter(OrderLineItem.variant_id, variant_id)
+        )
     lot_result = await db.execute(
         select(OrderLineItem, PurchaseOrder.currency)
         .join(PurchaseOrder, OrderLineItem.order_id == PurchaseOrder.id)
-        .where(
-            OrderLineItem.product_id == product_id,
-            OrderLineItem.units_remaining > 0,
-            variant_or_untagged_filter(OrderLineItem.variant_id, variant_id),
-        )
+        .where(*where_clauses)
     )
     lots_with_currency = lot_result.all()
 
@@ -1393,13 +1398,10 @@ async def get_suggestion_history(
     (this is a history read, not a request to compute a new suggestion
     against that variant's current, possibly-gone lot stock)."""
     if variant_id is not None:
-        variant_result = await db.execute(
-            select(ProductVariant).where(
-                ProductVariant.id == variant_id,
-                ProductVariant.product_id == product_id,
-            )
+        variant = await find_product_variant(
+            db, variant_id, product_id, active_only=False
         )
-        if variant_result.scalar_one_or_none() is None:
+        if variant is None:
             raise PricingSuggestionError(
                 product_id, f"variant {variant_id} does not belong to this product"
             )

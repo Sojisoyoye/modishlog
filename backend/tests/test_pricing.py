@@ -1137,7 +1137,15 @@ class TestComputeSuggestionVariantScoping:
         return variant
 
     @pytest.mark.asyncio
-    async def test_without_variant_id_only_matches_untagged_lots(self):
+    async def test_without_variant_id_does_not_filter_by_variant_at_all(self):
+        """Omitting variant_id (the default) must NOT narrow to untagged
+        lots only — unlike fifo_deduct()/_deduct_lot_units(), a caller
+        here (e.g. products-page.component.ts's "suggest price" button,
+        which never passes variant_id) may simply not know/care about
+        variant scoping and expects the pre-task-171 behaviour: pool
+        across every lot for the product, tagged or not. Narrowing this
+        to untagged-only would silently break price suggestions for every
+        variant-tracked product for that caller."""
         from src.pricing.service import compute_suggestion
 
         product_id = uuid.uuid4()
@@ -1172,8 +1180,41 @@ class TestComputeSuggestionVariantScoping:
         compiled = str(
             captured_stmt.compile(compile_kwargs={"literal_binds": True})
         ).lower()
-        assert "order_line_items.variant_id is null" in compiled
+        assert "order_line_items.variant_id is null" not in compiled
         assert "order_line_items.variant_id =" not in compiled
+
+    @pytest.mark.asyncio
+    async def test_without_variant_id_still_succeeds_for_a_variant_tracked_product(
+        self,
+    ):
+        """Regression check: a product whose ONLY lots are variant-tagged
+        (no untagged fallback stock at all — the normal state for a
+        variant-tracked product per recompute.py's own comment that
+        "variant-tracked opening-stock imports never create [untagged
+        lots]") must still produce a suggestion when the caller omits
+        variant_id, exactly as it did before task 171. Filtering to
+        untagged-only here would turn a working feature into a 422 for
+        every variant-tracked product."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        tagged_lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+        tagged_lot.variant_id = variant_id  # no untagged lots exist at all
+
+        db = _mock_db()
+        db.execute = self._mock_execute_lots_then_product([(tagged_lot, "USD")])
+
+        with patch(
+            "src.pricing.service.get_live_usdngn_rate",
+            new_callable=AsyncMock,
+            return_value=(Decimal("1700"), datetime.now(timezone.utc), True),
+        ):
+            suggestion = await compute_suggestion(
+                db, product_id, target_margin=Decimal("0.40")
+            )
+
+        assert suggestion.unit_cost_ngn == Decimal("14000")
 
     @pytest.mark.asyncio
     async def test_with_variant_id_matches_that_variant_or_untagged_lots(self):
