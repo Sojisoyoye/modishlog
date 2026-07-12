@@ -7,10 +7,11 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 import structlog
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.query_helpers import variant_or_untagged_filter
 from src.inventory.models import MovementType
 from src.inventory.service import adjust_stock, fifo_deduct, reverse_fifo_consumption
 from src.orders.models import OrderLineItem, PurchaseOrder
@@ -56,19 +57,6 @@ REQUIRED_CSV_HEADERS = {"product_id", "quantity", "unit_price", "sale_date", "ch
 # ---------------------------------------------------------------------------
 
 
-def _order_line_item_variant_filter(variant_id: uuid.UUID | None):
-    """WHERE-clause fragment scoping OrderLineItem lots to a deduction's
-    variant_id — the same "own variant or untagged" rule as
-    inventory_batch_variant_filter() (backend/src/inventory/service.py),
-    applied to this parallel units_remaining ledger (task 168)."""
-    if variant_id is not None:
-        return or_(
-            OrderLineItem.variant_id == variant_id,
-            OrderLineItem.variant_id.is_(None),
-        )
-    return OrderLineItem.variant_id.is_(None)
-
-
 async def _deduct_lot_units(
     db: AsyncSession,
     product_id: uuid.UUID,
@@ -82,7 +70,7 @@ async def _deduct_lot_units(
         .where(
             OrderLineItem.product_id == product_id,
             OrderLineItem.units_remaining > 0,
-            _order_line_item_variant_filter(variant_id),
+            variant_or_untagged_filter(OrderLineItem.variant_id, variant_id),
         )
         .order_by(PurchaseOrder.order_date.asc(), PurchaseOrder.created_at.asc())
     )

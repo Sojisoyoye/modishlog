@@ -1486,8 +1486,12 @@ class TestLotFifoDeduction:
 
     @pytest.mark.asyncio
     async def test_variant_scoped_deduction_never_touches_sibling_variant_lot(self):
-        """End-to-end consumption check: given a mixed lot set, a variant-A
-        deduction must leave variant B's lot untouched."""
+        """Deduction-math check: given only the lots a correctly-scoped
+        query would return (sibling_lot excluded, matching how the mock
+        stands in for the real WHERE clause — see
+        test_with_variant_id_matches_that_variant_or_untagged_lots above
+        for the actual SQL-shape assertion), consuming from that set must
+        leave sibling_lot's own quantity field untouched."""
         from src.orders.models import OrderLineItem
         from src.sales.service import _deduct_lot_units
 

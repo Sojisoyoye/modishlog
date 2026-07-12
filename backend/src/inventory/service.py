@@ -5,7 +5,7 @@ from collections.abc import Collection
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,7 @@ from src.inventory.models import (
 )
 from src.inventory.schemas import DepletionForecastRead
 from src.products.models import Product
+from src.core.query_helpers import variant_or_untagged_filter
 
 logger = structlog.get_logger()
 
@@ -572,16 +573,8 @@ async def get_batches_for_product(
 
 def inventory_batch_variant_filter(variant_id: uuid.UUID | None):
     """WHERE-clause fragment scoping InventoryBatch rows to a deduction's
-    variant_id.
-
-    A variant-specific deduction (variant_id given) may draw from that
-    variant's own tagged batches AND from untagged (variant_id=NULL)
-    batches — stock received before variant tracking existed, or genuinely
-    shared stock — but never from a *different* variant's tagged batches,
-    which would misattribute that variant's landed cost onto this one. A
-    non-variant deduction (variant_id=None) only draws from untagged
-    batches, mirroring how InventoryLevel/adjust_stock scope aggregate vs.
-    variant-level rows.
+    variant_id — see variant_or_untagged_filter() (src/core/query_helpers.py)
+    for the shared rule this applies.
 
     Shared by fifo_deduct() and data_import/recompute.py's insufficient-
     batches pre-check — both need the exact same "which batches would
@@ -589,12 +582,7 @@ def inventory_batch_variant_filter(variant_id: uuid.UUID | None):
     fifo_deduct() would never touch and report a wrong understated/
     overstated COGS warning.
     """
-    if variant_id is not None:
-        return or_(
-            InventoryBatch.variant_id == variant_id,
-            InventoryBatch.variant_id.is_(None),
-        )
-    return InventoryBatch.variant_id.is_(None)
+    return variant_or_untagged_filter(InventoryBatch.variant_id, variant_id)
 
 
 async def fifo_deduct(
