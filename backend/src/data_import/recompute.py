@@ -514,18 +514,21 @@ async def _recompute_ai_signals(
     )
     products = result.scalars().all()
     for product in products:
-        # A variant-tagged product needs one suggestion per variant — task
-        # 171's variant_or_untagged_filter() scoping means a single
+        # A variant-tagged product needs one suggestion per active variant
+        # — task 171's variant_or_untagged_filter() scoping means a single
         # variant_id=None call would now match only untagged lots, which
-        # variant-tracked opening-stock imports never create. Falls back to
-        # a single variant_id=None attempt if has_variants=True but no
-        # ProductVariant rows actually loaded (a data anomaly) — every
-        # product in this loop must get at least one run_isolated()
-        # attempt, or a failure here silently vanishes instead of landing
-        # in errors.
-        variant_ids = (
-            [v.id for v in product.variants] if product.variants else [None]
-        )
+        # variant-tracked opening-stock imports never create. Inactive
+        # (soft-deleted) variants are excluded — compute_suggestion()
+        # rejects them (task 171's ownership check), so including them
+        # here would produce a spurious price_suggestion error on every
+        # recompute for any product with a deactivated variant. Falls
+        # back to a single variant_id=None attempt if there are no active
+        # variants at all (has_variants=True with zero/all-inactive rows,
+        # a data anomaly) — every product in this loop must get at least
+        # one run_isolated() attempt, or a failure here silently vanishes
+        # instead of landing in errors.
+        active_variant_ids = [v.id for v in product.variants if v.is_active]
+        variant_ids = active_variant_ids if active_variant_ids else [None]
         for variant_id in variant_ids:
             _, error = await run_isolated(
                 db,

@@ -1242,6 +1242,29 @@ async def compute_suggestion(
     this third units_remaining consumer (task 171). Omitting it (the
     default) preserves prior behaviour for non-variant products.
     """
+    # A variant_id belonging to a different product (or an inactive one)
+    # must be rejected up front — before the lot query, and before the
+    # live FX-rate fetch below (which can hit an external API and persist
+    # a new FXRate row on a cache miss). Checking first avoids paying for
+    # both on a request that's going to fail validation anyway. Mirrors
+    # sales/service.py's create_sale() variant-ownership check (same query
+    # shape, same is_active filter) rather than a separate ad-hoc idiom.
+    variant: ProductVariant | None = None
+    if variant_id is not None:
+        variant_result = await db.execute(
+            select(ProductVariant).where(
+                ProductVariant.id == variant_id,
+                ProductVariant.product_id == product_id,
+                ProductVariant.is_active == True,  # noqa: E712
+            )
+        )
+        variant = variant_result.scalar_one_or_none()
+        if variant is None:
+            raise PricingSuggestionError(
+                product_id,
+                f"variant {variant_id} does not belong to this product, or is inactive",
+            )
+
     # Fetch active lots joined with their parent order's currency
     lot_result = await db.execute(
         select(OrderLineItem, PurchaseOrder.currency)
@@ -1276,29 +1299,6 @@ async def compute_suggestion(
         total_units += lot.units_remaining
 
     avg_cost_ngn = (total_cost / total_units).quantize(Decimal("0.000001"))
-
-    # A variant_id belonging to a different product (or an inactive one)
-    # must be rejected before persisting a suggestion —
-    # variant_or_untagged_filter()'s untagged-lot fallback would otherwise
-    # let this product's own lots silently get mislabeled with a
-    # variant_id that isn't really eligible. Mirrors sales/service.py's
-    # create_sale() variant-ownership check (same query shape, same
-    # is_active filter) rather than a separate ad-hoc idiom.
-    variant: ProductVariant | None = None
-    if variant_id is not None:
-        variant_result = await db.execute(
-            select(ProductVariant).where(
-                ProductVariant.id == variant_id,
-                ProductVariant.product_id == product_id,
-                ProductVariant.is_active == True,  # noqa: E712
-            )
-        )
-        variant = variant_result.scalar_one_or_none()
-        if variant is None:
-            raise PricingSuggestionError(
-                product_id,
-                f"variant {variant_id} does not belong to this product, or is inactive",
-            )
 
     # Load product with category + parent for margin resolution and catalog price
     prod_result = await db.execute(
@@ -1383,7 +1383,24 @@ async def get_suggestion_history(
     omitting it (the default) preserves prior behaviour: every suggestion
     for the product, regardless of which variant (or none) it was for.
     Without this, a product's variants' suggestion histories interleave
-    with no way to tell them apart (task 171)."""
+    with no way to tell them apart (task 171).
+
+    Raises PricingSuggestionError if variant_id doesn't belong to
+    product_id — a mismatched pair would otherwise just silently return
+    an empty list, masking a client-side bug that passed the wrong pair
+    (same ownership check as compute_suggestion(), for consistency)."""
+    if variant_id is not None:
+        variant_result = await db.execute(
+            select(ProductVariant).where(
+                ProductVariant.id == variant_id,
+                ProductVariant.product_id == product_id,
+            )
+        )
+        if variant_result.scalar_one_or_none() is None:
+            raise PricingSuggestionError(
+                product_id, f"variant {variant_id} does not belong to this product"
+            )
+
     where_clauses = [PriceSuggestion.product_id == product_id]
     if variant_id is not None:
         where_clauses.append(PriceSuggestion.variant_id == variant_id)

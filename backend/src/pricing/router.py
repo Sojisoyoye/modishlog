@@ -433,6 +433,11 @@ async def suggestion_history_endpoint(
 ):
     """Return the last N price suggestions for a product, newest first.
     Pass variant_id to scope to that variant's own suggestion history."""
-    return await get_suggestion_history(
-        db, product_id, limit=limit, variant_id=variant_id
-    )
+    try:
+        return await get_suggestion_history(
+            db, product_id, limit=limit, variant_id=variant_id
+        )
+    except PricingSuggestionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )

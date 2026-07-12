@@ -62,16 +62,24 @@ def _scalar_result(value):
     return r
 
 
-def _make_product_for_recompute(product_id=None, variant_ids=None):
+def _make_product_for_recompute(
+    product_id=None, variant_ids=None, inactive_variant_ids=None
+):
     """A Product stand-in for _recompute_ai_signals()'s per-product loop —
-    has_variants=True with N variants when variant_ids is given, else a
-    plain non-variant product (mirrors the real Product.has_variants /
-    Product.variants relationship, task 171's fix)."""
+    has_variants=True with N active variants (plus any inactive_variant_ids)
+    when variant_ids is given, else a plain non-variant product (mirrors
+    the real Product.has_variants / Product.variants relationship, task
+    171's fix)."""
     p = MagicMock()
     p.id = product_id or uuid.uuid4()
-    if variant_ids:
+    if variant_ids or inactive_variant_ids:
         p.has_variants = True
-        p.variants = [MagicMock(id=vid) for vid in variant_ids]
+        p.variants = [
+            MagicMock(id=vid, is_active=True) for vid in (variant_ids or [])
+        ] + [
+            MagicMock(id=vid, is_active=False)
+            for vid in (inactive_variant_ids or [])
+        ]
     else:
         p.has_variants = False
         p.variants = []
@@ -1121,6 +1129,38 @@ class TestRecomputeAiSignals:
 
         assert errors == []
         mock_price.assert_awaited_once_with(db, product.id, variant_id=None)
+
+    @pytest.mark.asyncio
+    async def test_inactive_variants_are_excluded_from_the_per_variant_loop(self):
+        """A deactivated variant (products/service.py's documented
+        soft-delete sets ProductVariant.is_active=False — a normal
+        supported operation) must not be passed to compute_suggestion(),
+        which rejects inactive variants (task 171's ownership check).
+        Including it here would produce a spurious price_suggestion error
+        on every recompute run for any product with a deactivated
+        variant."""
+        from src.data_import.recompute import _recompute_ai_signals
+
+        active_id, inactive_id = uuid.uuid4(), uuid.uuid4()
+        product = _make_product_for_recompute(
+            variant_ids=[active_id], inactive_variant_ids=[inactive_id]
+        )
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[MagicMock(), _scalars_result([product])])
+
+        with (
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "src.data_import.recompute.compute_suggestion", new=AsyncMock()
+            ) as mock_price,
+        ):
+            errors = await _recompute_ai_signals(db, BUSINESS_ID, JOB_ID)
+
+        assert errors == []
+        mock_price.assert_awaited_once_with(db, product.id, variant_id=active_id)
 
 
 # ---------------------------------------------------------------------------

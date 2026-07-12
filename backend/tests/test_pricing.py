@@ -1192,11 +1192,11 @@ class TestComputeSuggestionVariantScoping:
             nonlocal call_count, captured_stmt
             call_count += 1
             result = MagicMock()
-            if call_count == 1:
+            if call_count == 1:  # variant-ownership lookup (validated first)
+                result.scalar_one_or_none.return_value = variant
+            elif call_count == 2:
                 captured_stmt = stmt
                 result.all.return_value = [(lot, "USD")]
-            elif call_count == 2:  # variant-ownership lookup
-                result.scalar_one_or_none.return_value = variant
             else:  # product lookup
                 p = MagicMock()
                 p.selling_price = Decimal("20000")
@@ -1291,6 +1291,49 @@ class TestComputeSuggestionVariantScoping:
                 )
 
     @pytest.mark.asyncio
+    async def test_invalid_variant_id_rejected_before_lot_query_or_fx_fetch(self):
+        """The variant-ownership check must run before the lot query and
+        the live FX-rate fetch — get_live_usdngn_rate() can hit an
+        external API and persist a new FXRate row on a cache miss, so an
+        invalid/foreign variant_id shouldn't pay for either before being
+        rejected."""
+        from src.pricing.exceptions import PricingSuggestionError
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        foreign_variant_id = uuid.uuid4()
+
+        db = _mock_db()
+        lot_query_touched = False
+
+        async def mock_execute(stmt):
+            nonlocal lot_query_touched
+            result = MagicMock()
+            # The only db.execute() call before rejection must be the
+            # variant-ownership lookup — anything selecting OrderLineItem
+            # would mean the lot query ran first.
+            if "order_line_items" in str(stmt).lower():
+                lot_query_touched = True
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with patch(
+            "src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock
+        ) as mock_fx:
+            with pytest.raises(PricingSuggestionError):
+                await compute_suggestion(
+                    db,
+                    product_id,
+                    target_margin=Decimal("0.40"),
+                    variant_id=foreign_variant_id,
+                )
+
+        assert lot_query_touched is False
+        mock_fx.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_uses_variant_price_override_for_catalog_price(self):
         """current_catalog_price_ngn must reflect the requested variant's
         own price_override when set, not the product's base selling_price
@@ -1333,20 +1376,23 @@ class TestComputeSuggestionVariantScoping:
         variant=None,
         with_variant_lookup=False,
     ):
-        """call1=lots; if with_variant_lookup, call2=variant-ownership
-        lookup (returns `variant`), call3=product; else call2=product —
-        matching compute_suggestion()'s query order (the variant-ownership
-        check only runs when variant_id is passed)."""
+        """If with_variant_lookup: call1=variant-ownership lookup (returns
+        `variant`), call2=lots, call3=product — else call1=lots, call2=
+        product. Matches compute_suggestion()'s query order: the
+        variant-ownership check runs first, and only when variant_id is
+        passed, before the lot query and live FX-rate fetch."""
         call_count = 0
 
         async def mock_execute(stmt):
             nonlocal call_count
             call_count += 1
             result = MagicMock()
-            if call_count == 1:
-                result.all.return_value = lots_with_currency
-            elif with_variant_lookup and call_count == 2:
+            if with_variant_lookup and call_count == 1:
                 result.scalar_one_or_none.return_value = variant
+            elif (with_variant_lookup and call_count == 2) or (
+                not with_variant_lookup and call_count == 1
+            ):
+                result.all.return_value = lots_with_currency
             else:
                 p = MagicMock()
                 p.selling_price = Decimal(str(catalog_price))
@@ -1422,6 +1468,30 @@ class TestSuggestionHistoryVariantScoping:
         # absent when variant_id isn't passed.
         assert "price_suggestions.variant_id =" not in compiled
         assert "price_suggestions.variant_id=" not in compiled
+
+    @pytest.mark.asyncio
+    async def test_raises_when_variant_id_does_not_belong_to_product(self):
+        """A mismatched product_id/variant_id pair must raise, not
+        silently return an empty list — an empty result is otherwise
+        indistinguishable from 'this variant has no suggestions yet',
+        masking a client-side bug that passed the wrong pair."""
+        from src.pricing.exceptions import PricingSuggestionError
+        from src.pricing.service import get_suggestion_history
+
+        product_id = uuid.uuid4()
+        foreign_variant_id = uuid.uuid4()
+
+        db = _mock_db()
+
+        async def mock_execute(stmt):
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None  # ownership lookup finds nothing
+            return result
+
+        db.execute = mock_execute
+
+        with pytest.raises(PricingSuggestionError):
+            await get_suggestion_history(db, product_id, variant_id=foreign_variant_id)
 
 
 # ---------------------------------------------------------------------------
