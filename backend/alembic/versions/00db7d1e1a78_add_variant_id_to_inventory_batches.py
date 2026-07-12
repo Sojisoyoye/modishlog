@@ -26,13 +26,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Deferred, not module-level: Alembic's own file-discovery step (which
-    # runs for every CLI command, not just `upgrade`) loads every versions
-    # file *before* env.py's sys.path fix runs, so a top-level `from src...`
-    # import here would break `alembic heads`/`history`/`upgrade` outright
-    # with ModuleNotFoundError. By the time this function body actually
-    # executes (only ever called from within env.py's run_migrations()),
-    # sys.path already has the backend root on it.
+    # Deferred, not module-level — see src/core/migration_utils.py's
+    # docstring ("IMPORTING THIS MODULE") for why.
     from src.core.migration_utils import has_column, has_constraint, has_index
 
     insp = sa.inspect(op.get_bind())

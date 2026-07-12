@@ -1,22 +1,7 @@
 """Tests for src/core/migration_utils.py's Alembic idempotency helpers."""
 
-from contextlib import contextmanager
-from unittest.mock import MagicMock, patch
-
 from src.core import migration_utils
-from tests.migration_test_utils import mock_inspector
-
-
-@contextmanager
-def _patched(**inspector_kwargs):
-    """Patch both `op` (so op.get_bind() doesn't hit the real Alembic
-    proxy, which raises outside an active migration context) and
-    `sa.inspect` (to return a fixed, fully mocked inspector regardless of
-    what op.get_bind() returns)."""
-    with patch.object(migration_utils, "op", MagicMock()), patch.object(
-        migration_utils.sa, "inspect", return_value=mock_inspector(**inspector_kwargs)
-    ):
-        yield
+from tests.migration_test_utils import patched_migration_utils as _patched
 
 
 class TestHasTable:

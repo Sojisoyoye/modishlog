@@ -24,10 +24,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Deferred, not module-level — see 00db7d1e1a78's upgrade() comment:
-    # Alembic's own file-discovery loads every versions file before
-    # env.py's sys.path fix runs, so a top-level `from src...` import
-    # here would break `alembic heads`/`history`/`upgrade` outright.
+    # Deferred, not module-level — see src/core/migration_utils.py's
+    # docstring ("IMPORTING THIS MODULE") for why.
     from src.core.migration_utils import has_index, has_table
 
     insp = sa.inspect(op.get_bind())

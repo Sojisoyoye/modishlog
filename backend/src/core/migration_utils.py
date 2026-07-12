@@ -43,6 +43,18 @@ has_index() on that table, which re-derives has_table() internally),
 rebuild `insp = sa.inspect(op.get_bind())` after the DDL before the next
 check — see 9100b1b36d72_add_fifo_consumptions_table.py's upgrade() for
 the pattern.
+
+IMPORTING THIS MODULE: every caller does
+`from src.core.migration_utils import ...` *inside* upgrade()/
+downgrade(), never at module level. Alembic's own file-discovery step —
+which runs for every CLI command (`heads`, `history`, `upgrade`, ...),
+not just the migration actually being applied — loads every file in
+alembic/versions/ *before* env.py's `sys.path` fix runs. A top-level
+import here would make every one of those commands fail outright with
+ModuleNotFoundError. By the time a migration's upgrade()/downgrade()
+function body actually executes (only ever called from within env.py's
+run_migrations()), sys.path already has the backend root on it, so a
+deferred, function-body-local import is safe.
 """
 
 import sqlalchemy as sa

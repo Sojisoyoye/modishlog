@@ -9,24 +9,8 @@ live-DB round-trip test isn't feasible here (CI never runs `alembic
 upgrade head` against a real database before pytest).
 """
 
-from contextlib import contextmanager
-from unittest.mock import MagicMock, patch
-
-from src.core import migration_utils
-from tests.migration_test_utils import load_migration, mock_inspector
-
-
-@contextmanager
-def _patched(migration, **inspector_kwargs):
-    """Patch the migration's own `op` (captures/no-ops its direct DDL
-    calls) and migration_utils' `op` + `sa.inspect` (controls what the
-    shared has_column/has_table/etc. helpers see) at once."""
-    with patch.object(migration, "op") as mock_op, patch.object(
-        migration_utils, "op", MagicMock()
-    ), patch.object(
-        migration_utils.sa, "inspect", return_value=mock_inspector(**inspector_kwargs)
-    ):
-        yield mock_op
+from tests.migration_test_utils import load_migration
+from tests.migration_test_utils import patched_migration_utils as _patched
 
 
 class TestInventoryBatchesVariantIdMigration:

@@ -36,18 +36,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Deferred, not module-level — see 00db7d1e1a78's upgrade() comment
-    # (src/core/migration_utils.py wasn't extracted until task 165's
-    # follow-up migrations; this is the migration that motivated it):
-    # Alembic's own file-discovery loads every versions file before
-    # env.py's sys.path fix runs, so a top-level `from src...` import
-    # here would break `alembic heads`/`history`/`upgrade` outright.
+    # Deferred, not module-level — see src/core/migration_utils.py's
+    # docstring ("IMPORTING THIS MODULE") for why.
     from src.core.migration_utils import has_column, has_constraint, has_index
 
-    # One inspection, reused for every check below — six separate
-    # sa.inspect(op.get_bind()) calls would mean six real round-trips to
-    # Postgres for a migration that already has a history of blocking
-    # every deploy behind it if it's slow or fails.
+    # One Inspector, reused for every check below — this only saves the
+    # Inspector *construction* cost, not every individual has_table()/
+    # get_*() re-query each has_* call below still performs (see
+    # src/core/migration_utils.py's docstring). mix_target_cols is built
+    # here directly (rather than solely via has_column()) because the
+    # nullable-aware business_id check just below needs the column's
+    # nullable flag, which has_column() doesn't expose.
     insp = sa.inspect(op.get_bind())
     mix_target_cols = {c["name"]: c for c in insp.get_columns("product_mix_targets")}
 

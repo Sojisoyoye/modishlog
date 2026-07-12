@@ -10,9 +10,10 @@ upgrade()/downgrade() behavior via mocked op/sa.inspect.
 """
 
 import importlib.util
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 VERSIONS_DIR = Path(__file__).parent.parent / "alembic" / "versions"
 
@@ -29,7 +30,9 @@ def load_migration(filename: str) -> ModuleType:
     return module
 
 
-def mock_inspector(tables=(), columns=None, foreign_keys=None, unique_constraints=None, indexes=None):
+def mock_inspector(
+    tables=(), columns=None, foreign_keys=None, unique_constraints=None, indexes=None
+):
     """Stand-in for sa.inspect(op.get_bind()), shared across migration
     content tests.
 
@@ -70,3 +73,34 @@ def mock_inspector(tables=(), columns=None, foreign_keys=None, unique_constraint
         {"name": n} for n in indexes.get(table, [])
     ]
     return inspector
+
+
+@contextmanager
+def patched_migration_utils(migration=None, **inspector_kwargs):
+    """Patch src.core.migration_utils' `op` (so op.get_bind() doesn't hit
+    the real Alembic proxy, which raises outside an active migration
+    context) and `sa.inspect` (to return a fixed mock_inspector(**kwargs)
+    regardless of what op.get_bind() returns) — shared across
+    test_migration_utils.py (tests migration_utils' functions directly)
+    and every migration content test (tests a migration module's own
+    upgrade()/downgrade(), which call into migration_utils).
+
+    If `migration` is given, also patches *its own* `op` (capturing/
+    no-op'ing its direct DDL calls like add_column/create_table) and
+    yields that mock; otherwise yields None.
+    """
+    from src.core import migration_utils
+
+    with ExitStack() as stack:
+        mock_op = None
+        if migration is not None:
+            mock_op = stack.enter_context(patch.object(migration, "op"))
+        stack.enter_context(patch.object(migration_utils, "op", MagicMock()))
+        stack.enter_context(
+            patch.object(
+                migration_utils.sa,
+                "inspect",
+                return_value=mock_inspector(**inspector_kwargs),
+            )
+        )
+        yield mock_op
