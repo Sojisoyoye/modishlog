@@ -433,6 +433,66 @@ class TestComputeFifoCogsForImportedSales:
         assert sale.fifo_gross_profit == Decimal("120")
 
     @pytest.mark.asyncio
+    async def test_passes_sale_variant_id_to_fifo_deduct(self):
+        """An imported sale for a specific variant must scope its FIFO
+        cost matching to that variant — otherwise recompute would silently
+        pool landed cost across sibling variants of the same product (the
+        same class of bug already fixed for the live create_sale() path)."""
+        from src.data_import.recompute import _compute_fifo_cogs_for_imported_sales
+
+        sale = MagicMock()
+        sale.id = uuid.uuid4()
+        sale.product_id = uuid.uuid4()
+        sale.variant_id = uuid.uuid4()
+        sale.quantity = 3
+        sale.total_amount = Decimal("300")
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[_scalars_result([sale]), _scalar_result(3)])
+
+        with patch(
+            "src.data_import.recompute.fifo_deduct",
+            new=AsyncMock(return_value=Decimal("180")),
+        ) as mock_fifo_deduct:
+            await _compute_fifo_cogs_for_imported_sales(db, JOB_ID)
+
+        mock_fifo_deduct.assert_awaited_once_with(
+            db, sale.product_id, sale.quantity, variant_id=sale.variant_id
+        )
+
+    @pytest.mark.asyncio
+    async def test_availability_precheck_scopes_to_the_same_variant_filter(self):
+        """The insufficient-batches pre-check must count the same set of
+        batches fifo_deduct() itself will draw from (variant-tagged +
+        untagged) — otherwise it could wrongly flag a sale as understated
+        (or miss a real shortfall) by counting a sibling variant's batches
+        that fifo_deduct() would never actually touch."""
+        from src.data_import.recompute import _compute_fifo_cogs_for_imported_sales
+
+        sale = MagicMock()
+        sale.id = uuid.uuid4()
+        sale.product_id = uuid.uuid4()
+        sale.variant_id = uuid.uuid4()
+        sale.quantity = 3
+        sale.total_amount = Decimal("300")
+
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[_scalars_result([sale]), _scalar_result(3)])
+
+        with patch(
+            "src.data_import.recompute.fifo_deduct",
+            new=AsyncMock(return_value=Decimal("180")),
+        ):
+            await _compute_fifo_cogs_for_imported_sales(db, JOB_ID)
+
+        precheck_stmt = db.execute.await_args_list[1].args[0]
+        compiled = str(
+            precheck_stmt.compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        assert "inventory_batches.variant_id is null" in compiled
+        assert sale.variant_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.asyncio
     async def test_one_sales_fifo_failure_does_not_stop_the_others(self):
         from src.data_import.recompute import _compute_fifo_cogs_for_imported_sales
 

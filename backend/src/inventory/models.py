@@ -158,6 +158,15 @@ class InventoryBatch(UUIDMixin, Base):
     order_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("purchase_orders.id"), index=True
     )
+    # NULL for a non-variant product's batch (or one received before variant
+    # tracking existed). fifo_deduct() treats a variant-scoped deduction as
+    # allowed to draw from its own variant_id AND from NULL-tagged batches,
+    # but never from a *different* variant's tagged batches — otherwise
+    # selling one variant would silently consume and misattribute landed
+    # cost from a sibling variant's purchase-order batches.
+    variant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("product_variants.id"), nullable=True, default=None, index=True
+    )
     quantity_received: Mapped[int] = mapped_column(Integer)
     quantity_remaining: Mapped[int] = mapped_column(Integer)
     unit_cost_usd: Mapped[Decimal] = mapped_column(Numeric(18, 6))

@@ -22,7 +22,7 @@ import uuid
 from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai_engine.models import ReorderStatus, ReorderSuggestion
@@ -280,10 +280,24 @@ async def _compute_fifo_cogs_for_imported_sales(
         # this once fifo_deduct() itself has succeeded — if it also fails
         # below, that error already covers this sale; appending both would
         # double-report the same underlying problem.
+        # Mirrors fifo_deduct()'s own variant filter exactly — a variant
+        # sale may draw from its own tagged batches plus untagged
+        # (variant_id=NULL) ones, never a sibling variant's. Counting a
+        # different set here than fifo_deduct() will actually draw from
+        # would make this understated/overstated check wrong.
+        variant_filter = (
+            or_(
+                InventoryBatch.variant_id == sale.variant_id,
+                InventoryBatch.variant_id.is_(None),
+            )
+            if sale.variant_id is not None
+            else InventoryBatch.variant_id.is_(None)
+        )
         available = await db.execute(
             select(func.sum(InventoryBatch.quantity_remaining)).where(
                 InventoryBatch.product_id == sale.product_id,
                 InventoryBatch.quantity_remaining > 0,
+                variant_filter,
             )
         )
         available_units = available.scalar() or 0
@@ -291,7 +305,9 @@ async def _compute_fifo_cogs_for_imported_sales(
 
         cogs, error = await run_isolated(
             db,
-            lambda s=sale: fifo_deduct(db, s.product_id, s.quantity),
+            lambda s=sale: fifo_deduct(
+                db, s.product_id, s.quantity, variant_id=s.variant_id
+            ),
             log_event="recompute_fifo_cogs_failed",
             error_entry={"step": "fifo_cogs", "sale_id": str(sale.id)},
         )

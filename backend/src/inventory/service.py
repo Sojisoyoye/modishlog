@@ -5,7 +5,7 @@ from collections.abc import Collection
 from datetime import date, datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.inventory.exceptions import (
@@ -414,14 +414,22 @@ async def create_batch(
     fx_rate_at_arrival: Decimal,
     logistics_allocation_per_unit: Decimal = Decimal("0"),
     received_at: date | None = None,
+    variant_id: uuid.UUID | None = None,
 ) -> InventoryBatch:
-    """Create an inventory batch when an order is delivered."""
+    """Create an inventory batch when an order is delivered.
+
+    variant_id should be set from the PO line item's own variant_id when
+    the delivered item is for a specific variant, so fifo_deduct() can
+    later scope FIFO consumption to that variant instead of pooling it
+    with every other variant of the same product.
+    """
     landed = compute_landed_cost(
         unit_cost_usd, fx_rate_at_arrival, logistics_allocation_per_unit
     )
     batch = InventoryBatch(
         product_id=product_id,
         order_id=order_id,
+        variant_id=variant_id,
         quantity_received=quantity,
         quantity_remaining=quantity,
         unit_cost_usd=unit_cost_usd,
@@ -475,16 +483,35 @@ async def fifo_deduct(
     db: AsyncSession,
     product_id: uuid.UUID,
     quantity: int,
+    variant_id: uuid.UUID | None = None,
 ) -> Decimal:
     """FIFO cost matching: deduct quantity from oldest batches first.
 
+    A variant-specific deduction (variant_id given) may draw from that
+    variant's own tagged batches AND from untagged (variant_id=NULL)
+    batches — stock received before variant tracking existed, or genuinely
+    shared stock — but never from a *different* variant's tagged batches,
+    which would misattribute that variant's landed cost onto this one. A
+    non-variant deduction (variant_id=None) only draws from untagged
+    batches, mirroring how InventoryLevel/adjust_stock scope aggregate vs.
+    variant-level rows.
+
     Returns total FIFO COGS for the consumed units.
     """
+    variant_filter = (
+        or_(
+            InventoryBatch.variant_id == variant_id,
+            InventoryBatch.variant_id.is_(None),
+        )
+        if variant_id is not None
+        else InventoryBatch.variant_id.is_(None)
+    )
     result = await db.execute(
         select(InventoryBatch)
         .where(
             InventoryBatch.product_id == product_id,
             InventoryBatch.quantity_remaining > 0,
+            variant_filter,
         )
         .order_by(InventoryBatch.received_at.asc())
         .with_for_update()

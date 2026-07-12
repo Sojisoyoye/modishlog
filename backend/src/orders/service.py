@@ -547,6 +547,7 @@ async def transition_status(
             await adjust_stock(
                 db,
                 product_id=item.product_id,
+                variant_id=item.variant_id,
                 quantity_change=item.quantity,
                 movement_type=MovementType.ORDER_RECEIVED.value,
                 reason=f"Order {order.order_number} delivered",
@@ -558,6 +559,7 @@ async def transition_status(
                 db,
                 product_id=item.product_id,
                 order_id=order.id,
+                variant_id=item.variant_id,
                 quantity=item.quantity,
                 unit_cost_usd=item.unit_cost,
                 fx_rate_at_arrival=fx_rate,

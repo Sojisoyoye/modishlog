@@ -233,7 +233,9 @@ async def create_sale(
     )
 
     # FIFO cost matching
-    cogs_result = await fifo_deduct(db, data.product_id, data.quantity)
+    cogs_result = await fifo_deduct(
+        db, data.product_id, data.quantity, variant_id=data.variant_id
+    )
     sale.fifo_cogs = cogs_result
     sale.fifo_gross_profit = sale.total_amount - cogs_result
     await db.flush()

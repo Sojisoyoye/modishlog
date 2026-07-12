@@ -1586,6 +1586,55 @@ class TestLotInventoryTracking:
 
         assert item.units_remaining == Decimal(str(item.quantity))
 
+    @pytest.mark.asyncio
+    async def test_order_delivered_propagates_variant_id_to_adjust_stock_and_create_batch(
+        self,
+    ):
+        """A PO line item for a specific variant must credit that
+        variant's InventoryLevel row (not the product's aggregate row) and
+        tag its InventoryBatch with the same variant_id — otherwise the
+        delivered stock lands on the wrong row, and fifo_deduct() later
+        has no way to scope FIFO consumption to this variant."""
+        from src.orders.service import transition_status
+        from src.orders.schemas import StatusTransition
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        item = _make_line_item(
+            product_id=product_id, variant_id=variant_id, quantity=50
+        )
+        order = _make_order(status=OrderStatus.CLEARED)
+        order.line_items = [item]
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = order if call_count == 1 else None
+            result.scalars.return_value.all.return_value = []
+            result.scalar.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with (
+            patch(
+                "src.orders.service.adjust_stock", new_callable=AsyncMock
+            ) as mock_adjust,
+            patch(
+                "src.orders.service.create_batch", new_callable=AsyncMock
+            ) as mock_create_batch,
+        ):
+            await transition_status(
+                db, order.id, StatusTransition(new_status="DELIVERED"), uuid.uuid4()
+            )
+
+        assert mock_adjust.call_args.kwargs["variant_id"] == variant_id
+        assert mock_create_batch.call_args.kwargs["variant_id"] == variant_id
+
     def test_units_remaining_null_before_delivery(self):
         """units_remaining stays None for orders that have not reached DELIVERED."""
         item = _make_line_item(quantity=10)
