@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 import structlog
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.ai_engine.models import ReorderStatus, ReorderSuggestion
 from src.ai_engine.service import generate_reorder_suggestions
@@ -506,17 +507,33 @@ async def _recompute_ai_signals(
     if reorder_error:
         errors.append({"step": "reorder_suggestions", "error": reorder_error})
 
-    result = await db.execute(select(Product.id).where(Product.migration_id == job_id))
-    product_ids = result.scalars().all()
-    for product_id in product_ids:
-        _, error = await run_isolated(
-            db,
-            lambda pid=product_id: compute_suggestion(db, pid),
-            log_event="recompute_price_suggestion_failed",
-            error_entry={"step": "price_suggestion", "product_id": str(product_id)},
-        )
-        if error:
-            errors.append(error)
+    result = await db.execute(
+        select(Product)
+        .options(selectinload(Product.variants))
+        .where(Product.migration_id == job_id)
+    )
+    products = result.scalars().all()
+    for product in products:
+        # A variant-tagged product needs one suggestion per variant — task
+        # 171's variant_or_untagged_filter() scoping means a single
+        # variant_id=None call would now match only untagged lots, which
+        # variant-tracked opening-stock imports never create.
+        variant_ids = [v.id for v in product.variants] if product.has_variants else [None]
+        for variant_id in variant_ids:
+            _, error = await run_isolated(
+                db,
+                lambda pid=product.id, vid=variant_id: compute_suggestion(
+                    db, pid, variant_id=vid
+                ),
+                log_event="recompute_price_suggestion_failed",
+                error_entry={
+                    "step": "price_suggestion",
+                    "product_id": str(product.id),
+                    **({"variant_id": str(variant_id)} if variant_id else {}),
+                },
+            )
+            if error:
+                errors.append(error)
     return errors
 
 

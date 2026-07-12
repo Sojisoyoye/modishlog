@@ -1128,6 +1128,14 @@ class TestComputeSuggestionVariantScoping:
         lot.unit_cost_ngn = Decimal(str(unit_cost_ngn))
         return lot
 
+    def _make_variant(self, variant_id, product_id, price_override=None):
+        from src.products.models import ProductVariant
+        variant = MagicMock(spec=ProductVariant)
+        variant.id = variant_id
+        variant.product_id = product_id
+        variant.price_override = price_override
+        return variant
+
     @pytest.mark.asyncio
     async def test_without_variant_id_only_matches_untagged_lots(self):
         from src.pricing.service import compute_suggestion
@@ -1174,6 +1182,7 @@ class TestComputeSuggestionVariantScoping:
         product_id = uuid.uuid4()
         variant_id = uuid.uuid4()
         lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+        variant = self._make_variant(variant_id, product_id)
 
         db = _mock_db()
         call_count = 0
@@ -1189,6 +1198,7 @@ class TestComputeSuggestionVariantScoping:
             else:
                 p = MagicMock()
                 p.selling_price = Decimal("20000")
+                p.variants = [variant]
                 result.scalar_one_or_none.return_value = p
             return result
 
@@ -1215,21 +1225,23 @@ class TestComputeSuggestionVariantScoping:
 
     @pytest.mark.asyncio
     async def test_variant_scoped_suggestion_never_pools_sibling_variant_cost(self):
-        """End-to-end: a mixed lot set where only the requested variant's
-        (and untagged) lots would actually be matched by the real
-        WHERE clause — the sibling variant's lot must not contribute to
-        the weighted-average cost."""
+        """Deduction-math check: given only the lots a correctly-scoped
+        query would return (a sibling variant's lot excluded, matching
+        how the mock stands in for the real WHERE clause — see
+        test_with_variant_id_matches_that_variant_or_untagged_lots above
+        for the actual SQL-shape assertion), the weighted-average cost
+        must come from exactly those lots."""
         from src.pricing.service import compute_suggestion
 
         product_id = uuid.uuid4()
         variant_a = uuid.uuid4()
-        # Only variant A's lot — the real query would exclude a sibling
-        # variant B's lot entirely (verified separately by the WHERE-clause
-        # inspection tests above; this mock stands in for that filtering).
         lot_a = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+        variant = self._make_variant(variant_a, product_id)
 
         db = _mock_db()
-        db.execute = self._mock_execute_lots_then_product([(lot_a, "USD")])
+        db.execute = self._mock_execute_lots_then_product(
+            [(lot_a, "USD")], variant=variant
+        )
 
         with patch(
             "src.pricing.service.get_live_usdngn_rate",
@@ -1242,7 +1254,74 @@ class TestComputeSuggestionVariantScoping:
 
         assert suggestion.unit_cost_ngn == Decimal("14000")
 
-    def _mock_execute_lots_then_product(self, lots_with_currency, catalog_price="20000"):
+    @pytest.mark.asyncio
+    async def test_raises_when_variant_does_not_belong_to_product(self):
+        """A variant_id referencing a different product must be rejected
+        before a suggestion is computed or persisted — otherwise the
+        weighted-average cost (drawn from *this* product's own lots, via
+        variant_or_untagged_filter()'s untagged-lot fallback) would get
+        silently mislabeled with a variant_id that belongs to some other
+        product, corrupting suggestion history."""
+        from src.pricing.exceptions import PricingSuggestionError
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        foreign_variant_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+
+        db = _mock_db()
+        # product.variants does NOT include foreign_variant_id.
+        db.execute = self._mock_execute_lots_then_product([(lot, "USD")], variant=None)
+
+        with patch(
+            "src.pricing.service.get_live_usdngn_rate",
+            new_callable=AsyncMock,
+            return_value=(Decimal("1700"), datetime.now(timezone.utc), True),
+        ):
+            with pytest.raises(PricingSuggestionError):
+                await compute_suggestion(
+                    db,
+                    product_id,
+                    target_margin=Decimal("0.40"),
+                    variant_id=foreign_variant_id,
+                )
+
+    @pytest.mark.asyncio
+    async def test_uses_variant_price_override_for_catalog_price(self):
+        """current_catalog_price_ngn must reflect the requested variant's
+        own price_override when set, not the product's base selling_price
+        — mirrors how every other variant-aware price resolver in the
+        codebase (products/service.py, sales/service.py, orders/service.py)
+        already applies 'variant.price_override if set else
+        product.selling_price'."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+        variant = self._make_variant(
+            variant_id, product_id, price_override=Decimal("25000")
+        )
+
+        db = _mock_db()
+        db.execute = self._mock_execute_lots_then_product(
+            [(lot, "USD")], catalog_price="20000", variant=variant
+        )
+
+        with patch(
+            "src.pricing.service.get_live_usdngn_rate",
+            new_callable=AsyncMock,
+            return_value=(Decimal("1700"), datetime.now(timezone.utc), True),
+        ):
+            suggestion = await compute_suggestion(
+                db, product_id, target_margin=Decimal("0.40"), variant_id=variant_id
+            )
+
+        assert suggestion.current_catalog_price_ngn == Decimal("25000")
+
+    def _mock_execute_lots_then_product(
+        self, lots_with_currency, catalog_price="20000", variant=None
+    ):
         call_count = 0
 
         async def mock_execute(stmt):
@@ -1254,6 +1333,7 @@ class TestComputeSuggestionVariantScoping:
             else:
                 p = MagicMock()
                 p.selling_price = Decimal(str(catalog_price))
+                p.variants = [variant] if variant is not None else []
                 result.scalar_one_or_none.return_value = p
             return result
 

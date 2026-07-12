@@ -1277,13 +1277,32 @@ async def compute_suggestion(
 
     avg_cost_ngn = (total_cost / total_units).quantize(Decimal("0.000001"))
 
-    # Load product with category + parent for margin resolution and catalog price
+    # Load product with category + parent for margin resolution, catalog
+    # price, and (if variant_id given) the variant itself.
     prod_result = await db.execute(
         select(Product)
-        .options(selectinload(Product.category).selectinload(ProductCategory.parent))
+        .options(
+            selectinload(Product.category).selectinload(ProductCategory.parent),
+            selectinload(Product.variants),
+        )
         .where(Product.id == product_id)
     )
     product = prod_result.scalar_one_or_none()
+
+    # A variant_id belonging to a different product must be rejected before
+    # persisting a suggestion — variant_or_untagged_filter()'s untagged-lot
+    # fallback would otherwise let this product's own lots silently get
+    # mislabeled with a variant_id that belongs to some other product.
+    variant = None
+    if variant_id is not None:
+        variant = next(
+            (v for v in (product.variants if product else []) if v.id == variant_id),
+            None,
+        )
+        if variant is None:
+            raise PricingSuggestionError(
+                product_id, f"variant {variant_id} does not belong to this product"
+            )
 
     # Resolve effective margin: caller override → sub-category → parent → system default
     if target_margin is None:
@@ -1314,9 +1333,14 @@ async def compute_suggestion(
             "Cannot recommend a loss-making price.",
         )
 
-    # Catalog price for context
+    # Catalog price for context — the variant's own price_override, if
+    # set, otherwise the product's base selling_price. Mirrors every other
+    # variant-aware price resolver (products/service.py, sales/service.py,
+    # orders/service.py).
     catalog_price: Decimal | None = None
-    if product:
+    if variant is not None and variant.price_override is not None:
+        catalog_price = variant.price_override
+    elif product:
         catalog_price = product.selling_price
 
     suggestion = PriceSuggestion(
