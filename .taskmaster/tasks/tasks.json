@@ -4934,11 +4934,11 @@
         "description": "inventory_levels' movement_type Postgres enum has mixed-case labels from past migrations, and the SQLAlchemy column lacks values_callable, making STOCK_ADJUSTMENT and OPENING_STOCK permanently uninsertable.",
         "details": "Found during task 164's PR #306 review (rounds 8/16). backend/src/inventory/models.py's `movement_type: Mapped[MovementType] = mapped_column(Enum(MovementType))` has no values_callable (unlike every other enum column in the codebase, e.g. data_import/models.py's MigrationJobStatus/SourceSystem/ExtractionMode), so it serializes new inserts via the Python enum's .name (upper-case). But STOCK_ADJUSTMENT/OPENING_STOCK were only ever migrated into the Postgres enum type as lower-case values, so inserting either of those two members fails at the DB level.\n\ndata_import/service.py's rollback_job() currently works around this by using MANUAL_ADD/MANUAL_REMOVE instead of the semantically-correct STOCK_ADJUSTMENT — documented in a comment, but any other/future caller that needs to record a genuine stock_adjustment or opening_stock movement will hit the identical silent-until-runtime failure.\n\nFix requires:\n1. Migration to ALTER TYPE the movementtype Postgres enum, normalizing every drifted label to one consistent case (check current DB state first — some labels may already be relied upon by existing rows/queries)\n2. Add values_callable=lambda x: [e.value for e in x] to the Enum(MovementType) column definition\n3. Once fixed, data_import's rollback_job() can use the semantically-correct STOCK_ADJUSTMENT movement type instead of MANUAL_ADD/MANUAL_REMOVE\n\nOut of scope for task 164 — this is inventory-domain schema drift predating this task, not something task 164 introduced.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-07-12T09:28:54.447Z"
+        "updatedAt": "2026-07-12T10:28:58.127Z"
       },
       {
         "id": "168",
@@ -4946,10 +4946,11 @@
         "description": "A second, parallel FIFO-like tracking system (OrderLineItem.units_remaining, distinct from InventoryBatch.quantity_remaining) has the identical cross-variant pooling bug that task 165 fixed for InventoryBatch/fifo_deduct.",
         "details": "Found while implementing task 165 (variant-aware FIFO costing, PR for feat/165-variant-aware-fifo-costing). sales/service.py's create_sale() calls two separate consumption mechanisms per sale: fifo_deduct() (now variant-aware) against InventoryBatch, AND _deduct_lot_units() against OrderLineItem.units_remaining — the latter has no variant_id filter at all, even though OrderLineItem already has a variant_id column (task 165 confirmed this while checking prerequisites).\n\n_deduct_lot_units(db, product_id, quantity) queries `OrderLineItem.product_id == product_id, OrderLineItem.units_remaining > 0` ordered by order date, with no variant scoping — so selling variant A can deplete units_remaining on a lot that was actually delivered for variant B.\n\nNot clear whether OrderLineItem.units_remaining and InventoryBatch.quantity_remaining are two independent sources of truth for the same concept (lot-level remaining stock) or serve different purposes (units_remaining backs the /orders/{id}/lots endpoint per test_orders.py's TestLotInventoryTracking). Investigate the relationship between the two systems before deciding whether to add variant scoping to _deduct_lot_units() alone, or consolidate the two mechanisms.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-07-12T10:32:58.421Z"
       },
       {
         "id": "169",
@@ -4965,9 +4966,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-07-12T09:28:54.448Z",
+      "lastModified": "2026-07-12T10:32:58.423Z",
       "taskCount": 169,
-      "completedCount": 166,
+      "completedCount": 167,
       "tags": [
         "master"
       ]
