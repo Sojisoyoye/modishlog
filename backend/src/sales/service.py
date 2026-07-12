@@ -102,6 +102,26 @@ async def _deduct_lot_units(
         )
 
 
+async def _apply_fifo_deduction(
+    db: AsyncSession,
+    sale: Sale,
+    product_id: uuid.UUID,
+    quantity: int,
+    variant_id: uuid.UUID | None,
+) -> None:
+    """Run FIFO cost matching for `sale` and stamp fifo_cogs/fifo_gross_profit.
+
+    Shared by create_sale() and update_sale() so the COGS computation
+    (and its `sale_id` reversibility ledger, task 166) can't silently
+    diverge between the two call sites."""
+    cogs_result = await fifo_deduct(
+        db, product_id, quantity, variant_id=variant_id, sale_id=sale.id
+    )
+    sale.fifo_cogs = cogs_result
+    sale.fifo_gross_profit = sale.total_amount - cogs_result
+    await db.flush()
+
+
 # ---------------------------------------------------------------------------
 # Daily sales entry
 # ---------------------------------------------------------------------------
@@ -241,12 +261,7 @@ async def create_sale(
     )
 
     # FIFO cost matching
-    cogs_result = await fifo_deduct(
-        db, data.product_id, data.quantity, variant_id=data.variant_id, sale_id=sale.id
-    )
-    sale.fifo_cogs = cogs_result
-    sale.fifo_gross_profit = sale.total_amount - cogs_result
-    await db.flush()
+    await _apply_fifo_deduction(db, sale, data.product_id, data.quantity, data.variant_id)
 
     # Lot-level FIFO deduction: deplete units_remaining on delivered order lots
     await _deduct_lot_units(
@@ -399,23 +414,27 @@ async def update_sale(
             reference_type="sale_update",
         )
 
-        # Re-sync FIFO cost matching to the corrected quantity: reverse this
-        # sale's original consumption via the FifoConsumption ledger (task
-        # 166), then re-run fifo_deduct() for the new quantity — mirrors
-        # void_sale()'s use of reverse_fifo_consumption(). Without this,
-        # InventoryBatch.quantity_remaining and sale.fifo_cogs/
-        # fifo_gross_profit stay based on the sale's original quantity.
-        await reverse_fifo_consumption(db, [sale.id])
-        cogs_result = await fifo_deduct(
-            db,
-            sale.product_id,
-            sale.quantity,
-            variant_id=getattr(sale, 'variant_id', None),
-            sale_id=sale.id,
-        )
-        sale.fifo_cogs = cogs_result
-        sale.fifo_gross_profit = sale.total_amount - cogs_result
-        await db.flush()
+        # Re-sync FIFO cost matching to the corrected quantity — but only
+        # for sales that were originally FIFO-tracked (fifo_cogs is not
+        # None). A sale with fifo_cogs=None never went through
+        # fifo_deduct()/create_sale() in the first place (e.g. POS-migrated
+        # sales inserted directly by scripts/pos_migrate.py, which have no
+        # FifoConsumption ledger row) — running fifo_deduct() on it here
+        # would fabricate a COGS figure and drain real InventoryBatch stock
+        # that was never actually allocated to this sale.
+        if sale.fifo_cogs is not None:
+            # reverse_fifo_consumption() undoes exactly what this sale's
+            # own FifoConsumption rows recorded (task 166), then
+            # _apply_fifo_deduction() re-runs for the new quantity —
+            # mirrors void_sale()'s use of reverse_fifo_consumption().
+            await reverse_fifo_consumption(db, [sale.id])
+            await _apply_fifo_deduction(
+                db,
+                sale,
+                sale.product_id,
+                sale.quantity,
+                getattr(sale, 'variant_id', None),
+            )
 
     await logger.ainfo("sale_updated", sale_id=str(sale_id), changes=field_changes)
     return sale
