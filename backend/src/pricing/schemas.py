@@ -262,6 +262,7 @@ class SuggestRequest(BaseModel):
     target_margin_pct: Optional[Decimal] = Field(
         default=None, gt=Decimal("0"), lt=Decimal("1")
     )
+    variant_id: Optional[uuid.UUID] = None
 
 
 class PriceSuggestionRead(BaseModel):
@@ -269,6 +270,7 @@ class PriceSuggestionRead(BaseModel):
 
     id: uuid.UUID
     product_id: uuid.UUID
+    variant_id: uuid.UUID | None = None
     unit_cost_ngn: Decimal
     fx_rate_used: Decimal
     target_margin_pct: Decimal

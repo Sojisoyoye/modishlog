@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.config import settings
+from src.core.query_helpers import variant_or_untagged_filter
 from src.fx.service import get_live_usdngn_rate
 from src.orders.models import OrderLineItem, PurchaseOrder
 from src.fx.exceptions import ForecastTimeoutError
@@ -35,7 +36,8 @@ from src.pricing.models import (
     ProductMixTarget,
     RecommendationStatus,
 )
-from src.products.models import PriceHistory, Product, ProductCategory
+from src.products.models import PriceHistory, Product, ProductCategory, ProductVariant
+from src.products.service import find_product_variant
 from src.sales.models import Sale, SaleStatus
 
 logger = structlog.get_logger()
@@ -1227,21 +1229,57 @@ async def compute_suggestion(
     db: AsyncSession,
     product_id: uuid.UUID,
     target_margin: Decimal | None = None,
+    variant_id: uuid.UUID | None = None,
 ) -> "PriceSuggestion":  # noqa: F821 — forward ref resolved at runtime
     """Compute and persist a sell-price suggestion from active lot cost basis.
 
     Weighted-average unit_cost_ngn across all lots with units_remaining > 0.
     Lots without unit_cost_ngn are costed at unit_cost * live FX rate.
     When target_margin is None, resolves from: sub-category → parent → 40% default.
+
+    variant_id scopes which lots are eligible via variant_or_untagged_filter()
+    (src/core/query_helpers.py) — the same cross-variant pooling bug task 165
+    fixed for fifo_deduct() and task 168 fixed for _deduct_lot_units(), on
+    this third units_remaining consumer (task 171). Omitting it (the
+    default) preserves prior behaviour for non-variant products.
     """
-    # Fetch active lots joined with their parent order's currency
+    # A variant_id belonging to a different product (or an inactive one)
+    # must be rejected up front — before the lot query, and before the
+    # live FX-rate fetch below (which can hit an external API and persist
+    # a new FXRate row on a cache miss). Checking first avoids paying for
+    # both on a request that's going to fail validation anyway.
+    variant: ProductVariant | None = None
+    if variant_id is not None:
+        variant = await find_product_variant(db, variant_id, product_id)
+        if variant is None:
+            raise PricingSuggestionError(
+                product_id,
+                f"variant {variant_id} does not belong to this product, or is inactive",
+            )
+
+    # Fetch active lots joined with their parent order's currency.
+    # variant_id=None (the default) intentionally does NOT filter by
+    # variant at all — unlike fifo_deduct()/_deduct_lot_units(), where a
+    # None variant_id means "this really is a non-variant sale" (enforced
+    # upfront by create_sale()), a caller here may simply not know/care
+    # about variant scoping (e.g. the existing products-page.component.ts
+    # "suggest price" button, which never passes variant_id). Pooling
+    # across every variant is this function's original, still-supported
+    # behaviour for that case. Only an explicit variant_id narrows the
+    # query, via variant_or_untagged_filter() (own variant + untagged,
+    # never a sibling's — task 165's rule).
+    where_clauses = [
+        OrderLineItem.product_id == product_id,
+        OrderLineItem.units_remaining > 0,
+    ]
+    if variant_id is not None:
+        where_clauses.append(
+            variant_or_untagged_filter(OrderLineItem.variant_id, variant_id)
+        )
     lot_result = await db.execute(
         select(OrderLineItem, PurchaseOrder.currency)
         .join(PurchaseOrder, OrderLineItem.order_id == PurchaseOrder.id)
-        .where(
-            OrderLineItem.product_id == product_id,
-            OrderLineItem.units_remaining > 0,
-        )
+        .where(*where_clauses)
     )
     lots_with_currency = lot_result.all()
 
@@ -1305,13 +1343,19 @@ async def compute_suggestion(
             "Cannot recommend a loss-making price.",
         )
 
-    # Catalog price for context
+    # Catalog price for context — the variant's own price_override, if
+    # set, otherwise the product's base selling_price. Mirrors every other
+    # variant-aware price resolver (products/service.py, sales/service.py,
+    # orders/service.py).
     catalog_price: Decimal | None = None
-    if product:
+    if variant is not None and variant.price_override is not None:
+        catalog_price = variant.price_override
+    elif product:
         catalog_price = product.selling_price
 
     suggestion = PriceSuggestion(
         product_id=product_id,
+        variant_id=variant_id,
         unit_cost_ngn=avg_cost_ngn,
         fx_rate_used=fx_rate,
         target_margin_pct=target_margin,
@@ -1336,10 +1380,40 @@ async def get_suggestion_history(
     db: AsyncSession,
     product_id: uuid.UUID,
     limit: int = 30,
+    variant_id: uuid.UUID | None = None,
 ) -> list:
+    """Return the last `limit` price suggestions for a product, newest
+    first.
+
+    variant_id narrows to suggestions computed for exactly that variant —
+    omitting it (the default) preserves prior behaviour: every suggestion
+    for the product, regardless of which variant (or none) it was for.
+    Without this, a product's variants' suggestion histories interleave
+    with no way to tell them apart (task 171).
+
+    Raises PricingSuggestionError if variant_id doesn't belong to
+    product_id — a mismatched pair would otherwise just silently return
+    an empty list, masking a client-side bug that passed the wrong pair.
+    Deliberately does NOT filter by is_active like compute_suggestion()
+    does: a deactivated variant's *past* suggestions should stay visible
+    (this is a history read, not a request to compute a new suggestion
+    against that variant's current, possibly-gone lot stock)."""
+    if variant_id is not None:
+        variant = await find_product_variant(
+            db, variant_id, product_id, active_only=False
+        )
+        if variant is None:
+            raise PricingSuggestionError(
+                product_id, f"variant {variant_id} does not belong to this product"
+            )
+
+    where_clauses = [PriceSuggestion.product_id == product_id]
+    if variant_id is not None:
+        where_clauses.append(PriceSuggestion.variant_id == variant_id)
+
     result = await db.execute(
         select(PriceSuggestion)
-        .where(PriceSuggestion.product_id == product_id)
+        .where(*where_clauses)
         .order_by(PriceSuggestion.suggested_at.desc())
         .limit(limit)
     )

@@ -174,6 +174,12 @@ class PriceSuggestion(UUIDMixin, Base):
     product_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("products.id", ondelete="CASCADE"), index=True
     )
+    # NULL for a non-variant product's suggestion, or one predating variant
+    # scoping (task 171). compute_suggestion() scopes its lot cost query to
+    # this variant via variant_or_untagged_filter() when set.
+    variant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("product_variants.id"), nullable=True, default=None, index=True
+    )
     unit_cost_ngn: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     fx_rate_used: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     target_margin_pct: Mapped[Decimal] = mapped_column(Numeric(5, 4))

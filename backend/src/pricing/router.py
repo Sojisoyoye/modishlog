@@ -412,7 +412,10 @@ async def compute_suggestion_endpoint(
     """Compute and persist a sell-price suggestion from active lot cost basis."""
     try:
         return await compute_suggestion(
-            db, product_id, target_margin=body.target_margin_pct
+            db,
+            product_id,
+            target_margin=body.target_margin_pct,
+            variant_id=body.variant_id,
         )
     except PricingSuggestionError as e:
         raise HTTPException(
@@ -424,8 +427,17 @@ async def compute_suggestion_endpoint(
 async def suggestion_history_endpoint(
     product_id: uuid.UUID,
     limit: int = 30,
+    variant_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Return the last N price suggestions for a product, newest first."""
-    return await get_suggestion_history(db, product_id, limit=limit)
+    """Return the last N price suggestions for a product, newest first.
+    Pass variant_id to scope to that variant's own suggestion history."""
+    try:
+        return await get_suggestion_history(
+            db, product_id, limit=limit, variant_id=variant_id
+        )
+    except PricingSuggestionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )

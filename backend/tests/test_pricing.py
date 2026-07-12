@@ -566,6 +566,83 @@ class TestPricingEndpoints:
             )
         assert resp.status_code == 401
 
+    def test_suggest_endpoint_passes_variant_id_through(self):
+        """The /suggest/{product_id} endpoint must forward a request's
+        variant_id to compute_suggestion() — otherwise the variant-scoped
+        WHERE clause added for task 171 is unreachable from the real API
+        contract, not just the service-layer function signature."""
+        from src.pricing.models import PriceSuggestion
+
+        self._override_auth()
+        db = _mock_db()
+        self._override_db(db)
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+
+        fake_suggestion = PriceSuggestion(
+            product_id=product_id,
+            variant_id=variant_id,
+            unit_cost_ngn=Decimal("14000"),
+            fx_rate_used=Decimal("1700"),
+            target_margin_pct=Decimal("0.40"),
+            suggested_price_ngn=Decimal("23333.33"),
+            current_catalog_price_ngn=None,
+            suggested_at=datetime.now(timezone.utc),
+        )
+        fake_suggestion.id = uuid.uuid4()
+
+        with patch(
+            "src.pricing.router.compute_suggestion",
+            new_callable=AsyncMock,
+            return_value=fake_suggestion,
+        ) as mock_compute:
+            headers, _ = self._auth_headers()
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    f"/api/v1/pricing/suggest/{product_id}",
+                    headers=headers,
+                    json={"variant_id": str(variant_id)},
+                )
+
+        assert resp.status_code == 201
+        assert resp.json()["variant_id"] == str(variant_id)
+        mock_compute.assert_awaited_once()
+        _, kwargs = mock_compute.call_args
+        assert kwargs["variant_id"] == variant_id
+
+    def test_suggestion_history_endpoint_returns_422_for_mismatched_variant(self):
+        """GET /suggest/{product_id}/history?variant_id=... must convert
+        get_suggestion_history()'s PricingSuggestionError (raised when
+        variant_id doesn't belong to product_id) to a 422 — mirrors
+        compute_suggestion_endpoint's identical try/except. Exercised at
+        the router layer, not just get_suggestion_history() directly, so
+        a miswired except clause (wrong status, wrong exception type, or
+        an unhandled 500) would actually be caught."""
+        from src.pricing.exceptions import PricingSuggestionError
+
+        self._override_auth()
+        db = _mock_db()
+        self._override_db(db)
+        product_id = uuid.uuid4()
+        foreign_variant_id = uuid.uuid4()
+
+        with patch(
+            "src.pricing.router.get_suggestion_history",
+            new_callable=AsyncMock,
+            side_effect=PricingSuggestionError(
+                product_id, "variant does not belong to this product"
+            ),
+        ):
+            headers, _ = self._auth_headers()
+            with TestClient(self.app) as client:
+                resp = client.get(
+                    f"/api/v1/pricing/suggest/{product_id}/history",
+                    headers=headers,
+                    params={"variant_id": str(foreign_variant_id)},
+                )
+
+        assert resp.status_code == 422
+
     def test_margin_targets_empty(self):
         self._override_auth()
         db = _mock_db_with_execute(scalars_result=[])
@@ -1061,6 +1138,465 @@ class TestPriceSuggestionEngine:
 
         with pytest.raises(ValidationError):
             SuggestRequest(target_margin_pct=Decimal("-0.1"))
+
+
+# ---------------------------------------------------------------------------
+# Tests for variant-scoped lot cost (task 171)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeSuggestionVariantScoping:
+    """compute_suggestion()'s weighted-average lot cost must not pool a
+    sibling variant's lots — the same cross-variant bug task 165 fixed for
+    fifo_deduct()/InventoryBatch and task 168 fixed for
+    _deduct_lot_units()/OrderLineItem, on this third units_remaining
+    consumer."""
+
+    def _make_lot(self, product_id, units_remaining, unit_cost_ngn):
+        from src.orders.models import OrderLineItem
+        lot = MagicMock(spec=OrderLineItem)
+        lot.product_id = product_id
+        lot.units_remaining = Decimal(str(units_remaining))
+        lot.unit_cost = Decimal("10")
+        lot.unit_cost_ngn = Decimal(str(unit_cost_ngn))
+        return lot
+
+    def _make_variant(self, variant_id, product_id, price_override=None):
+        from src.products.models import ProductVariant
+        variant = MagicMock(spec=ProductVariant)
+        variant.id = variant_id
+        variant.product_id = product_id
+        variant.price_override = price_override
+        return variant
+
+    @pytest.mark.asyncio
+    async def test_without_variant_id_does_not_filter_by_variant_at_all(self):
+        """Omitting variant_id (the default) must NOT narrow to untagged
+        lots only — unlike fifo_deduct()/_deduct_lot_units(), a caller
+        here (e.g. products-page.component.ts's "suggest price" button,
+        which never passes variant_id) may simply not know/care about
+        variant scoping and expects the pre-task-171 behaviour: pool
+        across every lot for the product, tagged or not. Narrowing this
+        to untagged-only would silently break price suggestions for every
+        variant-tracked product for that caller."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+
+        db = _mock_db()
+        call_count = 0
+        captured_stmt = None
+
+        async def mock_execute(stmt):
+            nonlocal call_count, captured_stmt
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                captured_stmt = stmt
+                result.all.return_value = [(lot, "USD")]
+            else:
+                p = MagicMock()
+                p.selling_price = Decimal("20000")
+                result.scalar_one_or_none.return_value = p
+            return result
+
+        db.execute = mock_execute
+
+        with patch(
+            "src.pricing.service.get_live_usdngn_rate",
+            new_callable=AsyncMock,
+            return_value=(Decimal("1700"), datetime.now(timezone.utc), True),
+        ):
+            await compute_suggestion(db, product_id, target_margin=Decimal("0.40"))
+
+        compiled = str(
+            captured_stmt.compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        assert "order_line_items.variant_id is null" not in compiled
+        assert "order_line_items.variant_id =" not in compiled
+
+    @pytest.mark.asyncio
+    async def test_without_variant_id_still_succeeds_for_a_variant_tracked_product(
+        self,
+    ):
+        """Regression check: a product whose ONLY lots are variant-tagged
+        (no untagged fallback stock at all — the normal state for a
+        variant-tracked product per recompute.py's own comment that
+        "variant-tracked opening-stock imports never create [untagged
+        lots]") must still produce a suggestion when the caller omits
+        variant_id, exactly as it did before task 171. Filtering to
+        untagged-only here would turn a working feature into a 422 for
+        every variant-tracked product."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        tagged_lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+        tagged_lot.variant_id = variant_id  # no untagged lots exist at all
+
+        db = _mock_db()
+        db.execute = self._mock_execute_lots_then_product([(tagged_lot, "USD")])
+
+        with patch(
+            "src.pricing.service.get_live_usdngn_rate",
+            new_callable=AsyncMock,
+            return_value=(Decimal("1700"), datetime.now(timezone.utc), True),
+        ):
+            suggestion = await compute_suggestion(
+                db, product_id, target_margin=Decimal("0.40")
+            )
+
+        assert suggestion.unit_cost_ngn == Decimal("14000")
+
+    @pytest.mark.asyncio
+    async def test_with_variant_id_matches_that_variant_or_untagged_lots(self):
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+        variant = self._make_variant(variant_id, product_id)
+
+        db = _mock_db()
+        call_count = 0
+        captured_stmt = None
+
+        async def mock_execute(stmt):
+            nonlocal call_count, captured_stmt
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:  # variant-ownership lookup (validated first)
+                result.scalar_one_or_none.return_value = variant
+            elif call_count == 2:
+                captured_stmt = stmt
+                result.all.return_value = [(lot, "USD")]
+            else:  # product lookup
+                p = MagicMock()
+                p.selling_price = Decimal("20000")
+                result.scalar_one_or_none.return_value = p
+            return result
+
+        db.execute = mock_execute
+
+        with patch(
+            "src.pricing.service.get_live_usdngn_rate",
+            new_callable=AsyncMock,
+            return_value=(Decimal("1700"), datetime.now(timezone.utc), True),
+        ):
+            await compute_suggestion(
+                db, product_id, target_margin=Decimal("0.40"), variant_id=variant_id
+            )
+
+        compiled = str(
+            captured_stmt.compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        assert "order_line_items.variant_id is null" in compiled
+        assert variant_id.hex in compiled.replace("-", "")
+        assert (
+            "order_line_items.variant_id = " in compiled
+            or "order_line_items.variant_id=" in compiled
+        )
+
+    @pytest.mark.asyncio
+    async def test_variant_scoped_suggestion_never_pools_sibling_variant_cost(self):
+        """Deduction-math check: given only the lots a correctly-scoped
+        query would return (a sibling variant's lot excluded, matching
+        how the mock stands in for the real WHERE clause — see
+        test_with_variant_id_matches_that_variant_or_untagged_lots above
+        for the actual SQL-shape assertion), the weighted-average cost
+        must come from exactly those lots."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        variant_a = uuid.uuid4()
+        lot_a = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+        variant = self._make_variant(variant_a, product_id)
+
+        db = _mock_db()
+        db.execute = self._mock_execute_lots_then_product(
+            [(lot_a, "USD")], variant=variant, with_variant_lookup=True
+        )
+
+        with patch(
+            "src.pricing.service.get_live_usdngn_rate",
+            new_callable=AsyncMock,
+            return_value=(Decimal("1700"), datetime.now(timezone.utc), True),
+        ):
+            suggestion = await compute_suggestion(
+                db, product_id, target_margin=Decimal("0.40"), variant_id=variant_a
+            )
+
+        assert suggestion.unit_cost_ngn == Decimal("14000")
+
+    @pytest.mark.asyncio
+    async def test_raises_when_variant_does_not_belong_to_product(self):
+        """A variant_id referencing a different product (or an inactive
+        variant) must be rejected before a suggestion is computed or
+        persisted — otherwise the weighted-average cost (drawn from
+        *this* product's own lots, via variant_or_untagged_filter()'s
+        untagged-lot fallback) would get silently mislabeled with a
+        variant_id that isn't really eligible, corrupting suggestion
+        history."""
+        from src.pricing.exceptions import PricingSuggestionError
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        foreign_variant_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+
+        db = _mock_db()
+        # The variant-ownership lookup finds nothing for foreign_variant_id.
+        db.execute = self._mock_execute_lots_then_product(
+            [(lot, "USD")], variant=None, with_variant_lookup=True
+        )
+
+        with patch(
+            "src.pricing.service.get_live_usdngn_rate",
+            new_callable=AsyncMock,
+            return_value=(Decimal("1700"), datetime.now(timezone.utc), True),
+        ):
+            with pytest.raises(PricingSuggestionError):
+                await compute_suggestion(
+                    db,
+                    product_id,
+                    target_margin=Decimal("0.40"),
+                    variant_id=foreign_variant_id,
+                )
+
+    @pytest.mark.asyncio
+    async def test_invalid_variant_id_rejected_before_lot_query_or_fx_fetch(self):
+        """The variant-ownership check must run before the lot query and
+        the live FX-rate fetch — get_live_usdngn_rate() can hit an
+        external API and persist a new FXRate row on a cache miss, so an
+        invalid/foreign variant_id shouldn't pay for either before being
+        rejected."""
+        from src.pricing.exceptions import PricingSuggestionError
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        foreign_variant_id = uuid.uuid4()
+
+        db = _mock_db()
+        lot_query_touched = False
+
+        async def mock_execute(stmt):
+            nonlocal lot_query_touched
+            result = MagicMock()
+            # The only db.execute() call before rejection must be the
+            # variant-ownership lookup — anything selecting OrderLineItem
+            # would mean the lot query ran first.
+            if "order_line_items" in str(stmt).lower():
+                lot_query_touched = True
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with patch(
+            "src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock
+        ) as mock_fx:
+            with pytest.raises(PricingSuggestionError):
+                await compute_suggestion(
+                    db,
+                    product_id,
+                    target_margin=Decimal("0.40"),
+                    variant_id=foreign_variant_id,
+                )
+
+        assert lot_query_touched is False
+        mock_fx.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_uses_variant_price_override_for_catalog_price(self):
+        """current_catalog_price_ngn must reflect the requested variant's
+        own price_override when set, not the product's base selling_price
+        — mirrors how every other variant-aware price resolver in the
+        codebase (products/service.py, sales/service.py, orders/service.py)
+        already applies 'variant.price_override if set else
+        product.selling_price'."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="14000")
+        variant = self._make_variant(
+            variant_id, product_id, price_override=Decimal("25000")
+        )
+
+        db = _mock_db()
+        db.execute = self._mock_execute_lots_then_product(
+            [(lot, "USD")],
+            catalog_price="20000",
+            variant=variant,
+            with_variant_lookup=True,
+        )
+
+        with patch(
+            "src.pricing.service.get_live_usdngn_rate",
+            new_callable=AsyncMock,
+            return_value=(Decimal("1700"), datetime.now(timezone.utc), True),
+        ):
+            suggestion = await compute_suggestion(
+                db, product_id, target_margin=Decimal("0.40"), variant_id=variant_id
+            )
+
+        assert suggestion.current_catalog_price_ngn == Decimal("25000")
+
+    def _mock_execute_lots_then_product(
+        self,
+        lots_with_currency,
+        catalog_price="20000",
+        variant=None,
+        with_variant_lookup=False,
+    ):
+        """If with_variant_lookup: call1=variant-ownership lookup (returns
+        `variant`), call2=lots, call3=product — else call1=lots, call2=
+        product. Matches compute_suggestion()'s query order: the
+        variant-ownership check runs first, and only when variant_id is
+        passed, before the lot query and live FX-rate fetch."""
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if with_variant_lookup and call_count == 1:
+                result.scalar_one_or_none.return_value = variant
+            elif (with_variant_lookup and call_count == 2) or (
+                not with_variant_lookup and call_count == 1
+            ):
+                result.all.return_value = lots_with_currency
+            else:
+                p = MagicMock()
+                p.selling_price = Decimal(str(catalog_price))
+                result.scalar_one_or_none.return_value = p
+            return result
+
+        return mock_execute
+
+
+class TestSuggestionHistoryVariantScoping:
+    """get_suggestion_history() must not interleave a product's different
+    variants' suggestions — otherwise browsing one variant's price/cost
+    trend silently mixes in a sibling variant's numbers, undermining the
+    whole point of scoping compute_suggestion() by variant (task 171)."""
+
+    @pytest.mark.asyncio
+    async def test_variant_id_filters_to_that_variant_only(self):
+        from src.pricing.service import get_suggestion_history
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+
+        db = _mock_db()
+        captured_stmt = None
+
+        async def mock_execute(stmt):
+            nonlocal captured_stmt
+            captured_stmt = stmt
+            result = MagicMock()
+            result.scalars.return_value.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+
+        await get_suggestion_history(db, product_id, variant_id=variant_id)
+
+        compiled = str(
+            captured_stmt.compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        assert "price_suggestions.variant_id = " in compiled or (
+            "price_suggestions.variant_id=" in compiled
+        )
+        assert variant_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.asyncio
+    async def test_without_variant_id_does_not_filter_by_variant(self):
+        """Omitting variant_id preserves prior behaviour: every suggestion
+        for the product, regardless of which variant (or none) it was
+        computed for."""
+        from src.pricing.service import get_suggestion_history
+
+        product_id = uuid.uuid4()
+
+        db = _mock_db()
+        captured_stmt = None
+
+        async def mock_execute(stmt):
+            nonlocal captured_stmt
+            captured_stmt = stmt
+            result = MagicMock()
+            result.scalars.return_value.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+
+        await get_suggestion_history(db, product_id)
+
+        compiled = str(
+            captured_stmt.compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        # The SELECT column list naturally mentions variant_id (it's a
+        # column on the model) — only the WHERE-clause comparison must be
+        # absent when variant_id isn't passed.
+        assert "price_suggestions.variant_id =" not in compiled
+        assert "price_suggestions.variant_id=" not in compiled
+
+    @pytest.mark.asyncio
+    async def test_raises_when_variant_id_does_not_belong_to_product(self):
+        """A mismatched product_id/variant_id pair must raise, not
+        silently return an empty list — an empty result is otherwise
+        indistinguishable from 'this variant has no suggestions yet',
+        masking a client-side bug that passed the wrong pair."""
+        from src.pricing.exceptions import PricingSuggestionError
+        from src.pricing.service import get_suggestion_history
+
+        product_id = uuid.uuid4()
+        foreign_variant_id = uuid.uuid4()
+
+        db = _mock_db()
+
+        async def mock_execute(stmt):
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None  # ownership lookup finds nothing
+            return result
+
+        db.execute = mock_execute
+
+        with pytest.raises(PricingSuggestionError):
+            await get_suggestion_history(db, product_id, variant_id=foreign_variant_id)
+
+    @pytest.mark.asyncio
+    async def test_deactivated_variants_history_stays_visible(self):
+        """Unlike compute_suggestion() (which rejects an inactive variant
+        before computing a *new* suggestion), reading a deactivated
+        variant's *past* suggestion history must still succeed — this is
+        a read of history, not a request against the variant's current
+        lot stock, so an is_active=False variant is still a valid
+        ownership match here."""
+        from src.pricing.service import get_suggestion_history
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+
+        db = _mock_db()
+
+        async def mock_execute(stmt):
+            result = MagicMock()
+            # Ownership lookup finds the (inactive) variant just fine —
+            # is_active is never part of this query's WHERE clause.
+            result.scalar_one_or_none.return_value = MagicMock(
+                id=variant_id, product_id=product_id, is_active=False
+            )
+            result.scalars.return_value.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+
+        result = await get_suggestion_history(db, product_id, variant_id=variant_id)
+
+        assert result == []
 
 
 # ---------------------------------------------------------------------------

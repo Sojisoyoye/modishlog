@@ -62,6 +62,30 @@ def _scalar_result(value):
     return r
 
 
+def _make_product_for_recompute(
+    product_id=None, variant_ids=None, inactive_variant_ids=None
+):
+    """A Product stand-in for _recompute_ai_signals()'s per-product loop —
+    has_variants=True with N active variants (plus any inactive_variant_ids)
+    when variant_ids is given, else a plain non-variant product (mirrors
+    the real Product.has_variants / Product.variants relationship, task
+    171's fix)."""
+    p = MagicMock()
+    p.id = product_id or uuid.uuid4()
+    if variant_ids or inactive_variant_ids:
+        p.has_variants = True
+        p.variants = [
+            MagicMock(id=vid, is_active=True) for vid in (variant_ids or [])
+        ] + [
+            MagicMock(id=vid, is_active=False)
+            for vid in (inactive_variant_ids or [])
+        ]
+    else:
+        p.has_variants = False
+        p.variants = []
+    return p
+
+
 # ---------------------------------------------------------------------------
 # _deduct_imported_sales_stock
 # ---------------------------------------------------------------------------
@@ -902,12 +926,12 @@ class TestRecomputeAiSignals:
     ):
         from src.data_import.recompute import _recompute_ai_signals
 
-        product_id = uuid.uuid4()
+        product = _make_product_for_recompute()
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[
                 MagicMock(),  # delete(...) pending suggestions
-                _scalars_result([product_id]),  # imported product ids
+                _scalars_result([product]),  # imported products (+ variants)
             ]
         )
 
@@ -924,13 +948,14 @@ class TestRecomputeAiSignals:
 
         assert errors == []
         mock_reorder.assert_awaited_once_with(db, BUSINESS_ID)
-        mock_price.assert_awaited_once_with(db, product_id)
+        mock_price.assert_awaited_once_with(db, product.id, variant_id=None)
 
     @pytest.mark.asyncio
     async def test_one_products_pricing_failure_does_not_stop_the_others(self):
         from src.data_import.recompute import _recompute_ai_signals
 
-        product_a, product_b = uuid.uuid4(), uuid.uuid4()
+        product_a = _make_product_for_recompute()
+        product_b = _make_product_for_recompute()
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[MagicMock(), _scalars_result([product_a, product_b])]
@@ -945,7 +970,7 @@ class TestRecomputeAiSignals:
                 "src.data_import.recompute.compute_suggestion",
                 new=AsyncMock(
                     side_effect=[
-                        PricingSuggestionError(product_a, "no active lots"),
+                        PricingSuggestionError(product_a.id, "no active lots"),
                         MagicMock(),
                     ]
                 ),
@@ -955,15 +980,15 @@ class TestRecomputeAiSignals:
 
         assert mock_price.await_count == 2
         assert len(errors) == 1
-        assert errors[0]["product_id"] == str(product_a)
+        assert errors[0]["product_id"] == str(product_a.id)
 
     @pytest.mark.asyncio
     async def test_reorder_suggestion_failure_does_not_block_pricing_suggestions(self):
         from src.data_import.recompute import _recompute_ai_signals
 
-        product_id = uuid.uuid4()
+        product = _make_product_for_recompute()
         db = _mock_db()
-        db.execute = AsyncMock(side_effect=[MagicMock(), _scalars_result([product_id])])
+        db.execute = AsyncMock(side_effect=[MagicMock(), _scalars_result([product])])
 
         with (
             patch(
@@ -987,7 +1012,8 @@ class TestRecomputeAiSignals:
         product's price suggestion."""
         from src.data_import.recompute import _recompute_ai_signals
 
-        product_a, product_b = uuid.uuid4(), uuid.uuid4()
+        product_a = _make_product_for_recompute()
+        product_b = _make_product_for_recompute()
         db = _mock_db()
         db.execute = AsyncMock(
             side_effect=[MagicMock(), _scalars_result([product_a, product_b])]
@@ -1009,7 +1035,7 @@ class TestRecomputeAiSignals:
 
         assert mock_price.await_count == 2
         assert len(errors) == 1
-        assert errors[0]["product_id"] == str(product_a)
+        assert errors[0]["product_id"] == str(product_a.id)
 
     @pytest.mark.asyncio
     async def test_price_suggestion_call_is_wrapped_in_a_per_item_savepoint(self):
@@ -1022,9 +1048,9 @@ class TestRecomputeAiSignals:
         TestRegenerateReorderSuggestionsForBusiness.)"""
         from src.data_import.recompute import _recompute_ai_signals
 
-        product_id = uuid.uuid4()
+        product = _make_product_for_recompute()
         db = _mock_db()
-        db.execute = AsyncMock(side_effect=[MagicMock(), _scalars_result([product_id])])
+        db.execute = AsyncMock(side_effect=[MagicMock(), _scalars_result([product])])
         db.begin_nested = MagicMock(return_value=_NestedTransaction())
 
         with (
@@ -1037,6 +1063,104 @@ class TestRecomputeAiSignals:
             await _recompute_ai_signals(db, BUSINESS_ID, JOB_ID)
 
         assert db.begin_nested.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_variant_product_computes_one_suggestion_per_variant(self):
+        """A product imported with variants (task 171) must get one
+        compute_suggestion() call per variant, each scoped to its own
+        variant_id — calling it once with variant_id=None (as this loop
+        did before task 171) would now match only untagged lots and
+        silently fail for every variant-tagged import."""
+        from src.data_import.recompute import _recompute_ai_signals
+
+        variant_a_id, variant_b_id = uuid.uuid4(), uuid.uuid4()
+        product = _make_product_for_recompute(variant_ids=[variant_a_id, variant_b_id])
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[MagicMock(), _scalars_result([product])])
+
+        with (
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "src.data_import.recompute.compute_suggestion", new=AsyncMock()
+            ) as mock_price,
+        ):
+            errors = await _recompute_ai_signals(db, BUSINESS_ID, JOB_ID)
+
+        assert errors == []
+        assert mock_price.await_count == 2
+        called_variant_ids = {
+            call.kwargs["variant_id"] for call in mock_price.call_args_list
+        }
+        assert called_variant_ids == {variant_a_id, variant_b_id}
+        assert all(
+            call.args == (db, product.id) for call in mock_price.call_args_list
+        )
+
+    @pytest.mark.asyncio
+    async def test_variant_flagged_product_with_no_variant_rows_still_attempts_once(
+        self,
+    ):
+        """has_variants=True with zero loaded ProductVariant rows (a data
+        anomaly — e.g. every variant was later deleted) must still get one
+        compute_suggestion() attempt and one accounted-for outcome, not
+        silently zero calls and zero error entries. Every other product in
+        this loop gets exactly this guarantee via run_isolated(); an empty
+        variant_ids list would quietly break it for this one."""
+        from src.data_import.recompute import _recompute_ai_signals
+
+        product = _make_product_for_recompute(variant_ids=[])
+        product.has_variants = True  # the anomaly: flagged, but no rows
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[MagicMock(), _scalars_result([product])])
+
+        with (
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "src.data_import.recompute.compute_suggestion", new=AsyncMock()
+            ) as mock_price,
+        ):
+            errors = await _recompute_ai_signals(db, BUSINESS_ID, JOB_ID)
+
+        assert errors == []
+        mock_price.assert_awaited_once_with(db, product.id, variant_id=None)
+
+    @pytest.mark.asyncio
+    async def test_inactive_variants_are_excluded_from_the_per_variant_loop(self):
+        """A deactivated variant (products/service.py's documented
+        soft-delete sets ProductVariant.is_active=False — a normal
+        supported operation) must not be passed to compute_suggestion(),
+        which rejects inactive variants (task 171's ownership check).
+        Including it here would produce a spurious price_suggestion error
+        on every recompute run for any product with a deactivated
+        variant."""
+        from src.data_import.recompute import _recompute_ai_signals
+
+        active_id, inactive_id = uuid.uuid4(), uuid.uuid4()
+        product = _make_product_for_recompute(
+            variant_ids=[active_id], inactive_variant_ids=[inactive_id]
+        )
+        db = _mock_db()
+        db.execute = AsyncMock(side_effect=[MagicMock(), _scalars_result([product])])
+
+        with (
+            patch(
+                "src.data_import.recompute.generate_reorder_suggestions",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "src.data_import.recompute.compute_suggestion", new=AsyncMock()
+            ) as mock_price,
+        ):
+            errors = await _recompute_ai_signals(db, BUSINESS_ID, JOB_ID)
+
+        assert errors == []
+        mock_price.assert_awaited_once_with(db, product.id, variant_id=active_id)
 
 
 # ---------------------------------------------------------------------------

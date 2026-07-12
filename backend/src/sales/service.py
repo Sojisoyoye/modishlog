@@ -16,7 +16,8 @@ from src.inventory.models import MovementType
 from src.inventory.service import adjust_stock, fifo_deduct, reverse_fifo_consumption
 from src.orders.models import LotConsumption, OrderLineItem, PurchaseOrder
 from src.orders.service import reverse_lot_consumption
-from src.products.models import Product, ProductVariant
+from src.products.models import Product
+from src.products.service import find_product_variant
 from src.sales.exceptions import (
     BulkUploadJobNotFoundError,
     InvalidCSVFormatError,
@@ -176,14 +177,7 @@ async def create_sale(
     # Fetch variant if provided and validate it belongs to this product
     variant = None
     if data.variant_id:
-        variant_result = await db.execute(
-            select(ProductVariant).where(
-                ProductVariant.id == data.variant_id,
-                ProductVariant.product_id == product.id,
-                ProductVariant.is_active == True,  # noqa: E712
-            )
-        )
-        variant = variant_result.scalar_one_or_none()
+        variant = await find_product_variant(db, data.variant_id, product.id)
         if not variant:
             from fastapi import HTTPException
 

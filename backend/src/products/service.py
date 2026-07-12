@@ -444,6 +444,36 @@ def resolve_cost(product: Product, variant: ProductVariant | None) -> Decimal:
 # ---------------------------------------------------------------------------
 
 
+async def find_product_variant(
+    db: AsyncSession,
+    variant_id: uuid.UUID,
+    product_id: uuid.UUID,
+    active_only: bool = True,
+) -> ProductVariant | None:
+    """Look up a ProductVariant scoped to a specific product_id — the
+    "does this variant actually belong to this product" check, shared by
+    sales/service.py's create_sale() and pricing/service.py's
+    compute_suggestion()/get_suggestion_history() so the query shape
+    can't silently diverge between them. Returns None if no match (caller
+    decides how to react — an HTTPException, a domain exception, etc.).
+
+    active_only=True (the default) additionally requires is_active — for
+    anything that would compute or consume against the variant's current
+    state. Pass active_only=False for a historical read that should still
+    resolve a since-deactivated variant (e.g. get_suggestion_history()'s
+    past-suggestions lookup, which shouldn't disappear just because the
+    variant was later deactivated).
+    """
+    where_clauses = [
+        ProductVariant.id == variant_id,
+        ProductVariant.product_id == product_id,
+    ]
+    if active_only:
+        where_clauses.append(ProductVariant.is_active == True)  # noqa: E712
+    result = await db.execute(select(ProductVariant).where(*where_clauses))
+    return result.scalar_one_or_none()
+
+
 async def create_variant(
     db: AsyncSession,
     product_id: uuid.UUID,
