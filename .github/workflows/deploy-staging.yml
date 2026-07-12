@@ -122,6 +122,19 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy Caddy site snippet to shared proxy
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          source: "deploy/caddy/modishlog.caddy"
+          target: "/opt/modish/sites"
+          strip_components: 2
+          overwrite: true
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -146,6 +159,17 @@ jobs:
 
             # Restart backend with new image
             docker-compose up -d --no-deps backend
+
+            # Reload the shared Caddy proxy so it picks up our snippet above.
+            # Only our own file (/opt/modish/sites/modishlog.caddy) was touched —
+            # validate before reload so a bad snippet fails this deploy instead
+            # of breaking routing for the other projects sharing this Caddy.
+            if docker exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile; then
+              docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+            else
+              echo "❌ Caddy config validation failed — skipping reload to avoid breaking shared routing"
+              exit 1
+            fi
 
             # Wait for Docker's built-in container health check to go green.
             # The Dockerfile HEALTHCHECK probes http://localhost:8000/health inside
