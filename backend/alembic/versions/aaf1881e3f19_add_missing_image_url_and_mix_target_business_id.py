@@ -35,30 +35,39 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-def _has_column(table: str, column: str) -> bool:
-    return column in {c["name"] for c in sa.inspect(op.get_bind()).get_columns(table)}
-
-
-def _has_constraint(table: str, name: str) -> bool:
-    insp = sa.inspect(op.get_bind())
-    names = {c["name"] for c in insp.get_unique_constraints(table)}
-    names |= {c["name"] for c in insp.get_foreign_keys(table)}
-    return name in names
-
-
-def _has_index(table: str, name: str) -> bool:
-    return name in {i["name"] for i in sa.inspect(op.get_bind()).get_indexes(table)}
+def _mix_target_constraint_names(insp) -> set:
+    names = {c["name"] for c in insp.get_unique_constraints("product_mix_targets")}
+    names |= {c["name"] for c in insp.get_foreign_keys("product_mix_targets")}
+    return names
 
 
 def upgrade() -> None:
-    if not _has_column("products", "image_url"):
+    # One inspection, reused for every check below — six separate
+    # sa.inspect(op.get_bind()) calls would mean six real round-trips to
+    # Postgres for a migration that already has a history of blocking
+    # every deploy behind it if it's slow or fails.
+    insp = sa.inspect(op.get_bind())
+    product_cols = {c["name"]: c for c in insp.get_columns("products")}
+    mix_target_cols = {c["name"]: c for c in insp.get_columns("product_mix_targets")}
+    mix_target_constraints = _mix_target_constraint_names(insp)
+    mix_target_indexes = {i["name"] for i in insp.get_indexes("product_mix_targets")}
+
+    if "image_url" not in product_cols:
         op.add_column("products", sa.Column("image_url", sa.String(500), nullable=True))
 
-    if not _has_column("product_mix_targets", "business_id"):
+    if "business_id" not in mix_target_cols:
         op.add_column(
             "product_mix_targets",
             sa.Column("business_id", postgresql.UUID(as_uuid=True), nullable=True),
         )
+
+    # Backfill + NOT NULL enforcement run whenever the column is still
+    # nullable — covers both "just added above" and "the column exists
+    # but was never finalized" (e.g. a prior migration attempt that
+    # failed partway through, or some other partial manual fix). Column
+    # *existence* alone is not "already done": a drifted DB could have
+    # the column with every row still NULL.
+    if "business_id" not in mix_target_cols or mix_target_cols["business_id"]["nullable"]:
         op.execute(
             "UPDATE product_mix_targets SET business_id = "
             "(SELECT id FROM businesses ORDER BY created_at LIMIT 1) "
@@ -66,7 +75,7 @@ def upgrade() -> None:
         )
         op.alter_column("product_mix_targets", "business_id", nullable=False)
 
-    if not _has_constraint("product_mix_targets", "fk_product_mix_targets_business_id"):
+    if "fk_product_mix_targets_business_id" not in mix_target_constraints:
         op.create_foreign_key(
             "fk_product_mix_targets_business_id",
             "product_mix_targets",
@@ -74,11 +83,11 @@ def upgrade() -> None:
             ["business_id"],
             ["id"],
         )
-    if not _has_index("product_mix_targets", "ix_product_mix_targets_business_id"):
+    if "ix_product_mix_targets_business_id" not in mix_target_indexes:
         op.create_index(
             "ix_product_mix_targets_business_id", "product_mix_targets", ["business_id"]
         )
-    if not _has_constraint("product_mix_targets", "uq_mix_target_category_business"):
+    if "uq_mix_target_category_business" not in mix_target_constraints:
         op.create_unique_constraint(
             "uq_mix_target_category_business",
             "product_mix_targets",
@@ -87,13 +96,32 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        "uq_mix_target_category_business", "product_mix_targets", type_="unique"
-    )
-    op.drop_index("ix_product_mix_targets_business_id", table_name="product_mix_targets")
-    op.drop_constraint(
-        "fk_product_mix_targets_business_id", "product_mix_targets", type_="foreignkey"
-    )
-    op.drop_column("product_mix_targets", "business_id")
+    # Idempotent for the same reason upgrade() is: this migration may
+    # have partially (or fully) no-op'd against a drifted DB, so a plain
+    # unconditional drop_* sequence could hit an UndefinedColumn/
+    # ProgrammingError partway through and leave the DB half-reverted.
+    insp = sa.inspect(op.get_bind())
+    mix_target_cols = {c["name"] for c in insp.get_columns("product_mix_targets")}
+    mix_target_constraints = _mix_target_constraint_names(insp)
+    mix_target_indexes = {i["name"] for i in insp.get_indexes("product_mix_targets")}
+    product_cols = {c["name"] for c in insp.get_columns("products")}
 
-    op.drop_column("products", "image_url")
+    if "uq_mix_target_category_business" in mix_target_constraints:
+        op.drop_constraint(
+            "uq_mix_target_category_business", "product_mix_targets", type_="unique"
+        )
+    if "ix_product_mix_targets_business_id" in mix_target_indexes:
+        op.drop_index(
+            "ix_product_mix_targets_business_id", table_name="product_mix_targets"
+        )
+    if "fk_product_mix_targets_business_id" in mix_target_constraints:
+        op.drop_constraint(
+            "fk_product_mix_targets_business_id",
+            "product_mix_targets",
+            type_="foreignkey",
+        )
+    if "business_id" in mix_target_cols:
+        op.drop_column("product_mix_targets", "business_id")
+
+    if "image_url" in product_cols:
+        op.drop_column("products", "image_url")
