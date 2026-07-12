@@ -11,25 +11,15 @@ was missing, confirmed manually (see PR #309) against real historical
 data to be the correct, minimal fix.
 """
 
-import importlib.util
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-MIGRATION_PATH = (
-    Path(__file__).parent.parent
-    / "alembic"
-    / "versions"
-    / "7a29c684a562_add_uppercase_stock_adjustment_opening_stock.py"
-)
+from tests.migration_test_utils import load_migration
+
+MIGRATION_FILENAME = "7a29c684a562_add_uppercase_stock_adjustment_opening_stock.py"
 
 
 def _load_migration():
-    spec = importlib.util.spec_from_file_location(
-        "migration_7a29c684a562", MIGRATION_PATH
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_migration(MIGRATION_FILENAME)
 
 
 class TestStockAdjustmentEnumMigration:
