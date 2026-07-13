@@ -37,12 +37,17 @@ jobs:
         run: npx ng build
         working-directory: frontend
 
-      # Explicitly scoped to backend + db_test — an unscoped `up -d` also
-      # starts docker-compose.yml's `frontend` service (host port 4200:4200),
-      # which collides with the "Serve frontend" step below binding the same
-      # host port outside Docker.
+      # Explicitly scoped to backend + db_test + redis — an unscoped `up -d`
+      # also starts docker-compose.yml's `frontend` service (host port
+      # 4200:4200), which collides with the "Serve frontend" step below
+      # binding the same host port outside Docker. redis must be listed
+      # explicitly too: backend's REDIS_URL always points at redis:6379
+      # (see docker-compose.yml), but scoping to just backend+db_test never
+      # started it, so every rate-limited endpoint (e.g. /auth/login) failed
+      # to connect to Redis — breaking every e2e helper that logs in via a
+      # direct API call (getAPIToken(), loginViaAPI()).
       - name: Start backend + test DB (e2e stack)
-        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build backend db_test
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build backend db_test redis
         env:
           SECRET_KEY: ci-test-secret-key-do-not-use-in-production-32x
           POSTGRES_PASSWORD: modishlog_dev
@@ -66,9 +71,15 @@ jobs:
         working-directory: frontend
 
       # Serve the built Angular app on port 4200. http-server is bundled with
-      # npx so no separate install step is needed.
+      # npx so no separate install step is needed. -P (self-proxy) is a SPA
+      # fallback: http-server has no built-in "serve index.html for unknown
+      # routes" flag, so without it, any direct navigation to a client-side
+      # route (e.g. page.goto('/login')) 404s instead of loading the Angular
+      # app — verified directly (curl http://localhost:4200/login -> 404
+      # without this flag, 200 with it) as the root cause of nearly every
+      # e2e test failing at its beforeEach hook's page.goto()/locator calls.
       - name: Serve frontend (port 4200)
-        run: npx http-server dist/frontend/browser -p 4200 --silent &
+        run: npx http-server dist/frontend/browser -p 4200 -P "http://localhost:4200?" --silent &
         working-directory: frontend
 
       - name: Wait for frontend (port 4200)
