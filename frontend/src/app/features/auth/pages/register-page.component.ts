@@ -10,7 +10,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
   imports: [FormsModule, RouterLink, NgClass],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="flex h-screen overflow-hidden">
+    <div class="flex h-dvh overflow-hidden">
       <!-- Left brand panel (hidden on mobile) -->
       <div class="hidden lg:flex lg:w-[45%] flex-col justify-between bg-gradient-to-br from-gray-900 via-emerald-950 to-gray-900 p-12 text-white">
         <!-- Top: logo + tagline -->
@@ -34,38 +34,43 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
         </div>
       </div>
 
-      <!-- Right form panel: scrolls when content exceeds viewport height -->
+      <!-- Right form panel: scrolls if content ever exceeds viewport height.
+           Spacing is tuned tightest on mobile (h-dvh tracks the real, currently-
+           visible viewport so content isn't clipped by mobile browser chrome —
+           see the root wrapper's h-dvh) and relaxes slightly at lg for a 13"
+           laptop (1280x800-ish), where everything already fits in one screen. -->
       <div class="flex flex-1 overflow-y-auto bg-white">
-        <div class="flex flex-col items-center justify-center w-full min-h-full px-6 py-12 lg:px-16">
+        <div class="flex flex-col items-center justify-center w-full min-h-full px-5 py-2 lg:px-12 lg:py-4">
           <div class="w-full max-w-md">
           <!-- Mobile logo (shown only on small screens) -->
-          <div class="mb-6 text-center lg:hidden">
-            <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-xl font-bold text-white shadow-lg">
+          <div class="mb-2 text-center lg:hidden">
+            <div class="mx-auto mb-1 flex h-8 w-8 items-center justify-center rounded-full bg-primary text-base font-bold text-white shadow-lg">
               M
             </div>
-            <span class="text-2xl font-bold text-gray-900">ModishLog</span>
+            <span class="text-lg font-bold text-gray-900">ModishLog</span>
           </div>
 
-          <h2 class="mb-6 text-2xl font-bold text-gray-900 text-center lg:text-left">Create your account</h2>
+          <h2 class="mb-1 text-lg lg:text-xl font-bold text-gray-900 text-center lg:text-left">Create your account</h2>
+          <p class="mb-2 text-xs lg:text-sm text-gray-500 text-center lg:text-left">Set up your account, then your business — takes about a minute.</p>
 
           <!-- Step progress pills -->
-          <div class="mb-6 flex items-center gap-3 justify-center lg:justify-start">
+          <div class="mb-2 flex items-center gap-2 justify-center lg:justify-start">
             <span
               [ngClass]="{
                 'bg-emerald-600 text-white': currentStep() === 1,
                 'bg-gray-100 text-gray-500': currentStep() !== 1
               }"
-              class="rounded-full px-4 py-1.5 text-sm font-semibold transition-colors"
+              class="rounded-full px-3 py-1 text-xs font-semibold transition-colors"
             >
               1 &middot; Account
             </span>
-            <span class="text-gray-300 text-lg font-light">&#8594;</span>
+            <span class="text-gray-300 text-base font-light">&#8594;</span>
             <span
               [ngClass]="{
                 'bg-emerald-600 text-white': currentStep() === 2,
                 'bg-gray-100 text-gray-500': currentStep() !== 2
               }"
-              class="rounded-full px-4 py-1.5 text-sm font-semibold transition-colors"
+              class="rounded-full px-3 py-1 text-xs font-semibold transition-colors"
             >
               2 &middot; Business
             </span>
@@ -76,7 +81,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
             <div
               role="alert"
               aria-live="polite"
-              class="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-danger"
+              class="mb-3 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-sm text-danger"
             >
               <i class="pi pi-exclamation-circle"></i>
               {{ errorMsg() }}
@@ -87,8 +92,8 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
           @if (currentStep() === 1) {
             <form (ngSubmit)="goToStep2()">
               <!-- Full name -->
-              <div class="mb-4">
-                <label for="reg-full-name" class="mb-1.5 block text-sm font-medium text-gray-700">
+              <div class="mb-2 lg:mb-3">
+                <label for="reg-full-name" class="mb-1 block text-sm font-medium text-gray-700">
                   Full name <span class="text-danger">*</span>
                 </label>
                 <div class="relative">
@@ -99,7 +104,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                     [(ngModel)]="fullName"
                     name="fullName"
                     autocomplete="name"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
                     placeholder="Jane Doe"
                     required
                   />
@@ -107,8 +112,8 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
               </div>
 
               <!-- Email -->
-              <div class="mb-4">
-                <label for="reg-email" class="mb-1.5 block text-sm font-medium text-gray-700">
+              <div class="mb-2 lg:mb-3">
+                <label for="reg-email" class="mb-1 block text-sm font-medium text-gray-700">
                   Email <span class="text-danger">*</span>
                 </label>
                 <div class="relative">
@@ -119,7 +124,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                     [(ngModel)]="email"
                     name="email"
                     autocomplete="email"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
                     placeholder="you@example.com"
                     required
                   />
@@ -127,8 +132,8 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
               </div>
 
               <!-- Password -->
-              <div class="mb-4">
-                <label for="reg-password" class="mb-1.5 block text-sm font-medium text-gray-700">
+              <div class="mb-2 lg:mb-3">
+                <label for="reg-password" class="mb-1 block text-sm font-medium text-gray-700">
                   Password <span class="text-danger">*</span>
                 </label>
                 <div class="relative">
@@ -139,7 +144,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                     [(ngModel)]="password"
                     name="password"
                     autocomplete="new-password"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10 pr-10"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10 pr-10"
                     placeholder="12+ chars, upper, lower, number, special"
                     required
                     minlength="12"
@@ -157,8 +162,8 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
               </div>
 
               <!-- Confirm password -->
-              <div class="mb-6">
-                <label for="reg-confirm-password" class="mb-1.5 block text-sm font-medium text-gray-700">
+              <div class="mb-2 lg:mb-3">
+                <label for="reg-confirm-password" class="mb-1 block text-sm font-medium text-gray-700">
                   Confirm password <span class="text-danger">*</span>
                 </label>
                 <div class="relative">
@@ -169,7 +174,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                     [(ngModel)]="confirmPassword"
                     name="confirmPassword"
                     autocomplete="new-password"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
                     placeholder="Repeat your password"
                     required
                   />
@@ -177,8 +182,8 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
               </div>
 
               <!-- NDPR consent -->
-              <div class="mb-6">
-                <label class="flex items-start gap-3 cursor-pointer">
+              <div class="mb-2 lg:mb-3">
+                <label class="flex items-start gap-2 cursor-pointer">
                   <input
                     id="ndpr-consent"
                     type="checkbox"
@@ -186,7 +191,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                     name="ndprConsent"
                     class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary"
                   />
-                  <span class="text-sm text-gray-700">
+                  <span class="text-xs text-gray-700">
                     I consent to ModishLog processing my business data as required by the
                     Nigeria Data Protection Regulation (NDPR).
                     <a href="/privacy" target="_blank" rel="noopener noreferrer" class="text-emerald-600 hover:underline">Privacy Policy</a>
@@ -207,8 +212,8 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
             <!-- ======================== STEP 2: Business ======================== -->
             <form (ngSubmit)="onRegister()">
               <!-- Business name -->
-              <div class="mb-4">
-                <label for="reg-business-name" class="mb-1.5 block text-sm font-medium text-gray-700">
+              <div class="mb-2 lg:mb-3">
+                <label for="reg-business-name" class="mb-1 block text-sm font-medium text-gray-700">
                   Business name <span class="text-danger">*</span>
                 </label>
                 <div class="relative">
@@ -219,83 +224,85 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                     [(ngModel)]="businessName"
                     name="businessName"
                     autocomplete="organization"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
                     placeholder="e.g. Adaeze's Fashion Store"
                     required
                   />
                 </div>
               </div>
 
-              <!-- Currency -->
-              <div class="mb-4">
-                <label for="reg-currency" class="mb-1.5 block text-sm font-medium text-gray-700">Currency</label>
-                <select
-                  id="reg-currency"
-                  [(ngModel)]="currency"
-                  name="currency"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px]"
-                >
-                  <option value="NGN">NGN — Nigerian Naira</option>
-                  <option value="USD">USD — US Dollar</option>
-                  <option value="GBP">GBP — British Pound</option>
-                  <option value="EUR">EUR — Euro</option>
-                </select>
-              </div>
+              <!-- Currency + Timezone (paired to save vertical space) -->
+              <div class="mb-2 lg:mb-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label for="reg-currency" class="mb-1 block text-sm font-medium text-gray-700">Currency</label>
+                  <select
+                    id="reg-currency"
+                    [(ngModel)]="currency"
+                    name="currency"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px]"
+                  >
+                    <option value="NGN">NGN — Naira</option>
+                    <option value="USD">USD — Dollar</option>
+                    <option value="GBP">GBP — Pound</option>
+                    <option value="EUR">EUR — Euro</option>
+                  </select>
+                </div>
 
-              <!-- Timezone -->
-              <div class="mb-4">
-                <label for="reg-timezone" class="mb-1.5 block text-sm font-medium text-gray-700">Timezone</label>
-                <select
-                  id="reg-timezone"
-                  [(ngModel)]="timezone"
-                  name="timezone"
-                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px]"
-                >
-                  <option value="Africa/Lagos">Africa/Lagos (WAT, UTC+1)</option>
-                  <option value="Africa/Accra">Africa/Accra (GMT, UTC+0)</option>
-                  <option value="Africa/Nairobi">Africa/Nairobi (EAT, UTC+3)</option>
-                  <option value="Europe/London">Europe/London (GMT/BST)</option>
-                  <option value="America/New_York">America/New_York (ET)</option>
-                  <option value="America/Los_Angeles">America/Los_Angeles (PT)</option>
-                  <option value="UTC">UTC</option>
-                </select>
-              </div>
-
-              <!-- Country (optional) -->
-              <div class="mb-4">
-                <label for="reg-country" class="mb-1.5 block text-sm font-medium text-gray-700">Country <span class="text-gray-400 text-xs">(optional)</span></label>
-                <div class="relative">
-                  <i class="pi pi-map-marker absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
-                  <input
-                    id="reg-country"
-                    type="text"
-                    [(ngModel)]="country"
-                    name="country"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
-                    placeholder="e.g. Nigeria"
-                  />
+                <div>
+                  <label for="reg-timezone" class="mb-1 block text-sm font-medium text-gray-700">Timezone</label>
+                  <select
+                    id="reg-timezone"
+                    [(ngModel)]="timezone"
+                    name="timezone"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px]"
+                  >
+                    <option value="Africa/Lagos">Africa/Lagos (WAT)</option>
+                    <option value="Africa/Accra">Africa/Accra (GMT)</option>
+                    <option value="Africa/Nairobi">Africa/Nairobi (EAT)</option>
+                    <option value="Europe/London">Europe/London</option>
+                    <option value="America/New_York">America/New_York</option>
+                    <option value="America/Los_Angeles">America/Los_Angeles</option>
+                    <option value="UTC">UTC</option>
+                  </select>
                 </div>
               </div>
 
-              <!-- City (optional) -->
-              <div class="mb-4">
-                <label for="reg-city" class="mb-1.5 block text-sm font-medium text-gray-700">City <span class="text-gray-400 text-xs">(optional)</span></label>
-                <div class="relative">
-                  <i class="pi pi-building absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
-                  <input
-                    id="reg-city"
-                    type="text"
-                    [(ngModel)]="city"
-                    name="city"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
-                    placeholder="e.g. Lagos"
-                  />
+              <!-- Country + City (optional, paired to save vertical space) -->
+              <div class="mb-2 lg:mb-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label for="reg-country" class="mb-1 block text-sm font-medium text-gray-700">Country <span class="text-gray-400 text-xs">(optional)</span></label>
+                  <div class="relative">
+                    <i class="pi pi-map-marker absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
+                    <input
+                      id="reg-country"
+                      type="text"
+                      [(ngModel)]="country"
+                      name="country"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
+                      placeholder="Nigeria"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label for="reg-city" class="mb-1 block text-sm font-medium text-gray-700">City <span class="text-gray-400 text-xs">(optional)</span></label>
+                  <div class="relative">
+                    <i class="pi pi-building absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
+                    <input
+                      id="reg-city"
+                      type="text"
+                      [(ngModel)]="city"
+                      name="city"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
+                      placeholder="Lagos"
+                    />
+                  </div>
                 </div>
               </div>
 
               <!-- Phone (optional) -->
-              <div class="mb-6">
-                <label for="reg-phone" class="mb-1.5 block text-sm font-medium text-gray-700">Phone <span class="text-gray-400 text-xs">(optional)</span></label>
+              <div class="mb-3 lg:mb-4">
+                <label for="reg-phone" class="mb-1 block text-sm font-medium text-gray-700">Phone <span class="text-gray-400 text-xs">(optional)</span></label>
                 <div class="relative">
                   <i class="pi pi-phone absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"></i>
                   <input
@@ -304,7 +311,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                     [(ngModel)]="phone"
                     name="phone"
                     autocomplete="tel"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm transition-colors focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[44px] pl-10"
                     placeholder="+234 800 000 0000"
                   />
                 </div>
@@ -336,7 +343,7 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
           }
 
           <!-- Footer -->
-          <p class="mt-8 text-center text-xs text-gray-400">
+          <p class="mt-2 lg:mt-4 text-center text-xs text-gray-400">
             Already have an account?
             <a routerLink="/login" class="text-emerald-600 hover:underline">Log in</a>
           </p>
