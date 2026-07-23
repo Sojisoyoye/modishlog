@@ -142,12 +142,21 @@ test.describe('Account lockout', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async () => {
-    const token = await getAPIToken();
+    // /auth/register requires an authenticated ADMIN-role user — the E2E
+    // owner account (created via /auth/onboard) is role OWNER, which
+    // require_admin() doesn't accept, so this always 403'd. /auth/onboard
+    // is public and creates its own business, so it works here without
+    // needing any admin token at all.
     const ctx = await request.newContext();
     try {
-      const resp = await ctx.post(`${API}/auth/register`, {
-        headers: { Authorization: `Bearer ${token}` },
-        data: { email: LOCKOUT_EMAIL, password: LOCKOUT_PASSWORD, full_name: 'E2E Lockout Tester' },
+      const resp = await ctx.post(`${API}/auth/onboard`, {
+        data: {
+          full_name: 'E2E Lockout Tester',
+          email: LOCKOUT_EMAIL,
+          password: LOCKOUT_PASSWORD,
+          business_name: 'E2E Lockout Test Business',
+          ndpr_consent: true,
+        },
       });
       if (!resp.ok() && resp.status() !== 409) {
         throw new Error(`Failed to create lockout test user: ${resp.status()} ${await resp.text()}`);
