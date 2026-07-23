@@ -27,6 +27,7 @@ from src.data_import.exceptions import (
     MissingExtractedDataError,
     PurchaseOrderImportError,
     PurchaseOrderRollbackBlockedError,
+    StockAdjustmentImportError,
     UnsupportedSourceSystemError,
 )
 from src.data_import.models import ExtractionMode, SourceSystem
@@ -135,6 +136,7 @@ async def create_job(
     sales: UploadFile | None = File(None),
     expense_categories: UploadFile | None = File(None),
     expenses: UploadFile | None = File(None),
+    stock_adjustments: UploadFile | None = File(None),
     api_base_url: str | None = Form(None),
     username: str | None = Form(None),
     password: str | None = Form(None),
@@ -154,6 +156,7 @@ async def create_job(
         "sales": sales,
         "expense_categories": expense_categories,
         "expenses": expenses,
+        "stock_adjustments": stock_adjustments,
     }
     files: dict[str, bytes] = {}
     for entity, upload in uploads.items():
@@ -281,6 +284,11 @@ async def confirm_job(
         # unrelated domains' exception types. The whole import rolls back
         # (one request-scoped transaction) — the job reverts to
         # awaiting_confirmation and the client can retry.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except StockAdjustmentImportError as e:
+        # Same rationale as PurchaseOrderImportError above — a referenced
+        # product/variant may have gone stale between validation and
+        # confirm, or an adjustment would take stock negative.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 

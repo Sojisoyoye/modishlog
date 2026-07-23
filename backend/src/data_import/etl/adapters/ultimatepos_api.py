@@ -253,6 +253,38 @@ class _POSAPIClient:
     def fetch_expenses(self) -> list[dict]:
         return self._json_list("/expenses?per_page=2000")
 
+    def fetch_stock_adjustments(self) -> list[dict]:
+        return self._json_list("/stock-adjustments?per_page=2000")
+
+    def fetch_stock_adjustment_detail_html(self, adjustment_id: str | int) -> str:
+        """Fetch a stock adjustment's line-item detail — confirmed live: the
+        list endpoint carries header fields only (adjustment_type,
+        additional_notes) with no embedded line items, so each adjustment's
+        products/quantities require this separate per-record fetch, same
+        shape as fetch_sell_detail_html/fetch_purchase_print_html. Unlike
+        /sells/{id} (a plain page), this endpoint only returns the usable
+        line-item table when asked for as XHR — a plain GET returns the
+        full dashboard shell instead.
+        """
+        try:
+            headers = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"}
+            html = self._get(f"/stock-adjustments/{adjustment_id}", headers)
+            if self._looks_like_login_page(html):
+                logger.info(
+                    "ultimatepos_api_session_expired_reauth",
+                    stock_adjustment_id=str(adjustment_id),
+                )
+                self.login()
+                html = self._get(f"/stock-adjustments/{adjustment_id}", headers)
+            return html
+        except Exception as exc:
+            logger.warning(
+                "ultimatepos_api_stock_adjustment_detail_fetch_failed",
+                stock_adjustment_id=str(adjustment_id),
+                error_type=type(exc).__name__,
+            )
+            return ""
+
 
 def _parse_sell_lines_from_html(
     html: str,
@@ -381,6 +413,13 @@ class UltimatePOSAPIExtractor(APIExtractor):
         raw_expenses = await anyio.to_thread.run_sync(client.fetch_expenses)
         expenses = self._map_expenses(raw_expenses, expense_category_id_to_source)
 
+        raw_stock_adjustments = await anyio.to_thread.run_sync(
+            client.fetch_stock_adjustments
+        )
+        stock_adjustments = await self._map_stock_adjustments(
+            client, raw_stock_adjustments, pos_id_to_source
+        )
+
         result: ExtractedData = {
             "product_categories": categories,
             "products": products,
@@ -392,6 +431,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
             "purchase_orders": purchase_orders,
             "expense_categories": expense_categories,
             "expenses": expenses,
+            "stock_adjustments": stock_adjustments,
         }
         logger.info(
             "ultimatepos_api_extraction_complete",
@@ -837,6 +877,64 @@ class UltimatePOSAPIExtractor(APIExtractor):
             )
         return out
 
+    # ------------------------------------------------------------------
+    # Stock adjustments
+    # ------------------------------------------------------------------
+
+    async def _map_stock_adjustments(
+        self,
+        client: _POSAPIClient,
+        raw_adjustments: list[dict],
+        pos_id_to_source: dict[str, str],
+    ) -> list[dict]:
+        rows: list[dict] = []
+        for header in raw_adjustments:
+            adj_id = _extract_pos_id(header, "stock-adjustments")
+            if not adj_id:
+                continue
+
+            adjustment_type = _strip_html(str(header.get("adjustment_type") or "")).strip()
+            reason = _strip_html(str(header.get("additional_notes") or "")).strip()
+            adjustment_date = _parse_date(str(header.get("transaction_date") or ""))
+            source_id = str(header.get("ref_no") or f"POS-ADJ-{adj_id}").strip()
+
+            html = await anyio.to_thread.run_sync(
+                client.fetch_stock_adjustment_detail_html, adj_id
+            )
+            if not html.strip():
+                continue
+
+            lines = _parse_stock_adjustment_lines_from_html(html, pos_id_to_source)
+            if not lines:
+                continue
+
+            # UltimatePOS's Stock Adjustment module is exclusively a
+            # loss/write-off tool — "Normal" and "Abnormal" are both
+            # deduction categories (breakage, theft, wastage); the only
+            # addition case is "Opening Stock" (initial stock seeding). The
+            # confirmed live Quantity cell itself carries no sign, so the
+            # sign has to be inferred from adjustment_type rather than
+            # taken verbatim — passing the raw positive quantity through
+            # unconditionally (as pos_migrate.py's reference implementation
+            # did) would silently record every real loss as a stock gain.
+            is_addition = "open" in adjustment_type.lower()
+            for line in lines:
+                signed_quantity = line["quantity"] if is_addition else -line["quantity"]
+                rows.append(
+                    {
+                        "source_id": source_id,
+                        "product_source_id": line["product_source_id"],
+                        "variant_source_id": "",
+                        "quantity_change": str(signed_quantity),
+                        "adjustment_type": adjustment_type,
+                        "reason": reason,
+                        "adjustment_date": (
+                            adjustment_date.isoformat() if adjustment_date else ""
+                        ),
+                    }
+                )
+        return rows
+
 
 def _parse_purchase_lines_from_html(
     html: str, sku_to_source: dict[str, str]
@@ -876,4 +974,39 @@ def _parse_purchase_lines_from_html(
                 "unit_cost_ngn": unit_cost_ngn,
             }
         )
+    return lines
+
+
+def _parse_stock_adjustment_lines_from_html(
+    html: str, pos_id_to_source: dict[str, str]
+) -> list[dict]:
+    """Extract stock-adjustment line items from a UltimatePOS stock
+    adjustment detail HTML fragment.
+
+    Confirmed live column order: [Product, Quantity, Unit Price, Subtotal].
+    Unlike the sell/purchase line HTML, these cells are plain text with no
+    data-* span wrappers, and the product cell carries the POS numeric
+    product id in trailing parentheses (e.g. "Off White MDF UV (301406)")
+    rather than a bare trailing number.
+    """
+    lines: list[dict] = []
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL | re.IGNORECASE)
+    for row in rows:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL | re.IGNORECASE)
+        if len(cells) < 2:
+            continue
+
+        product_text = _strip_html(cells[0]).strip()
+        id_m = re.search(r"\((\d+)\)\s*$", product_text)
+        if not id_m:
+            continue
+        product_source_id = pos_id_to_source.get(id_m.group(1))
+        if not product_source_id:
+            continue
+
+        quantity = _parse_qty(_strip_html(cells[1]).strip())
+        if quantity <= 0:
+            continue
+
+        lines.append({"product_source_id": product_source_id, "quantity": quantity})
     return lines

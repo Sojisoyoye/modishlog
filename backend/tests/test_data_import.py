@@ -843,6 +843,99 @@ class TestTransformExpenses:
         assert not transformer.warnings
 
 
+class TestTransformStockAdjustments:
+    def _transformer_with_product(self, product_source_id="P1"):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        product_id = uuid.uuid4()
+        transformer.id_map.register("products", product_source_id, product_id)
+        return transformer, product_id
+
+    def test_positive_adjustment_maps_to_stock_adjustment_movement_type(self):
+        from src.inventory.models import MovementType
+
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {
+                "product_source_id": "P1",
+                "quantity_change": "10",
+                "adjustment_type": "Normal",
+                "reason": "Recount",
+            }
+        ]
+        result = transformer.transform_stock_adjustments(rows)
+        assert len(result) == 1
+        assert result[0]["product_id"] == product_id
+        assert result[0]["quantity_change"] == 10
+        assert result[0]["movement_type"] == MovementType.STOCK_ADJUSTMENT
+        assert result[0]["reason"] == "Recount"
+
+    def test_negative_adjustment_is_preserved(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [{"product_source_id": "P1", "quantity_change": "-5", "adjustment_type": "Normal"}]
+        result = transformer.transform_stock_adjustments(rows)
+        assert result[0]["quantity_change"] == -5
+
+    def test_opening_adjustment_type_maps_to_opening_stock(self):
+        from src.inventory.models import MovementType
+
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [{"product_source_id": "P1", "quantity_change": "50", "adjustment_type": "Opening"}]
+        result = transformer.transform_stock_adjustments(rows)
+        assert result[0]["movement_type"] == MovementType.OPENING_STOCK
+
+    def test_resolves_variant_id_from_id_map(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        variant_id = uuid.uuid4()
+        transformer.id_map.register("product_variants", "V1", variant_id)
+        rows = [
+            {
+                "product_source_id": "P1",
+                "variant_source_id": "V1",
+                "quantity_change": "5",
+                "adjustment_type": "Normal",
+            }
+        ]
+        result = transformer.transform_stock_adjustments(rows)
+        assert result[0]["variant_id"] == variant_id
+        assert not transformer.warnings
+
+    def test_unresolvable_variant_gets_warning_and_applies_at_product_level(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [
+            {
+                "product_source_id": "P1",
+                "variant_source_id": "NONEXISTENT",
+                "quantity_change": "5",
+                "adjustment_type": "Normal",
+            }
+        ]
+        result = transformer.transform_stock_adjustments(rows)
+        assert result[0]["variant_id"] is None
+        assert any(w.field == "variant_source_id" and w.severity == "warning" for w in transformer.warnings)
+
+    def test_row_with_unresolvable_product_is_dropped_with_error(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [{"product_source_id": "UNKNOWN", "quantity_change": "5", "adjustment_type": "Normal"}]
+        result = transformer.transform_stock_adjustments(rows)
+        assert result == []
+        assert any(w.severity == "error" for w in transformer.warnings)
+
+    def test_unparseable_quantity_drops_row_with_error_not_raised(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [{"product_source_id": "P1", "quantity_change": "many", "adjustment_type": "Normal"}]
+        result = transformer.transform_stock_adjustments(rows)
+        assert result == []
+        assert any(w.severity == "error" for w in transformer.warnings)
+
+    def test_decimal_and_comma_quantity_parse_instead_of_being_dropped(self):
+        transformer, product_id = self._transformer_with_product("P1")
+        rows = [{"product_source_id": "P1", "quantity_change": "1,000", "adjustment_type": "Normal"}]
+        result = transformer.transform_stock_adjustments(rows)
+        assert len(result) == 1
+        assert result[0]["quantity_change"] == 1000
+        assert not transformer.warnings
+
+
 # ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
@@ -1301,6 +1394,124 @@ class TestLoadPurchaseOrders:
                 )
 
         assert mock_transition.await_count == 2
+
+
+class TestLoadStockAdjustments:
+    """load_stock_adjustments() orchestrates adjust_stock() (already tested
+    in test_inventory.py) rather than reimplementing inventory writes —
+    these tests mock that collaborator and verify the orchestration: the
+    InventoryLevel backfill for referenced products, and correct args/
+    migration_id tagging passed through to adjust_stock()."""
+
+    def _empty_scalars(self):
+        r = MagicMock()
+        r.all.return_value = []
+        return r
+
+    @pytest.mark.asyncio
+    async def test_backfills_missing_inventory_level_for_referenced_product(self):
+        from src.data_import.etl.loader import load_stock_adjustments
+        from src.inventory.models import MovementType
+
+        product_id = uuid.uuid4()
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=self._empty_scalars())
+        migration_id = uuid.uuid4()
+
+        with patch("src.data_import.etl.loader.adjust_stock", new=AsyncMock()):
+            await load_stock_adjustments(
+                db, migration_id, BUSINESS_ID, CREATED_BY,
+                rows=[
+                    {
+                        "product_id": product_id,
+                        "variant_id": None,
+                        "quantity_change": 10,
+                        "movement_type": MovementType.STOCK_ADJUSTMENT,
+                        "reason": "Recount",
+                    }
+                ],
+            )
+
+        inventory_calls = [
+            call.args[0]
+            for call in db.add_all.call_args_list
+            if call.args[0] and isinstance(call.args[0][0], InventoryLevel)
+        ]
+        assert len(inventory_calls) == 1
+        assert inventory_calls[0][0].product_id == product_id
+        assert inventory_calls[0][0].quantity_on_hand == 0
+        # Untagged — same reasoning as load_purchase_orders()'s backfill:
+        # this product isn't newly created by this import, so its
+        # backfilled row must not be deleted on rollback.
+        assert inventory_calls[0][0].migration_id is None
+
+    @pytest.mark.asyncio
+    async def test_calls_adjust_stock_with_migration_id_and_counts_rows(self):
+        from src.data_import.etl.loader import load_stock_adjustments
+        from src.inventory.models import MovementType
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        db = _mock_db()
+        # InventoryLevel already exists — no backfill needed.
+        existing = MagicMock()
+        existing.all.return_value = [(product_id, variant_id)]
+        db.execute = AsyncMock(return_value=existing)
+        migration_id = uuid.uuid4()
+
+        with patch("src.data_import.etl.loader.adjust_stock", new=AsyncMock()) as mock_adjust:
+            count = await load_stock_adjustments(
+                db, migration_id, BUSINESS_ID, CREATED_BY,
+                rows=[
+                    {
+                        "product_id": product_id,
+                        "variant_id": variant_id,
+                        "quantity_change": -3,
+                        "movement_type": MovementType.STOCK_ADJUSTMENT,
+                        "reason": "Damaged",
+                    }
+                ],
+            )
+
+        assert count == 1
+        mock_adjust.assert_awaited_once_with(
+            db,
+            product_id=product_id,
+            variant_id=variant_id,
+            quantity_change=-3,
+            movement_type="stock_adjustment",
+            reason="Damaged",
+            user_id=CREATED_BY,
+            business_id=BUSINESS_ID,
+            migration_id=migration_id,
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_backfill_when_inventory_level_already_exists(self):
+        from src.data_import.etl.loader import load_stock_adjustments
+        from src.inventory.models import MovementType
+
+        product_id = uuid.uuid4()
+        db = _mock_db()
+        existing = MagicMock()
+        existing.all.return_value = [(product_id, None)]
+        db.execute = AsyncMock(return_value=existing)
+
+        with patch("src.data_import.etl.loader.adjust_stock", new=AsyncMock()):
+            await load_stock_adjustments(
+                db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                rows=[
+                    {
+                        "product_id": product_id,
+                        "variant_id": None,
+                        "quantity_change": 5,
+                        "movement_type": MovementType.OPENING_STOCK,
+                        "reason": None,
+                    }
+                ],
+            )
+
+        db.add_all.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

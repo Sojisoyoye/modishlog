@@ -23,6 +23,9 @@ from src.data_import.etl.loader import load as loader_load
 from src.data_import.etl.loader import (
     load_purchase_orders as loader_load_purchase_orders,
 )
+from src.data_import.etl.loader import (
+    load_stock_adjustments as loader_load_stock_adjustments,
+)
 from src.data_import.etl.loader import rollback as loader_rollback
 from src.data_import.etl.transformer import Transformer
 from src.data_import.etl.validator import validate_extracted_data
@@ -31,6 +34,7 @@ from src.data_import.exceptions import (
     MigrationJobNotFoundError,
     MissingExtractedDataError,
     PurchaseOrderImportError,
+    StockAdjustmentImportError,
     UnsupportedSourceSystemError,
 )
 from src.data_import.models import (
@@ -87,6 +91,7 @@ IMPORTABLE_ENTITIES = [
     "sales",
     "expense_categories",
     "expenses",
+    "stock_adjustments",
 ]
 
 _SAMPLE_ROWS = 3
@@ -317,6 +322,9 @@ async def _extract_and_transform(
     transformed["expenses"] = transformer.transform_expenses(
         mapped.get("expenses", [])
     )
+    transformed["stock_adjustments"] = transformer.transform_stock_adjustments(
+        mapped.get("stock_adjustments", [])
+    )
 
     return mapped, transformed, transformer
 
@@ -419,6 +427,22 @@ async def confirm_job(
         # echoed to the client — see PurchaseOrderImportError's docstring.
         await logger.aexception("purchase_order_import_failed", job_id=str(job.id))
         raise PurchaseOrderImportError(e) from e
+
+    try:
+        row_counts["stock_adjustments"] = await loader_load_stock_adjustments(
+            db,
+            job.id,
+            job.business_id,
+            job.created_by,
+            transformed.get("stock_adjustments", []),
+        )
+    except (ProductStockNotFoundError, InvalidStockAdjustmentError) as e:
+        # load_stock_adjustments() reuses inventory/service's adjust_stock()
+        # unmodified — same translation rationale as the purchase_orders
+        # block above, via StockAdjustmentImportError instead so the
+        # client's error message stays specific to what actually failed.
+        await logger.aexception("stock_adjustment_import_failed", job_id=str(job.id))
+        raise StockAdjustmentImportError(e) from e
 
     job.row_counts = row_counts
     job.status = MigrationJobStatus.RECOMPUTING
@@ -788,6 +812,15 @@ _TEMPLATE_COLUMNS: dict[str, list[str]] = {
         "note",
         "location_source_id",
     ],
+    "stock_adjustments": [
+        "source_id",
+        "product_source_id",
+        "variant_source_id",
+        "quantity_change",
+        "adjustment_type",
+        "reason",
+        "adjustment_date",
+    ],
 }
 
 
@@ -825,5 +858,11 @@ def build_readme() -> str:
         "purchase_orders.csv, it is NOT required to already be USD. An NGN amount is",
         "converted using `fx_rate` (or a fixed fallback rate if left blank, with the same",
         "historical-accuracy caveat as purchase_orders.csv above).",
+        "",
+        "stock_adjustments.csv: `adjustment_date` is validated but has no effect on what",
+        "gets stored — every imported adjustment is recorded with today's date, since the",
+        "underlying stock-movement audit trail has no historical-backdating support.",
+        "`adjustment_type` containing \"open\" (case-insensitive) is treated as opening",
+        "stock; anything else is a generic adjustment. `quantity_change` may be negative.",
     ]
     return "\n".join(lines)
