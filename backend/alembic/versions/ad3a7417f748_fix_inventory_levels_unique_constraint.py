@@ -30,28 +30,44 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.drop_constraint(
-        "inventory_levels_product_id_key", "inventory_levels", type_="unique"
-    )
-    op.create_index(
-        "uq_inventory_levels_product_no_variant",
-        "inventory_levels",
-        ["product_id"],
-        unique=True,
-        postgresql_where="variant_id IS NULL",
-    )
-    op.create_index(
-        "uq_inventory_levels_product_variant",
-        "inventory_levels",
-        ["product_id", "variant_id"],
-        unique=True,
-        postgresql_where="variant_id IS NOT NULL",
-    )
+    # Idempotency guards: alembic_version drift (a prior deploy attempt
+    # applying this migration's DDL then failing/retrying, or a manual
+    # rollback) must not hard-fail a later `alembic upgrade head` re-run —
+    # see src/core/migration_utils.py's docstring for the recurring
+    # incident class this guards against. Each has_* call builds its own
+    # fresh Inspector (not shared) since DDL runs between checks here.
+    from src.core.migration_utils import has_constraint, has_index
+
+    if has_constraint("inventory_levels", "inventory_levels_product_id_key"):
+        op.drop_constraint(
+            "inventory_levels_product_id_key", "inventory_levels", type_="unique"
+        )
+    if not has_index("inventory_levels", "uq_inventory_levels_product_no_variant"):
+        op.create_index(
+            "uq_inventory_levels_product_no_variant",
+            "inventory_levels",
+            ["product_id"],
+            unique=True,
+            postgresql_where="variant_id IS NULL",
+        )
+    if not has_index("inventory_levels", "uq_inventory_levels_product_variant"):
+        op.create_index(
+            "uq_inventory_levels_product_variant",
+            "inventory_levels",
+            ["product_id", "variant_id"],
+            unique=True,
+            postgresql_where="variant_id IS NOT NULL",
+        )
 
 
 def downgrade() -> None:
-    op.drop_index("uq_inventory_levels_product_variant", "inventory_levels")
-    op.drop_index("uq_inventory_levels_product_no_variant", "inventory_levels")
-    op.create_unique_constraint(
-        "inventory_levels_product_id_key", "inventory_levels", ["product_id"]
-    )
+    from src.core.migration_utils import has_constraint, has_index
+
+    if has_index("inventory_levels", "uq_inventory_levels_product_variant"):
+        op.drop_index("uq_inventory_levels_product_variant", "inventory_levels")
+    if has_index("inventory_levels", "uq_inventory_levels_product_no_variant"):
+        op.drop_index("uq_inventory_levels_product_no_variant", "inventory_levels")
+    if not has_constraint("inventory_levels", "inventory_levels_product_id_key"):
+        op.create_unique_constraint(
+            "inventory_levels_product_id_key", "inventory_levels", ["product_id"]
+        )

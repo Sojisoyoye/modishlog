@@ -383,8 +383,16 @@ class Transformer:
             # to happen first to populate id_map), so malformed quantity/price
             # values haven't been rejected yet — coerce defensively here rather
             # than let int()/Decimal() raise and crash the whole dry-run.
+            #
+            # int(normalize_amount(...)), not plain int() — validate_entity_rows()
+            # accepts "10.0"/"1,000" for quantity (the same lenient
+            # parse_flexible_amount() every other amount field uses); a
+            # strict int(row["quantity"]) rejects what validation just
+            # accepted, silently dropping the row at confirm time on a row
+            # the user was told was valid (mirrors transform_purchase_orders'
+            # identical fix for the same class of row).
             try:
-                quantity = int(row["quantity"])
+                quantity = int(normalize_amount(row["quantity"]))
                 unit_price = normalize_amount(row["unit_price"])
                 sale_date = normalize_date(row["sale_date"])
             except (KeyError, ValueError, InvalidOperation) as e:
