@@ -27,6 +27,7 @@ from src.data_import.exceptions import (
     MissingExtractedDataError,
     PurchaseOrderImportError,
     PurchaseOrderRollbackBlockedError,
+    StockAdjustmentImportError,
     UnsupportedSourceSystemError,
 )
 from src.data_import.models import ExtractionMode, SourceSystem
@@ -283,6 +284,11 @@ async def confirm_job(
         # unrelated domains' exception types. The whole import rolls back
         # (one request-scoped transaction) — the job reverts to
         # awaiting_confirmation and the client can retry.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except StockAdjustmentImportError as e:
+        # Same rationale as PurchaseOrderImportError above — a referenced
+        # product/variant may have gone stale between validation and
+        # confirm, or an adjustment would take stock negative.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 

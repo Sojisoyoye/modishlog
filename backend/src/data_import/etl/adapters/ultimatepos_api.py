@@ -908,20 +908,24 @@ class UltimatePOSAPIExtractor(APIExtractor):
             if not lines:
                 continue
 
+            # UltimatePOS's Stock Adjustment module is exclusively a
+            # loss/write-off tool — "Normal" and "Abnormal" are both
+            # deduction categories (breakage, theft, wastage); the only
+            # addition case is "Opening Stock" (initial stock seeding). The
+            # confirmed live Quantity cell itself carries no sign, so the
+            # sign has to be inferred from adjustment_type rather than
+            # taken verbatim — passing the raw positive quantity through
+            # unconditionally (as pos_migrate.py's reference implementation
+            # did) would silently record every real loss as a stock gain.
+            is_addition = "open" in adjustment_type.lower()
             for line in lines:
+                signed_quantity = line["quantity"] if is_addition else -line["quantity"]
                 rows.append(
                     {
                         "source_id": source_id,
                         "product_source_id": line["product_source_id"],
                         "variant_source_id": "",
-                        # Ported from pos_migrate.py's proven stock-adjustment
-                        # mapping, which always stores the raw (non-negative)
-                        # parsed quantity regardless of adjustment_type — the
-                        # confirmed live Quantity cell carries no sign
-                        # indicator either. adjustment_type/reason are kept
-                        # as their own columns rather than inferring a sign
-                        # that isn't present in the source data.
-                        "quantity_change": str(line["quantity"]),
+                        "quantity_change": str(signed_quantity),
                         "adjustment_type": adjustment_type,
                         "reason": reason,
                         "adjustment_date": (

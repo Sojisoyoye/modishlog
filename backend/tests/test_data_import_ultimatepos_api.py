@@ -409,7 +409,10 @@ class TestExtract:
         adj = stock_adjustments[0]
         assert adj["source_id"] == "SA2026/0001"
         assert adj["product_source_id"] == "10101"
-        assert adj["quantity_change"] == "92"
+        # "Normal" is a loss/write-off category, not an addition — the
+        # extractor infers a negative sign since UltimatePOS's Quantity
+        # cell itself carries none.
+        assert adj["quantity_change"] == "-92"
         assert adj["adjustment_type"] == "Normal"
         assert adj["reason"] == "Wasn't delivered by Shipping Agent (AY)"
         assert adj["adjustment_date"] == "2026-01-10"
@@ -852,10 +855,27 @@ class TestMapStockAdjustments:
         row = rows[0]
         assert row["source_id"] == "SA2026/0001"
         assert row["product_source_id"] == "10101"
-        assert row["quantity_change"] == "92"
+        assert row["quantity_change"] == "-92"
         assert row["adjustment_type"] == "Normal"
         assert row["reason"] == "Wasn't delivered by Shipping Agent (AY)"
         assert row["adjustment_date"] == "2026-01-10"
+
+    @pytest.mark.asyncio
+    async def test_opening_stock_type_is_a_positive_addition(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        client = extractor._build_client()
+        raw_adjustments = [
+            {
+                "id": 2602569,
+                "ref_no": "SA2026/0002",
+                "transaction_date": "2026-01-10",
+                "adjustment_type": "Opening Stock",
+            }
+        ]
+        rows = await extractor._map_stock_adjustments(
+            client, raw_adjustments, {"10101": "10101"}
+        )
+        assert rows[0]["quantity_change"] == "92"
 
     @pytest.mark.asyncio
     async def test_missing_ref_no_falls_back_to_pos_id_source_id(self):

@@ -71,6 +71,11 @@ ENTITY_RULES: dict[str, dict[str, tuple[str, ...] | bool]] = {
         # (rejects <=0) fits, so it's only integer-checked, not sign-checked.
         "amounts": (),
         "integer_amounts": ("quantity_change",),
+        # Rows sharing the same source_id are one multi-product adjustment
+        # with multiple lines by design (see _map_stock_adjustments /
+        # transform_stock_adjustments) — not a duplicate. Same reasoning as
+        # purchase_orders above.
+        "unique_source_id": False,
     },
 }
 
