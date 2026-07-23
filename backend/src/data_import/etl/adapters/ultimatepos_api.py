@@ -247,6 +247,12 @@ class _POSAPIClient:
             )
             return ""
 
+    def fetch_expense_categories(self) -> list[dict]:
+        return self._json_list("/expense-categories?per_page=200")
+
+    def fetch_expenses(self) -> list[dict]:
+        return self._json_list("/expenses?per_page=2000")
+
 
 def _parse_sell_lines_from_html(
     html: str,
@@ -366,6 +372,15 @@ class UltimatePOSAPIExtractor(APIExtractor):
             client, raw_purchases, raw_products, raw_suppliers
         )
 
+        raw_expense_categories = await anyio.to_thread.run_sync(
+            client.fetch_expense_categories
+        )
+        expense_categories, expense_category_id_to_source = self._map_expense_categories(
+            raw_expense_categories
+        )
+        raw_expenses = await anyio.to_thread.run_sync(client.fetch_expenses)
+        expenses = self._map_expenses(raw_expenses, expense_category_id_to_source)
+
         result: ExtractedData = {
             "product_categories": categories,
             "products": products,
@@ -375,6 +390,8 @@ class UltimatePOSAPIExtractor(APIExtractor):
             "business_locations": locations,
             "sales": sales,
             "purchase_orders": purchase_orders,
+            "expense_categories": expense_categories,
+            "expenses": expenses,
         }
         logger.info(
             "ultimatepos_api_extraction_complete",
@@ -754,6 +771,71 @@ class UltimatePOSAPIExtractor(APIExtractor):
                     }
                 )
         return rows
+
+    # ------------------------------------------------------------------
+    # Expenses
+    # ------------------------------------------------------------------
+
+    def _map_expense_categories(
+        self, raw_categories: list[dict]
+    ) -> tuple[list[dict], dict[str, str]]:
+        out = []
+        id_to_source: dict[str, str] = {}
+        for c in raw_categories:
+            cat_id = c.get("id")
+            if cat_id is None:
+                continue
+            source_id = str(cat_id)
+            id_to_source[source_id] = source_id
+            out.append(
+                {
+                    "source_id": source_id,
+                    "name": _strip_html(str(c.get("name") or "")).strip(),
+                    "description": _strip_html(str(c.get("description") or "")).strip(),
+                }
+            )
+        return out, id_to_source
+
+    def _map_expenses(
+        self, raw_expenses: list[dict], category_id_to_source: dict[str, str]
+    ) -> list[dict]:
+        # Field names ported from pos_migrate.py's proven expense mapping
+        # (amount/final_total, expense_date/transaction_date,
+        # note/additional_notes fallback pairs) — unconfirmed against this
+        # extractor's own live-probe target, whose real business had zero
+        # expense records at the time this was built to verify against.
+        out = []
+        for e in raw_expenses:
+            exp_date = _parse_date(
+                str(e.get("expense_date") or e.get("transaction_date") or "")
+            )
+            if exp_date is None:
+                continue
+
+            source_id = _extract_pos_id(e, "expenses") or ""
+            amount = _parse_price(e.get("amount") or e.get("final_total"))
+            cat_id = e.get("expense_category_id")
+            category_source_id = (
+                category_id_to_source.get(str(cat_id), "") if cat_id is not None else ""
+            )
+
+            out.append(
+                {
+                    "source_id": source_id,
+                    "category_source_id": category_source_id,
+                    "ref_no": str(e.get("ref_no") or "").strip(),
+                    "amount": str(amount),
+                    "currency": "NGN",
+                    "payment_method": str(e.get("payment_method") or "").strip().lower()
+                    or "other",
+                    "note": _strip_html(
+                        str(e.get("note") or e.get("additional_notes") or "")
+                    ).strip(),
+                    "expense_date": exp_date.isoformat(),
+                    "location_source_id": "",
+                }
+            )
+        return out
 
 
 def _parse_purchase_lines_from_html(

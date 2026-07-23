@@ -708,6 +708,141 @@ class TestTransformPurchaseOrders:
         assert not transformer.warnings
 
 
+class TestTransformExpenseCategories:
+    def test_assigns_new_id_and_registers_in_id_map(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [{"source_id": "EC1", "name": "Rent", "description": "Monthly rent"}]
+        result = transformer.transform_expense_categories(rows)
+
+        assert len(result) == 1
+        assert result[0]["name"] == "Rent"
+        assert result[0]["description"] == "Monthly rent"
+        assert result[0]["business_id"] == BUSINESS_ID
+        assert result[0]["created_by"] == CREATED_BY
+        assert transformer.id_map.lookup("expense_categories", "EC1") == result[0]["id"]
+
+    def test_blank_description_is_none_not_empty_string(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        result = transformer.transform_expense_categories(
+            [{"source_id": "EC1", "name": "Utilities"}]
+        )
+        assert result[0]["description"] is None
+
+
+class TestTransformExpenses:
+    def test_ngn_amount_converts_to_usd_via_fx_rate(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [
+            {
+                "amount": "1,600,000",
+                "currency": "NGN",
+                "fx_rate": "1600",
+                "expense_date": "2026-01-01",
+                "payment_method": "cash",
+                "ref_no": "EXP-1",
+                "note": "Generator fuel",
+            }
+        ]
+        result = transformer.transform_expenses(rows)
+
+        assert len(result) == 1
+        row = result[0]
+        assert row["amount_ngn"] == Decimal("1600000.000000")
+        assert row["amount_usd"] == Decimal("1000.000000")
+        assert row["fx_rate"] == Decimal("1600.000000")
+        assert row["currency"] == "NGN"
+        assert row["payment_method"] == "cash"
+        assert row["ref_no"] == "EXP-1"
+        assert row["note"] == "Generator fuel"
+        assert row["business_id"] == BUSINESS_ID
+        assert row["created_by"] == CREATED_BY
+
+    def test_usd_amount_is_used_directly_without_conversion(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [
+            {"amount": "500", "currency": "USD", "fx_rate": "1600", "expense_date": "2026-01-01"}
+        ]
+        result = transformer.transform_expenses(rows)
+        assert result[0]["amount_usd"] == Decimal("500.000000")
+        assert result[0]["amount_ngn"] == Decimal("800000.000000")
+
+    def test_usd_amount_with_no_fx_rate_still_gets_a_real_ngn_conversion(self):
+        """Regression: a USD row with no fx_rate must not fall back to
+        amount_ngn = amount_usd verbatim — that silently understates the NGN
+        figure by ~1500x (the NGN/USD fallback rate) instead of applying it,
+        unlike the NGN branch, which already applied the fallback rate
+        correctly from the start."""
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [{"amount": "50", "currency": "USD", "expense_date": "2026-01-01"}]
+        result = transformer.transform_expenses(rows)
+        assert result[0]["amount_usd"] == Decimal("50.000000")
+        assert result[0]["amount_ngn"] == Decimal("75000.000000")
+        assert result[0]["fx_rate"] is not None
+
+    def test_missing_fx_rate_falls_back_to_a_default_rate(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [
+            {"amount": "150000", "currency": "NGN", "expense_date": "2026-01-01"}
+        ]
+        result = transformer.transform_expenses(rows)
+        assert result[0]["fx_rate"] is not None
+        assert result[0]["amount_usd"] > 0
+
+    def test_resolves_category_id_from_id_map(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        category_id = uuid.uuid4()
+        transformer.id_map.register("expense_categories", "EC1", category_id)
+        rows = [
+            {
+                "category_source_id": "EC1",
+                "amount": "100",
+                "currency": "USD",
+                "expense_date": "2026-01-01",
+            }
+        ]
+        result = transformer.transform_expenses(rows)
+        assert result[0]["category_id"] == category_id
+
+    def test_resolves_location_id_from_id_map(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        location_id = uuid.uuid4()
+        transformer.id_map.register("business_locations", "L1", location_id)
+        rows = [
+            {
+                "location_source_id": "L1",
+                "amount": "100",
+                "currency": "USD",
+                "expense_date": "2026-01-01",
+            }
+        ]
+        result = transformer.transform_expenses(rows)
+        assert result[0]["location_id"] == location_id
+
+    def test_unparseable_amount_drops_row_with_error_not_raised(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [{"amount": "not-a-number", "currency": "USD", "expense_date": "2026-01-01"}]
+        result = transformer.transform_expenses(rows)
+        assert result == []
+        assert any(w.severity == "error" for w in transformer.warnings)
+
+    def test_unparseable_date_drops_row_with_error_not_raised(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [{"amount": "100", "currency": "USD", "expense_date": "not-a-date"}]
+        result = transformer.transform_expenses(rows)
+        assert result == []
+        assert any(w.severity == "error" for w in transformer.warnings)
+
+    def test_decimal_and_comma_amount_parse_instead_of_being_dropped(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [
+            {"amount": "1,000.50", "currency": "USD", "expense_date": "2026-01-01"},
+        ]
+        result = transformer.transform_expenses(rows)
+        assert len(result) == 1
+        assert result[0]["amount_usd"] == Decimal("1000.500000")
+        assert not transformer.warnings
+
+
 # ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
@@ -794,6 +929,56 @@ class TestLoader:
         row_counts = await loader_load(db, uuid.uuid4(), {}, IdMap())
         assert all(count == 0 for count in row_counts.values())
         db.add_all.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_load_writes_expense_category_and_expense_rows(self):
+        db = _mock_db()
+        migration_id = uuid.uuid4()
+        category_id = uuid.uuid4()
+        expense_id = uuid.uuid4()
+        transformed = {
+            "expense_categories": [
+                {
+                    "id": category_id,
+                    "name": "Rent",
+                    "description": None,
+                    "business_id": BUSINESS_ID,
+                    "created_by": CREATED_BY,
+                }
+            ],
+            "expenses": [
+                {
+                    "id": expense_id,
+                    "category_id": category_id,
+                    "ref_no": "EXP-1",
+                    "amount_ngn": Decimal("160000"),
+                    "fx_rate": Decimal("1600"),
+                    "amount_usd": Decimal("100"),
+                    "currency": "NGN",
+                    "expense_date": date(2026, 1, 1),
+                    "payment_method": "cash",
+                    "note": None,
+                    "location_id": None,
+                    "business_id": BUSINESS_ID,
+                    "created_by": CREATED_BY,
+                }
+            ],
+        }
+
+        row_counts = await loader_load(db, migration_id, transformed, IdMap())
+
+        assert row_counts["expense_categories"] == 1
+        assert row_counts["expenses"] == 1
+        added = {
+            type(call.args[0][0]).__name__: call.args[0][0]
+            for call in db.add_all.call_args_list
+            if call.args[0]
+        }
+        assert added["ExpenseCategory"].id == category_id
+        assert added["ExpenseCategory"].migration_id == migration_id
+        assert added["Expense"].id == expense_id
+        assert added["Expense"].category_id == category_id
+        assert added["Expense"].migration_id == migration_id
 
     @pytest.mark.asyncio
     async def test_rollback_deletes_by_migration_id_in_reverse_order(self):

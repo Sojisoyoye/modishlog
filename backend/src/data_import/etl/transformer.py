@@ -34,6 +34,11 @@ def normalize_channel(raw: str | None) -> SaleChannel:
     return _CHANNEL_MAP.get((raw or "retail").strip().lower(), SaleChannel.RETAIL)
 
 
+# Fallback NGN/USD rate for expense amounts with no fx_rate supplied —
+# matches orders/service.py's transition_status() fallback for the same
+# missing-rate case, kept consistent rather than picking a new value.
+_FALLBACK_NGN_USD_RATE = Decimal("1500")
+
 _PAYMENT_METHOD_MAP = {
     "credit card": "card",
     "debit card": "card",
@@ -632,6 +637,98 @@ class Transformer:
                 )
             del group["_first_row"]
         return result
+
+    def transform_expense_categories(self, raw_rows: list[dict]) -> list[dict]:
+        """Mirrors transform_categories() — no dedup, always assigns a new
+        row (matching the existing product-category import behavior this
+        entity is modeled on, not the dedup-by-name/email pattern
+        transform_suppliers()/transform_customers() use).
+        """
+        out = []
+        for row in raw_rows:
+            source_id = row.get("source_id")
+            out.append(
+                {
+                    "id": self._assign_id("expense_categories", source_id),
+                    "_source_id": source_id,
+                    "name": row["name"].strip(),
+                    "description": row.get("description") or None,
+                    "business_id": self.business_id,
+                    "created_by": self.created_by,
+                }
+            )
+        return out
+
+    def transform_expenses(self, raw_rows: list[dict]) -> list[dict]:
+        """No dedup — like transform_sales()/transform_purchase_orders(),
+        every row is its own transactional record, not master data to
+        merge with an existing one.
+        """
+        out = []
+        for i, row in enumerate(raw_rows, start=2):
+            try:
+                amount = normalize_amount(row["amount"])
+                expense_date = normalize_date(row["expense_date"])
+            except (KeyError, ValueError, InvalidOperation) as e:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="expenses",
+                        row=i,
+                        severity="error",
+                        message=f"Could not parse row: {e}",
+                    )
+                )
+                continue
+
+            category_id = None
+            if row.get("category_source_id"):
+                category_id = self.id_map.lookup(
+                    "expense_categories", row["category_source_id"]
+                )
+
+            location_id = None
+            if row.get("location_source_id"):
+                location_id = self.id_map.lookup(
+                    "business_locations", row["location_source_id"]
+                )
+
+            currency = (row.get("currency") or "USD").upper()
+            fx_rate = normalize_amount(row["fx_rate"]) if row.get("fx_rate") else None
+
+            if currency == "USD":
+                amount_usd = amount
+                rate = fx_rate or _FALLBACK_NGN_USD_RATE
+                amount_ngn = (amount * rate).quantize(
+                    Decimal("0.000001"), rounding=ROUND_HALF_UP
+                )
+                fx_rate = fx_rate or rate
+            else:
+                amount_ngn = amount
+                rate = fx_rate or _FALLBACK_NGN_USD_RATE
+                amount_usd = (amount_ngn / rate).quantize(
+                    Decimal("0.000001"), rounding=ROUND_HALF_UP
+                )
+                fx_rate = fx_rate or rate
+
+            out.append(
+                {
+                    "id": self._assign_id("expenses", row.get("source_id")),
+                    "_source_id": row.get("source_id"),
+                    "category_id": category_id,
+                    "ref_no": row.get("ref_no") or None,
+                    "amount_ngn": amount_ngn,
+                    "fx_rate": fx_rate,
+                    "amount_usd": amount_usd,
+                    "currency": currency,
+                    "expense_date": expense_date,
+                    "payment_method": normalize_payment_method(row.get("payment_method")),
+                    "note": row.get("note") or None,
+                    "location_id": location_id,
+                    "business_id": self.business_id,
+                    "created_by": self.created_by,
+                }
+            )
+        return out
 
     def detect_ghost_products(
         self, sales_raw: list[dict], known_product_source_ids: set[str]

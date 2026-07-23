@@ -85,6 +85,8 @@ IMPORTABLE_ENTITIES = [
     "business_locations",
     "purchase_orders",
     "sales",
+    "expense_categories",
+    "expenses",
 ]
 
 _SAMPLE_ROWS = 3
@@ -304,6 +306,16 @@ async def _extract_and_transform(
     )
     transformed["purchase_orders"] = transformer.transform_purchase_orders(
         mapped.get("purchase_orders", [])
+    )
+
+    # expense_categories before expenses — transform_expenses() resolves
+    # category_source_id against the id_map entries transform_expense_
+    # categories() registers.
+    transformed["expense_categories"] = transformer.transform_expense_categories(
+        mapped.get("expense_categories", [])
+    )
+    transformed["expenses"] = transformer.transform_expenses(
+        mapped.get("expenses", [])
     )
 
     return mapped, transformed, transformer
@@ -763,6 +775,19 @@ _TEMPLATE_COLUMNS: dict[str, list[str]] = {
         "payment_method",
         "location_name",
     ],
+    "expense_categories": ["source_id", "name", "description"],
+    "expenses": [
+        "source_id",
+        "category_source_id",
+        "ref_no",
+        "amount",
+        "currency",
+        "fx_rate",
+        "expense_date",
+        "payment_method",
+        "note",
+        "location_source_id",
+    ],
 }
 
 
@@ -795,5 +820,10 @@ def build_readme() -> str:
         "time of that purchase, or leave it blank to fall back to a fixed rate — for",
         "historical imports spanning any real length of time, a fixed rate will misstate",
         "landed cost and profit margin for every purchase made when the real rate differed.",
+        "",
+        "expenses.csv: `amount` is read in whatever `currency` says (USD or NGN) — unlike",
+        "purchase_orders.csv, it is NOT required to already be USD. An NGN amount is",
+        "converted using `fx_rate` (or a fixed fallback rate if left blank, with the same",
+        "historical-accuracy caveat as purchase_orders.csv above).",
     ]
     return "\n".join(lines)
