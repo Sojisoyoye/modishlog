@@ -56,6 +56,13 @@ ENTITY_RULES: dict[str, dict[str, tuple[str, ...] | bool]] = {
         # design (see transform_purchase_orders) — not a duplicate.
         "unique_source_id": False,
     },
+    "expense_categories": {"required": ("name",), "dates": (), "amounts": ()},
+    "expenses": {
+        "required": ("amount", "expense_date"),
+        "dates": ("expense_date",),
+        "amounts": (),
+        "positive_amounts": ("amount",),
+    },
 }
 
 

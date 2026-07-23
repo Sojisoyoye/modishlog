@@ -188,6 +188,26 @@ PURCHASE_PRINT_JSON = json.dumps(
     }
 )
 
+EXPENSE_CATEGORIES_JSON = json.dumps(
+    {"data": [{"id": 3, "name": "Rent", "description": "Monthly shop rent"}]}
+)
+
+EXPENSES_JSON = json.dumps(
+    {
+        "data": [
+            {
+                "id": 88,
+                "expense_category_id": 3,
+                "ref_no": "EXP-001",
+                "amount": "150,000.00",
+                "expense_date": "2026-01-05",
+                "payment_method": "cash",
+                "note": "January rent",
+            }
+        ]
+    }
+)
+
 
 def _get_side_effect(url: str, headers=None, **kwargs):
     if url.endswith("/login"):
@@ -206,6 +226,10 @@ def _get_side_effect(url: str, headers=None, **kwargs):
         return _resp(PURCHASE_PRINT_JSON)
     if "/purchases" in url:
         return _resp(PURCHASES_JSON)
+    if "/expense-categories" in url:
+        return _resp(EXPENSE_CATEGORIES_JSON)
+    if "/expenses" in url:
+        return _resp(EXPENSES_JSON)
     if "/sells" in url and "sells/" not in url:
         return _resp(SELLS_JSON)
     if "/sells/777" in url:
@@ -267,6 +291,8 @@ class TestExtract:
             "business_locations",
             "sales",
             "purchase_orders",
+            "expense_categories",
+            "expenses",
         }
 
         products = result["products"]
@@ -336,6 +362,20 @@ class TestExtract:
         # 1200 NGN / 1600 fallback rate = 0.75 USD
         assert po["unit_cost"] == "0.750000"
         assert po["fx_rate"] == "1600"
+
+        expense_categories = result["expense_categories"]
+        assert expense_categories[0]["source_id"] == "3"
+        assert expense_categories[0]["name"] == "Rent"
+
+        expenses = result["expenses"]
+        assert len(expenses) == 1
+        exp = expenses[0]
+        assert exp["category_source_id"] == "3"
+        assert exp["ref_no"] == "EXP-001"
+        assert exp["amount"] == "150000.00"
+        assert exp["expense_date"] == "2026-01-05"
+        assert exp["payment_method"] == "cash"
+        assert exp["note"] == "January rent"
 
     @pytest.mark.asyncio
     async def test_extract_never_logs_credentials(self, capsys):
@@ -714,6 +754,78 @@ class TestMapPurchaseOrders:
         raw_purchases = [{"id": 9999, "ref_no": "PO-EMPTY", "transaction_date": "01-01-2026"}]
         rows = await extractor._map_purchase_orders(client, raw_purchases, [], [])
         assert rows == []
+
+
+class TestMapExpenseCategories:
+    def test_maps_id_name_description(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        raw = [{"id": 3, "name": "Rent", "description": "Monthly shop rent"}]
+        categories, id_to_source = extractor._map_expense_categories(raw)
+        assert categories == [
+            {"source_id": "3", "name": "Rent", "description": "Monthly shop rent"}
+        ]
+        assert id_to_source == {"3": "3"}
+
+    def test_row_with_no_id_is_skipped(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        categories, _map = extractor._map_expense_categories([{"name": "No ID"}])
+        assert categories == []
+
+
+class TestMapExpenses:
+    def test_resolves_category_and_parses_fields(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        raw = [
+            {
+                "id": 88,
+                "expense_category_id": 3,
+                "ref_no": "EXP-001",
+                "amount": "150,000.00",
+                "expense_date": "2026-01-05",
+                "payment_method": "cash",
+                "note": "January rent",
+            }
+        ]
+        rows = extractor._map_expenses(raw, {"3": "3"})
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["source_id"] == "88"
+        assert row["category_source_id"] == "3"
+        assert row["ref_no"] == "EXP-001"
+        assert row["amount"] == "150000.00"
+        assert row["expense_date"] == "2026-01-05"
+        assert row["payment_method"] == "cash"
+        assert row["note"] == "January rent"
+
+    def test_unresolvable_category_leaves_category_source_id_blank(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        raw = [{"id": 1, "expense_category_id": 999, "amount": "100", "expense_date": "2026-01-01"}]
+        rows = extractor._map_expenses(raw, {})
+        assert rows[0]["category_source_id"] == ""
+
+    def test_row_with_no_parseable_date_is_skipped(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        raw = [{"id": 1, "amount": "100", "expense_date": ""}]
+        assert extractor._map_expenses(raw, {}) == []
+
+    def test_falls_back_to_final_total_and_transaction_date_and_additional_notes(self):
+        """pos_migrate.py's proven expense mapping accepts either field name
+        pair — mirrored here since the live business this was built against
+        had zero real expense records to confirm which one this API version
+        actually uses."""
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        raw = [
+            {
+                "id": 1,
+                "final_total": "5000",
+                "transaction_date": "2026-02-01",
+                "additional_notes": "Fallback note",
+            }
+        ]
+        rows = extractor._map_expenses(raw, {})
+        assert rows[0]["amount"] == "5000"
+        assert rows[0]["expense_date"] == "2026-02-01"
+        assert rows[0]["note"] == "Fallback note"
 
 
 class TestTestConnection:

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.customers.models import Customer
 from src.data_import.etl.transformer import IdMap
 from src.data_import.exceptions import PurchaseOrderRollbackBlockedError
+from src.expenses.models import Expense, ExpenseCategory
 from src.inventory.models import InventoryBatch, InventoryLevel, StockMovement
 from src.locations.models import BusinessLocation
 from src.orders.models import (
@@ -50,6 +51,8 @@ LOAD_ORDER: list[tuple[str, type]] = [
     ("customers", Customer),
     ("business_locations", BusinessLocation),
     ("sales", Sale),
+    ("expense_categories", ExpenseCategory),
+    ("expenses", Expense),
 ]
 
 

@@ -43,6 +43,8 @@ export const IMPORTABLE_ENTITIES = [
   'business_locations',
   'purchase_orders',
   'sales',
+  'expense_categories',
+  'expenses',
 ] as const;
 
 export type ImportEntity = (typeof IMPORTABLE_ENTITIES)[number];
@@ -58,6 +60,8 @@ export const ENTITY_LABELS: Record<ImportEntity, string> = {
   business_locations: 'Business Locations',
   purchase_orders: 'Purchase Orders',
   sales: 'Sales',
+  expense_categories: 'Expense Categories',
+  expenses: 'Expenses',
 };
 
 export interface ValidationIssue {
