@@ -29,6 +29,7 @@ from src.data_import.exceptions import (
     PurchaseOrderRollbackBlockedError,
     PurchaseReturnImportError,
     SellReturnImportError,
+    SellReturnRollbackBlockedError,
     StockAdjustmentImportError,
     UnsupportedSourceSystemError,
 )
@@ -334,4 +335,6 @@ async def rollback_job(
     except InvalidJobStateError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except PurchaseOrderRollbackBlockedError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except SellReturnRollbackBlockedError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))

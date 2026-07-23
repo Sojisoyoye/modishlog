@@ -15,7 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.customers.models import Customer
 from src.data_import.etl.transformer import IdMap
-from src.data_import.exceptions import PurchaseOrderRollbackBlockedError
+from src.data_import.exceptions import (
+    PurchaseOrderRollbackBlockedError,
+    SellReturnRollbackBlockedError,
+)
 from src.expenses.models import Expense, ExpenseCategory
 from src.inventory.models import InventoryBatch, InventoryLevel, StockMovement
 from src.inventory.service import adjust_stock
@@ -398,10 +401,20 @@ async def load_purchase_returns(
     now = datetime.now(timezone.utc)
     for row in rows:
         result = await db.execute(
-            select(PurchaseOrder.id).where(
+            select(PurchaseOrder.id)
+            .where(
                 PurchaseOrder.pos_id == row["purchase_source_id"],
                 PurchaseOrder.business_id == business_id,
             )
+            # purchase_orders are never deduped by source_id/pos_id across
+            # jobs (validator.py sets unique_source_id=False for this
+            # entity) — re-importing the same purchase data in a second job
+            # creates a second PurchaseOrder row with the identical pos_id.
+            # Without this, scalar_one_or_none() raises MultipleResultsFound
+            # on that second match, matching load_sell_returns()'s own
+            # guard against the analogous case for Sale.pos_id.
+            .order_by(PurchaseOrder.created_at)
+            .limit(1)
         )
         order_id = result.scalar_one_or_none()
         if order_id is None:
@@ -500,6 +513,34 @@ async def rollback(db: AsyncSession, migration_id: uuid.UUID) -> dict[str, int]:
         raise PurchaseOrderRollbackBlockedError(
             migration_id, list(blocked_return_order_ids)
         )
+
+    # Same rationale as the PurchaseReturn check above, but for Sale: a
+    # SellReturn NOT tagged with this migration_id is real business data
+    # created after the import. Unlike PurchaseReturn, SellReturn.sale_id
+    # has ON DELETE CASCADE — without this check, that real return would
+    # be silently destroyed once the Sale itself is deleted below, instead
+    # of causing any error at all.
+    blocked_sale_ids = (
+        (
+            await db.execute(
+                select(SellReturn.sale_id)
+                .where(
+                    SellReturn.sale_id.in_(
+                        select(Sale.id).where(Sale.migration_id == migration_id)
+                    ),
+                    or_(
+                        SellReturn.migration_id.is_(None),
+                        SellReturn.migration_id != migration_id,
+                    ),
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if blocked_sale_ids:
+        raise SellReturnRollbackBlockedError(migration_id, list(blocked_sale_ids))
 
     # StockMovement/InventoryLevel reference products.id and must go before
     # the reversed LOAD_ORDER loop deletes products, further down.

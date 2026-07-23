@@ -819,25 +819,31 @@ class Transformer:
             )
         return out
 
-    def transform_sell_returns(self, raw_rows: list[dict]) -> list[dict]:
-        """sale_source_id is intentionally left unresolved here — Sale rows
-        only get an id once load() inserts them (no _assign_id
-        pre-registration for sales, unlike products/customers/etc.), so
-        id_map can't resolve it yet at transform time. load_sell_returns()
-        resolves it via a DB query against Sale.pos_id after sales have
-        actually loaded (see transform_sales()'s pos_id column).
+    def _transform_return_rows(
+        self, raw_rows: list[dict], *, entity: str, parent_field: str
+    ) -> list[dict]:
+        """Shared by transform_sell_returns()/transform_purchase_returns() —
+        both are header-only aggregates (total_amount/amount_paid/return_date/
+        ref_no/notes) differing only in which field names the parent
+        sale/purchase order. That parent reference is intentionally left
+        unresolved here: Sale/PurchaseOrder rows only get an id once
+        load()/load_purchase_orders() actually insert them (no _assign_id
+        pre-registration for either, unlike products/customers/etc.), so
+        id_map can't resolve it yet at transform time — load_sell_returns()/
+        load_purchase_returns() resolve it via a DB query against
+        Sale.pos_id/PurchaseOrder.pos_id once their parents have loaded.
         """
         out = []
         for i, row in enumerate(raw_rows, start=2):
-            sale_source_id = (row.get("sale_source_id") or "").strip()
-            if not sale_source_id:
+            parent_source_id = (row.get(parent_field) or "").strip()
+            if not parent_source_id:
                 self.warnings.append(
                     ValidationIssue(
-                        entity="sell_returns",
+                        entity=entity,
                         row=i,
-                        field="sale_source_id",
+                        field=parent_field,
                         severity="error",
-                        message="sale_source_id is required",
+                        message=f"{parent_field} is required",
                     )
                 )
                 continue
@@ -853,7 +859,7 @@ class Transformer:
             except (KeyError, ValueError, InvalidOperation) as e:
                 self.warnings.append(
                     ValidationIssue(
-                        entity="sell_returns",
+                        entity=entity,
                         row=i,
                         severity="error",
                         message=f"Could not parse row: {e}",
@@ -863,7 +869,7 @@ class Transformer:
 
             out.append(
                 {
-                    "sale_source_id": sale_source_id,
+                    parent_field: parent_source_id,
                     "return_date": return_date,
                     "total_amount": total_amount,
                     "amount_paid": amount_paid,
@@ -872,58 +878,16 @@ class Transformer:
                 }
             )
         return out
+
+    def transform_sell_returns(self, raw_rows: list[dict]) -> list[dict]:
+        return self._transform_return_rows(
+            raw_rows, entity="sell_returns", parent_field="sale_source_id"
+        )
 
     def transform_purchase_returns(self, raw_rows: list[dict]) -> list[dict]:
-        """purchase_source_id is left unresolved for the same reason
-        sale_source_id is above — load_purchase_returns() resolves it via a
-        DB query against PurchaseOrder.pos_id once purchase orders have
-        actually loaded.
-        """
-        out = []
-        for i, row in enumerate(raw_rows, start=2):
-            purchase_source_id = (row.get("purchase_source_id") or "").strip()
-            if not purchase_source_id:
-                self.warnings.append(
-                    ValidationIssue(
-                        entity="purchase_returns",
-                        row=i,
-                        field="purchase_source_id",
-                        severity="error",
-                        message="purchase_source_id is required",
-                    )
-                )
-                continue
-
-            try:
-                total_amount = normalize_amount(row["total_amount"])
-                amount_paid = (
-                    normalize_amount(row["amount_paid"])
-                    if row.get("amount_paid")
-                    else Decimal("0")
-                )
-                return_date = normalize_date(row["return_date"])
-            except (KeyError, ValueError, InvalidOperation) as e:
-                self.warnings.append(
-                    ValidationIssue(
-                        entity="purchase_returns",
-                        row=i,
-                        severity="error",
-                        message=f"Could not parse row: {e}",
-                    )
-                )
-                continue
-
-            out.append(
-                {
-                    "purchase_source_id": purchase_source_id,
-                    "return_date": return_date,
-                    "total_amount": total_amount,
-                    "amount_paid": amount_paid,
-                    "ref_no": row.get("ref_no") or None,
-                    "notes": row.get("notes") or None,
-                }
-            )
-        return out
+        return self._transform_return_rows(
+            raw_rows, entity="purchase_returns", parent_field="purchase_source_id"
+        )
 
     def detect_ghost_products(
         self, sales_raw: list[dict], known_product_source_ids: set[str]

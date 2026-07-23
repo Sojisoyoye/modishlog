@@ -223,6 +223,31 @@ class TestValidateEntityRows:
         issues = validate_entity_rows("purchase_orders", rows)
         assert not any(i.field == "fx_rate" for i in issues)
 
+    def test_sell_return_malformed_amount_paid_is_error(self):
+        """amount_paid shares transform_sell_returns()'s single try/except
+        with total_amount/return_date — an unvalidated garbage value would
+        silently drop the entire otherwise-valid row at confirm time as a
+        generic 'could not parse row' error, same class of gap fx_rate had
+        for purchase_orders above."""
+        rows = [{"sale_source_id": "S1", "total_amount": "100", "return_date": "2026-01-01", "amount_paid": "N/A"}]
+        issues = validate_entity_rows("sell_returns", rows)
+        assert any(i.field == "amount_paid" and i.severity == "error" for i in issues)
+
+    def test_sell_return_negative_amount_paid_is_error(self):
+        rows = [{"sale_source_id": "S1", "total_amount": "100", "return_date": "2026-01-01", "amount_paid": "-1"}]
+        issues = validate_entity_rows("sell_returns", rows)
+        assert any(i.field == "amount_paid" and i.severity == "error" for i in issues)
+
+    def test_sell_return_zero_amount_paid_is_valid(self):
+        rows = [{"sale_source_id": "S1", "total_amount": "100", "return_date": "2026-01-01", "amount_paid": "0"}]
+        issues = validate_entity_rows("sell_returns", rows)
+        assert not any(i.field == "amount_paid" for i in issues)
+
+    def test_purchase_return_malformed_amount_paid_is_error(self):
+        rows = [{"purchase_source_id": "PO1", "total_amount": "100", "return_date": "2026-01-01", "amount_paid": "N/A"}]
+        issues = validate_entity_rows("purchase_returns", rows)
+        assert any(i.field == "amount_paid" and i.severity == "error" for i in issues)
+
     def test_purchase_order_decimal_and_comma_quantity_is_valid(self):
         """quantity is validated leniently (parse_flexible_amount, matching
         transform_purchase_orders()'s own parsing) — "10.0" and "1,000" must
@@ -1165,15 +1190,18 @@ class TestLoader:
         result_mock = MagicMock(rowcount=3)
         empty_scalars = MagicMock()
         empty_scalars.scalars.return_value.all.return_value = []
-        # First two calls are the pre-flight blocking lookups (OrderPayment,
-        # then PurchaseReturn — both empty here, so both blocking checks are
-        # skipped) — every remaining call is one of the FK-ordered deletes.
-        db.execute = AsyncMock(side_effect=[empty_scalars, empty_scalars] + [result_mock] * 20)
+        # First three calls are the pre-flight blocking lookups (OrderPayment,
+        # PurchaseReturn, SellReturn — all empty here, so every blocking
+        # check is skipped) — every remaining call is one of the FK-ordered
+        # deletes.
+        db.execute = AsyncMock(
+            side_effect=[empty_scalars, empty_scalars, empty_scalars] + [result_mock] * 20
+        )
 
         deleted_counts = await loader_rollback(db, uuid.uuid4())
 
         assert deleted_counts["sales"] == 3
-        assert db.execute.await_count == len(deleted_counts) + 2
+        assert db.execute.await_count == len(deleted_counts) + 3
 
     @pytest.mark.asyncio
     async def test_rollback_blocked_when_imported_po_has_a_payment_recorded(self):
@@ -1220,6 +1248,31 @@ class TestLoader:
             await loader_rollback(db, uuid.uuid4())
 
         assert db.execute.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_rollback_blocked_when_imported_sale_has_a_real_sell_return(self):
+        """A sell return created via the normal endpoint (not tagged with
+        this migration_id) against an imported sale isn't part of the
+        import. SellReturn.sale_id has ON DELETE CASCADE, so without this
+        check that real return would be silently destroyed once the sale
+        itself is deleted, rather than raising an error at all."""
+        from src.data_import.exceptions import SellReturnRollbackBlockedError
+
+        db = _mock_db()
+        sale_id = uuid.uuid4()
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        blocked_result = MagicMock()
+        blocked_result.scalars.return_value.all.return_value = [sale_id]
+        # First call: OrderPayment pre-flight (empty). Second call:
+        # PurchaseReturn pre-flight (empty). Third call: SellReturn
+        # pre-flight (blocked).
+        db.execute = AsyncMock(side_effect=[empty_scalars, empty_scalars, blocked_result])
+
+        with pytest.raises(SellReturnRollbackBlockedError):
+            await loader_rollback(db, uuid.uuid4())
+
+        assert db.execute.await_count == 3
 
 
 class TestLoadPurchaseOrders:

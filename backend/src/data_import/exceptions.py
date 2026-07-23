@@ -133,6 +133,26 @@ class PurchaseReturnImportError(Exception):
         )
 
 
+class SellReturnRollbackBlockedError(Exception):
+    """Raised when rollback() would need to delete an imported Sale that
+    already has a real (non-imported) SellReturn recorded against it.
+    SellReturn.sale_id has ON DELETE CASCADE, so unlike PurchaseReturn (no
+    such cascade — a raw FK violation would stop it), that return would be
+    silently destroyed along with the sale rather than causing a loud
+    error. Rollback refuses outright instead, mirroring
+    PurchaseOrderRollbackBlockedError's rationale for purchase orders.
+    """
+
+    def __init__(self, job_id: uuid.UUID, blocked_sale_ids: list[uuid.UUID]) -> None:
+        self.job_id = job_id
+        self.blocked_sale_ids = blocked_sale_ids
+        super().__init__(
+            f"Cannot roll back migration job {job_id}: {len(blocked_sale_ids)} "
+            "imported sale(s) have a return recorded against them since the "
+            "import. Remove those returns first, or leave this import in place."
+        )
+
+
 class PurchaseOrderRollbackBlockedError(Exception):
     """Raised when rollback() would need to delete an imported PurchaseOrder
     that already has a real OrderPayment recorded against it. That payment
