@@ -697,7 +697,11 @@ class Transformer:
 
             if currency == "USD":
                 amount_usd = amount
-                amount_ngn = (amount * fx_rate) if fx_rate else amount
+                rate = fx_rate or _FALLBACK_NGN_USD_RATE
+                amount_ngn = (amount * rate).quantize(
+                    Decimal("0.000001"), rounding=ROUND_HALF_UP
+                )
+                fx_rate = fx_rate or rate
             else:
                 amount_ngn = amount
                 rate = fx_rate or _FALLBACK_NGN_USD_RATE

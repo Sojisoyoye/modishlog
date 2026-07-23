@@ -760,10 +760,24 @@ class TestTransformExpenses:
     def test_usd_amount_is_used_directly_without_conversion(self):
         transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
         rows = [
-            {"amount": "500", "currency": "USD", "expense_date": "2026-01-01"}
+            {"amount": "500", "currency": "USD", "fx_rate": "1600", "expense_date": "2026-01-01"}
         ]
         result = transformer.transform_expenses(rows)
         assert result[0]["amount_usd"] == Decimal("500.000000")
+        assert result[0]["amount_ngn"] == Decimal("800000.000000")
+
+    def test_usd_amount_with_no_fx_rate_still_gets_a_real_ngn_conversion(self):
+        """Regression: a USD row with no fx_rate must not fall back to
+        amount_ngn = amount_usd verbatim — that silently understates the NGN
+        figure by ~1500x (the NGN/USD fallback rate) instead of applying it,
+        unlike the NGN branch, which already applied the fallback rate
+        correctly from the start."""
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [{"amount": "50", "currency": "USD", "expense_date": "2026-01-01"}]
+        result = transformer.transform_expenses(rows)
+        assert result[0]["amount_usd"] == Decimal("50.000000")
+        assert result[0]["amount_ngn"] == Decimal("75000.000000")
+        assert result[0]["fx_rate"] is not None
 
     def test_missing_fx_rate_falls_back_to_a_default_rate(self):
         transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
