@@ -166,6 +166,15 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "info"
     APP_VERSION: str = "1.0.0"
 
+    # Set only by docker-compose.e2e.yml — a real Playwright run legitimately
+    # logs in far more than the login endpoint's normal 10/minute limit
+    # across its full suite (many specs, each with their own beforeEach
+    # login). Deliberately NOT tied to ENVIRONMENT=test: backend-tests.yml's
+    # plain pytest CI job also sets ENVIRONMENT=test (for unrelated reasons),
+    # and several real security regression tests there specifically verify
+    # the strict limit IS enforced — conflating the two flags broke them.
+    E2E_RELAXED_LOGIN_RATE_LIMIT: bool = False
+
     # External APIs
     FX_API_KEY: str = ""
     FX_API_URL: str = "https://api.example.com/fx"

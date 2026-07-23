@@ -65,11 +65,12 @@ router = APIRouter()
 def _login_rate_limit() -> str:
     """A real E2E suite legitimately logs in far more than 10 times/minute
     across its full test run (many specs, each with their own beforeEach
-    login) — the production rate is otherwise unrelated to test-suite
-    volume, so only ENVIRONMENT=test gets the relaxed limit, never a blanket
-    loosening of the login endpoint's real brute-force protection.
+    login). Gated on the dedicated E2E_RELAXED_LOGIN_RATE_LIMIT flag (set
+    only by docker-compose.e2e.yml), not ENVIRONMENT=test — the plain
+    backend pytest CI job also uses ENVIRONMENT=test, and its own security
+    regression tests specifically verify the strict limit is enforced.
     """
-    return "1000/minute" if settings.ENVIRONMENT == "test" else "10/minute"
+    return "1000/minute" if settings.E2E_RELAXED_LOGIN_RATE_LIMIT else "10/minute"
 
 
 @router.post("/onboard", response_model=OnboardResponse, status_code=status.HTTP_201_CREATED)

@@ -22,9 +22,22 @@ class TestRedisRateLimiter:
 
     @pytest.fixture(autouse=True)
     def _client(self):
+        from src.core.database import get_db
         from src.main import app
 
+        # No real DB needed to exercise rate limiting — see the identical
+        # fixture in test_security_headers.py::TestAuthRateLimiting for why
+        # an unmocked get_db() here masks/un-masks itself depending on the
+        # configured limit rather than reliably testing the 429 boundary.
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=result)
+        app.dependency_overrides[get_db] = lambda: db
+
         self.client = TestClient(app, raise_server_exceptions=False)
+        yield
+        app.dependency_overrides.pop(get_db, None)
 
     def test_rate_limiter_rejects_at_threshold(self):
         """After 10 rapid login attempts, the 11th should return 429."""
