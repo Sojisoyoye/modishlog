@@ -363,7 +363,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
 
         raw_purchases = await anyio.to_thread.run_sync(client.fetch_purchases)
         purchase_orders = await self._map_purchase_orders(
-            client, raw_purchases, products, raw_suppliers
+            client, raw_purchases, raw_products, raw_suppliers
         )
 
         result: ExtractedData = {
@@ -683,10 +683,18 @@ class UltimatePOSAPIExtractor(APIExtractor):
         self,
         client: _POSAPIClient,
         raw_purchases: list[dict],
-        products: list[dict],
+        raw_products: list[dict],
         raw_suppliers: list[dict],
     ) -> list[dict]:
-        sku_to_source = {p["sku"]: p["source_id"] for p in products if p.get("sku")}
+        # Built from raw_products (unfiltered), not _map_products()'s
+        # active-only output — a historical purchase can reference a
+        # since-discontinued (is_inactive/not_for_selling) product, and
+        # that line must still resolve instead of silently vanishing.
+        sku_to_source = {
+            str(p["sku"]).strip(): str(p["id"])
+            for p in raw_products
+            if p.get("sku") and p.get("id") is not None
+        }
         supplier_name_to_source: dict[str, str] = {}
         for s in raw_suppliers:
             sid = _extract_contact_id(s)

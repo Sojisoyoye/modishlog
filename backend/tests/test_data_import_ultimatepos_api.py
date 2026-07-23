@@ -641,7 +641,7 @@ class TestMapPurchaseOrders:
     async def test_groups_lines_and_resolves_supplier_by_name(self):
         extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
         client = extractor._build_client()
-        products = [{"sku": "SKU-1", "source_id": "10101"}]
+        raw_products = [{"id": 10101, "sku": "SKU-1"}]
         raw_suppliers = [
             {
                 "name": "Acme Textiles",
@@ -657,7 +657,7 @@ class TestMapPurchaseOrders:
             }
         ]
         rows = await extractor._map_purchase_orders(
-            client, raw_purchases, products, raw_suppliers
+            client, raw_purchases, raw_products, raw_suppliers
         )
         assert len(rows) == 1
         row = rows[0]
@@ -668,10 +668,33 @@ class TestMapPurchaseOrders:
         assert row["currency"] == "USD"
 
     @pytest.mark.asyncio
+    async def test_purchase_line_for_discontinued_product_still_resolves(self):
+        """Regression: sku_to_source must be built from ALL products, not
+        just the active/for-sale subset _map_products() returns — a
+        historical PO can reference a since-discontinued product and that
+        line must not silently vanish."""
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        client = extractor._build_client()
+        raw_products = [
+            {"id": 10101, "sku": "SKU-1", "is_inactive": 1, "not_for_selling": 1}
+        ]
+        raw_purchases = [
+            {
+                "id": 555,
+                "ref_no": "PO2026/0001",
+                "transaction_date": "26-06-2025 12:08",
+                "name": "Acme Textiles",
+            }
+        ]
+        rows = await extractor._map_purchase_orders(client, raw_purchases, raw_products, [])
+        assert len(rows) == 1
+        assert rows[0]["product_source_id"] == "10101"
+
+    @pytest.mark.asyncio
     async def test_unmatched_supplier_name_leaves_supplier_source_id_blank(self):
         extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
         client = extractor._build_client()
-        products = [{"sku": "SKU-1", "source_id": "10101"}]
+        raw_products = [{"id": 10101, "sku": "SKU-1"}]
         raw_purchases = [
             {
                 "id": 555,
@@ -680,7 +703,7 @@ class TestMapPurchaseOrders:
                 "name": "Unknown Supplier",
             }
         ]
-        rows = await extractor._map_purchase_orders(client, raw_purchases, products, [])
+        rows = await extractor._map_purchase_orders(client, raw_purchases, raw_products, [])
         assert rows[0]["supplier_source_id"] == ""
         assert rows[0]["supplier_name"] == "Unknown Supplier"
 
