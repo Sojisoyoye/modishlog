@@ -936,6 +936,92 @@ class TestTransformStockAdjustments:
         assert not transformer.warnings
 
 
+class TestTransformSellReturns:
+    def test_happy_path(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [
+            {
+                "sale_source_id": "777",
+                "return_date": "2026-06-05",
+                "total_amount": "4,000.00",
+                "amount_paid": "4,000.00",
+                "ref_no": "SR-001",
+                "notes": "Imported from UltimatePOS",
+            }
+        ]
+        result = transformer.transform_sell_returns(rows)
+        assert result == [
+            {
+                "sale_source_id": "777",
+                "return_date": date(2026, 6, 5),
+                "total_amount": Decimal("4000.00"),
+                "amount_paid": Decimal("4000.00"),
+                "ref_no": "SR-001",
+                "notes": "Imported from UltimatePOS",
+            }
+        ]
+
+    def test_missing_amount_paid_defaults_to_zero(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [{"sale_source_id": "777", "return_date": "2026-06-05", "total_amount": "100"}]
+        result = transformer.transform_sell_returns(rows)
+        assert result[0]["amount_paid"] == Decimal("0")
+
+    def test_missing_sale_source_id_drops_row_with_error(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [{"return_date": "2026-06-05", "total_amount": "100"}]
+        result = transformer.transform_sell_returns(rows)
+        assert result == []
+        assert any(w.severity == "error" and w.field == "sale_source_id" for w in transformer.warnings)
+
+    def test_unparseable_row_drops_with_error_not_raised(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [{"sale_source_id": "777", "return_date": "not-a-date", "total_amount": "100"}]
+        result = transformer.transform_sell_returns(rows)
+        assert result == []
+        assert any(w.severity == "error" for w in transformer.warnings)
+
+
+class TestTransformPurchaseReturns:
+    def test_happy_path(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [
+            {
+                "purchase_source_id": "555",
+                "return_date": "2026-06-10",
+                "total_amount": "7.5",
+                "amount_paid": "1",
+                "ref_no": "PR-001",
+                "notes": "Imported from UltimatePOS",
+            }
+        ]
+        result = transformer.transform_purchase_returns(rows)
+        assert result == [
+            {
+                "purchase_source_id": "555",
+                "return_date": date(2026, 6, 10),
+                "total_amount": Decimal("7.500000"),
+                "amount_paid": Decimal("1.000000"),
+                "ref_no": "PR-001",
+                "notes": "Imported from UltimatePOS",
+            }
+        ]
+
+    def test_missing_purchase_source_id_drops_row_with_error(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [{"return_date": "2026-06-10", "total_amount": "7.5"}]
+        result = transformer.transform_purchase_returns(rows)
+        assert result == []
+        assert any(w.severity == "error" and w.field == "purchase_source_id" for w in transformer.warnings)
+
+    def test_unparseable_row_drops_with_error_not_raised(self):
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY)
+        rows = [{"purchase_source_id": "555", "return_date": "2026-06-10", "total_amount": "not-a-number"}]
+        result = transformer.transform_purchase_returns(rows)
+        assert result == []
+        assert any(w.severity == "error" for w in transformer.warnings)
+
+
 # ---------------------------------------------------------------------------
 # Loader
 # ---------------------------------------------------------------------------
@@ -1079,15 +1165,15 @@ class TestLoader:
         result_mock = MagicMock(rowcount=3)
         empty_scalars = MagicMock()
         empty_scalars.scalars.return_value.all.return_value = []
-        # First call is the pre-flight PurchaseOrder-id lookup (empty here —
-        # no purchase orders in this import, so the payment-block check is
+        # First two calls are the pre-flight blocking lookups (OrderPayment,
+        # then PurchaseReturn — both empty here, so both blocking checks are
         # skipped) — every remaining call is one of the FK-ordered deletes.
-        db.execute = AsyncMock(side_effect=[empty_scalars] + [result_mock] * 20)
+        db.execute = AsyncMock(side_effect=[empty_scalars, empty_scalars] + [result_mock] * 20)
 
         deleted_counts = await loader_rollback(db, uuid.uuid4())
 
         assert deleted_counts["sales"] == 3
-        assert db.execute.await_count == len(deleted_counts) + 1
+        assert db.execute.await_count == len(deleted_counts) + 2
 
     @pytest.mark.asyncio
     async def test_rollback_blocked_when_imported_po_has_a_payment_recorded(self):
@@ -1109,6 +1195,31 @@ class TestLoader:
 
         # Refused before any delete statement was issued.
         assert db.execute.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_rollback_blocked_when_imported_po_has_a_real_purchase_return(self):
+        """A purchase return created via the normal orders endpoint (not
+        tagged with this migration_id) against an imported PO isn't part of
+        the import — deleting the PurchaseOrder would violate the FK (no ON
+        DELETE behavior on PurchaseReturn.original_order_id) or silently
+        destroy that real return. Rollback must refuse before deleting
+        anything, same as the OrderPayment case above."""
+        from src.data_import.exceptions import PurchaseOrderRollbackBlockedError
+
+        db = _mock_db()
+        po_id = uuid.uuid4()
+        empty_scalars = MagicMock()
+        empty_scalars.scalars.return_value.all.return_value = []
+        blocked_result = MagicMock()
+        blocked_result.scalars.return_value.all.return_value = [po_id]
+        # First call: OrderPayment pre-flight (empty, not blocked). Second
+        # call: PurchaseReturn pre-flight (blocked).
+        db.execute = AsyncMock(side_effect=[empty_scalars, blocked_result])
+
+        with pytest.raises(PurchaseOrderRollbackBlockedError):
+            await loader_rollback(db, uuid.uuid4())
+
+        assert db.execute.await_count == 2
 
 
 class TestLoadPurchaseOrders:
@@ -1512,6 +1623,131 @@ class TestLoadStockAdjustments:
             )
 
         db.add_all.assert_not_called()
+
+
+class TestLoadSellReturns:
+    @pytest.mark.asyncio
+    async def test_resolves_sale_by_pos_id_and_calls_create_sell_return(self):
+        from src.data_import.etl.loader import load_sell_returns
+        from src.sales.models import Sale
+
+        sale_id = uuid.uuid4()
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=_found_result(sale_id))
+        migration_id = uuid.uuid4()
+
+        fake_return = MagicMock()
+        with patch(
+            "src.data_import.etl.loader.create_sell_return",
+            new=AsyncMock(return_value=fake_return),
+        ) as mock_create:
+            count = await load_sell_returns(
+                db, migration_id, BUSINESS_ID, CREATED_BY,
+                rows=[
+                    {
+                        "sale_source_id": "777",
+                        "return_date": date(2026, 6, 5),
+                        "total_amount": Decimal("4000"),
+                        "amount_paid": Decimal("4000"),
+                        "ref_no": "SR-001",
+                        "notes": "Imported from UltimatePOS",
+                    }
+                ],
+            )
+
+        assert count == 1
+        mock_create.assert_awaited_once()
+        args = mock_create.call_args.args
+        assert args[0] is db
+        assert args[1] == sale_id
+        assert args[3] == CREATED_BY
+        assert args[4] == BUSINESS_ID
+        assert fake_return.migration_id == migration_id
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_sale_is_skipped_not_errored(self):
+        from src.data_import.etl.loader import load_sell_returns
+
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=_none_result())
+
+        with patch(
+            "src.data_import.etl.loader.create_sell_return", new=AsyncMock()
+        ) as mock_create:
+            count = await load_sell_returns(
+                db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+                rows=[
+                    {
+                        "sale_source_id": "unknown",
+                        "return_date": date(2026, 6, 5),
+                        "total_amount": Decimal("1"),
+                        "amount_paid": Decimal("0"),
+                        "ref_no": None,
+                        "notes": None,
+                    }
+                ],
+            )
+
+        assert count == 0
+        mock_create.assert_not_awaited()
+
+
+class TestLoadPurchaseReturns:
+    @pytest.mark.asyncio
+    async def test_resolves_order_by_pos_id_and_constructs_return_directly(self):
+        from src.data_import.etl.loader import load_purchase_returns
+
+        order_id = uuid.uuid4()
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=_found_result(order_id))
+        migration_id = uuid.uuid4()
+
+        count = await load_purchase_returns(
+            db, migration_id, BUSINESS_ID, CREATED_BY,
+            rows=[
+                {
+                    "purchase_source_id": "555",
+                    "return_date": date(2026, 6, 10),
+                    "total_amount": Decimal("7.5"),
+                    "amount_paid": Decimal("1"),
+                    "ref_no": "PR-001",
+                    "notes": "Imported from UltimatePOS",
+                }
+            ],
+        )
+
+        assert count == 1
+        db.add.assert_called_once()
+        added = db.add.call_args.args[0]
+        assert added.original_order_id == order_id
+        assert added.total_amount == Decimal("7.5")
+        assert added.migration_id == migration_id
+        assert added.business_id == BUSINESS_ID
+        assert added.created_by == CREATED_BY
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_purchase_order_is_skipped_not_errored(self):
+        from src.data_import.etl.loader import load_purchase_returns
+
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=_none_result())
+
+        count = await load_purchase_returns(
+            db, uuid.uuid4(), BUSINESS_ID, CREATED_BY,
+            rows=[
+                {
+                    "purchase_source_id": "unknown",
+                    "return_date": date(2026, 6, 10),
+                    "total_amount": Decimal("1"),
+                    "amount_paid": Decimal("0"),
+                    "ref_no": None,
+                    "notes": None,
+                }
+            ],
+        )
+
+        assert count == 0
+        db.add.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

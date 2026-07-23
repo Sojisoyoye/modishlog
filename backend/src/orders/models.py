@@ -319,6 +319,7 @@ class PurchaseReturn(UUIDMixin, TimestampMixin, Base):
     business_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("businesses.id"), nullable=False, index=True
     )
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     original_order: Mapped["PurchaseOrder"] = relationship(
         "PurchaseOrder", foreign_keys=[original_order_id], lazy="raise", viewonly=True

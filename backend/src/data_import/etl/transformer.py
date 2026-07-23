@@ -454,6 +454,13 @@ class Transformer:
                     ),
                     "business_id": self.business_id,
                     "recorded_by": self.created_by,
+                    # The source system's own id for the parent sale/sell —
+                    # not an id_map registration (a multi-line sell fans out
+                    # into several Sale rows here, and id_map only holds one
+                    # UUID per (entity, source_id) pair). load_sell_returns()
+                    # resolves against this column directly via a DB query
+                    # instead, once these rows are actually inserted.
+                    "pos_id": row.get("source_id") or None,
                 }
             )
         return out
@@ -565,6 +572,7 @@ class Transformer:
             if source_id not in groups:
                 groups[source_id] = {
                     "source_id": source_id,
+                    "pos_id": None,
                     "supplier_id": None,
                     "supplier_name": row.get("supplier_name") or source_id,
                     "location_id": None,
@@ -583,6 +591,8 @@ class Transformer:
             # group is still missing, instead of only ever looking at the
             # row that happened to create the group.
             group = groups[source_id]
+            if group["pos_id"] is None and row.get("pos_id"):
+                group["pos_id"] = row["pos_id"]
             if group["supplier_id"] is None and row.get("supplier_source_id"):
                 group["supplier_id"] = self.id_map.lookup(
                     "suppliers", row["supplier_source_id"]
@@ -805,6 +815,112 @@ class Transformer:
                     "quantity_change": quantity_change,
                     "movement_type": movement_type,
                     "reason": row.get("reason") or None,
+                }
+            )
+        return out
+
+    def transform_sell_returns(self, raw_rows: list[dict]) -> list[dict]:
+        """sale_source_id is intentionally left unresolved here — Sale rows
+        only get an id once load() inserts them (no _assign_id
+        pre-registration for sales, unlike products/customers/etc.), so
+        id_map can't resolve it yet at transform time. load_sell_returns()
+        resolves it via a DB query against Sale.pos_id after sales have
+        actually loaded (see transform_sales()'s pos_id column).
+        """
+        out = []
+        for i, row in enumerate(raw_rows, start=2):
+            sale_source_id = (row.get("sale_source_id") or "").strip()
+            if not sale_source_id:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="sell_returns",
+                        row=i,
+                        field="sale_source_id",
+                        severity="error",
+                        message="sale_source_id is required",
+                    )
+                )
+                continue
+
+            try:
+                total_amount = normalize_amount(row["total_amount"])
+                amount_paid = (
+                    normalize_amount(row["amount_paid"])
+                    if row.get("amount_paid")
+                    else Decimal("0")
+                )
+                return_date = normalize_date(row["return_date"])
+            except (KeyError, ValueError, InvalidOperation) as e:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="sell_returns",
+                        row=i,
+                        severity="error",
+                        message=f"Could not parse row: {e}",
+                    )
+                )
+                continue
+
+            out.append(
+                {
+                    "sale_source_id": sale_source_id,
+                    "return_date": return_date,
+                    "total_amount": total_amount,
+                    "amount_paid": amount_paid,
+                    "ref_no": row.get("ref_no") or None,
+                    "notes": row.get("notes") or None,
+                }
+            )
+        return out
+
+    def transform_purchase_returns(self, raw_rows: list[dict]) -> list[dict]:
+        """purchase_source_id is left unresolved for the same reason
+        sale_source_id is above — load_purchase_returns() resolves it via a
+        DB query against PurchaseOrder.pos_id once purchase orders have
+        actually loaded.
+        """
+        out = []
+        for i, row in enumerate(raw_rows, start=2):
+            purchase_source_id = (row.get("purchase_source_id") or "").strip()
+            if not purchase_source_id:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="purchase_returns",
+                        row=i,
+                        field="purchase_source_id",
+                        severity="error",
+                        message="purchase_source_id is required",
+                    )
+                )
+                continue
+
+            try:
+                total_amount = normalize_amount(row["total_amount"])
+                amount_paid = (
+                    normalize_amount(row["amount_paid"])
+                    if row.get("amount_paid")
+                    else Decimal("0")
+                )
+                return_date = normalize_date(row["return_date"])
+            except (KeyError, ValueError, InvalidOperation) as e:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="purchase_returns",
+                        row=i,
+                        severity="error",
+                        message=f"Could not parse row: {e}",
+                    )
+                )
+                continue
+
+            out.append(
+                {
+                    "purchase_source_id": purchase_source_id,
+                    "return_date": return_date,
+                    "total_amount": total_amount,
+                    "amount_paid": amount_paid,
+                    "ref_no": row.get("ref_no") or None,
+                    "notes": row.get("notes") or None,
                 }
             )
         return out

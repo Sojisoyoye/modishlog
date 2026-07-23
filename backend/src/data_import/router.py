@@ -27,6 +27,8 @@ from src.data_import.exceptions import (
     MissingExtractedDataError,
     PurchaseOrderImportError,
     PurchaseOrderRollbackBlockedError,
+    PurchaseReturnImportError,
+    SellReturnImportError,
     StockAdjustmentImportError,
     UnsupportedSourceSystemError,
 )
@@ -137,6 +139,8 @@ async def create_job(
     expense_categories: UploadFile | None = File(None),
     expenses: UploadFile | None = File(None),
     stock_adjustments: UploadFile | None = File(None),
+    sell_returns: UploadFile | None = File(None),
+    purchase_returns: UploadFile | None = File(None),
     api_base_url: str | None = Form(None),
     username: str | None = Form(None),
     password: str | None = Form(None),
@@ -157,6 +161,8 @@ async def create_job(
         "expense_categories": expense_categories,
         "expenses": expenses,
         "stock_adjustments": stock_adjustments,
+        "sell_returns": sell_returns,
+        "purchase_returns": purchase_returns,
     }
     files: dict[str, bytes] = {}
     for entity, upload in uploads.items():
@@ -289,6 +295,11 @@ async def confirm_job(
         # Same rationale as PurchaseOrderImportError above — a referenced
         # product/variant may have gone stale between validation and
         # confirm, or an adjustment would take stock negative.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except (SellReturnImportError, PurchaseReturnImportError) as e:
+        # Same rationale as PurchaseOrderImportError above — the resolved
+        # sale/purchase order may have gone stale between validation and
+        # confirm.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
