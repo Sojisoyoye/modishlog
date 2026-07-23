@@ -77,6 +77,20 @@ ENTITY_RULES: dict[str, dict[str, tuple[str, ...] | bool]] = {
         # purchase_orders above.
         "unique_source_id": False,
     },
+    "sell_returns": {
+        "required": ("sale_source_id", "total_amount", "return_date"),
+        "dates": ("return_date",),
+        # amount_paid may legitimately be 0 (nothing refunded yet) — "amounts"
+        # rejects <0 without requiring >0, unlike total_amount below.
+        "amounts": ("amount_paid",),
+        "positive_amounts": ("total_amount",),
+    },
+    "purchase_returns": {
+        "required": ("purchase_source_id", "total_amount", "return_date"),
+        "dates": ("return_date",),
+        "amounts": ("amount_paid",),
+        "positive_amounts": ("total_amount",),
+    },
 }
 
 

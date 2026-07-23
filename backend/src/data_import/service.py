@@ -13,6 +13,7 @@ import anyio
 import structlog
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai_engine.models import ReorderSuggestion
@@ -22,6 +23,12 @@ from src.data_import.etl.extractor import CSVExtractor
 from src.data_import.etl.loader import load as loader_load
 from src.data_import.etl.loader import (
     load_purchase_orders as loader_load_purchase_orders,
+)
+from src.data_import.etl.loader import (
+    load_purchase_returns as loader_load_purchase_returns,
+)
+from src.data_import.etl.loader import (
+    load_sell_returns as loader_load_sell_returns,
 )
 from src.data_import.etl.loader import (
     load_stock_adjustments as loader_load_stock_adjustments,
@@ -34,6 +41,8 @@ from src.data_import.exceptions import (
     MigrationJobNotFoundError,
     MissingExtractedDataError,
     PurchaseOrderImportError,
+    PurchaseReturnImportError,
+    SellReturnImportError,
     StockAdjustmentImportError,
     UnsupportedSourceSystemError,
 )
@@ -73,6 +82,7 @@ from src.orders.exceptions import (
 )
 from src.orders.service import reverse_lot_consumption
 from src.products.models import PriceHistory, Product
+from src.sales.exceptions import SaleNotFoundError, SaleValidationError
 from src.sales.models import Sale
 
 logger = structlog.get_logger()
@@ -92,6 +102,8 @@ IMPORTABLE_ENTITIES = [
     "expense_categories",
     "expenses",
     "stock_adjustments",
+    "sell_returns",
+    "purchase_returns",
 ]
 
 _SAMPLE_ROWS = 3
@@ -325,6 +337,12 @@ async def _extract_and_transform(
     transformed["stock_adjustments"] = transformer.transform_stock_adjustments(
         mapped.get("stock_adjustments", [])
     )
+    transformed["sell_returns"] = transformer.transform_sell_returns(
+        mapped.get("sell_returns", [])
+    )
+    transformed["purchase_returns"] = transformer.transform_purchase_returns(
+        mapped.get("purchase_returns", [])
+    )
 
     return mapped, transformed, transformer
 
@@ -443,6 +461,40 @@ async def confirm_job(
         # client's error message stays specific to what actually failed.
         await logger.aexception("stock_adjustment_import_failed", job_id=str(job.id))
         raise StockAdjustmentImportError(e) from e
+
+    try:
+        row_counts["sell_returns"] = await loader_load_sell_returns(
+            db,
+            job.id,
+            job.business_id,
+            job.created_by,
+            transformed.get("sell_returns", []),
+        )
+    except (SaleNotFoundError, SaleValidationError, PydanticValidationError) as e:
+        # load_sell_returns() reuses sales/service's create_sell_return()
+        # unmodified — same translation rationale as the purchase_orders
+        # block above.
+        await logger.aexception("sell_return_import_failed", job_id=str(job.id))
+        raise SellReturnImportError(e) from e
+
+    try:
+        row_counts["purchase_returns"] = await loader_load_purchase_returns(
+            db,
+            job.id,
+            job.business_id,
+            job.created_by,
+            transformed.get("purchase_returns", []),
+        )
+    except IntegrityError as e:
+        # load_purchase_returns() constructs the row directly (see its own
+        # docstring for why) rather than going through a validated service
+        # function — the only realistic failure here is a database
+        # constraint violation (e.g. a since-deleted purchase order), but
+        # this is still wrapped for the same reason every other loader's
+        # failures are: the router shouldn't need to know about a raw
+        # SQLAlchemy exception type.
+        await logger.aexception("purchase_return_import_failed", job_id=str(job.id))
+        raise PurchaseReturnImportError(e) from e
 
     job.row_counts = row_counts
     job.status = MigrationJobStatus.RECOMPUTING
@@ -788,6 +840,7 @@ _TEMPLATE_COLUMNS: dict[str, list[str]] = {
         "fx_rate",
     ],
     "sales": [
+        "source_id",
         "product_source_id",
         "variant_source_id",
         "customer_source_id",
@@ -820,6 +873,22 @@ _TEMPLATE_COLUMNS: dict[str, list[str]] = {
         "adjustment_type",
         "reason",
         "adjustment_date",
+    ],
+    "sell_returns": [
+        "sale_source_id",
+        "return_date",
+        "total_amount",
+        "amount_paid",
+        "ref_no",
+        "notes",
+    ],
+    "purchase_returns": [
+        "purchase_source_id",
+        "return_date",
+        "total_amount",
+        "amount_paid",
+        "ref_no",
+        "notes",
     ],
 }
 
@@ -864,5 +933,22 @@ def build_readme() -> str:
         "underlying stock-movement audit trail has no historical-backdating support.",
         "`adjustment_type` containing \"open\" (case-insensitive) is treated as opening",
         "stock; anything else is a generic adjustment. `quantity_change` may be negative.",
+        "",
+        "sales.csv: `source_id` is optional but required if you want sell_returns.csv to",
+        "be able to reference this sale — set it to whatever id your old system used for",
+        "the sale/transaction (not a per-line id; every line of a multi-product sale should",
+        "repeat the same source_id).",
+        "",
+        "sell_returns.csv: `sale_source_id` must match a `source_id` in sales.csv (or an",
+        "existing sale already in ModishLog with that source id from an earlier import).",
+        "Rows with no matching sale are skipped, not errored. A multi-product sale that",
+        "fans out into several sale rows here only has this return attributed to one of",
+        "them (the oldest) — there is no per-product return breakdown.",
+        "",
+        "purchase_returns.csv: `purchase_source_id` must match a `source_id` in",
+        "purchase_orders.csv (or an existing purchase order already in ModishLog).",
+        "`total_amount`/`amount_paid` must already be in USD, matching purchase_orders.csv.",
+        "Imported purchase returns do NOT reverse inventory — this only records the return",
+        "itself, since no line-item detail is available to know what to put back in stock.",
     ]
     return "\n".join(lines)

@@ -98,6 +98,61 @@ class StockAdjustmentImportError(Exception):
         )
 
 
+class SellReturnImportError(Exception):
+    """Raised when load_sell_returns() (which reuses sales/service's
+    create_sell_return() unmodified) hits a failure from that domain — the
+    resolved sale went stale between validation and confirm, is no longer
+    COMPLETED, or the return's amount failed schema validation. Wraps the
+    underlying error so the router only needs to know about this one
+    data_import-owned exception, mirroring PurchaseOrderImportError's
+    rationale.
+    """
+
+    def __init__(self, cause: Exception) -> None:
+        self.cause = cause
+        super().__init__(
+            "Could not import one or more sell returns — the resolved sale "
+            "may have changed since this job was validated. Try "
+            "re-validating the job."
+        )
+
+
+class PurchaseReturnImportError(Exception):
+    """Raised when load_purchase_returns() hits an unexpected failure
+    constructing a PurchaseReturn row (e.g. a database constraint
+    violation) — wraps the underlying error the same way
+    PurchaseOrderImportError does.
+    """
+
+    def __init__(self, cause: Exception) -> None:
+        self.cause = cause
+        super().__init__(
+            "Could not import one or more purchase returns — the resolved "
+            "purchase order may have changed since this job was validated. "
+            "Try re-validating the job."
+        )
+
+
+class SellReturnRollbackBlockedError(Exception):
+    """Raised when rollback() would need to delete an imported Sale that
+    already has a real (non-imported) SellReturn recorded against it.
+    SellReturn.sale_id has ON DELETE CASCADE, so unlike PurchaseReturn (no
+    such cascade — a raw FK violation would stop it), that return would be
+    silently destroyed along with the sale rather than causing a loud
+    error. Rollback refuses outright instead, mirroring
+    PurchaseOrderRollbackBlockedError's rationale for purchase orders.
+    """
+
+    def __init__(self, job_id: uuid.UUID, blocked_sale_ids: list[uuid.UUID]) -> None:
+        self.job_id = job_id
+        self.blocked_sale_ids = blocked_sale_ids
+        super().__init__(
+            f"Cannot roll back migration job {job_id}: {len(blocked_sale_ids)} "
+            "imported sale(s) have a return recorded against them since the "
+            "import. Remove those returns first, or leave this import in place."
+        )
+
+
 class PurchaseOrderRollbackBlockedError(Exception):
     """Raised when rollback() would need to delete an imported PurchaseOrder
     that already has a real OrderPayment recorded against it. That payment

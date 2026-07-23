@@ -8,13 +8,17 @@ extend `LOAD_ORDER` without another schema change.
 """
 
 import uuid
+from datetime import datetime, timezone
 
-from sqlalchemy import delete, inspect, select, update
+from sqlalchemy import delete, inspect, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.customers.models import Customer
 from src.data_import.etl.transformer import IdMap
-from src.data_import.exceptions import PurchaseOrderRollbackBlockedError
+from src.data_import.exceptions import (
+    PurchaseOrderRollbackBlockedError,
+    SellReturnRollbackBlockedError,
+)
 from src.expenses.models import Expense, ExpenseCategory
 from src.inventory.models import InventoryBatch, InventoryLevel, StockMovement
 from src.inventory.service import adjust_stock
@@ -25,11 +29,14 @@ from src.orders.models import (
     OrderStatus,
     OrderStatusHistory,
     PurchaseOrder,
+    PurchaseReturn,
 )
 from src.orders.schemas import OrderCreate, OrderLineItemCreate, StatusTransition
 from src.orders.service import create_order, transition_status
 from src.products.models import Product, ProductCategory, ProductVariant
-from src.sales.models import Sale
+from src.sales.models import Sale, SellReturn
+from src.sales.schemas import SellReturnCreate
+from src.sales.service import create_sell_return
 from src.suppliers.models import Supplier
 
 # Chained in order — the order state machine has no shortcut from PENDING
@@ -199,13 +206,20 @@ async def load_purchase_orders(
         )
         order = await create_order(db, order_data, user_id, business_id)
         order.migration_id = migration_id
-        # order_date/location_id aren't in OrderCreate (only order_date is
-        # accepted at all, and create_order() never actually writes it —
-        # see the model directly instead of going through the schema).
+        # order_date/location_id/pos_id aren't in OrderCreate (only
+        # order_date is accepted at all, and create_order() never actually
+        # writes it — see the model directly instead of going through the
+        # schema). pos_id (the source purchase's numeric POS id) lets
+        # load_purchase_returns() resolve a return back to this order later.
         if group.get("order_date"):
             order.order_date = group["order_date"]
         if group.get("location_id"):
             order.location_id = group["location_id"]
+        # A CSV-driven import has no separate numeric pos_id — only
+        # source_id, its one and only identifier — so purchase_returns
+        # resolution (against PurchaseOrder.pos_id) still works for CSV
+        # uploads by falling back to that.
+        order.pos_id = group.get("pos_id") or group["source_id"]
         for line_item in order.line_items:
             line_item.migration_id = migration_id
         await db.flush()
@@ -299,6 +313,133 @@ async def load_stock_adjustments(
     return count
 
 
+async def load_sell_returns(
+    db: AsyncSession,
+    migration_id: uuid.UUID,
+    business_id: uuid.UUID,
+    user_id: uuid.UUID,
+    rows: list[dict],
+) -> int:
+    """Resolves each row's sale_source_id against Sale.pos_id (set by
+    transform_sales()/load() for every sale this same import creates, or
+    left over from an earlier import/live sale — the lookup is scoped to
+    business_id, not migration_id, so a return can target either), then
+    creates the return via the real create_sell_return() service function
+    so it goes through the same validation (sale must be COMPLETED) real
+    returns do.
+
+    A single UltimatePOS sell can fan out into multiple Sale rows here (one
+    per product line) sharing the same pos_id; a return only ever carries
+    one aggregate total with no per-product breakdown even from the source
+    system, so this attributes the whole return to whichever one of that
+    sell's Sale rows is oldest — a documented simplification, not a guess
+    at data that was never available in the first place.
+
+    Rows with no resolvable sale are skipped, not errored — the parent sale
+    may not have been part of this import (e.g. filtered out, or from a
+    time range this job didn't cover).
+    """
+    count = 0
+    for row in rows:
+        result = await db.execute(
+            select(Sale.id)
+            .where(
+                Sale.pos_id == row["sale_source_id"], Sale.business_id == business_id
+            )
+            .order_by(Sale.created_at)
+            .limit(1)
+        )
+        sale_id = result.scalar_one_or_none()
+        if sale_id is None:
+            continue
+
+        sell_return = await create_sell_return(
+            db,
+            sale_id,
+            SellReturnCreate(
+                return_date=row["return_date"],
+                total_amount=row["total_amount"],
+                amount_paid=row["amount_paid"],
+                ref_no=row.get("ref_no"),
+                notes=row.get("notes"),
+            ),
+            user_id,
+            business_id,
+        )
+        sell_return.migration_id = migration_id
+        count += 1
+    if count:
+        await db.flush()
+    return count
+
+
+async def load_purchase_returns(
+    db: AsyncSession,
+    migration_id: uuid.UUID,
+    business_id: uuid.UUID,
+    user_id: uuid.UUID,
+    rows: list[dict],
+) -> int:
+    """Constructs PurchaseReturn rows directly rather than going through the
+    real create_purchase_return() service function. That function requires
+    real per-product line items (to compute total_amount and reverse
+    inventory via adjust_stock() per line), but no real purchase-return
+    record with line-item detail exists on the one live UltimatePOS
+    instance this was built against (zero real purchase returns at the
+    time of writing) to confirm what that detail's shape looks like —
+    importing only the return's header-level aggregate total (already
+    available directly from the list endpoint) rather than guessing an
+    unverified per-line parser.
+
+    Known limitation: imported purchase returns do NOT reverse inventory —
+    matches pos_migrate.py's own prior (also aggregate-only, also no
+    adjust_stock call) behavior for this same entity. Resolves each row's
+    purchase_source_id against PurchaseOrder.pos_id, scoped to business_id
+    (not migration_id) for the same reason load_sell_returns() is.
+    """
+    count = 0
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        result = await db.execute(
+            select(PurchaseOrder.id)
+            .where(
+                PurchaseOrder.pos_id == row["purchase_source_id"],
+                PurchaseOrder.business_id == business_id,
+            )
+            # purchase_orders are never deduped by source_id/pos_id across
+            # jobs (validator.py sets unique_source_id=False for this
+            # entity) — re-importing the same purchase data in a second job
+            # creates a second PurchaseOrder row with the identical pos_id.
+            # Without this, scalar_one_or_none() raises MultipleResultsFound
+            # on that second match, matching load_sell_returns()'s own
+            # guard against the analogous case for Sale.pos_id.
+            .order_by(PurchaseOrder.created_at)
+            .limit(1)
+        )
+        order_id = result.scalar_one_or_none()
+        if order_id is None:
+            continue
+
+        purchase_return = PurchaseReturn(
+            original_order_id=order_id,
+            ref_no=row.get("ref_no") or None,
+            return_date=row["return_date"],
+            notes=row.get("notes"),
+            total_amount=row["total_amount"],
+            amount_paid=row["amount_paid"],
+            created_by=user_id,
+            business_id=business_id,
+            migration_id=migration_id,
+        )
+        purchase_return.created_at = now
+        purchase_return.updated_at = now
+        db.add(purchase_return)
+        count += 1
+    if count:
+        await db.flush()
+    return count
+
+
 async def rollback(db: AsyncSession, migration_id: uuid.UUID) -> dict[str, int]:
     """Delete every row tagged with this migration_id, in FK-safe order.
 
@@ -314,9 +455,10 @@ async def rollback(db: AsyncSession, migration_id: uuid.UUID) -> dict[str, int]:
 
     Raises PurchaseOrderRollbackBlockedError, before deleting anything, if
     the business has recorded a real payment (via the normal orders
-    endpoint, after the import) against one of these purchase orders — that
-    payment isn't part of the import and must not be silently destroyed or
-    left dangling against a deleted order.
+    endpoint, after the import) against one of these purchase orders, or a
+    real purchase return (not one this same import created) against one of
+    them — neither is part of the import and must not be silently
+    destroyed or left dangling against a deleted order.
     """
     deleted_counts: dict[str, int] = {}
 
@@ -340,6 +482,66 @@ async def rollback(db: AsyncSession, migration_id: uuid.UUID) -> dict[str, int]:
     if blocked_ids:
         raise PurchaseOrderRollbackBlockedError(migration_id, list(blocked_ids))
 
+    # Unlike OrderPayment (never created by this loader at all), a
+    # PurchaseReturn CAN be one of this same import's own rows (see
+    # load_purchase_returns()) — those are fine to delete below. Only a
+    # return NOT tagged with this migration_id (created via the normal
+    # orders endpoint, after the import) is the "real business data" case
+    # that must block rollback instead of being silently destroyed.
+    blocked_return_order_ids = (
+        (
+            await db.execute(
+                select(PurchaseReturn.original_order_id)
+                .where(
+                    PurchaseReturn.original_order_id.in_(
+                        select(PurchaseOrder.id).where(
+                            PurchaseOrder.migration_id == migration_id
+                        )
+                    ),
+                    or_(
+                        PurchaseReturn.migration_id.is_(None),
+                        PurchaseReturn.migration_id != migration_id,
+                    ),
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if blocked_return_order_ids:
+        raise PurchaseOrderRollbackBlockedError(
+            migration_id, list(blocked_return_order_ids)
+        )
+
+    # Same rationale as the PurchaseReturn check above, but for Sale: a
+    # SellReturn NOT tagged with this migration_id is real business data
+    # created after the import. Unlike PurchaseReturn, SellReturn.sale_id
+    # has ON DELETE CASCADE — without this check, that real return would
+    # be silently destroyed once the Sale itself is deleted below, instead
+    # of causing any error at all.
+    blocked_sale_ids = (
+        (
+            await db.execute(
+                select(SellReturn.sale_id)
+                .where(
+                    SellReturn.sale_id.in_(
+                        select(Sale.id).where(Sale.migration_id == migration_id)
+                    ),
+                    or_(
+                        SellReturn.migration_id.is_(None),
+                        SellReturn.migration_id != migration_id,
+                    ),
+                )
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if blocked_sale_ids:
+        raise SellReturnRollbackBlockedError(migration_id, list(blocked_sale_ids))
+
     # StockMovement/InventoryLevel reference products.id and must go before
     # the reversed LOAD_ORDER loop deletes products, further down.
     result = await db.execute(
@@ -351,10 +553,25 @@ async def rollback(db: AsyncSession, migration_id: uuid.UUID) -> dict[str, int]:
     )
     deleted_counts["inventory_levels"] = result.rowcount
 
+    # SellReturn.sale_id has ON DELETE CASCADE, so this isn't strictly
+    # required for FK safety — deleted explicitly anyway for an accurate
+    # per-entity count and to match every other entity's explicit-delete
+    # convention here, rather than relying on an implicit cascade.
+    result = await db.execute(
+        delete(SellReturn).where(SellReturn.migration_id == migration_id)
+    )
+    deleted_counts["sell_returns"] = result.rowcount
+
     # Purchase orders aren't in LOAD_ORDER (they're written via
     # load_purchase_orders(), not the generic bulk-insert loop) — delete
-    # child-before-parent: line items and batches reference purchase_orders.id
-    # and products.id, both of which must still exist at this point.
+    # child-before-parent: line items, batches, and returns all reference
+    # purchase_orders.id (returns via a FK with no ON DELETE behavior, so
+    # this one IS required for FK safety, not just accurate counts) and
+    # must go before the order itself, further down.
+    result = await db.execute(
+        delete(PurchaseReturn).where(PurchaseReturn.migration_id == migration_id)
+    )
+    deleted_counts["purchase_returns"] = result.rowcount
     result = await db.execute(
         delete(OrderLineItem).where(OrderLineItem.migration_id == migration_id)
     )

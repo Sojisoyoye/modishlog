@@ -230,6 +230,35 @@ STOCK_ADJUSTMENT_DETAIL_HTML = """
 </table>
 """
 
+SELL_RETURNS_JSON = json.dumps(
+    {
+        "data": [
+            {
+                "id": 1001,
+                "parent_sell_id": "777",
+                "transaction_date": "2026-06-05",
+                "final_total": "4,000.00",
+                "total_amount_paid": "4,000.00",
+                "ref_no": "SR-001",
+            }
+        ]
+    }
+)
+
+PURCHASE_RETURNS_JSON = json.dumps(
+    {
+        "data": [
+            {
+                "id": 2001,
+                "purchase_id": "555",
+                "transaction_date": "2026-06-10",
+                "final_total": "12,000.00",
+                "ref_no": "PR-001",
+            }
+        ]
+    }
+)
+
 
 def _get_side_effect(url: str, headers=None, **kwargs):
     if url.endswith("/login"):
@@ -256,6 +285,10 @@ def _get_side_effect(url: str, headers=None, **kwargs):
         return _resp(STOCK_ADJUSTMENT_DETAIL_HTML)
     if "/stock-adjustments" in url:
         return _resp(STOCK_ADJUSTMENTS_JSON)
+    if "/sell-return" in url:
+        return _resp(SELL_RETURNS_JSON)
+    if "/purchase-return" in url:
+        return _resp(PURCHASE_RETURNS_JSON)
     if "/sells" in url and "sells/" not in url:
         return _resp(SELLS_JSON)
     if "/sells/777" in url:
@@ -320,6 +353,8 @@ class TestExtract:
             "expense_categories",
             "expenses",
             "stock_adjustments",
+            "sell_returns",
+            "purchase_returns",
         }
 
         products = result["products"]
@@ -364,6 +399,7 @@ class TestExtract:
         sales = result["sales"]
         assert len(sales) == 1
         sale = sales[0]
+        assert sale["source_id"] == "777"
         assert sale["product_source_id"] == "10101"
         assert sale["quantity"] == "2"
         assert sale["unit_price"] == "2000.0000"
@@ -380,6 +416,7 @@ class TestExtract:
         assert len(purchase_orders) == 1
         po = purchase_orders[0]
         assert po["source_id"] == "PO2026/0001"
+        assert po["pos_id"] == "555"
         assert po["supplier_source_id"] == "9"
         assert po["supplier_name"] == "Acme Textiles"
         assert po["product_source_id"] == "10101"
@@ -416,6 +453,25 @@ class TestExtract:
         assert adj["adjustment_type"] == "Normal"
         assert adj["reason"] == "Wasn't delivered by Shipping Agent (AY)"
         assert adj["adjustment_date"] == "2026-01-10"
+
+        sell_returns = result["sell_returns"]
+        assert len(sell_returns) == 1
+        sr = sell_returns[0]
+        assert sr["sale_source_id"] == "777"
+        assert sr["return_date"] == "2026-06-05"
+        assert sr["total_amount"] == "4000.00"
+        assert sr["amount_paid"] == "4000.00"
+        assert sr["ref_no"] == "SR-001"
+
+        purchase_returns = result["purchase_returns"]
+        assert len(purchase_returns) == 1
+        pr = purchase_returns[0]
+        assert pr["purchase_source_id"] == "555"
+        assert pr["return_date"] == "2026-06-10"
+        # 12000 NGN / 1600 fallback rate = 7.5 USD
+        assert pr["total_amount"] == "7.500000"
+        assert pr["amount_paid"] == "0.000000"
+        assert pr["ref_no"] == "PR-001"
 
     @pytest.mark.asyncio
     async def test_extract_never_logs_credentials(self, capsys):
@@ -902,6 +958,93 @@ class TestMapStockAdjustments:
             {"id": 9999, "ref_no": "SA-EMPTY", "transaction_date": "2026-01-01"}
         ]
         rows = await extractor._map_stock_adjustments(client, raw_adjustments, {})
+        assert rows == []
+
+
+class TestMapSellReturns:
+    def test_maps_confirmed_fields(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        raw_returns = [
+            {
+                "id": 1001,
+                "parent_sell_id": "777",
+                "transaction_date": "2026-06-05",
+                "final_total": "4,000.00",
+                "total_amount_paid": "4,000.00",
+                "ref_no": "SR-001",
+            }
+        ]
+        rows = extractor._map_sell_returns(raw_returns)
+        assert rows == [
+            {
+                "sale_source_id": "777",
+                "return_date": "2026-06-05",
+                "total_amount": "4000.00",
+                "amount_paid": "4000.00",
+                "ref_no": "SR-001",
+                "notes": "Imported from UltimatePOS",
+            }
+        ]
+
+    def test_falls_back_to_invoice_id_and_generated_ref_no(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        raw_returns = [
+            {
+                "id": 1002,
+                "invoice_id": "778",
+                "return_date": "2026-06-06",
+                "final_total": "500.00",
+            }
+        ]
+        rows = extractor._map_sell_returns(raw_returns)
+        assert rows[0]["sale_source_id"] == "778"
+        assert rows[0]["ref_no"] == "SR-1002"
+
+    def test_row_with_no_parent_sell_id_is_skipped(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        rows = extractor._map_sell_returns([{"id": 1, "final_total": "1"}])
+        assert rows == []
+
+    def test_row_with_no_parseable_date_is_skipped(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        rows = extractor._map_sell_returns(
+            [{"parent_sell_id": "777", "final_total": "1"}]
+        )
+        assert rows == []
+
+
+class TestMapPurchaseReturns:
+    def test_maps_and_converts_ngn_to_usd(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        raw_returns = [
+            {
+                "id": 2001,
+                "purchase_id": "555",
+                "transaction_date": "2026-06-10",
+                "final_total": "12,000.00",
+                "total_amount_paid": "1,600.00",
+                "ref_no": "PR-001",
+            }
+        ]
+        rows = extractor._map_purchase_returns(raw_returns)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["purchase_source_id"] == "555"
+        assert row["return_date"] == "2026-06-10"
+        assert row["total_amount"] == "7.500000"
+        assert row["amount_paid"] == "1.000000"
+        assert row["ref_no"] == "PR-001"
+
+    def test_row_with_no_purchase_id_is_skipped(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        rows = extractor._map_purchase_returns([{"final_total": "1"}])
+        assert rows == []
+
+    def test_row_with_no_parseable_date_is_skipped(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        rows = extractor._map_purchase_returns(
+            [{"purchase_id": "555", "final_total": "1"}]
+        )
         assert rows == []
 
 

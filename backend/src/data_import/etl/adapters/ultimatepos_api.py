@@ -256,6 +256,15 @@ class _POSAPIClient:
     def fetch_stock_adjustments(self) -> list[dict]:
         return self._json_list("/stock-adjustments?per_page=2000")
 
+    def fetch_sell_returns(self) -> list[dict]:
+        # Singular path, not "/sell-returns" — confirmed against a real
+        # instance; the plural form 404s, same class of bug as
+        # fetch_business_locations()'s singular "/business-location".
+        return self._json_list("/sell-return?per_page=2000")
+
+    def fetch_purchase_returns(self) -> list[dict]:
+        return self._json_list("/purchase-return?per_page=2000")
+
     def fetch_stock_adjustment_detail_html(self, adjustment_id: str | int) -> str:
         """Fetch a stock adjustment's line-item detail — confirmed live: the
         list endpoint carries header fields only (adjustment_type,
@@ -420,6 +429,13 @@ class UltimatePOSAPIExtractor(APIExtractor):
             client, raw_stock_adjustments, pos_id_to_source
         )
 
+        raw_sell_returns = await anyio.to_thread.run_sync(client.fetch_sell_returns)
+        sell_returns = self._map_sell_returns(raw_sell_returns)
+        raw_purchase_returns = await anyio.to_thread.run_sync(
+            client.fetch_purchase_returns
+        )
+        purchase_returns = self._map_purchase_returns(raw_purchase_returns)
+
         result: ExtractedData = {
             "product_categories": categories,
             "products": products,
@@ -432,6 +448,8 @@ class UltimatePOSAPIExtractor(APIExtractor):
             "expense_categories": expense_categories,
             "expenses": expenses,
             "stock_adjustments": stock_adjustments,
+            "sell_returns": sell_returns,
+            "purchase_returns": purchase_returns,
         }
         logger.info(
             "ultimatepos_api_extraction_complete",
@@ -718,6 +736,13 @@ class UltimatePOSAPIExtractor(APIExtractor):
             for line in lines:
                 sales.append(
                     {
+                        # The parent sell's own POS id, not a per-line
+                        # identifier — every line of a multi-product sell
+                        # shares this value. transform_sales() carries it
+                        # through as Sale.pos_id so sell_returns can later
+                        # resolve which sell a return applies against (see
+                        # _map_sell_returns / load_sell_returns).
+                        "source_id": sell_id,
                         "product_source_id": line["product_source_id"],
                         "variant_source_id": "",
                         "customer_source_id": customer_source_id if customer_source_id in known_customer_ids else "",
@@ -798,6 +823,12 @@ class UltimatePOSAPIExtractor(APIExtractor):
                 rows.append(
                     {
                         "source_id": ref_no,
+                        # The purchase's own numeric POS id, distinct from
+                        # ref_no (the human-facing reference used above for
+                        # line-grouping) — purchase_returns reference the
+                        # original purchase by this numeric id, not ref_no,
+                        # matching pos_sync's own pos_id convention.
+                        "pos_id": purchase_id,
                         "supplier_source_id": supplier_source_id,
                         "supplier_name": supplier_name or "",
                         "product_source_id": line["product_source_id"],
@@ -934,6 +965,83 @@ class UltimatePOSAPIExtractor(APIExtractor):
                     }
                 )
         return rows
+
+    # ------------------------------------------------------------------
+    # Returns
+    # ------------------------------------------------------------------
+    #
+    # Field names below are ported from pos_migrate.py's proven returns
+    # mapping (steps 3i/3j) rather than independently confirmed against
+    # this extractor's own live-probe target: Modish Standard has zero
+    # real sell/purchase returns today (confirmed live), so there was no
+    # real record to verify field names or the /sell-return, /purchase-
+    # return response shape against — same "ported, unconfirmed" caveat
+    # already applied to expenses. Both entities are header-only
+    # aggregates (a total, not per-product line items) — matching both
+    # pos_migrate.py's own prior handling AND ModishLog's SellReturn/
+    # PurchaseReturn models, which have no line-item table of their own.
+
+    def _map_sell_returns(self, raw_returns: list[dict]) -> list[dict]:
+        out: list[dict] = []
+        for sr in raw_returns:
+            sale_source_id = str(
+                sr.get("parent_sell_id") or sr.get("invoice_id") or ""
+            ).strip()
+            if not sale_source_id:
+                continue
+            return_date = _parse_date(
+                str(sr.get("transaction_date") or sr.get("return_date") or "")
+            )
+            if return_date is None:
+                continue
+            sr_id = _extract_pos_id(sr, "sell-return")
+            ref_no = str(sr.get("ref_no") or "").strip() or (
+                f"SR-{sr_id}" if sr_id else ""
+            )
+            out.append(
+                {
+                    "sale_source_id": sale_source_id,
+                    "return_date": return_date.isoformat(),
+                    "total_amount": str(_parse_price(sr.get("final_total"))),
+                    "amount_paid": str(_parse_price(sr.get("total_amount_paid"))),
+                    "ref_no": ref_no,
+                    "notes": "Imported from UltimatePOS",
+                }
+            )
+        return out
+
+    def _map_purchase_returns(self, raw_returns: list[dict]) -> list[dict]:
+        out: list[dict] = []
+        for pr in raw_returns:
+            purchase_source_id = str(pr.get("purchase_id") or "").strip()
+            if not purchase_source_id:
+                continue
+            return_date = _parse_date(str(pr.get("transaction_date") or ""))
+            if return_date is None:
+                continue
+            ref_no = str(pr.get("ref_no") or "").strip()
+            total_ngn = _parse_price(pr.get("final_total"))
+            paid_ngn = _parse_price(pr.get("total_amount_paid"))
+            # Same fixed fallback FX rate used for purchase_orders — see
+            # that method's comment for why the extractor can't fetch a
+            # live/dated rate here.
+            total_usd = (total_ngn / _FALLBACK_NGN_USD_RATE).quantize(
+                Decimal("0.000001"), rounding=ROUND_HALF_UP
+            )
+            paid_usd = (paid_ngn / _FALLBACK_NGN_USD_RATE).quantize(
+                Decimal("0.000001"), rounding=ROUND_HALF_UP
+            )
+            out.append(
+                {
+                    "purchase_source_id": purchase_source_id,
+                    "return_date": return_date.isoformat(),
+                    "total_amount": str(total_usd),
+                    "amount_paid": str(paid_usd),
+                    "ref_no": ref_no,
+                    "notes": "Imported from UltimatePOS",
+                }
+            )
+        return out
 
 
 def _parse_purchase_lines_from_html(

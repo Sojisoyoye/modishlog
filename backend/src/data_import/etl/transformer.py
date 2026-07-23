@@ -454,6 +454,13 @@ class Transformer:
                     ),
                     "business_id": self.business_id,
                     "recorded_by": self.created_by,
+                    # The source system's own id for the parent sale/sell —
+                    # not an id_map registration (a multi-line sell fans out
+                    # into several Sale rows here, and id_map only holds one
+                    # UUID per (entity, source_id) pair). load_sell_returns()
+                    # resolves against this column directly via a DB query
+                    # instead, once these rows are actually inserted.
+                    "pos_id": row.get("source_id") or None,
                 }
             )
         return out
@@ -565,6 +572,7 @@ class Transformer:
             if source_id not in groups:
                 groups[source_id] = {
                     "source_id": source_id,
+                    "pos_id": None,
                     "supplier_id": None,
                     "supplier_name": row.get("supplier_name") or source_id,
                     "location_id": None,
@@ -583,6 +591,8 @@ class Transformer:
             # group is still missing, instead of only ever looking at the
             # row that happened to create the group.
             group = groups[source_id]
+            if group["pos_id"] is None and row.get("pos_id"):
+                group["pos_id"] = row["pos_id"]
             if group["supplier_id"] is None and row.get("supplier_source_id"):
                 group["supplier_id"] = self.id_map.lookup(
                     "suppliers", row["supplier_source_id"]
@@ -808,6 +818,76 @@ class Transformer:
                 }
             )
         return out
+
+    def _transform_return_rows(
+        self, raw_rows: list[dict], *, entity: str, parent_field: str
+    ) -> list[dict]:
+        """Shared by transform_sell_returns()/transform_purchase_returns() —
+        both are header-only aggregates (total_amount/amount_paid/return_date/
+        ref_no/notes) differing only in which field names the parent
+        sale/purchase order. That parent reference is intentionally left
+        unresolved here: Sale/PurchaseOrder rows only get an id once
+        load()/load_purchase_orders() actually insert them (no _assign_id
+        pre-registration for either, unlike products/customers/etc.), so
+        id_map can't resolve it yet at transform time — load_sell_returns()/
+        load_purchase_returns() resolve it via a DB query against
+        Sale.pos_id/PurchaseOrder.pos_id once their parents have loaded.
+        """
+        out = []
+        for i, row in enumerate(raw_rows, start=2):
+            parent_source_id = (row.get(parent_field) or "").strip()
+            if not parent_source_id:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity=entity,
+                        row=i,
+                        field=parent_field,
+                        severity="error",
+                        message=f"{parent_field} is required",
+                    )
+                )
+                continue
+
+            try:
+                total_amount = normalize_amount(row["total_amount"])
+                amount_paid = (
+                    normalize_amount(row["amount_paid"])
+                    if row.get("amount_paid")
+                    else Decimal("0")
+                )
+                return_date = normalize_date(row["return_date"])
+            except (KeyError, ValueError, InvalidOperation) as e:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity=entity,
+                        row=i,
+                        severity="error",
+                        message=f"Could not parse row: {e}",
+                    )
+                )
+                continue
+
+            out.append(
+                {
+                    parent_field: parent_source_id,
+                    "return_date": return_date,
+                    "total_amount": total_amount,
+                    "amount_paid": amount_paid,
+                    "ref_no": row.get("ref_no") or None,
+                    "notes": row.get("notes") or None,
+                }
+            )
+        return out
+
+    def transform_sell_returns(self, raw_rows: list[dict]) -> list[dict]:
+        return self._transform_return_rows(
+            raw_rows, entity="sell_returns", parent_field="sale_source_id"
+        )
+
+    def transform_purchase_returns(self, raw_rows: list[dict]) -> list[dict]:
+        return self._transform_return_rows(
+            raw_rows, entity="purchase_returns", parent_field="purchase_source_id"
+        )
 
     def detect_ghost_products(
         self, sales_raw: list[dict], known_product_source_ids: set[str]
