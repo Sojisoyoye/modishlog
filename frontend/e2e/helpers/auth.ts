@@ -5,13 +5,27 @@ export const E2E_EMAIL = 'e2e-suite@modishlogtest.com';
 export const E2E_PASSWORD = 'E2eTest!1234';
 
 /**
- * Register the test user (idempotent -- 409 Conflict is expected on re-runs).
+ * Create the test user's business + owner account (idempotent -- 409
+ * Conflict is expected on re-runs).
+ *
+ * POST /auth/register requires an already-authenticated admin (it's for
+ * adding staff to an existing business, not self-serve signup) -- it always
+ * 401s here and was silently ignored, so the E2E test user was never
+ * actually created against a fresh CI database and every login-dependent
+ * test failed. POST /auth/onboard is the real public signup endpoint
+ * (creates a Business + owner User atomically).
  */
 export async function ensureTestUser(): Promise<void> {
   const ctx = await request.newContext();
   try {
-    await ctx.post(`${API}/auth/register`, {
-      data: { email: E2E_EMAIL, password: E2E_PASSWORD, full_name: 'E2E Tester' },
+    await ctx.post(`${API}/auth/onboard`, {
+      data: {
+        full_name: 'E2E Tester',
+        email: E2E_EMAIL,
+        password: E2E_PASSWORD,
+        business_name: 'E2E Test Business',
+        ndpr_consent: true,
+      },
     });
     // 201 = created, 409 = already exists -- both are fine
   } finally {
