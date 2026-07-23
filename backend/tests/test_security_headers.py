@@ -1,5 +1,7 @@
 """Tests for security headers middleware and auth rate limiting."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -62,8 +64,30 @@ class TestAuthRateLimiting:
 
     @pytest.fixture(autouse=True)
     def _client(self):
+        from src.core.database import get_db
         from src.main import app
+
+        # No real DB needed to exercise rate limiting — these tests only
+        # care about the *count* of requests that reach the endpoint before
+        # slowapi returns 429, not the actual auth result. Mocking get_db()
+        # to "no matching user" (a normal 401, not a crash) also matters for
+        # correctness: previously the endpoint's own real-DB behavior was
+        # accidentally irrelevant because the last of 12 requests always hit
+        # 429 regardless — that assumption breaks the moment the limit is
+        # ever raised for any reason (as it now legitimately is in
+        # ENVIRONMENT=test — see _login_rate_limit()), at which point every
+        # request actually reaches the endpoint and an unmocked get_db()
+        # crashes against a real connection instead of exercising the
+        # rate-limit boundary this test exists to verify.
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=result)
+        app.dependency_overrides[get_db] = lambda: db
+
         self.client = TestClient(app, raise_server_exceptions=False)
+        yield
+        app.dependency_overrides.pop(get_db, None)
 
     def test_login_rate_limit_after_many_requests(self):
         """After 10 rapid login attempts, the 11th should return 429."""

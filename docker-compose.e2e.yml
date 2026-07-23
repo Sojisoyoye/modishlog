@@ -28,3 +28,4 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://modishlog:${POSTGRES_PASSWORD:-modishlog_dev}@db_test/modishlog_test
       ENVIRONMENT: test
+      E2E_RELAXED_LOGIN_RATE_LIMIT: "true"
