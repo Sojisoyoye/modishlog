@@ -33,8 +33,15 @@ jobs:
 
       # Build with dev config so the Angular app points to http://localhost:8000/api/v1
       # (production config hardcodes api.modishlog.com which isn't reachable in CI).
+      # `--configuration development` is required explicitly -- angular.json's
+      # `build` target defaults to "production" (defaultConfiguration), so a
+      # bare `ng build` silently builds against api.modishlog.com instead of
+      # localhost. This was the actual root cause of every E2E test needing a
+      # backend call failing: every request got CORS-blocked against
+      # production (which doesn't allow the localhost:4200 origin) rather
+      # than reaching the local CI backend at all.
       - name: Build frontend (dev config)
-        run: npx ng build
+        run: npx ng build --configuration development
         working-directory: frontend
 
       # Explicitly scoped to backend + db_test + redis — an unscoped `up -d`
