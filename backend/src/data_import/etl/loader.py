@@ -17,6 +17,7 @@ from src.data_import.etl.transformer import IdMap
 from src.data_import.exceptions import PurchaseOrderRollbackBlockedError
 from src.expenses.models import Expense, ExpenseCategory
 from src.inventory.models import InventoryBatch, InventoryLevel, StockMovement
+from src.inventory.service import adjust_stock
 from src.locations.models import BusinessLocation
 from src.orders.models import (
     OrderLineItem,
@@ -57,9 +58,12 @@ LOAD_ORDER: list[tuple[str, type]] = [
 
 
 def _zeroed_inventory_level(
-    product_id: uuid.UUID, migration_id: uuid.UUID | None
+    product_id: uuid.UUID,
+    migration_id: uuid.UUID | None,
+    variant_id: uuid.UUID | None = None,
 ) -> InventoryLevel:
-    """A product-level (variant_id=None) InventoryLevel row starting at zero.
+    """A product-level (variant_id=None) InventoryLevel row starting at zero,
+    or a variant-level one when variant_id is given.
 
     `migration_id=None` for a product this loader didn't create itself
     (a deduped/pre-existing product) — tagging it would make rollback
@@ -72,6 +76,7 @@ def _zeroed_inventory_level(
     """
     return InventoryLevel(
         product_id=product_id,
+        variant_id=variant_id,
         quantity_on_hand=0,
         quantity_reserved=0,
         low_stock_threshold=10,
@@ -243,6 +248,55 @@ async def load_purchase_orders(
         await db.flush()
 
     return len(order_ids)
+
+
+async def load_stock_adjustments(
+    db: AsyncSession,
+    migration_id: uuid.UUID,
+    business_id: uuid.UUID,
+    user_id: uuid.UUID,
+    rows: list[dict],
+) -> int:
+    """Apply each adjustment via the real adjust_stock() service function
+    (never writes StockMovement/InventoryLevel rows directly), so low-stock-
+    alert side effects and audit records stay consistent with a live
+    adjustment. Rollback needs no bespoke handling here — service.py's
+    rollback_job() already reverses any StockMovement row tagged with this
+    migration_id generically, regardless of which loader created it.
+    """
+    referenced = {(row["product_id"], row.get("variant_id")) for row in rows}
+    if referenced:
+        existing_result = await db.execute(
+            select(InventoryLevel.product_id, InventoryLevel.variant_id).where(
+                InventoryLevel.product_id.in_({pid for pid, _ in referenced})
+            )
+        )
+        existing = set(existing_result.all())
+        missing = referenced - existing
+        if missing:
+            db.add_all(
+                [
+                    _zeroed_inventory_level(pid, None, variant_id=vid)
+                    for pid, vid in missing
+                ]
+            )
+            await db.flush()
+
+    count = 0
+    for row in rows:
+        await adjust_stock(
+            db,
+            product_id=row["product_id"],
+            variant_id=row.get("variant_id"),
+            quantity_change=row["quantity_change"],
+            movement_type=row["movement_type"].value,
+            reason=row.get("reason") or "Imported stock adjustment",
+            user_id=user_id,
+            business_id=business_id,
+            migration_id=migration_id,
+        )
+        count += 1
+    return count
 
 
 async def rollback(db: AsyncSession, migration_id: uuid.UUID) -> dict[str, int]:

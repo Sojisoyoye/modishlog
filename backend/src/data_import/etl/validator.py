@@ -63,6 +63,15 @@ ENTITY_RULES: dict[str, dict[str, tuple[str, ...] | bool]] = {
         "amounts": (),
         "positive_amounts": ("amount",),
     },
+    "stock_adjustments": {
+        "required": ("product_source_id", "quantity_change"),
+        "dates": ("adjustment_date",),
+        # quantity_change may legitimately be negative (e.g. damaged/lost
+        # stock) — neither "amounts" (rejects <0) nor "positive_amounts"
+        # (rejects <=0) fits, so it's only integer-checked, not sign-checked.
+        "amounts": (),
+        "integer_amounts": ("quantity_change",),
+    },
 }
 
 

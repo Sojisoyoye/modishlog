@@ -135,6 +135,7 @@ async def create_job(
     sales: UploadFile | None = File(None),
     expense_categories: UploadFile | None = File(None),
     expenses: UploadFile | None = File(None),
+    stock_adjustments: UploadFile | None = File(None),
     api_base_url: str | None = Form(None),
     username: str | None = Form(None),
     password: str | None = Form(None),
@@ -154,6 +155,7 @@ async def create_job(
         "sales": sales,
         "expense_categories": expense_categories,
         "expenses": expenses,
+        "stock_adjustments": stock_adjustments,
     }
     files: dict[str, bytes] = {}
     for entity, upload in uploads.items():

@@ -22,6 +22,7 @@ from src.data_import.etl.adapters.ultimatepos_api import (
     _parse_purchase_lines_from_html,
     _parse_qty,
     _parse_sell_lines_from_html,
+    _parse_stock_adjustment_lines_from_html,
 )
 from src.data_import.etl.extractor import APIExtractor
 
@@ -208,6 +209,27 @@ EXPENSES_JSON = json.dumps(
     }
 )
 
+STOCK_ADJUSTMENTS_JSON = json.dumps(
+    {
+        "data": [
+            {
+                "id": 2602569,
+                "ref_no": "SA2026/0001",
+                "transaction_date": "2026-01-10 09:00:00",
+                "adjustment_type": "Normal",
+                "additional_notes": "Wasn't delivered by Shipping Agent (AY)",
+            }
+        ]
+    }
+)
+
+STOCK_ADJUSTMENT_DETAIL_HTML = """
+<table>
+<tr class="bg-green"><th>Product</th><th>Quantity</th><th>Unit Price</th><th>Subtotal</th></tr>
+<tr><td>Ankara Fabric (10101)</td><td>92.0</td><td>16,979.00</td><td>1,562,068.00</td></tr>
+</table>
+"""
+
 
 def _get_side_effect(url: str, headers=None, **kwargs):
     if url.endswith("/login"):
@@ -230,6 +252,10 @@ def _get_side_effect(url: str, headers=None, **kwargs):
         return _resp(EXPENSE_CATEGORIES_JSON)
     if "/expenses" in url:
         return _resp(EXPENSES_JSON)
+    if "/stock-adjustments/2602569" in url:
+        return _resp(STOCK_ADJUSTMENT_DETAIL_HTML)
+    if "/stock-adjustments" in url:
+        return _resp(STOCK_ADJUSTMENTS_JSON)
     if "/sells" in url and "sells/" not in url:
         return _resp(SELLS_JSON)
     if "/sells/777" in url:
@@ -293,6 +319,7 @@ class TestExtract:
             "purchase_orders",
             "expense_categories",
             "expenses",
+            "stock_adjustments",
         }
 
         products = result["products"]
@@ -376,6 +403,16 @@ class TestExtract:
         assert exp["expense_date"] == "2026-01-05"
         assert exp["payment_method"] == "cash"
         assert exp["note"] == "January rent"
+
+        stock_adjustments = result["stock_adjustments"]
+        assert len(stock_adjustments) == 1
+        adj = stock_adjustments[0]
+        assert adj["source_id"] == "SA2026/0001"
+        assert adj["product_source_id"] == "10101"
+        assert adj["quantity_change"] == "92"
+        assert adj["adjustment_type"] == "Normal"
+        assert adj["reason"] == "Wasn't delivered by Shipping Agent (AY)"
+        assert adj["adjustment_date"] == "2026-01-10"
 
     @pytest.mark.asyncio
     async def test_extract_never_logs_credentials(self, capsys):
@@ -753,6 +790,98 @@ class TestMapPurchaseOrders:
         client = extractor._build_client()
         raw_purchases = [{"id": 9999, "ref_no": "PO-EMPTY", "transaction_date": "01-01-2026"}]
         rows = await extractor._map_purchase_orders(client, raw_purchases, [], [])
+        assert rows == []
+
+
+class TestParseStockAdjustmentLinesFromHtml:
+    def test_matches_by_trailing_parenthetical_pos_id(self):
+        html = """
+        <table>
+        <tr class="bg-green"><th>Product</th><th>Quantity</th><th>Unit Price</th><th>Subtotal</th></tr>
+        <tr><td>Off White MDF UV (301406)</td><td>92.0</td><td>16,979.00</td><td>1,562,068.00</td></tr>
+        </table>
+        """
+        lines = _parse_stock_adjustment_lines_from_html(html, {"301406": "301406"})
+        assert lines == [{"product_source_id": "301406", "quantity": 92}]
+
+    def test_unresolvable_product_id_is_skipped(self):
+        html = "<table><tr><td>Unknown (999)</td><td>5</td><td>10</td><td>50</td></tr></table>"
+        assert _parse_stock_adjustment_lines_from_html(html, {}) == []
+
+    def test_product_cell_without_parenthetical_id_is_skipped(self):
+        html = "<table><tr><td>Off White MDF UV</td><td>5</td><td>10</td><td>50</td></tr></table>"
+        assert _parse_stock_adjustment_lines_from_html(html, {"301406": "301406"}) == []
+
+    def test_zero_quantity_line_is_skipped(self):
+        html = "<table><tr><td>Item (301406)</td><td>0</td><td>10</td><td>0</td></tr></table>"
+        assert _parse_stock_adjustment_lines_from_html(html, {"301406": "301406"}) == []
+
+    def test_activity_log_rows_without_matching_id_are_ignored(self):
+        """The same detail page also has an activity-log table (Date/Action/By/
+        Note) below the line-item table — must not be misread as products."""
+        html = """
+        <table>
+        <tr><td>Item (301406)</td><td>92.0</td><td>16,979.00</td><td>1,562,068.00</td></tr>
+        </table>
+        <table>
+        <tr><td>2026-01-10</td><td>Created</td><td>Admin</td><td>Initial adjustment</td></tr>
+        </table>
+        """
+        lines = _parse_stock_adjustment_lines_from_html(html, {"301406": "301406"})
+        assert lines == [{"product_source_id": "301406", "quantity": 92}]
+
+
+class TestMapStockAdjustments:
+    @pytest.mark.asyncio
+    async def test_maps_header_and_html_line_together(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        client = extractor._build_client()
+        raw_adjustments = [
+            {
+                "id": 2602569,
+                "ref_no": "SA2026/0001",
+                "transaction_date": "2026-01-10 09:00:00",
+                "adjustment_type": "Normal",
+                "additional_notes": "Wasn't delivered by Shipping Agent (AY)",
+            }
+        ]
+        rows = await extractor._map_stock_adjustments(
+            client, raw_adjustments, {"10101": "10101"}
+        )
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["source_id"] == "SA2026/0001"
+        assert row["product_source_id"] == "10101"
+        assert row["quantity_change"] == "92"
+        assert row["adjustment_type"] == "Normal"
+        assert row["reason"] == "Wasn't delivered by Shipping Agent (AY)"
+        assert row["adjustment_date"] == "2026-01-10"
+
+    @pytest.mark.asyncio
+    async def test_missing_ref_no_falls_back_to_pos_id_source_id(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        client = extractor._build_client()
+        raw_adjustments = [{"id": 2602569, "transaction_date": "2026-01-10"}]
+        rows = await extractor._map_stock_adjustments(
+            client, raw_adjustments, {"10101": "10101"}
+        )
+        assert rows[0]["source_id"] == "POS-ADJ-2602569"
+
+    @pytest.mark.asyncio
+    async def test_no_pos_id_on_header_is_skipped(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        client = extractor._build_client()
+        rows = await extractor._map_stock_adjustments(client, [{"foo": "bar"}], {})
+        assert rows == []
+
+    @pytest.mark.asyncio
+    async def test_empty_detail_html_produces_no_rows(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        client = extractor._build_client()
+        raw_adjustments = [
+            {"id": 9999, "ref_no": "SA-EMPTY", "transaction_date": "2026-01-01"}
+        ]
+        rows = await extractor._map_stock_adjustments(client, raw_adjustments, {})
         assert rows == []
 
 

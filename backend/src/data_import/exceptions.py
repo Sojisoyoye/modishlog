@@ -79,6 +79,25 @@ class PurchaseOrderImportError(Exception):
         )
 
 
+class StockAdjustmentImportError(Exception):
+    """Raised when load_stock_adjustments() (which reuses inventory/service's
+    adjust_stock() unmodified) hits a failure from that domain — a
+    referenced product/variant went stale between validation and confirm,
+    or an adjustment would take stock negative. Wraps the underlying error
+    so the router only needs to know about this one data_import-owned
+    exception, mirroring PurchaseOrderImportError's rationale.
+    """
+
+    def __init__(self, cause: Exception) -> None:
+        self.cause = cause
+        super().__init__(
+            "Could not import one or more stock adjustments — a referenced "
+            "product or variant may have changed since this job was "
+            "validated, or an adjustment would take stock negative. Try "
+            "re-validating the job."
+        )
+
+
 class PurchaseOrderRollbackBlockedError(Exception):
     """Raised when rollback() would need to delete an imported PurchaseOrder
     that already has a real OrderPayment recorded against it. That payment

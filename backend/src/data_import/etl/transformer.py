@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.customers.models import Customer
 from src.data_import.etl.extractor import parse_flexible_amount, parse_flexible_date
 from src.data_import.schemas import ValidationIssue
+from src.inventory.models import MovementType
 from src.products.models import Product
 from src.products.utils import slugify
 from src.sales.models import SaleChannel
@@ -726,6 +727,84 @@ class Transformer:
                     "location_id": location_id,
                     "business_id": self.business_id,
                     "created_by": self.created_by,
+                }
+            )
+        return out
+
+    def transform_stock_adjustments(self, raw_rows: list[dict]) -> list[dict]:
+        """No dedup, no _assign_id — unlike categories/suppliers/customers,
+        nothing else references a stock adjustment by source_id, so there's
+        no id_map registration needed here (matching how purchase_orders'
+        individual line items aren't registered either, only the order's
+        own header source_id is).
+
+        Note: adjust_stock()/StockMovement have no historical-date field
+        (only created_at, auto-set to now()) — an imported adjustment's
+        real historical date cannot be preserved. adjustment_date is parsed
+        for early validation only; it has no effect on what gets stored.
+        """
+        out = []
+        for i, row in enumerate(raw_rows, start=2):
+            product_id = self.id_map.lookup("products", row.get("product_source_id"))
+            if product_id is None:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="stock_adjustments",
+                        row=i,
+                        field="product_source_id",
+                        severity="error",
+                        message=f"Product {row.get('product_source_id')!r} could not be resolved",
+                    )
+                )
+                continue
+
+            try:
+                quantity_change = int(normalize_amount(row["quantity_change"]))
+            except (KeyError, ValueError, InvalidOperation) as e:
+                self.warnings.append(
+                    ValidationIssue(
+                        entity="stock_adjustments",
+                        row=i,
+                        severity="error",
+                        message=f"Could not parse row: {e}",
+                    )
+                )
+                continue
+
+            variant_id = None
+            if row.get("variant_source_id"):
+                variant_id = self.id_map.lookup(
+                    "product_variants", row["variant_source_id"]
+                )
+                if variant_id is None:
+                    self.warnings.append(
+                        ValidationIssue(
+                            entity="stock_adjustments",
+                            row=i,
+                            field="variant_source_id",
+                            severity="warning",
+                            message=(
+                                f"Variant {row['variant_source_id']!r} could not be "
+                                f"resolved — adjustment applied to "
+                                f"{row.get('product_source_id')!r}'s overall stock instead."
+                            ),
+                        )
+                    )
+
+            adjustment_type = (row.get("adjustment_type") or "").strip().lower()
+            movement_type = (
+                MovementType.OPENING_STOCK
+                if "open" in adjustment_type
+                else MovementType.STOCK_ADJUSTMENT
+            )
+
+            out.append(
+                {
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                    "quantity_change": quantity_change,
+                    "movement_type": movement_type,
+                    "reason": row.get("reason") or None,
                 }
             )
         return out
