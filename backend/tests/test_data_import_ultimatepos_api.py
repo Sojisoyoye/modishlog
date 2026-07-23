@@ -1,7 +1,12 @@
-"""Tests for the UltimatePOS live API extractor (task 162, Phase 1 work unit).
+"""Tests for the UltimatePOS live API extractor.
 
 All HTTP is mocked via unittest.mock — no real network calls are made and no
-real UltimatePOS credentials exist in this environment.
+real UltimatePOS credentials exist in this environment. Fixture shapes below
+match a real UltimatePOS v5 instance's confirmed field shapes (verified via a
+read-only, credentialed probe against a live instance) rather than the
+generic API docs — several fields (contact id, business-location rows,
+category linkage) differ from what a naive reading of the docs would
+suggest, and the extractor is written against the real shapes.
 """
 
 import json
@@ -12,7 +17,9 @@ import pytest
 
 from src.data_import.etl.adapters.ultimatepos_api import (
     UltimatePOSAPIExtractor,
+    _extract_contact_id,
     _extract_pos_id,
+    _parse_purchase_lines_from_html,
     _parse_qty,
     _parse_sell_lines_from_html,
 )
@@ -41,9 +48,9 @@ PRODUCTS_JSON = json.dumps(
                 "product": "Ankara Fabric",
                 "sku": "SKU-1",
                 "barcode": "111222",
+                "category": "Fabrics",
                 "selling_price": "2,000.00",
                 "max_price": "1,200.00",
-                "category_id": 5,
                 "is_inactive": 0,
                 "not_for_selling": 0,
                 "variations": [
@@ -61,9 +68,9 @@ PRODUCTS_JSON = json.dumps(
                 "product": "Lace Fabric",
                 "sku": "SKU-2",
                 "barcode": "",
+                "category": "Fabrics",
                 "selling_price": "3,000.00",
                 "max_price": "1,800.00",
-                "category_id": None,
                 "is_inactive": 1,
                 "not_for_selling": 0,
             },
@@ -71,18 +78,17 @@ PRODUCTS_JSON = json.dumps(
     }
 )
 
-CATEGORIES_JSON = json.dumps(
-    {"data": [{"id": 5, "name": "Fabrics", "description": "All fabrics", "parent_id": None}]}
-)
-
+# Real /contacts rows have no top-level "id" — only an "action" column with
+# /contacts/{id} links. Both fixtures below intentionally omit "id" to
+# exercise the real (action-HTML) extraction path, not the fallback.
 CONTACTS_SUPPLIER_JSON = json.dumps(
     {
         "data": [
             {
-                "id": 9,
                 "name": "Acme Textiles",
                 "email": "sales@acme.test",
                 "mobile": "08011112222",
+                "action": '<a href="https://pos.example.com/contacts/9/edit">Edit</a>',
             }
         ]
     }
@@ -92,17 +98,38 @@ CONTACTS_CUSTOMER_JSON = json.dumps(
     {
         "data": [
             {
-                "id": 21,
                 "name": "Jane Doe",
                 "email": "jane@example.com",
                 "mobile": "08033334444",
+                "action": '<a href="https://pos.example.com/contacts/21/edit">Edit</a>',
             }
         ]
     }
 )
 
+# Real /business-location rows are plain positional arrays, not keyed
+# objects — confirmed live column order: Name, Location ID, Landmark, City,
+# Zip Code, State, Country, Price Group, Invoice scheme, Invoice layout
+# (POS), Invoice layout (sale), Action.
 BUSINESS_LOCATIONS_JSON = json.dumps(
-    {"data": [{"id": 1, "name": "Lagos HQ", "location_id": "LGA001"}]}
+    {
+        "data": [
+            [
+                "Lagos HQ",
+                "LGA001",
+                None,
+                "Lagos",
+                "100001",
+                "Lagos",
+                "Nigeria",
+                None,
+                "Default",
+                "Default",
+                "Default",
+                '<a href="https://pos.example.com/business-location/1/edit">Edit</a>',
+            ]
+        ]
+    }
 )
 
 SELLS_JSON = json.dumps(
@@ -113,8 +140,8 @@ SELLS_JSON = json.dumps(
                 "invoice_no": "INV-001",
                 "transaction_date": "2026-06-01 10:00:00",
                 "payment_type": "cash",
-                "location_id": 1,
-                "contact_id": 21,
+                "business_location": "Lagos HQ",
+                "contact_id": "CO0006",
             }
         ]
     }
@@ -132,6 +159,35 @@ SELL_RECEIPT_HTML = """
 </table>
 """
 
+PURCHASES_JSON = json.dumps(
+    {
+        "data": [
+            {
+                "id": 555,
+                "ref_no": "PO2026/0001",
+                "transaction_date": "26-06-2025 12:08",
+                "name": "Acme Textiles",
+                "location_name": "Lagos HQ",
+            }
+        ]
+    }
+)
+
+PURCHASE_PRINT_JSON = json.dumps(
+    {
+        "receipt": {
+            "html_content": """
+            <table>
+            <tr><td>1</td><td>Ankara Fabric</td><td>SKU-1</td>
+            <td><span data-is_quantity="true">10.00</span> Pieces</td>
+            <td>1200.0000</td><td>0.00</td><td>1200.0000</td>
+            <td>12000.0000</td><td>0</td><td>1200.0000</td><td>12000.0000</td></tr>
+            </table>
+            """
+        }
+    }
+)
+
 
 def _get_side_effect(url: str, headers=None, **kwargs):
     if url.endswith("/login"):
@@ -140,14 +196,16 @@ def _get_side_effect(url: str, headers=None, **kwargs):
         return _resp("<html>Welcome back, trader</html>")
     if "/products" in url:
         return _resp(PRODUCTS_JSON)
-    if "/categories" in url:
-        return _resp(CATEGORIES_JSON)
     if "type=supplier" in url:
         return _resp(CONTACTS_SUPPLIER_JSON)
     if "type=customer" in url:
         return _resp(CONTACTS_CUSTOMER_JSON)
-    if "/business-locations" in url:
+    if "/business-location" in url:
         return _resp(BUSINESS_LOCATIONS_JSON)
+    if "/purchases/print/555" in url:
+        return _resp(PURCHASE_PRINT_JSON)
+    if "/purchases" in url:
+        return _resp(PURCHASES_JSON)
     if "/sells" in url and "sells/" not in url:
         return _resp(SELLS_JSON)
     if "/sells/777" in url:
@@ -208,6 +266,7 @@ class TestExtract:
             "customers",
             "business_locations",
             "sales",
+            "purchase_orders",
         }
 
         products = result["products"]
@@ -222,7 +281,7 @@ class TestExtract:
         assert product["unit_cost"] == "1200.00"
         assert product["selling_price"] == "2000.00"
         assert product["currency"] == "NGN"
-        assert product["category_source_id"] == "5"
+        assert product["category_source_id"] == "Fabrics"
         assert product["is_active"] == "true"
 
         variants = result["product_variants"]
@@ -233,7 +292,7 @@ class TestExtract:
         assert variants[0]["cost_price_override"] == "1250.00"
 
         categories = result["product_categories"]
-        assert categories[0]["source_id"] == "5"
+        assert categories[0]["source_id"] == "Fabrics"
         assert categories[0]["name"] == "Fabrics"
 
         suppliers = result["suppliers"]
@@ -247,6 +306,7 @@ class TestExtract:
         locations = result["business_locations"]
         assert locations[0]["source_id"] == "1"
         assert locations[0]["name"] == "Lagos HQ"
+        assert locations[0]["location_code"] == "LGA001"
 
         sales = result["sales"]
         assert len(sales) == 1
@@ -258,7 +318,24 @@ class TestExtract:
         assert sale["currency"] == "NGN"
         assert sale["channel"] == "retail"
         assert sale["payment_method"] == "cash"
-        assert sale["customer_source_id"] == "21"
+        assert sale["location_name"] == "Lagos HQ"
+        # contact_id is a display code (e.g. "CO0006"), not a resolvable
+        # customer numeric id — left unresolved, not guessed.
+        assert sale["customer_source_id"] == ""
+
+        purchase_orders = result["purchase_orders"]
+        assert len(purchase_orders) == 1
+        po = purchase_orders[0]
+        assert po["source_id"] == "PO2026/0001"
+        assert po["supplier_source_id"] == "9"
+        assert po["supplier_name"] == "Acme Textiles"
+        assert po["product_source_id"] == "10101"
+        assert po["quantity"] == "10"
+        assert po["currency"] == "USD"
+        assert po["order_date"] == "2025-06-26"
+        # 1200 NGN / 1600 fallback rate = 0.75 USD
+        assert po["unit_cost"] == "0.750000"
+        assert po["fx_rate"] == "1600"
 
     @pytest.mark.asyncio
     async def test_extract_never_logs_credentials(self, capsys):
@@ -340,11 +417,11 @@ class TestMapProductsZeroValueHandling:
                 ],
             }
         ]
-        _products, variants, _pos_map, _name_map = extractor._map_products(raw_products)
+        _products, variants, _pos_map, _name_map = extractor._map_products(raw_products, {})
         assert variants[0]["price_override"] == "0"
         assert variants[0]["cost_price_override"] == "0"
 
-    def test_category_id_zero_is_preserved_not_blanked(self):
+    def test_uncategorized_product_gets_blank_category_source_id(self):
         extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
         raw_products = [
             {
@@ -353,13 +430,106 @@ class TestMapProductsZeroValueHandling:
                 "sku": "SKU-9",
                 "selling_price": "100",
                 "max_price": "50",
-                "category_id": 0,
+                "category": "",
                 "is_inactive": 0,
                 "not_for_selling": 0,
             }
         ]
-        products, _variants, _pos_map, _name_map = extractor._map_products(raw_products)
-        assert products[0]["category_source_id"] == "0"
+        products, _variants, _pos_map, _name_map = extractor._map_products(raw_products, {})
+        assert products[0]["category_source_id"] == ""
+
+
+class TestMapCategories:
+    def test_derives_distinct_categories_from_products_not_a_separate_endpoint(self):
+        """No standalone /categories endpoint exists on the real API — this
+        must never call one; category names live only on product rows."""
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        raw_products = [
+            {"id": 1, "category": "Boards"},
+            {"id": 2, "category": "Boards"},
+            {"id": 3, "category": "Doors"},
+            {"id": 4, "category": ""},
+        ]
+        categories, name_to_source = extractor._map_categories(raw_products)
+        names = {c["name"] for c in categories}
+        assert names == {"Boards", "Doors"}
+        assert name_to_source["Boards"] == "Boards"
+
+    def test_products_resolve_category_source_id_via_derived_map(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        raw_products = [
+            {
+                "id": 1,
+                "product": "Board A",
+                "sku": "B-1",
+                "selling_price": "100",
+                "max_price": "50",
+                "category": "Boards",
+                "is_inactive": 0,
+                "not_for_selling": 0,
+            }
+        ]
+        _categories, name_to_source = extractor._map_categories(raw_products)
+        products, _v, _p, _n = extractor._map_products(raw_products, name_to_source)
+        assert products[0]["category_source_id"] == "Boards"
+
+
+class TestExtractContactId:
+    def test_prefers_direct_id_field_when_present(self):
+        assert _extract_contact_id({"id": 42}) == "42"
+
+    def test_falls_back_to_action_html_link_when_no_id_field(self):
+        """Confirmed real shape: /contacts rows have no top-level id."""
+        contact = {
+            "name": "Acme",
+            "action": '<a href="https://pos.example.com/contacts/56902/edit">Edit</a>',
+        }
+        assert _extract_contact_id(contact) == "56902"
+
+    def test_no_id_and_no_action_link_returns_none(self):
+        assert _extract_contact_id({"name": "Acme"}) is None
+
+
+class TestMapLocationsPositionalArray:
+    def test_parses_confirmed_real_column_order(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        raw_locations = [
+            [
+                "Modish Standard Limited",
+                "BL0001",
+                "Challenge",
+                "Mushin",
+                "102215",
+                "Lagos",
+                "Nigeria",
+                None,
+                "Default",
+                "Default",
+                "Default",
+                '<a href="https://pos.example.com/business-location/928/edit">Edit</a>',
+            ]
+        ]
+        locations = extractor._map_locations(raw_locations)
+        assert locations == [
+            {
+                "source_id": "928",
+                "name": "Modish Standard Limited",
+                "location_code": "BL0001",
+            }
+        ]
+
+    def test_still_accepts_keyed_object_shape_for_forward_compat(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        locations = extractor._map_locations(
+            [{"id": 1, "name": "Lagos HQ", "location_id": "LGA001"}]
+        )
+        assert locations == [
+            {"source_id": "1", "name": "Lagos HQ", "location_code": "LGA001"}
+        ]
+
+    def test_row_too_short_is_skipped_not_crashed(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        assert extractor._map_locations([["Too short"]]) == []
 
 
 class TestParseQty:
@@ -430,6 +600,122 @@ class TestParseSellLinesFromHtml:
         assert lines[0]["line_total"] == Decimal("900.0000")
 
 
+class TestParsePurchaseLinesFromHtml:
+    def test_matches_by_sku_and_parses_ngn_unit_cost(self):
+        html = """
+        <table>
+        <tr><td>1</td><td>Ankara Fabric</td><td>SKU-1</td>
+        <td><span data-is_quantity="true">10.00</span> Pieces</td>
+        <td>1200.0000</td><td>0.00</td><td>1200.0000</td>
+        <td>12000.0000</td><td>0</td><td>1200.0000</td><td>12000.0000</td></tr>
+        </table>
+        """
+        lines = _parse_purchase_lines_from_html(html, {"SKU-1": "10101"})
+        assert lines == [
+            {"product_source_id": "10101", "quantity": 10, "unit_cost_ngn": Decimal("1200.0000")}
+        ]
+
+    def test_unmatched_sku_is_skipped(self):
+        html = """
+        <table>
+        <tr><td>1</td><td>Unknown</td><td>SKU-X</td>
+        <td><span data-is_quantity="true">1.00</span></td>
+        <td>100.0000</td><td>0</td><td>100</td><td>100</td><td>0</td><td>100</td><td>100</td></tr>
+        </table>
+        """
+        assert _parse_purchase_lines_from_html(html, {}) == []
+
+    def test_zero_quantity_line_is_skipped(self):
+        html = """
+        <table>
+        <tr><td>1</td><td>Item</td><td>SKU-1</td>
+        <td><span data-is_quantity="true">0.00</span></td>
+        <td>100.0000</td><td>0</td><td>100</td><td>100</td><td>0</td><td>100</td><td>100</td></tr>
+        </table>
+        """
+        assert _parse_purchase_lines_from_html(html, {"SKU-1": "10101"}) == []
+
+
+class TestMapPurchaseOrders:
+    @pytest.mark.asyncio
+    async def test_groups_lines_and_resolves_supplier_by_name(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        client = extractor._build_client()
+        raw_products = [{"id": 10101, "sku": "SKU-1"}]
+        raw_suppliers = [
+            {
+                "name": "Acme Textiles",
+                "action": '<a href="https://pos.example.com/contacts/9/edit">Edit</a>',
+            }
+        ]
+        raw_purchases = [
+            {
+                "id": 555,
+                "ref_no": "PO2026/0001",
+                "transaction_date": "26-06-2025 12:08",
+                "name": "Acme Textiles",
+            }
+        ]
+        rows = await extractor._map_purchase_orders(
+            client, raw_purchases, raw_products, raw_suppliers
+        )
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["source_id"] == "PO2026/0001"
+        assert row["supplier_source_id"] == "9"
+        assert row["product_source_id"] == "10101"
+        assert row["quantity"] == "10"
+        assert row["currency"] == "USD"
+
+    @pytest.mark.asyncio
+    async def test_purchase_line_for_discontinued_product_still_resolves(self):
+        """Regression: sku_to_source must be built from ALL products, not
+        just the active/for-sale subset _map_products() returns — a
+        historical PO can reference a since-discontinued product and that
+        line must not silently vanish."""
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        client = extractor._build_client()
+        raw_products = [
+            {"id": 10101, "sku": "SKU-1", "is_inactive": 1, "not_for_selling": 1}
+        ]
+        raw_purchases = [
+            {
+                "id": 555,
+                "ref_no": "PO2026/0001",
+                "transaction_date": "26-06-2025 12:08",
+                "name": "Acme Textiles",
+            }
+        ]
+        rows = await extractor._map_purchase_orders(client, raw_purchases, raw_products, [])
+        assert len(rows) == 1
+        assert rows[0]["product_source_id"] == "10101"
+
+    @pytest.mark.asyncio
+    async def test_unmatched_supplier_name_leaves_supplier_source_id_blank(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        client = extractor._build_client()
+        raw_products = [{"id": 10101, "sku": "SKU-1"}]
+        raw_purchases = [
+            {
+                "id": 555,
+                "ref_no": "PO2026/0001",
+                "transaction_date": "26-06-2025 12:08",
+                "name": "Unknown Supplier",
+            }
+        ]
+        rows = await extractor._map_purchase_orders(client, raw_purchases, raw_products, [])
+        assert rows[0]["supplier_source_id"] == ""
+        assert rows[0]["supplier_name"] == "Unknown Supplier"
+
+    @pytest.mark.asyncio
+    async def test_empty_print_html_produces_no_rows(self):
+        extractor = UltimatePOSAPIExtractor("https://pos.example.com", CREDS)
+        client = extractor._build_client()
+        raw_purchases = [{"id": 9999, "ref_no": "PO-EMPTY", "transaction_date": "01-01-2026"}]
+        rows = await extractor._map_purchase_orders(client, raw_purchases, [], [])
+        assert rows == []
+
+
 class TestTestConnection:
     @pytest.mark.asyncio
     async def test_returns_counts_and_date_range(self):
@@ -439,6 +725,7 @@ class TestTestConnection:
         assert "counts" in result
         assert "date_range" in result
         assert result["counts"]["products"] == 1  # only active product counted
+        assert result["counts"]["product_categories"] == 1  # "Fabrics", deduped
         assert result["counts"]["customers"] == 1
         assert result["counts"]["suppliers"] == 1
         assert result["date_range"]["earliest"] == "2026-06-01"

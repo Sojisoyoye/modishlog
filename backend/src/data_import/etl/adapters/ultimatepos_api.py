@@ -16,7 +16,7 @@ import json
 import math
 import re
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from http.cookiejar import CookieJar
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -89,7 +89,29 @@ def _extract_pos_id(item: dict, path_prefix: str) -> str | None:
     return None
 
 
+def _extract_contact_id(contact: dict) -> str | None:
+    """Contacts have no top-level `id` and no `DT_RowAttr` on this API
+    version — confirmed live: `/contacts` rows carry a human-facing
+    `contact_id` code (e.g. "CO0002") but the only place the real numeric
+    primary key appears is inside the `action` column's `/contacts/{id}`
+    links. Falls back to `id` first for forward-compat with any API
+    version that does return one directly.
+    """
+    direct_id = contact.get("id")
+    if direct_id is not None:
+        return str(direct_id)
+    action_html = str(contact.get("action") or "")
+    m = re.search(r"/contacts/(\d+)", action_html)
+    return m.group(1) if m else None
+
+
 _CHANNEL_FALLBACK = "retail"
+
+# Fallback NGN/USD rate used to convert purchase-order unit costs when no
+# live rate is available (the extractor has no DB session, so it can't call
+# src.fx.service.get_live_usdngn_rate() the way pos_migrate.py does) — same
+# fallback value pos_migrate.py itself falls back to on a failed live fetch.
+_FALLBACK_NGN_USD_RATE = Decimal("1600")
 
 
 class _POSAPIClient:
@@ -170,14 +192,15 @@ class _POSAPIClient:
     def fetch_products(self) -> list[dict]:
         return self._json_list("/products?per_page=1000")
 
-    def fetch_categories(self) -> list[dict]:
-        return self._json_list("/categories?per_page=500")
-
     def fetch_contacts(self, contact_type: str) -> list[dict]:
         return self._json_list(f"/contacts?type={contact_type}&per_page=500")
 
     def fetch_business_locations(self) -> list[dict]:
-        return self._json_list("/business-locations?per_page=200")
+        # Singular path, not "/business-locations" — confirmed against a
+        # real instance; the plural form 404s. Rows come back as plain
+        # positional arrays (no field names), not keyed objects — see
+        # _map_locations() for the confirmed column order.
+        return self._json_list("/business-location?per_page=200")
 
     def fetch_sells(self) -> list[dict]:
         return self._json_list("/sells?per_page=2000")
@@ -199,6 +222,27 @@ class _POSAPIClient:
             logger.warning(
                 "ultimatepos_api_sell_detail_fetch_failed",
                 sell_id=str(sell_id),
+                error_type=type(exc).__name__,
+            )
+            return ""
+
+    def fetch_purchases(self) -> list[dict]:
+        return self._json_list("/purchases?per_page=2000")
+
+    def fetch_purchase_print_html(self, purchase_id: str | int) -> str:
+        """Fetch a purchase's line-item detail via the print/modal endpoint —
+        confirmed live: JSON envelope {"receipt": {"html_content": "..."}}.
+        """
+        try:
+            raw = self._get(f"/purchases/print/{purchase_id}")
+            if not raw.strip():
+                return ""
+            data = json.loads(raw)
+            return data.get("receipt", {}).get("html_content", "")
+        except Exception as exc:
+            logger.warning(
+                "ultimatepos_api_purchase_print_fetch_failed",
+                purchase_id=str(purchase_id),
                 error_type=type(exc).__name__,
             )
             return ""
@@ -299,21 +343,27 @@ class UltimatePOSAPIExtractor(APIExtractor):
         client = self._build_client()
         await self._login(client)
 
-        raw_products, raw_categories, raw_suppliers, raw_customers, raw_locations = await anyio.to_thread.run_sync(
+        raw_products, raw_suppliers, raw_customers, raw_locations = await anyio.to_thread.run_sync(
             self._fetch_reference_data, client
         )
 
-        categories = self._map_categories(raw_categories)
-        products, variants, pos_id_to_source, name_to_source = self._map_products(raw_products)
+        categories, category_name_to_source = self._map_categories(raw_products)
+        products, variants, pos_id_to_source, name_to_source = self._map_products(
+            raw_products, category_name_to_source
+        )
         suppliers = self._map_suppliers(raw_suppliers)
         customers = self._map_customers(raw_customers)
         locations = self._map_locations(raw_locations)
-        known_location_ids = {row["source_id"] for row in locations}
         known_customer_ids = {row["source_id"] for row in customers}
 
         raw_sells = await anyio.to_thread.run_sync(client.fetch_sells)
         sales = await self._map_sales(
-            client, raw_sells, pos_id_to_source, name_to_source, known_location_ids, known_customer_ids
+            client, raw_sells, pos_id_to_source, name_to_source, known_customer_ids
+        )
+
+        raw_purchases = await anyio.to_thread.run_sync(client.fetch_purchases)
+        purchase_orders = await self._map_purchase_orders(
+            client, raw_purchases, raw_products, raw_suppliers
         )
 
         result: ExtractedData = {
@@ -324,6 +374,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
             "customers": customers,
             "business_locations": locations,
             "sales": sales,
+            "purchase_orders": purchase_orders,
         }
         logger.info(
             "ultimatepos_api_extraction_complete",
@@ -331,13 +382,12 @@ class UltimatePOSAPIExtractor(APIExtractor):
         )
         return result
 
-    def _fetch_reference_data(self, client: _POSAPIClient) -> tuple[list, list, list, list, list]:
+    def _fetch_reference_data(self, client: _POSAPIClient) -> tuple[list, list, list, list]:
         products = client.fetch_products()
-        categories = client.fetch_categories()
         suppliers = client.fetch_contacts("supplier")
         customers = client.fetch_contacts("customer")
         locations = client.fetch_business_locations()
-        return products, categories, suppliers, customers, locations
+        return products, suppliers, customers, locations
 
     # ------------------------------------------------------------------
     # test_connection()
@@ -348,12 +398,17 @@ class UltimatePOSAPIExtractor(APIExtractor):
         client = self._build_client()
         await self._login(client)
 
-        raw_products, raw_categories, raw_suppliers, raw_customers, raw_locations = await anyio.to_thread.run_sync(
+        raw_products, raw_suppliers, raw_customers, raw_locations = await anyio.to_thread.run_sync(
             self._fetch_reference_data, client
         )
         raw_sells = await anyio.to_thread.run_sync(client.fetch_sells)
 
         active_products = [p for p in raw_products if not p.get("is_inactive") and not p.get("not_for_selling")]
+        distinct_categories = {
+            _strip_html(str(p.get("category") or "")).strip()
+            for p in raw_products
+            if _strip_html(str(p.get("category") or "")).strip()
+        }
 
         sell_dates = [
             _parse_date(str(s.get("transaction_date") or ""))
@@ -362,7 +417,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
         sell_dates = [d for d in sell_dates if d is not None]
 
         counts = {
-            "product_categories": len(raw_categories),
+            "product_categories": len(distinct_categories),
             "products": len(active_products),
             "suppliers": len(raw_suppliers),
             "customers": len(raw_customers),
@@ -383,25 +438,35 @@ class UltimatePOSAPIExtractor(APIExtractor):
     # Row mapping — raw UltimatePOS JSON -> ModishLog target field names
     # ------------------------------------------------------------------
 
-    def _map_categories(self, raw_categories: list[dict]) -> list[dict]:
-        out = []
-        for c in raw_categories:
-            cat_id = c.get("id")
-            if cat_id is None:
+    def _map_categories(
+        self, raw_products: list[dict]
+    ) -> tuple[list[dict], dict[str, str]]:
+        """No standalone categories list endpoint exists on this API version
+        (`/categories`, `/category`, `/product-category`, `/taxonomy` all
+        404 — confirmed live) — category linkage lives only as a free-text
+        `category` name on each product row, with no numeric ID at all.
+        Derive the distinct set from products instead, using the
+        normalized name itself as both source_id and lookup key.
+        """
+        out: list[dict] = []
+        name_to_source: dict[str, str] = {}
+        for p in raw_products:
+            name = _strip_html(str(p.get("category") or "")).strip()
+            if not name or name in name_to_source:
                 continue
-            parent_id = c.get("parent_id")
+            name_to_source[name] = name
             out.append(
                 {
-                    "source_id": str(cat_id),
-                    "name": _strip_html(str(c.get("name") or "")).strip(),
-                    "description": _strip_html(str(c.get("description") or "")).strip() or "",
-                    "parent_source_id": str(parent_id) if parent_id is not None else "",
+                    "source_id": name,
+                    "name": name,
+                    "description": "",
+                    "parent_source_id": "",
                 }
             )
-        return out
+        return out, name_to_source
 
     def _map_products(
-        self, raw_products: list[dict]
+        self, raw_products: list[dict], category_name_to_source: dict[str, str]
     ) -> tuple[list[dict], list[dict], dict[str, str], dict[str, str]]:
         products = []
         variants = []
@@ -424,7 +489,8 @@ class UltimatePOSAPIExtractor(APIExtractor):
             barcode = str(p.get("barcode") or "").strip()
             selling_price = _parse_price(p.get("selling_price")) or _parse_price(p.get("max_price"))
             unit_cost = _parse_price(p.get("max_price"))
-            category_id = p.get("category_id")
+            category_name = _strip_html(str(p.get("category") or "")).strip()
+            category_source_id = category_name_to_source.get(category_name, "")
 
             products.append(
                 {
@@ -435,7 +501,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
                     "unit_cost": str(unit_cost),
                     "selling_price": str(selling_price),
                     "currency": "NGN",
-                    "category_source_id": str(category_id) if category_id is not None else "",
+                    "category_source_id": category_source_id,
                     "is_active": "true",
                 }
             )
@@ -469,7 +535,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
     def _map_suppliers(self, raw_suppliers: list[dict]) -> list[dict]:
         out = []
         for c in raw_suppliers:
-            contact_id = c.get("id")
+            contact_id = _extract_contact_id(c)
             if contact_id is None:
                 continue
             name = _strip_html(str(c.get("name") or c.get("supplier") or "")).strip()
@@ -477,7 +543,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
                 continue
             out.append(
                 {
-                    "source_id": str(contact_id),
+                    "source_id": contact_id,
                     "name": name,
                     "email": str(c.get("email") or "").strip(),
                     "contact_person": str(c.get("contact_person") or "").strip(),
@@ -489,7 +555,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
     def _map_customers(self, raw_customers: list[dict]) -> list[dict]:
         out = []
         for c in raw_customers:
-            contact_id = c.get("id")
+            contact_id = _extract_contact_id(c)
             if contact_id is None:
                 continue
             name = _strip_html(str(c.get("name") or "")).strip()
@@ -497,7 +563,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
                 continue
             out.append(
                 {
-                    "source_id": str(contact_id),
+                    "source_id": contact_id,
                     "name": name,
                     "email": str(c.get("email") or "").strip(),
                     "contact_number": str(c.get("mobile") or c.get("contact_no") or "").strip(),
@@ -505,17 +571,46 @@ class UltimatePOSAPIExtractor(APIExtractor):
             )
         return out
 
-    def _map_locations(self, raw_locations: list[dict]) -> list[dict]:
+    def _map_locations(self, raw_locations: list) -> list[dict]:
+        """Real rows come back as plain positional arrays, not keyed
+        objects — confirmed live column order via the `/business-location`
+        page's own `<th>` headers: Name, Location ID, Landmark, City, Zip
+        Code, State, Country, Price Group, Invoice scheme, Invoice layout
+        (POS), Invoice layout (sale), Action. The numeric location id only
+        appears inside the Action cell's edit-link href. Also accepts a
+        keyed-object shape (id/name/location_id) for forward-compat with
+        any API version that returns one.
+        """
         out = []
         for loc in raw_locations:
-            loc_id = loc.get("id")
-            if loc_id is None:
+            if isinstance(loc, dict):
+                loc_id = loc.get("id")
+                if loc_id is None:
+                    continue
+                out.append(
+                    {
+                        "source_id": str(loc_id),
+                        "name": _strip_html(str(loc.get("name") or "")).strip(),
+                        "location_code": str(
+                            loc.get("location_id") or loc.get("location_code") or ""
+                        ).strip(),
+                    }
+                )
+                continue
+
+            if not isinstance(loc, list) or len(loc) < 12:
+                continue
+            name = _strip_html(str(loc[0] or "")).strip()
+            location_code = _strip_html(str(loc[1] or "")).strip()
+            action_html = str(loc[11] or "")
+            m = re.search(r"/business-location/(\d+)/edit", action_html)
+            if not m or not name:
                 continue
             out.append(
                 {
-                    "source_id": str(loc_id),
-                    "name": _strip_html(str(loc.get("name") or "")).strip(),
-                    "location_code": str(loc.get("location_id") or loc.get("location_code") or "").strip(),
+                    "source_id": m.group(1),
+                    "name": name,
+                    "location_code": location_code,
                 }
             )
         return out
@@ -526,7 +621,6 @@ class UltimatePOSAPIExtractor(APIExtractor):
         raw_sells: list[dict],
         pos_id_to_source: dict[str, str],
         name_to_source: dict[str, str],
-        known_location_ids: set[str],
         known_customer_ids: set[str],
     ) -> list[dict]:
         sales: list[dict] = []
@@ -547,10 +641,21 @@ class UltimatePOSAPIExtractor(APIExtractor):
             if not lines:
                 continue
 
-            raw_location_id = sell_header.get("location_id")
-            location_source_id = str(raw_location_id) if raw_location_id is not None else ""
-            raw_contact_id = sell_header.get("contact_id")
-            customer_source_id = str(raw_contact_id) if raw_contact_id is not None else ""
+            # Real sells JSON has no numeric location_id field — only
+            # `business_location`, a display name. Known limitation: for a
+            # multi-location business whose locations happen to share the
+            # same display name (confirmed on the live instance this was
+            # built against — two branches both named after the business,
+            # differentiated only by location_code), this name can't
+            # disambiguate which physical location made the sale. Left
+            # unresolved rather than guessing; transform_sales() already
+            # falls back to a "default location" warning for this case.
+            location_name = _strip_html(str(sell_header.get("business_location") or "")).strip()
+            # Real contact_id is a display code (e.g. "CO0006"), not the
+            # numeric id customers/suppliers are keyed by via
+            # _extract_contact_id() — it can't be resolved to a customer
+            # source_id from the sell header alone.
+            customer_source_id = ""
             payment_method = str(sell_header.get("payment_type") or "").strip().lower() or "other"
 
             for line in lines:
@@ -565,7 +670,128 @@ class UltimatePOSAPIExtractor(APIExtractor):
                         "currency": "NGN",
                         "channel": _CHANNEL_FALLBACK,
                         "payment_method": payment_method,
-                        "location_name": location_source_id if location_source_id in known_location_ids else "",
+                        "location_name": location_name,
                     }
                 )
         return sales
+
+    # ------------------------------------------------------------------
+    # Purchase orders
+    # ------------------------------------------------------------------
+
+    async def _map_purchase_orders(
+        self,
+        client: _POSAPIClient,
+        raw_purchases: list[dict],
+        raw_products: list[dict],
+        raw_suppliers: list[dict],
+    ) -> list[dict]:
+        # Built from raw_products (unfiltered), not _map_products()'s
+        # active-only output — a historical purchase can reference a
+        # since-discontinued (is_inactive/not_for_selling) product, and
+        # that line must still resolve instead of silently vanishing.
+        sku_to_source = {
+            str(p["sku"]).strip(): str(p["id"])
+            for p in raw_products
+            if p.get("sku") and p.get("id") is not None
+        }
+        supplier_name_to_source: dict[str, str] = {}
+        for s in raw_suppliers:
+            sid = _extract_contact_id(s)
+            if sid is None:
+                continue
+            name = _strip_html(str(s.get("name") or s.get("supplier") or "")).strip()
+            if name:
+                supplier_name_to_source[name.lower()] = sid
+
+        rows: list[dict] = []
+        for header in raw_purchases:
+            purchase_id = _extract_pos_id(header, "purchases")
+            if not purchase_id:
+                continue
+
+            ref_no = str(header.get("ref_no") or f"POS-PO-{purchase_id}").strip()
+            order_date = _parse_date(str(header.get("transaction_date") or ""))
+            supplier_name = _strip_html(str(header.get("name") or "")).strip()
+            supplier_source_id = supplier_name_to_source.get(supplier_name.lower(), "")
+
+            html = await anyio.to_thread.run_sync(client.fetch_purchase_print_html, purchase_id)
+            if not html.strip():
+                continue
+
+            lines = _parse_purchase_lines_from_html(html, sku_to_source)
+            if not lines:
+                continue
+
+            for line in lines:
+                # unit_cost_ngn -> USD: the extractor has no DB session (it
+                # only ever sees base_url + credentials), so it can't call
+                # src.fx.service.get_live_usdngn_rate() the way
+                # pos_migrate.py does. Uses the same fixed fallback rate
+                # pos_migrate.py falls back to on a failed live-rate fetch.
+                # Known limitation: this approximates every historical
+                # purchase at one rate rather than the true rate on each
+                # purchase's actual date — landed cost/COGS accuracy for
+                # older purchases will drift from reality. Flagged as a
+                # follow-up (fetch a dated historical rate) rather than
+                # solved here.
+                unit_cost_usd = (line["unit_cost_ngn"] / _FALLBACK_NGN_USD_RATE).quantize(
+                    Decimal("0.000001"), rounding=ROUND_HALF_UP
+                )
+                rows.append(
+                    {
+                        "source_id": ref_no,
+                        "supplier_source_id": supplier_source_id,
+                        "supplier_name": supplier_name or "",
+                        "product_source_id": line["product_source_id"],
+                        "variant_source_id": "",
+                        "location_source_id": "",
+                        "quantity": str(line["quantity"]),
+                        "unit_cost": str(unit_cost_usd),
+                        "currency": "USD",
+                        "order_date": order_date.isoformat() if order_date else "",
+                        "fx_rate": str(_FALLBACK_NGN_USD_RATE),
+                    }
+                )
+        return rows
+
+
+def _parse_purchase_lines_from_html(
+    html: str, sku_to_source: dict[str, str]
+) -> list[dict]:
+    """Extract purchase line items from a UltimatePOS purchase print HTML.
+
+    Confirmed live column order: [#, Product Name, SKU, Purchase Quantity,
+    Unit Cost (Before Discount), Discount Percent, Unit Cost (Before Tax),
+    Subtotal (Before Tax), Tax, Unit Cost Price (After Tax), Subtotal] —
+    matches pos_migrate.py's proven `_parse_purchase_lines_from_html`
+    column indices (col[2]=SKU, col[3]=quantity, col[4]=unit cost).
+    """
+    lines: list[dict] = []
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL | re.IGNORECASE)
+    for row in rows:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL | re.IGNORECASE)
+        if len(cells) < 5:
+            continue
+
+        sku = _strip_html(cells[2]).strip()
+        product_source_id = sku_to_source.get(sku)
+        if not product_source_id:
+            continue
+
+        qty_m = re.search(r'data-is_quantity="true"[^>]*>([^<]+)', cells[3], re.IGNORECASE)
+        qty_raw = qty_m.group(1).strip() if qty_m else _strip_html(cells[3])
+        quantity = _parse_qty(qty_raw)
+        if quantity <= 0:
+            continue
+
+        unit_cost_ngn = _parse_price(_strip_html(cells[4]).strip())
+
+        lines.append(
+            {
+                "product_source_id": product_source_id,
+                "quantity": quantity,
+                "unit_cost_ngn": unit_cost_ngn,
+            }
+        )
+    return lines
