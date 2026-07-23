@@ -425,6 +425,29 @@ class TestGhostProducts:
         assert result == []
         assert any(w.severity == "error" for w in transformer.warnings)
 
+    def test_decimal_and_comma_quantity_parse_instead_of_being_dropped(self):
+        """validate_entity_rows() accepts "10.0"/"1,000" for quantity (it
+        validates via the same lenient parse_flexible_amount() as every
+        other amount field) — a strict int(row["quantity"]) here would
+        reject what validation just accepted, silently dropping the sale at
+        confirm time on a row the user was told was valid. Mirrors
+        TestTransformPurchaseOrders' identical regression test below for
+        the same bug in transform_purchase_orders."""
+        id_map = IdMap()
+        product_id = uuid.uuid4()
+        id_map.register("products", "P1", product_id)
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY, id_map)
+
+        sales_raw = [
+            {"product_source_id": "P1", "quantity": "10.0", "unit_price": "5", "sale_date": "2026-01-01"},
+            {"product_source_id": "P1", "quantity": "1,000", "unit_price": "5", "sale_date": "2026-01-02"},
+        ]
+        result = transformer.transform_sales(sales_raw)
+        assert len(result) == 2
+        assert result[0]["quantity"] == 10
+        assert result[1]["quantity"] == 1000
+        assert not transformer.warnings
+
 
 class TestTransformCategories:
     @pytest.mark.asyncio
