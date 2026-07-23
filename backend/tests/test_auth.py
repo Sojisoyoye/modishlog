@@ -1549,3 +1549,30 @@ class TestAdminUnlockEndpoint:
                 json={"email": "anyone@example.com"},
             )
         assert resp.status_code == 403
+
+
+class TestLoginRateLimit:
+    """A real E2E suite legitimately logs in far more than 10 times/minute
+    across its full run (many specs, each with its own beforeEach login) —
+    without this override, the CI E2E gate rate-limits itself into a stall
+    (429s triggering widespread test retries/timeouts) rather than any
+    genuine backend slowness."""
+
+    def test_relaxed_in_test_environment(self, monkeypatch):
+        from src.auth.router import _login_rate_limit
+        from src.core.config import settings
+
+        monkeypatch.setattr(settings, "ENVIRONMENT", "test")
+        assert _login_rate_limit() == "1000/minute"
+
+    def test_stays_strict_outside_test_environment(self, monkeypatch):
+        """Must never blanket-loosen the real brute-force protection —
+        only ENVIRONMENT=test gets the relaxed limit."""
+        from src.auth.router import _login_rate_limit
+        from src.core.config import settings
+
+        monkeypatch.setattr(settings, "ENVIRONMENT", "production")
+        assert _login_rate_limit() == "10/minute"
+
+        monkeypatch.setattr(settings, "ENVIRONMENT", "development")
+        assert _login_rate_limit() == "10/minute"

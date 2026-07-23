@@ -62,6 +62,16 @@ from src.core.database import get_db
 router = APIRouter()
 
 
+def _login_rate_limit() -> str:
+    """A real E2E suite legitimately logs in far more than 10 times/minute
+    across its full test run (many specs, each with their own beforeEach
+    login) — the production rate is otherwise unrelated to test-suite
+    volume, so only ENVIRONMENT=test gets the relaxed limit, never a blanket
+    loosening of the login endpoint's real brute-force protection.
+    """
+    return "1000/minute" if settings.ENVIRONMENT == "test" else "10/minute"
+
+
 @router.post("/onboard", response_model=OnboardResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 async def onboard_business(
@@ -121,7 +131,7 @@ async def register(
 
 
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("10/minute")
+@limiter.limit(_login_rate_limit)
 async def login(
     request: Request, body: UserLogin, response: Response, db: AsyncSession = Depends(get_db)
 ):
