@@ -284,6 +284,20 @@ class TestValidateEntityRows:
     def test_unknown_entity_returns_no_issues(self):
         assert validate_entity_rows("not_a_real_entity", [{"anything": "x"}]) == []
 
+    def test_sales_rows_sharing_source_id_are_not_flagged_as_duplicates(self):
+        """source_id on a sales row is the parent sell/transaction's id, not
+        a per-row id — every line of a multi-product sell legitimately
+        repeats it (see transform_sales()'s pos_id column). Same reasoning
+        as purchase_orders above; confirmed live against a real business
+        with multi-product sells, where this was missing and blocked every
+        import with hundreds of false "duplicate source_id" errors."""
+        rows = [
+            {"source_id": "S1", "product_source_id": "P1", "quantity": "1", "unit_price": "10", "sale_date": "2026-01-01"},
+            {"source_id": "S1", "product_source_id": "P2", "quantity": "2", "unit_price": "20", "sale_date": "2026-01-01"},
+        ]
+        issues = validate_entity_rows("sales", rows)
+        assert not any("Duplicate source_id" in i.message for i in issues)
+
 
 # ---------------------------------------------------------------------------
 # Transformer
