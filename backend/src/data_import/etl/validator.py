@@ -29,6 +29,12 @@ ENTITY_RULES: dict[str, dict[str, tuple[str, ...] | bool]] = {
         "required": ("product_source_id", "quantity", "unit_price", "sale_date"),
         "dates": ("sale_date",),
         "amounts": ("unit_price",),
+        # source_id (when present) is the parent sell/transaction's id, not
+        # a per-row id — every line of a multi-product sell legitimately
+        # repeats it (see transform_sales()'s pos_id column, used by
+        # load_sell_returns() to resolve a return back to its sale). Same
+        # reasoning as purchase_orders/stock_adjustments above.
+        "unique_source_id": False,
     },
     "purchase_orders": {
         "required": ("product_source_id", "quantity", "unit_cost"),
