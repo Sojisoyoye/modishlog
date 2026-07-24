@@ -41,8 +41,12 @@ dev-debug.log
 # OS specific
 .DS_Store
 
-# Uploads
+# Uploads — UPLOAD_DIR defaults to /app/uploads, which under the local
+# docker-compose bind mount (./backend:/app) lands at backend/uploads/, not
+# root /uploads/ — both patterns are needed or local extraction caches
+# (real business data, from data_import jobs) end up tracked by git.
 /uploads/
+backend/uploads/
 
 # Test results
 test-results/

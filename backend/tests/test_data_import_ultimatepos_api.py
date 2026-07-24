@@ -19,6 +19,7 @@ from src.data_import.etl.adapters.ultimatepos_api import (
     UltimatePOSAPIExtractor,
     _extract_contact_id,
     _extract_pos_id,
+    _fetch_with_deadline,
     _parse_purchase_lines_from_html,
     _parse_qty,
     _parse_sell_lines_from_html,
@@ -263,7 +264,7 @@ PURCHASE_RETURNS_JSON = json.dumps(
 def _get_side_effect(url: str, headers=None, **kwargs):
     if url.endswith("/login"):
         return _resp(LOGIN_HTML)
-    if url.endswith("/dashboard"):
+    if url.endswith("/home"):
         return _resp("<html>Welcome back, trader</html>")
     if "/products" in url:
         return _resp(PRODUCTS_JSON)
@@ -520,7 +521,7 @@ class TestExtract:
                     return _resp("<a href='/home'>Home</a> Invalid credentials", status=200)
                 if url.endswith("/login"):
                     return _resp(LOGIN_HTML)
-                if url.endswith("/dashboard"):
+                if url.endswith("/home"):
                     return _resp('<html><form action="/login"><input name="_token" value="csrf-abc"></form></html>')
                 raise AssertionError(f"Unexpected GET {url}")
 
@@ -694,6 +695,35 @@ class TestExtractPosId:
 
     def test_no_id_anywhere_returns_none(self):
         assert _extract_pos_id({}, "sells") is None
+
+
+class TestFetchWithDeadline:
+    @pytest.mark.asyncio
+    async def test_returns_result_when_within_deadline(self):
+        result = await _fetch_with_deadline(lambda: "<html>ok</html>", timeout=1)
+        assert result == "<html>ok</html>"
+
+    @pytest.mark.asyncio
+    async def test_passes_args_through_to_fn(self):
+        result = await _fetch_with_deadline(lambda x, y: f"{x}-{y}", "a", "b", timeout=1)
+        assert result == "a-b"
+
+    @pytest.mark.asyncio
+    async def test_times_out_to_empty_string_instead_of_blocking_forever(self):
+        import time
+
+        def _stalls_past_deadline():
+            time.sleep(2)
+            return "<html>too late</html>"
+
+        start = time.monotonic()
+        result = await _fetch_with_deadline(_stalls_past_deadline, timeout=0.1)
+        elapsed = time.monotonic() - start
+
+        assert result == ""
+        # The async call site must return promptly at the deadline, not
+        # wait for the (orphaned) blocking thread to actually finish.
+        assert elapsed < 1.0
 
 
 class TestParseSellLinesFromHtml:

@@ -113,6 +113,43 @@ _CHANNEL_FALLBACK = "retail"
 # fallback value pos_migrate.py itself falls back to on a failed live fetch.
 _FALLBACK_NGN_USD_RATE = Decimal("1600")
 
+# Confirmed live: a per-record detail fetch (sell receipt, purchase print,
+# stock-adjustment detail) can stall far past _get()'s own 120s idle-read
+# socket timeout without ever tripping it — that timeout only resets on
+# partial data, so a connection trickling occasional bytes (a slow/loaded
+# real server, a proxy in between) can block for tens of minutes. This is
+# a hard wall-clock deadline enforced at the async call site instead,
+# independent of what the blocking urllib call underneath is doing.
+_PER_RECORD_FETCH_TIMEOUT_SECONDS = 30
+
+
+async def _fetch_with_deadline(fn, *args, timeout: float = _PER_RECORD_FETCH_TIMEOUT_SECONDS) -> str:
+    """Runs a blocking per-record HTML fetch under a hard wall-clock
+    deadline, treating a timeout as just another soft failure (empty
+    string) — matching every other per-record fetch failure this
+    extractor already tolerates (the caller skips that one record and
+    continues). The orphaned worker thread isn't forcibly killed (Python
+    threads can't be) — it keeps running in the background until its own
+    eventual completion/failure, but the extraction loop moves on
+    immediately rather than blocking the entire import on one stuck record.
+    """
+    try:
+        with anyio.fail_after(timeout):
+            # abandon_on_cancel=True is what actually makes this
+            # cancellable — anyio.to_thread.run_sync() otherwise blocks
+            # the awaiting task until the thread completes regardless of
+            # any outer cancel scope (confirmed: a bare fail_after() around
+            # a plain run_sync() call does NOT interrupt it), since a
+            # Python thread can't be forcibly stopped from the outside.
+            return await anyio.to_thread.run_sync(fn, *args, abandon_on_cancel=True)
+    except TimeoutError:
+        logger.warning(
+            "ultimatepos_api_per_record_fetch_deadline_exceeded",
+            fn=getattr(fn, "__name__", str(fn)),
+            timeout=timeout,
+        )
+        return ""
+
 
 class _POSAPIClient:
     """Cookie/CSRF-authenticated UltimatePOS v5 client, ported from
@@ -130,7 +167,12 @@ class _POSAPIClient:
 
     def _get(self, path: str, headers: dict[str, str] | None = None) -> str:
         req = Request(f"{self._base_url}{path}", headers=headers or {})
-        with self._opener.open(req, timeout=20) as resp:
+        # Confirmed live: a large per_page=2000 list fetch (e.g. /sells for
+        # a business with 900+ historical records) can comfortably exceed
+        # 20s — that used to time out here and get silently swallowed to an
+        # empty list by _json_list()'s broad except, with nothing in the
+        # job's result distinguishing "timed out" from "genuinely 0 rows".
+        with self._opener.open(req, timeout=120) as resp:
             return resp.read().decode("utf-8", errors="replace")
 
     def _post(self, path: str, data: dict[str, str], headers: dict[str, str] | None = None) -> tuple[int, str]:
@@ -166,7 +208,10 @@ class _POSAPIClient:
         # backed up by an authenticated-probe check below.
         if "home" not in body and status not in (200, 302):
             raise ConnectionError("UltimatePOS authentication failed — check credentials")
-        if self._looks_like_login_page(self._get("/dashboard")):
+        # Confirmed live: this instance has no "/dashboard" route at all
+        # (404s) — the authenticated landing page is "/home", matching the
+        # comment above about where a successful login redirects to.
+        if self._looks_like_login_page(self._get("/home")):
             raise ConnectionError("UltimatePOS authentication failed — check credentials")
 
     @staticmethod
@@ -708,7 +753,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
             if sale_date is None:
                 continue
 
-            html = await anyio.to_thread.run_sync(client.fetch_sell_detail_html, sell_id)
+            html = await _fetch_with_deadline(client.fetch_sell_detail_html, sell_id)
             if not html.strip():
                 continue
 
@@ -797,7 +842,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
             supplier_name = _strip_html(str(header.get("name") or "")).strip()
             supplier_source_id = supplier_name_to_source.get(supplier_name.lower(), "")
 
-            html = await anyio.to_thread.run_sync(client.fetch_purchase_print_html, purchase_id)
+            html = await _fetch_with_deadline(client.fetch_purchase_print_html, purchase_id)
             if not html.strip():
                 continue
 
@@ -929,7 +974,7 @@ class UltimatePOSAPIExtractor(APIExtractor):
             adjustment_date = _parse_date(str(header.get("transaction_date") or ""))
             source_id = str(header.get("ref_no") or f"POS-ADJ-{adj_id}").strip()
 
-            html = await anyio.to_thread.run_sync(
+            html = await _fetch_with_deadline(
                 client.fetch_stock_adjustment_detail_html, adj_id
             )
             if not html.strip():
