@@ -103,13 +103,19 @@ async def get_profit_loss_report(
     )
 
     # -- Total purchases (sum of all purchase orders in period) --
+    # order_date, not created_at — order_date is when the purchase actually
+    # happened (matches sales_query's use of Sale.sale_date below, and
+    # dashboard/service.py's identical purchase query); created_at is only
+    # when the row was inserted into ModishLog, which for a backdated order
+    # (an import, or any manually-entered historical purchase) silently
+    # excludes it from date-scoped reports entirely.
     purchase_query = select(func.sum(PurchaseOrder.total_amount))
     if business_id:
         purchase_query = purchase_query.where(PurchaseOrder.business_id == business_id)
     if start_date:
-        purchase_query = purchase_query.where(PurchaseOrder.created_at >= start_date)
+        purchase_query = purchase_query.where(PurchaseOrder.order_date >= start_date)
     if end_date:
-        purchase_query = purchase_query.where(PurchaseOrder.created_at <= end_date)
+        purchase_query = purchase_query.where(PurchaseOrder.order_date <= end_date)
     if location_id:
         purchase_query = purchase_query.where(PurchaseOrder.location_id == location_id)
     purchase_result = await db.execute(purchase_query)
@@ -211,9 +217,9 @@ async def get_profit_loss_report(
             PurchaseOrder.business_id == business_id
         )
     if start_date:
-        purchase_due_query = purchase_due_query.where(PurchaseOrder.created_at >= start_date)
+        purchase_due_query = purchase_due_query.where(PurchaseOrder.order_date >= start_date)
     if end_date:
-        purchase_due_query = purchase_due_query.where(PurchaseOrder.created_at <= end_date)
+        purchase_due_query = purchase_due_query.where(PurchaseOrder.order_date <= end_date)
     if location_id:
         purchase_due_query = purchase_due_query.where(PurchaseOrder.location_id == location_id)
     purchase_due_result = await db.execute(purchase_due_query)
@@ -380,13 +386,15 @@ async def get_purchase_sale_report(
     )
 
     # -- Total purchases --
+    # order_date, not created_at — same fix and rationale as
+    # get_profit_loss_report()'s identical purchase query above.
     purchase_query = select(func.sum(PurchaseOrder.total_amount))
     if business_id:
         purchase_query = purchase_query.where(PurchaseOrder.business_id == business_id)
     if start_date:
-        purchase_query = purchase_query.where(PurchaseOrder.created_at >= start_date)
+        purchase_query = purchase_query.where(PurchaseOrder.order_date >= start_date)
     if end_date:
-        purchase_query = purchase_query.where(PurchaseOrder.created_at <= end_date)
+        purchase_query = purchase_query.where(PurchaseOrder.order_date <= end_date)
     if location_id:
         purchase_query = purchase_query.where(PurchaseOrder.location_id == location_id)
     purchase_result = await db.execute(purchase_query)

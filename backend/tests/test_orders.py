@@ -236,6 +236,103 @@ class TestCreateOrder:
         assert order.status == OrderStatus.PENDING
 
     @pytest.mark.asyncio
+    async def test_order_date_defaults_to_today_when_not_provided(self):
+        """Confirmed live: create_order() never persisted order_date at all
+        before this fix — it stayed NULL for every normally-created order,
+        silently excluding it from any report that filters PurchaseOrder by
+        order_date (e.g. get_profit_loss_report)."""
+        product = _make_product(id=uuid.uuid4())
+        db = _mock_db()
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:
+                result.scalar.return_value = 0
+            elif call_count == 3:
+                result.scalar_one_or_none.return_value = None
+            else:
+                order_obj = next(
+                    (o for o in added_objects if hasattr(o, "order_number")), None
+                )
+                result.scalar_one.return_value = order_obj
+                result.scalar_one_or_none.return_value = order_obj
+                result.scalar.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderCreate(
+            supplier_name="Acme Corp",
+            currency="USD",
+            line_items=[
+                OrderLineItemCreate(product_id=product.id, quantity=1, unit_cost=Decimal("10"))
+            ],
+        )
+        order = await create_order(db, data, uuid.uuid4())
+        assert order.order_date == date.today()
+
+    @pytest.mark.asyncio
+    async def test_order_date_preserved_when_explicitly_provided(self):
+        product = _make_product(id=uuid.uuid4())
+        db = _mock_db()
+        added_objects: list = []
+        original_add = db.add
+
+        def tracking_add(obj):
+            added_objects.append(obj)
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = product
+            elif call_count == 2:
+                result.scalar.return_value = 0
+            elif call_count == 3:
+                result.scalar_one_or_none.return_value = None
+            else:
+                order_obj = next(
+                    (o for o in added_objects if hasattr(o, "order_number")), None
+                )
+                result.scalar_one.return_value = order_obj
+                result.scalar_one_or_none.return_value = order_obj
+                result.scalar.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = OrderCreate(
+            supplier_name="Acme Corp",
+            currency="USD",
+            order_date=date(2025, 6, 26),
+            line_items=[
+                OrderLineItemCreate(product_id=product.id, quantity=1, unit_cost=Decimal("10"))
+            ],
+        )
+        order = await create_order(db, data, uuid.uuid4())
+        assert order.order_date == date(2025, 6, 26)
+
+    @pytest.mark.asyncio
     async def test_create_order_invalid_product(self):
         db = _mock_db_with_execute(scalar_result=None)
         data = OrderCreate(
