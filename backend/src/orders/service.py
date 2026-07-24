@@ -170,6 +170,16 @@ async def create_order(
         shipping_cost=data.shipping_cost,
         clearing_cost=data.clearing_cost,
         expected_delivery_date=expected_delivery,
+        # Confirmed live during a real POS migration: this was never set at
+        # all here, staying NULL for every normally-created order — only
+        # the data_import loader patched it in by hand after the fact (see
+        # etl/loader.py's load_purchase_orders()). Any date-scoped report
+        # filtering on order_date (the correct field — see
+        # reports/service.py's get_profit_loss_report()) would silently
+        # exclude every real, organically-created purchase order. Falls
+        # back to today when not supplied, matching expected_delivery's
+        # own "no date given" convention above.
+        order_date=data.order_date or date.today(),
         notes=data.notes,
         created_by=user_id,
         business_id=business_id,
