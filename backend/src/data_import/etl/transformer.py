@@ -214,6 +214,17 @@ class Transformer:
 
     async def transform_products(self, raw_rows: list[dict]) -> list[dict]:
         out = []
+        # Confirmed live: a real POS catalog can have two genuinely distinct
+        # products (different SKUs, e.g. a duplicate entry from the source
+        # system) sharing the exact same name — slugify() then produces an
+        # identical slug for both, violating Product's unique
+        # (slug, business_id) constraint and rolling back the entire import
+        # at confirm time with a raw, unhelpful IntegrityError. Disambiguate
+        # within this batch rather than crash on real-world messy data; a
+        # collision against an existing (pre-import) product's slug isn't
+        # covered here — same tradeoff dedup_product() itself makes by only
+        # checking barcode/sku, not name/slug.
+        seen_slugs: set[str] = set()
         for row in raw_rows:
             barcode = row.get("barcode") or None
             sku = row.get("sku") or None
@@ -230,6 +241,14 @@ class Transformer:
                     "product_categories", category_source_id
                 )
 
+            base_slug = slugify(name) or f"product-{uuid.uuid4().hex[:8]}"
+            slug = base_slug
+            suffix = 2
+            while slug in seen_slugs:
+                slug = f"{base_slug}-{suffix}"
+                suffix += 1
+            seen_slugs.add(slug)
+
             source_id = row.get("source_id")
             out.append(
                 {
@@ -237,7 +256,7 @@ class Transformer:
                     "_source_id": source_id,
                     "name": name,
                     "sku": sku or f"IMPORTED-{uuid.uuid4().hex[:10].upper()}",
-                    "slug": slugify(name) or f"product-{uuid.uuid4().hex[:8]}",
+                    "slug": slug,
                     "barcode": barcode,
                     "unit_cost": normalize_amount(row.get("unit_cost", "0")),
                     "selling_price": normalize_amount(row.get("selling_price", "0")),

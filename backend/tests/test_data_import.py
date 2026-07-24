@@ -400,6 +400,28 @@ class TestTransformProducts:
         assert result == []
         assert transformer.id_map.lookup("products", "P1") == existing.id
 
+    @pytest.mark.asyncio
+    async def test_products_sharing_a_name_get_disambiguated_slugs(self):
+        """Confirmed live: a real POS catalog can have two genuinely
+        distinct products (different SKUs) sharing the exact same name —
+        slugify() alone would collide and violate the unique
+        (slug, business_id) constraint at confirm time."""
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=_none_result())
+        transformer = Transformer(db, BUSINESS_ID, CREATED_BY)
+
+        rows = [
+            {"source_id": "P1", "name": "Light Dark Grey 0.5*48MM Gloss", "sku": "274846"},
+            {"source_id": "P2", "name": "Light Dark Grey 0.5*48MM Gloss", "sku": "274847"},
+        ]
+        result = await transformer.transform_products(rows)
+
+        assert len(result) == 2
+        slugs = [r["slug"] for r in result]
+        assert len(set(slugs)) == 2
+        assert slugs[0] == "light-dark-grey-05x48mm-gloss"
+        assert slugs[1] == "light-dark-grey-05x48mm-gloss-2"
+
 
 class TestGhostProducts:
     @pytest.mark.asyncio

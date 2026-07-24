@@ -216,6 +216,42 @@ class TestProfitLossReport:
         assert result.sales_due == Decimal("0")
 
     @pytest.mark.asyncio
+    async def test_profit_loss_purchase_query_filters_by_order_date_not_created_at(self):
+        """Confirmed live during a real POS migration: filtering by
+        PurchaseOrder.created_at (row-insert timestamp) instead of
+        order_date (when the purchase actually happened) silently excludes
+        every purchase from any date-scoped P&L report whose end_date is
+        today — created_at always has a non-midnight time component, so
+        `created_at <= end_date` (implicitly midnight) is false for every
+        row created today. Must filter on order_date, matching sales_query's
+        use of Sale.sale_date and dashboard/service.py's identical query."""
+        from src.reports.service import get_profit_loss_report
+
+        db = _mock_db()
+        _mock_execute_sequence(
+            db,
+            [
+                Decimal("100000.000000"),  # total_purchase
+                Decimal("200000.000000"),  # total_sales
+                [],  # operating_costs
+                Decimal("0"),  # stock_value
+                Decimal("0"),  # purchase_returns
+                None,  # sell_returns
+                None,  # purchase_due
+                None,  # sales_due
+            ],
+        )
+
+        await get_profit_loss_report(
+            db, start_date=date(2026, 1, 1), end_date=date(2026, 3, 31)
+        )
+
+        purchase_query = db.execute.call_args_list[0].args[0]
+        compiled = str(purchase_query)
+        assert "order_date" in compiled
+        assert "created_at" not in compiled
+
+    @pytest.mark.asyncio
     async def test_profit_loss_with_date_range(self):
         """Report accepts start_date and end_date filters."""
         from src.reports.service import get_profit_loss_report
