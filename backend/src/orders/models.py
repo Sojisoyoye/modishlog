@@ -277,9 +277,20 @@ class OrderPayment(UUIDMixin, Base):
     __tablename__ = "order_payments"
 
     order_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("purchase_orders.id"))
+    # amount/currency are always in the order's own currency (converted at
+    # record time when paid in a different currency) — every balance/status
+    # query compares/sums these directly against PurchaseOrder.total_amount
+    # with no conversion step of its own.
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     currency: Mapped[str] = mapped_column(String(3))
     fx_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), default=None)
+    # What was actually paid, before conversion — reference/audit only, never
+    # used in balance calculations. NULL when paid in the order's own
+    # currency (no conversion happened).
+    original_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(18, 6), default=None
+    )
+    original_currency: Mapped[str | None] = mapped_column(String(3), default=None)
     payment_date: Mapped[date] = mapped_column(Date)
     payment_method: Mapped[PaymentMethod] = mapped_column(
         Enum(PaymentMethod, values_callable=lambda x: [e.value for e in x])

@@ -279,6 +279,8 @@ export interface OrderPayment {
   amount: number;
   currency: string;
   fx_rate: number | null;
+  original_amount: number | null;
+  original_currency: string | null;
   payment_date: string;
   payment_method: string;
   reference: string | null;

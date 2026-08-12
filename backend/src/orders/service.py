@@ -21,6 +21,7 @@ from src.inventory.service import (
 )
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
+    MissingFxRateError,
     OrderLineItemError,
     OrderNotEditableError,
     OrderNotFoundError,
@@ -722,6 +723,31 @@ async def get_paid_totals_for_orders(
     return totals
 
 
+def _convert_to_order_currency(
+    amount: Decimal, payment_currency: str, order_currency: str, fx_rate: Decimal
+) -> Decimal:
+    """Convert a payment amount into the order's own currency.
+
+    fx_rate is always expressed as NGN per unit of whichever side of the
+    pair isn't NGN (matches how the FX Rates page and PurchaseOrder's own
+    fx_rate_at_creation/fx_rate_at_delivery already quote rates) — so the
+    arithmetic direction depends on which side is NGN, not on a single
+    fixed multiply/divide.
+    """
+    if payment_currency == "NGN":
+        # rate = NGN per order_currency unit — divide NGN by it to get
+        # order_currency (e.g. 4,800,000 NGN / 1480 = $3,243.24)
+        converted = amount / fx_rate
+    elif order_currency == "NGN":
+        # rate = NGN per payment_currency unit — multiply to get NGN
+        converted = amount * fx_rate
+    else:
+        # Neither leg is NGN (e.g. EUR payment on a USD order) — treat the
+        # rate as a direct order_currency-per-payment_currency multiplier.
+        converted = amount * fx_rate
+    return converted.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+
 async def record_payment(
     db: AsyncSession,
     order_id: uuid.UUID,
@@ -729,22 +755,46 @@ async def record_payment(
     user_id: uuid.UUID,
     business_id: uuid.UUID | None = None,
 ) -> OrderPayment:
-    """Record a payment against an order."""
+    """Record a payment against an order.
+
+    data.amount/currency/fx_rate are what the payer actually paid — amount
+    gets converted into the order's own currency before being validated
+    against the balance and stored (OrderPayment.amount is always in
+    order.currency, matching what every balance/status query assumes).
+    The original figures are kept on original_amount/original_currency for
+    reference/audit, never used in calculations.
+    """
     order = await get_order(db, order_id, business_id)
 
-    # Check for overpayment
+    original_amount: Decimal | None = None
+    original_currency: str | None = None
+    if data.currency == order.currency:
+        converted_amount = data.amount
+    else:
+        if not data.fx_rate:
+            raise MissingFxRateError(order_id, data.currency, order.currency)
+        converted_amount = _convert_to_order_currency(
+            data.amount, data.currency, order.currency, data.fx_rate
+        )
+        original_amount = data.amount
+        original_currency = data.currency
+
+    # Check for overpayment — always compares against the converted amount,
+    # never the raw payer-currency figure.
     summary = await get_payment_summary(db, order_id, business_id)
     balance = summary.balance_remaining
-    if data.amount > balance:
+    if converted_amount > balance:
         raise OverpaymentError(
-            order_id, data.amount, order.total_amount, summary.total_paid
+            order_id, converted_amount, order.total_amount, summary.total_paid
         )
 
     payment = OrderPayment(
         order_id=order.id,
-        amount=data.amount,
-        currency=data.currency,
+        amount=converted_amount,
+        currency=order.currency,
         fx_rate=data.fx_rate,
+        original_amount=original_amount,
+        original_currency=original_currency,
         payment_date=data.payment_date,
         payment_method=PaymentMethod(data.payment_method),
         reference=data.reference,
@@ -793,6 +843,11 @@ async def get_payment_summary(
         )
         .where(OrderPayment.order_id == order_id)
         .where(OrderPayment.status == PaymentStatus.COMPLETED)
+        # record_payment() always converts+stores amount in order.currency,
+        # but this filter guards against any legacy row that predates that
+        # (or a future write path that doesn't convert) — same filter
+        # _sync_payment_status() already applies.
+        .where(OrderPayment.currency == order.currency)
     )
     row = result.one()
     total_paid = row[0]

@@ -10,6 +10,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { switchMap } from 'rxjs';
@@ -755,9 +756,10 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                         <span class="font-semibold text-text">
                           {{ p.amount | currency: p.currency : 'symbol' : '1.2-2' }}
                         </span>
-                        @if (p.currency !== 'NGN' && p.fx_rate) {
+                        @if (p.original_amount !== null && p.original_currency !== null) {
                           <span class="ml-1 text-xs text-muted">
-                            (₦{{ p.amount * p.fx_rate | number: '1.0-0' }} @ ₦{{ p.fx_rate | number: '1.0-0' }}/{{ p.currency }})
+                            (paid {{ p.original_currency }} {{ p.original_amount | number: '1.2-2' }}
+                            @if (p.fx_rate) { @ {{ p.fx_rate | number: '1.0-0' }} })
                           </span>
                         }
                         <span class="ml-1 text-muted">{{ p.payment_method }}</span>
@@ -819,11 +821,11 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                       </div>
                     </div>
 
-                    <!-- FX rate — only when paying in foreign currency -->
-                    @if (paymentForm.currency !== 'NGN') {
+                    <!-- FX rate — only when paying in a currency other than the order's own -->
+                    @if (paymentForm.currency !== order()?.currency) {
                       <div>
                         <label for="payment-fx-rate" class="mb-0.5 block text-xs text-muted">
-                          Exchange Rate (₦ per {{ paymentForm.currency }})
+                          {{ paymentFxRateLabel }}
                         </label>
                         <input
                           id="payment-fx-rate"
@@ -835,9 +837,9 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                           class="w-full rounded border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
                           data-testid="payment-fx-rate-input"
                         />
-                        @if (paymentNgnEquivalent !== null) {
+                        @if (paymentConvertedAmount !== null) {
                           <p class="mt-1 text-xs text-muted">
-                            ≈ <span class="font-semibold text-text">₦{{ paymentNgnEquivalent | number: '1.0-0' }}</span>
+                            ≈ <span class="font-semibold text-text">{{ order()?.currency }} {{ paymentConvertedAmount | number: '1.2-2' }}</span>
                           </p>
                         }
                       </div>
@@ -1368,7 +1370,7 @@ export class OrderDetailPageComponent implements OnInit {
     const payload: RecordPaymentPayload = {
       amount: this.paymentForm.amount,
       currency: this.paymentForm.currency || o.currency,
-      fx_rate: this.paymentForm.currency !== 'NGN' ? (this.paymentForm.fx_rate ?? null) : null,
+      fx_rate: this.paymentForm.currency !== o.currency ? (this.paymentForm.fx_rate ?? null) : null,
       payment_date: this.paymentForm.payment_date,
       payment_method: this.paymentForm.payment_method,
       reference: this.paymentForm.reference || null,
@@ -1382,9 +1384,10 @@ export class OrderDetailPageComponent implements OnInit {
           this.refreshPaymentsAndSummary(o.id);
           this.messageService.add({ severity: 'success', summary: 'Payment recorded' });
         },
-        error: () => {
+        error: (err: HttpErrorResponse) => {
           this.recordingPayment.set(false);
-          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to record payment' });
+          const detail = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to record payment';
+          this.messageService.add({ severity: 'error', summary: 'Error', detail });
         },
       });
   }
@@ -1405,9 +1408,21 @@ export class OrderDetailPageComponent implements OnInit {
       });
   }
 
-  get paymentNgnEquivalent(): number | null {
+  /** fx_rate is always NGN per unit of whichever side of the pair isn't
+   * NGN — matches the backend's _convert_to_order_currency() exactly. */
+  get paymentFxRateLabel(): string {
+    const orderCurrency = this.order()?.currency ?? '';
+    const payCurrency = this.paymentForm.currency;
+    if (payCurrency === 'NGN') return `Exchange Rate (₦ per ${orderCurrency})`;
+    if (orderCurrency === 'NGN') return `Exchange Rate (₦ per ${payCurrency})`;
+    return `Exchange Rate (${orderCurrency} per ${payCurrency})`;
+  }
+
+  get paymentConvertedAmount(): number | null {
+    const orderCurrency = this.order()?.currency;
     const { amount, currency, fx_rate } = this.paymentForm;
-    if (!amount || currency === 'NGN' || !fx_rate) return null;
+    if (!amount || !orderCurrency || currency === orderCurrency || !fx_rate) return null;
+    if (currency === 'NGN') return amount / fx_rate;
     return amount * fx_rate;
   }
 

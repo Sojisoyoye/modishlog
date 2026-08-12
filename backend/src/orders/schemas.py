@@ -224,6 +224,8 @@ class PaymentRead(BaseModel):
     amount: Decimal
     currency: str
     fx_rate: Decimal | None = None
+    original_amount: Decimal | None = None
+    original_currency: str | None = None
     payment_date: date
     payment_method: str
     reference: str | None = None

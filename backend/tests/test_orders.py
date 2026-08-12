@@ -13,6 +13,7 @@ from src.core.security import get_password_hash
 from src.inventory.models import InventoryLevel
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
+    MissingFxRateError,
     OrderNotEditableError,
     OrderNotFoundError,
     OverpaymentError,
@@ -1316,9 +1317,10 @@ class TestPayments:
         assert payment.fx_rate == Decimal("1620.00")
 
     @pytest.mark.asyncio
-    async def test_record_payment_fx_rate_optional(self):
-        """fx_rate is optional — NGN payments record without it."""
-        order = _make_order(total_amount=Decimal("5000"))
+    async def test_record_payment_fx_rate_optional_when_currency_matches_order(self):
+        """fx_rate is optional when the payment currency already matches the
+        order's own currency — no conversion is needed."""
+        order = _make_order(total_amount=Decimal("5000"), currency="USD")
         db = _mock_db()
 
         call_count = 0
@@ -1343,12 +1345,114 @@ class TestPayments:
 
         data = PaymentCreate(
             amount=Decimal("500"),
-            currency="NGN",
+            currency="USD",
             payment_date=date(2026, 6, 11),
             payment_method="CASH",
         )
         payment = await record_payment(db, order.id, data, uuid.uuid4())
         assert payment.fx_rate is None
+        assert payment.amount == Decimal("500")
+        assert payment.original_amount is None
+        assert payment.original_currency is None
+
+    @pytest.mark.asyncio
+    async def test_record_payment_missing_fx_rate_raises_when_currency_differs(self):
+        """A payment in a different currency than the order's own must
+        supply an fx_rate — otherwise there's no way to know what it's
+        actually worth against the order's balance."""
+        order = _make_order(total_amount=Decimal("5000"), currency="USD")
+        db = _mock_db()
+        db.execute = AsyncMock(
+            return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=order))
+        )
+
+        data = PaymentCreate(
+            amount=Decimal("500"),
+            currency="NGN",
+            payment_date=date(2026, 6, 11),
+            payment_method="CASH",
+        )
+        with pytest.raises(MissingFxRateError):
+            await record_payment(db, order.id, data, uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_record_payment_converts_ngn_to_usd_order(self):
+        """Regression test for the real dogfood scenario: paying ₦4,800,000
+        at a rate of 1480 against a USD-denominated order must convert to
+        $3,243.24 — not be compared/stored as a raw 4,800,000 (which would
+        look like a huge overpayment against a small USD balance)."""
+        order = _make_order(total_amount=Decimal("16782.7275"), currency="USD")
+        db = _mock_db()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 3:
+                result.one.return_value = (Decimal("0"), 0)
+            elif call_count == 4:
+                result.scalar.return_value = Decimal("3243.243243")
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = PaymentCreate(
+            amount=Decimal("4800000"),
+            currency="NGN",
+            fx_rate=Decimal("1480"),
+            payment_date=date(2026, 1, 14),
+            payment_method="BANK_TRANSFER",
+        )
+        payment = await record_payment(db, order.id, data, uuid.uuid4())
+        assert payment.currency == "USD"
+        assert payment.amount == Decimal("3243.243243")
+        assert payment.fx_rate == Decimal("1480")
+        assert payment.original_amount == Decimal("4800000")
+        assert payment.original_currency == "NGN"
+
+    @pytest.mark.asyncio
+    async def test_overpayment_check_uses_converted_amount_not_raw(self):
+        """A large NGN figure that converts to a small USD amount must NOT
+        be rejected as an overpayment just because the raw number is bigger
+        than the USD balance."""
+        order = _make_order(total_amount=Decimal("16782.7275"), currency="USD")
+        db = _mock_db()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count <= 2:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 3:
+                result.one.return_value = (Decimal("0"), 0)
+            elif call_count == 4:
+                result.scalar.return_value = Decimal("3243.243243")
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        data = PaymentCreate(
+            amount=Decimal("4800000"),  # >> balance in raw NGN terms
+            currency="NGN",
+            fx_rate=Decimal("1480"),  # converts to ~$3,243.24, well within balance
+            payment_date=date(2026, 1, 14),
+            payment_method="BANK_TRANSFER",
+        )
+        payment = await record_payment(db, order.id, data, uuid.uuid4())
+        assert payment.amount == Decimal("3243.243243")
 
     @pytest.mark.asyncio
     async def test_overpayment_raises(self):
