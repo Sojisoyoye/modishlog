@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import Date, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -371,8 +371,19 @@ async def list_orders(
     total = total_result.scalar() or 0
 
     offset = (page - 1) * page_size
+    # Sort by order_date (the real-world order date), falling back to created_at
+    # for rows where it's still NULL — matches the frontend's own display fallback.
+    # order_date is day-precision, so many rows can tie on it (common for
+    # imported historical orders) — .id as a secondary key makes the sort
+    # fully deterministic, or OFFSET/LIMIT pagination could return duplicate
+    # or skipped rows across page loads depending on how Postgres breaks ties.
     query = (
-        query.order_by(PurchaseOrder.created_at.desc()).offset(offset).limit(page_size)
+        query.order_by(
+            func.coalesce(PurchaseOrder.order_date, cast(PurchaseOrder.created_at, Date)).desc(),
+            PurchaseOrder.id,
+        )
+        .offset(offset)
+        .limit(page_size)
     )
     result = await db.execute(query)
     items = list(result.scalars().all())

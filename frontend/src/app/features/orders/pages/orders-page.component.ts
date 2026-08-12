@@ -106,6 +106,9 @@ import { FxService } from '../../../core/services/fx.service';
                   Order #
                 </th>
                 <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Order Date
+                </th>
+                <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
                   Supplier
                 </th>
                 <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
@@ -142,6 +145,7 @@ import { FxService } from '../../../core/services/fx.service';
                 @for (i of [1,2,3,4,5,6]; track i) {
                   <tr class="animate-pulse">
                     <td class="px-3 py-2.5"><div class="h-4 w-20 rounded bg-gray-200"></div></td>
+                    <td class="px-3 py-2.5"><div class="h-4 w-20 rounded bg-gray-200"></div></td>
                     <td class="px-3 py-2.5"><div class="h-4 w-28 rounded bg-gray-200"></div></td>
                     <td class="px-3 py-2.5"><div class="ml-auto h-4 w-16 rounded bg-gray-200"></div></td>
                     <td class="px-3 py-2.5"><div class="h-5 w-10 rounded-full bg-gray-200"></div></td>
@@ -161,6 +165,7 @@ import { FxService } from '../../../core/services/fx.service';
                   (click)="viewOrder(order)"
                 >
                   <td class="px-3 py-2.5 font-semibold text-secondary">{{ order.order_number }}</td>
+                  <td class="px-3 py-2.5 text-muted">{{ (order.order_date || order.created_at) | date: 'mediumDate' }}</td>
                   <td class="px-3 py-2.5">{{ order.supplier_name }}</td>
                   <td class="px-3 py-2.5 text-right text-xl font-bold text-gray-900">
                     {{ order.total_amount | currency: 'USD' : 'symbol' : '1.0-0' }}
@@ -207,7 +212,7 @@ import { FxService } from '../../../core/services/fx.service';
                 </tr>
               } @empty {
                 <tr>
-                  <td colspan="11" class="px-3 py-10 text-center text-muted">
+                  <td colspan="12" class="px-3 py-10 text-center text-muted">
                     <i class="pi pi-truck mb-2 block text-2xl text-gray-300"></i>
                     No orders yet
                   </td>
