@@ -510,6 +510,56 @@ class TestGhostProducts:
         assert not transformer.warnings
 
 
+class TestTransformSalesTransactionGrouping:
+    """transaction_id groups line items recorded together into one sale —
+    the "All Sales" list only shows rows with a non-NULL transaction_id
+    (sales/service.py's list_sale_transactions), so imported sales must
+    get one or they're permanently invisible in that view."""
+
+    def test_rows_sharing_source_id_get_the_same_transaction_id(self):
+        id_map = IdMap()
+        product_id = uuid.uuid4()
+        id_map.register("products", "P1", product_id)
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY, id_map)
+
+        sales_raw = [
+            {"source_id": "SELL-1", "product_source_id": "P1", "quantity": "1", "unit_price": "10", "sale_date": "2026-01-01"},
+            {"source_id": "SELL-1", "product_source_id": "P1", "quantity": "2", "unit_price": "10", "sale_date": "2026-01-01"},
+        ]
+        result = transformer.transform_sales(sales_raw)
+        assert len(result) == 2
+        assert result[0]["transaction_id"] is not None
+        assert result[0]["transaction_id"] == result[1]["transaction_id"]
+
+    def test_rows_with_different_source_ids_get_different_transaction_ids(self):
+        id_map = IdMap()
+        product_id = uuid.uuid4()
+        id_map.register("products", "P1", product_id)
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY, id_map)
+
+        sales_raw = [
+            {"source_id": "SELL-1", "product_source_id": "P1", "quantity": "1", "unit_price": "10", "sale_date": "2026-01-01"},
+            {"source_id": "SELL-2", "product_source_id": "P1", "quantity": "1", "unit_price": "10", "sale_date": "2026-01-01"},
+        ]
+        result = transformer.transform_sales(sales_raw)
+        assert result[0]["transaction_id"] != result[1]["transaction_id"]
+
+    def test_rows_with_no_source_id_each_get_their_own_transaction_id(self):
+        id_map = IdMap()
+        product_id = uuid.uuid4()
+        id_map.register("products", "P1", product_id)
+        transformer = Transformer(_mock_db(), BUSINESS_ID, CREATED_BY, id_map)
+
+        sales_raw = [
+            {"product_source_id": "P1", "quantity": "1", "unit_price": "10", "sale_date": "2026-01-01"},
+            {"product_source_id": "P1", "quantity": "1", "unit_price": "10", "sale_date": "2026-01-01"},
+        ]
+        result = transformer.transform_sales(sales_raw)
+        assert result[0]["transaction_id"] is not None
+        assert result[1]["transaction_id"] is not None
+        assert result[0]["transaction_id"] != result[1]["transaction_id"]
+
+
 class TestTransformCategories:
     @pytest.mark.asyncio
     async def test_child_resolves_parent_within_same_batch(self):

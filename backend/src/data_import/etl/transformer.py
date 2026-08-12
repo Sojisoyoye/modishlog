@@ -387,6 +387,12 @@ class Transformer:
     ) -> list[dict]:
         location_map = location_map or {}
         out = []
+        # Sale.transaction_id groups line items recorded together into one
+        # sale (see sales/service.py's grouped "All Sales" view — it only
+        # shows rows with a non-NULL transaction_id). A multi-line POS sell
+        # fans out into several rows here sharing one source_id, so they must
+        # share one transaction_id too; a row with no source_id gets its own.
+        transaction_ids_by_source: dict[str, uuid.UUID] = {}
         for i, row in enumerate(raw_rows, start=2):
             product_id = self.id_map.lookup("products", row.get("product_source_id"))
             if product_id is None:
@@ -456,6 +462,14 @@ class Transformer:
                         )
                     )
 
+            source_id = row.get("source_id")
+            if source_id:
+                transaction_id = transaction_ids_by_source.setdefault(
+                    source_id, uuid.uuid4()
+                )
+            else:
+                transaction_id = uuid.uuid4()
+
             out.append(
                 {
                     "product_id": product_id,
@@ -473,13 +487,14 @@ class Transformer:
                     ),
                     "business_id": self.business_id,
                     "recorded_by": self.created_by,
+                    "transaction_id": transaction_id,
                     # The source system's own id for the parent sale/sell —
                     # not an id_map registration (a multi-line sell fans out
                     # into several Sale rows here, and id_map only holds one
                     # UUID per (entity, source_id) pair). load_sell_returns()
                     # resolves against this column directly via a DB query
                     # instead, once these rows are actually inserted.
-                    "pos_id": row.get("source_id") or None,
+                    "pos_id": source_id or None,
                 }
             )
         return out
