@@ -73,6 +73,22 @@ class OverpaymentError(Exception):
         )
 
 
+class MissingFxRateError(Exception):
+    """Raised when a payment's currency differs from the order's currency
+    but no fx_rate was supplied to convert it."""
+
+    def __init__(
+        self, order_id: uuid.UUID, payment_currency: str, order_currency: str
+    ) -> None:
+        self.order_id = order_id
+        self.payment_currency = payment_currency
+        self.order_currency = order_currency
+        super().__init__(
+            f"fx_rate is required to record a {payment_currency} payment "
+            f"against a {order_currency} order (order {order_id})"
+        )
+
+
 class OrderLineItemError(Exception):
     """Raised when an order has invalid line items."""
 

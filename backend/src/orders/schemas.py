@@ -209,7 +209,7 @@ class StatusHistoryRead(BaseModel):
 class PaymentCreate(BaseModel):
     amount: Decimal = Field(..., gt=0)
     currency: str = "USD"
-    fx_rate: Decimal | None = None
+    fx_rate: Decimal | None = Field(None, gt=0)
     payment_date: date
     payment_method: str = Field(..., pattern="^(BANK_TRANSFER|LC|CASH)$")
     reference: str | None = None
@@ -224,6 +224,8 @@ class PaymentRead(BaseModel):
     amount: Decimal
     currency: str
     fx_rate: Decimal | None = None
+    original_amount: Decimal | None = None
+    original_currency: str | None = None
     payment_date: date
     payment_method: str
     reference: str | None = None

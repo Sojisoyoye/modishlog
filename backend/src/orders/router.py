@@ -20,6 +20,7 @@ from src.inventory.exceptions import (
 )
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
+    MissingFxRateError,
     OrderLineItemError,
     OrderNotEditableError,
     OrderNotFoundError,
@@ -550,6 +551,8 @@ async def record_payment_endpoint(
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except OverpaymentError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except MissingFxRateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
