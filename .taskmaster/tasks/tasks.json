@@ -5078,6 +5078,17 @@
         "dependencies": [],
         "priority": "medium",
         "subtasks": []
+      },
+      {
+        "id": 180,
+        "title": "Delivered-order edit form still shows non-cost fields as editable (silently no-op on save)",
+        "description": "order-detail-page saveEdit() now routes DELIVERED orders through the cost-corrections endpoint (unit_cost/fx_rate_at_creation/shipping_cost only), but the edit UI itself still lets users interact with supplier name, dates, notes, quantities, and line-item deletion while editing a DELIVERED order — none of those are sent to the new endpoint, so those edits silently do nothing on save with no error telling the user why.",
+        "details": "Found via code review, PR #335 (2026-08-12). Not a data-safety bug (nothing gets corrupted server-side — update_order() still rejects those fields entirely, and the new endpoint just does not send them), but a real UX trap: a user could believe they changed the supplier or removed a line item on a delivered order and only discover otherwise later.\n\nFix: when order.status === 'DELIVERED', disable/hide the non-cost fields in the edit form (supplier_name, expected_delivery_date, notes, quantity inputs, the line-item delete button, pay_term_number/type, supplier_invoice_number/date) and leave only unit_cost per line item + fx_rate_at_creation + shipping_cost editable, matching exactly what correct_delivered_order_costs() actually supports.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
       }
     ],
     "metadata": {
@@ -5090,7 +5101,7 @@
       ],
       "created": "2026-07-23T16:07:30.039Z",
       "description": "Tasks for master context",
-      "updated": "2026-08-12T14:50:00.000Z"
+      "updated": "2026-08-12T15:35:00.000Z"
     }
   }
 }
