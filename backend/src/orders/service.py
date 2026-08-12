@@ -678,8 +678,15 @@ async def revert_delivered_order(
     if order.status != OrderStatus.DELIVERED:
         raise OrderNotDeliveredError(order_id, order.status.value, order.order_number)
 
+    # Locked so a concurrent sale (fifo_deduct() locks the same
+    # InventoryBatch rows via its own .with_for_update()) can't consume
+    # from a batch in the window between this check and the delete below —
+    # whichever transaction gets here first wins, the other blocks until
+    # it commits, closing the race instead of leaving it to chance.
     batch_result = await db.execute(
-        select(InventoryBatch).where(InventoryBatch.order_id == order_id)
+        select(InventoryBatch)
+        .where(InventoryBatch.order_id == order_id)
+        .with_for_update()
     )
     batches = list(batch_result.scalars().all())
 

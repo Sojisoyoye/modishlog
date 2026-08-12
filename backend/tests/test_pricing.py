@@ -432,7 +432,7 @@ class TestMarginTargets:
 
 
 class TestMarginTargetResolution:
-    """_pick_margin_target_pct() / _resolve_target_margin() — Settings-
+    """_pick_margin_target() / _resolve_target_margin() — Settings-
     configured MarginTarget rows take priority over ProductCategory.
     default_margin_pct, product-level beating category-level regardless
     of priority (priority only tie-breaks within the same specificity)."""
@@ -444,12 +444,12 @@ class TestMarginTargetResolution:
         product.category = category
         return product
 
-    def _target(self, product_id=None, category_id=None, pct="35.00", priority=1):
+    def _target(self, product_id=None, category_id=None, pct="35.00", min_pct="10.00", priority=1):
         t = MarginTarget(
             product_id=product_id,
             category_id=category_id,
             target_margin_pct=Decimal(pct),
-            min_margin_pct=Decimal("10.00"),
+            min_margin_pct=Decimal(min_pct),
             priority=priority,
             set_by=uuid.uuid4(),
         )
@@ -517,6 +517,50 @@ class TestMarginTargetResolution:
 
         product = self._product()
         assert _resolve_target_margin(product, []) == Decimal("0.40")
+
+    def test_resolve_min_margin_reads_matched_targets_min_pct(self):
+        from src.pricing.service import _resolve_min_margin
+
+        product = self._product()
+        targets = [self._target(product_id=product.id, pct="35.00", min_pct="25.00")]
+
+        assert _resolve_min_margin(product, targets) == Decimal("0.25")
+
+    def test_resolve_min_margin_none_when_no_target_matches(self):
+        from src.pricing.service import _resolve_min_margin
+
+        product = self._product()
+        assert _resolve_min_margin(product, []) is None
+        other = [self._target(product_id=uuid.uuid4(), min_pct="99.00")]
+        assert _resolve_min_margin(product, other) is None
+
+    def test_apply_min_margin_floor_bumps_price_up_when_below_floor(self):
+        from src.pricing.service import _apply_min_margin_floor
+
+        # cost=15000, target-margin-derived suggestion=15000/0.60=25000,
+        # but a 50% min margin floor requires 15000/0.50=30000
+        result = _apply_min_margin_floor(Decimal("25000"), Decimal("15000"), Decimal("0.50"))
+        assert result == Decimal("30000.000000")
+
+    def test_apply_min_margin_floor_leaves_price_when_already_above_floor(self):
+        from src.pricing.service import _apply_min_margin_floor
+
+        # suggestion=30000 already clears a 20% floor (15000/0.80=18750)
+        result = _apply_min_margin_floor(Decimal("30000"), Decimal("15000"), Decimal("0.20"))
+        assert result == Decimal("30000")
+
+    def test_apply_min_margin_floor_noop_when_none(self):
+        from src.pricing.service import _apply_min_margin_floor
+
+        assert _apply_min_margin_floor(Decimal("25000"), Decimal("15000"), None) == Decimal("25000")
+
+    def test_apply_min_margin_floor_ignores_impossible_100pct_plus(self):
+        from src.pricing.service import _apply_min_margin_floor
+
+        # min_margin >= 100% can't produce a finite price — ignored rather
+        # than dividing by zero/negative
+        result = _apply_min_margin_floor(Decimal("25000"), Decimal("15000"), Decimal("1.00"))
+        assert result == Decimal("25000")
 
 
 # ---------------------------------------------------------------------------
@@ -1254,6 +1298,60 @@ class TestPriceSuggestionEngine:
 
         with pytest.raises(ValidationError):
             SuggestRequest(target_margin_pct=Decimal("-0.1"))
+
+    @pytest.mark.asyncio
+    async def test_min_margin_pct_floors_the_suggested_price(self):
+        """A MarginTarget's min_margin_pct must actually change the
+        suggested price, not just get stored — the whole point of the
+        Settings 'Min Margin %' field the frontend exposes."""
+        from src.pricing.models import MarginTarget
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        business_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="15000")
+        margin_target = MarginTarget(
+            product_id=product_id,
+            target_margin_pct=Decimal("40.00"),
+            min_margin_pct=Decimal("50.00"),
+            priority=1,
+            set_by=uuid.uuid4(),
+        )
+        margin_target.id = uuid.uuid4()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.all.return_value = [(lot, "USD")]
+            elif call_count == 2:
+                p = Product(
+                    name="Widget", slug="widget", sku="SKU-1",
+                    selling_price=Decimal("20000"), business_id=uuid.uuid4(),
+                )
+                p.id = product_id
+                p.category_id = None
+                p.category = None
+                result.scalar_one_or_none.return_value = p
+            else:
+                result.scalars.return_value.all.return_value = [margin_target]
+            return result
+
+        db = _mock_db()
+        db.execute = mock_execute
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            suggestion = await compute_suggestion(
+                db, product_id, business_id=business_id
+            )
+
+        # target_margin (40%) alone would give 15000/0.60=25000, but the
+        # 50% min_margin floor requires 15000/0.50=30000
+        assert suggestion.suggested_price_ngn == Decimal("30000.000000")
 
 
 # ---------------------------------------------------------------------------
@@ -2632,3 +2730,35 @@ class TestSuggestPricesForOrder:
             result = await suggest_prices_for_order(db, order.id, business_id=None)
 
         assert result["items"][0]["target_margin_pct"] == Decimal("0.50")
+
+    @pytest.mark.asyncio
+    async def test_min_margin_pct_floors_the_suggested_price(self):
+        """Same min_margin_pct floor as compute_suggestion(), applied per
+        line item here."""
+        from src.pricing.service import suggest_prices_for_order
+
+        product_id = uuid.uuid4()
+        li = self._make_line_item(product_id, quantity=10, unit_cost="10")
+        order = self._make_order(currency="USD", line_items=[li])
+        product = self._make_product(product_id, default_margin_pct="0.40")
+        margin_target = MarginTarget(
+            product_id=product_id,
+            target_margin_pct=Decimal("40.00"),
+            min_margin_pct=Decimal("50.00"),
+            priority=1,
+            set_by=uuid.uuid4(),
+        )
+        margin_target.id = uuid.uuid4()
+
+        db = _mock_db()
+        db.execute = self._mock_execute_products_then_targets([product], [margin_target])
+        business_id = uuid.uuid4()
+
+        with patch("src.pricing.service.get_order", new_callable=AsyncMock, return_value=order), \
+             patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1500"), datetime.now(timezone.utc), True)):
+            result = await suggest_prices_for_order(db, order.id, business_id=business_id)
+
+        # cost_ngn = 10 * 1500 = 15000; 40% target would give 25000, but
+        # the 50% min_margin floor requires 15000/0.50=30000
+        assert result["items"][0]["suggested_price_ngn"] == Decimal("30000.000000")

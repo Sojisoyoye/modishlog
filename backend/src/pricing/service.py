@@ -1246,14 +1246,15 @@ async def get_selling_price_suggestion(
 # ---------------------------------------------------------------------------
 
 
-def _pick_margin_target_pct(
+def _pick_margin_target(
     margin_targets: list[MarginTarget], product: Product | None
-) -> Decimal | None:
+) -> MarginTarget | None:
     """Most-specific-wins: a product-level MarginTarget beats a
     category-level one regardless of priority — priority only breaks ties
     among rows at the SAME specificity (e.g. two product-level rows for
-    the same product). Returns a 0-1 fraction (MarginTarget stores 0-100,
-    e.g. 35.00 for 35%) or None if no MarginTarget applies."""
+    the same product). Returns the whole matched row (both
+    target_margin_pct and min_margin_pct come from it) or None if no
+    MarginTarget applies."""
     if product is None:
         return None
 
@@ -1263,7 +1264,7 @@ def _pick_margin_target_pct(
         reverse=True,
     )
     if product_rows:
-        return product_rows[0].target_margin_pct / Decimal("100")
+        return product_rows[0]
 
     category_ids = []
     if product.category_id is not None:
@@ -1276,7 +1277,7 @@ def _pick_margin_target_pct(
         reverse=True,
     )
     if category_rows:
-        return category_rows[0].target_margin_pct / Decimal("100")
+        return category_rows[0]
 
     return None
 
@@ -1288,9 +1289,9 @@ def _resolve_target_margin(
     category) → ProductCategory.default_margin_pct (sub-category →
     parent) → system default (40%). Shared by every price-suggestion path
     so they can't drift out of sync."""
-    picked = _pick_margin_target_pct(margin_targets or [], product)
+    picked = _pick_margin_target(margin_targets or [], product)
     if picked is not None:
-        return picked
+        return picked.target_margin_pct / Decimal("100")
     if product and product.category:
         if product.category.default_margin_pct is not None:
             return product.category.default_margin_pct
@@ -1300,6 +1301,40 @@ def _resolve_target_margin(
         ):
             return product.category.parent.default_margin_pct
     return Decimal("0.40")
+
+
+def _resolve_min_margin(
+    product: Product | None, margin_targets: list[MarginTarget] | None = None
+) -> Decimal | None:
+    """The Settings-configured MarginTarget's min_margin_pct (0-1 fraction)
+    for this product/category, or None if no MarginTarget applies — there
+    is no category-default equivalent for a minimum, so unlike
+    _resolve_target_margin() this has no further fallback. Applied by
+    callers as a floor on the computed suggested_price, since a target
+    margin resolved from a category default could otherwise undercut a
+    business's explicitly configured minimum."""
+    picked = _pick_margin_target(margin_targets or [], product)
+    if picked is None:
+        return None
+    return picked.min_margin_pct / Decimal("100")
+
+
+def _apply_min_margin_floor(
+    suggested_price: Decimal, cost_ngn: Decimal, min_margin: Decimal | None
+) -> Decimal:
+    """Bump suggested_price up to the min-margin price if it would
+    otherwise fall below the configured floor. No-op when min_margin is
+    None (nothing configured) or >= 100% (nonsensical, ignored rather than
+    dividing by zero/negative)."""
+    if min_margin is None:
+        return suggested_price
+    min_margin_factor = Decimal("1") - min_margin
+    if min_margin_factor <= 0:
+        return suggested_price
+    min_price = (cost_ngn / min_margin_factor).quantize(
+        Decimal("0.000001"), rounding=ROUND_HALF_UP
+    )
+    return max(suggested_price, min_price)
 
 
 async def _fetch_margin_targets(
@@ -1417,25 +1452,31 @@ async def compute_suggestion(
     product = prod_result.scalar_one_or_none()
 
     # Resolve effective margin: caller override → MarginTarget (Settings) →
-    # sub-category → parent → system default
+    # sub-category → parent → system default. margin_targets is fetched
+    # unconditionally (not just when target_margin is None) because
+    # min_margin_pct — a floor applied below — is a business policy that
+    # should hold even when the caller supplied their own target_margin.
+    category_ids: set[uuid.UUID] = set()
+    if product and product.category_id is not None:
+        category_ids.add(product.category_id)
+    if (
+        product
+        and product.category is not None
+        and product.category.parent_id is not None
+    ):
+        category_ids.add(product.category.parent_id)
+    margin_targets = await _fetch_margin_targets(
+        db, business_id, product_ids={product_id}, category_ids=category_ids
+    )
     if target_margin is None:
-        category_ids: set[uuid.UUID] = set()
-        if product and product.category_id is not None:
-            category_ids.add(product.category_id)
-        if (
-            product
-            and product.category is not None
-            and product.category.parent_id is not None
-        ):
-            category_ids.add(product.category.parent_id)
-        margin_targets = await _fetch_margin_targets(
-            db, business_id, product_ids={product_id}, category_ids=category_ids
-        )
         target_margin = _resolve_target_margin(product, margin_targets)
 
     # Suggested price
     margin_factor = Decimal("1") - target_margin
     suggested_price = (avg_cost_ngn / margin_factor).quantize(Decimal("0.000001"))
+    suggested_price = _apply_min_margin_floor(
+        suggested_price, avg_cost_ngn, _resolve_min_margin(product, margin_targets)
+    )
 
     # E5 — Pricing floor: never return a price at or below FIFO landed cost.
     # Note: the formula avg_cost_ngn / (1 - target_margin) always produces a
@@ -1557,6 +1598,10 @@ async def suggest_prices_for_order(
             if margin_factor > 0
             else None
         )
+        if suggested_price is not None:
+            suggested_price = _apply_min_margin_floor(
+                suggested_price, landed_cost_ngn, _resolve_min_margin(product, margin_targets)
+            )
 
         items.append(
             {

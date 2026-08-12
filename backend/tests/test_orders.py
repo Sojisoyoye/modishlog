@@ -1780,6 +1780,24 @@ class TestUpdatePayment:
                 db, order.id, payment.id, PaymentUpdate(amount=Decimal("5000.01"))
             )
 
+    def test_schema_rejects_currency_change_without_amount(self):
+        """Without a fresh amount, update_payment() would re-derive the raw
+        paid figure from the payment's already-converted amount and
+        re-interpret it as if denominated in the new currency — wrong
+        math. The schema must reject this combination up front."""
+        from pydantic import ValidationError
+        from src.orders.schemas import PaymentUpdate
+
+        with pytest.raises(ValidationError):
+            PaymentUpdate(currency="EUR")
+
+    def test_schema_accepts_currency_change_with_amount(self):
+        from src.orders.schemas import PaymentUpdate
+
+        update = PaymentUpdate(currency="EUR", amount=Decimal("100"), fx_rate=Decimal("1200"))
+        assert update.currency == "EUR"
+        assert update.amount == Decimal("100")
+
 
 class TestPaymentBalanceTolerance:
     """Multi-currency payments are converted via amount/fx_rate division
@@ -2310,6 +2328,41 @@ class TestRevertDeliveredOrder:
         assert item.units_remaining is None
         assert inventory.quantity_on_hand == 0
         db.delete.assert_called_once_with(batch)
+
+    @pytest.mark.asyncio
+    async def test_batch_query_locks_rows_for_update(self):
+        """The batch query must lock its rows (SELECT ... FOR UPDATE) —
+        otherwise a concurrent sale's fifo_deduct() (which locks the same
+        InventoryBatch rows via its own .with_for_update()) could consume
+        from a batch in the window between this function's check and its
+        delete, slipping past the 'nothing sold yet' guard entirely."""
+        from src.orders.service import revert_delivered_order
+
+        order = _make_order(status=OrderStatus.DELIVERED, line_items=[])
+
+        db = _mock_db()
+        call_count = 0
+        captured = {}
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            else:
+                captured["batch_stmt"] = stmt
+                result.scalars.return_value.all.return_value = []
+            return result
+
+        db.execute = mock_execute
+
+        await revert_delivered_order(db, order.id, uuid.uuid4())
+
+        compiled = str(
+            captured["batch_stmt"].compile(compile_kwargs={"literal_binds": True})
+        ).lower()
+        assert "for update" in compiled
 
     @pytest.mark.asyncio
     async def test_rejects_when_batch_already_sold_from(self):

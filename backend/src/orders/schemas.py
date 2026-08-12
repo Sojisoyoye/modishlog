@@ -232,6 +232,20 @@ class PaymentUpdate(BaseModel):
     reference: str | None = None
     notes: str | None = None
 
+    @model_validator(mode="after")
+    def _amount_required_when_currency_changes(self) -> "PaymentUpdate":
+        # Without a fresh amount, update_payment() would re-derive the raw
+        # paid figure from the payment's *already-converted* amount/
+        # original_amount and re-interpret it as if denominated in the new
+        # currency — producing a nonsensical converted amount.
+        if self.currency is not None and self.amount is None:
+            raise ValueError(
+                "amount is required when changing currency — omitting it "
+                "would re-interpret the payment's existing amount as if it "
+                "were already in the new currency"
+            )
+        return self
+
 
 class PaymentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -295,7 +309,8 @@ class OrderCostCorrectionRequest(BaseModel):
         ):
             raise ValueError(
                 "At least one of corrections, fx_rate_at_creation, "
-                "shipping_cost, or clearing_cost must be provided"
+                "fx_rate_at_delivery, shipping_cost, clearing_cost, or "
+                "shipping_details must be provided"
             )
         return self
 
