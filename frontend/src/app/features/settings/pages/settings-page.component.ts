@@ -2,8 +2,13 @@ import { Component, ChangeDetectionStrategy, ChangeDetectorRef, OnInit, inject, 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { HttpErrorResponse } from '@angular/common/http';
+import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { SettingsService, BusinessProfile } from '../../../core/services/settings.service';
+import { PricingService, MarginTargetRead } from '../../../core/services/pricing.service';
+import { ProductsService, Product, Category } from '../../../core/services/products.service';
+import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -14,7 +19,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 @Component({
   selector: 'app-settings-page',
   standalone: true,
-  imports: [FormsModule, RouterLink, Toast],
+  imports: [FormsModule, RouterLink, Toast, ConfirmDialogComponent],
   template: `
     <p-toast />
     <div>
@@ -374,13 +379,172 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
             Per-product thresholds can be edited directly in the Inventory page.
           </p>
         </div>
+
+        <!-- Margin Targets Section -->
+        <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm lg:col-span-2">
+          <div class="mb-5 flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50">
+              <i class="pi pi-percentage text-sm text-indigo-700"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Margin Targets</h3>
+          </div>
+          <p class="mb-4 text-sm text-muted">
+            Override the target margin used by price suggestions (per-product and per-order-line) for a specific
+            product or category. A product-level target always wins over a category-level one; a category-level
+            target wins over that category's own default margin. Leave unset to keep using category defaults.
+          </p>
+
+          @if (marginTargets().length > 0) {
+            <div class="mb-4 overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200 text-sm">
+                <thead>
+                  <tr class="bg-gray-50">
+                    <th class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Applies To</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Target Margin</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Min Margin</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Priority</th>
+                    <th class="px-3 py-2 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  @for (t of marginTargets(); track t.id) {
+                    <tr>
+                      <td class="px-3 py-2 text-text">
+                        @if (t.product_id) {
+                          <span class="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">Product</span>
+                          {{ productName(t.product_id) }}
+                        } @else if (t.category_id) {
+                          <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">Category</span>
+                          {{ categoryName(t.category_id) }}
+                        } @else {
+                          <span class="text-muted">—</span>
+                        }
+                      </td>
+                      <td class="px-3 py-2 text-right font-semibold text-text">{{ t.target_margin_pct }}%</td>
+                      <td class="px-3 py-2 text-right text-muted">{{ t.min_margin_pct }}%</td>
+                      <td class="px-3 py-2 text-right text-muted">{{ t.priority }}</td>
+                      <td class="px-2 py-2 text-center">
+                        <button
+                          type="button"
+                          (click)="marginTargetPendingDelete.set(t)"
+                          title="Delete"
+                          class="rounded p-1 text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                        >
+                          <i class="pi pi-trash text-xs"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="mb-4 text-sm text-muted">No margin targets set yet — all suggestions use category defaults.</p>
+          }
+
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5 items-end">
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Applies To</label>
+              <select
+                [(ngModel)]="mtForm.scope"
+                (ngModelChange)="mtForm.product_id = ''; mtForm.category_id = ''"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              >
+                <option value="product">Specific Product</option>
+                <option value="category">Specific Category</option>
+              </select>
+            </div>
+            <div>
+              @if (mtForm.scope === 'product') {
+                <label class="mb-1.5 block text-xs font-medium text-muted">Product</label>
+                <select
+                  [(ngModel)]="mtForm.product_id"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                >
+                  <option value="">Select product…</option>
+                  @for (p of products(); track p.id) {
+                    <option [value]="p.id">{{ p.name }}</option>
+                  }
+                </select>
+              } @else {
+                <label class="mb-1.5 block text-xs font-medium text-muted">Category</label>
+                <select
+                  [(ngModel)]="mtForm.category_id"
+                  class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+                >
+                  <option value="">Select category…</option>
+                  @for (c of flatCategories(); track c.id) {
+                    <option [value]="c.id">{{ c.name }}</option>
+                  }
+                </select>
+              }
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Target Margin %</label>
+              <input
+                type="number"
+                [(ngModel)]="mtForm.target_margin_pct"
+                min="0"
+                max="100"
+                step="0.1"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Min Margin %</label>
+              <input
+                type="number"
+                [(ngModel)]="mtForm.min_margin_pct"
+                min="0"
+                max="100"
+                step="0.1"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted">Priority</label>
+              <input
+                type="number"
+                [(ngModel)]="mtForm.priority"
+                min="1"
+                class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
+              />
+            </div>
+          </div>
+          <div class="mt-4 flex items-center gap-3">
+            <button
+              (click)="saveMarginTarget()"
+              [disabled]="mtSaving() || !mtFormValid()"
+              class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50 min-h-[44px]"
+            >
+              <i class="pi pi-plus text-sm"></i> Add Margin Target
+            </button>
+            @if (mtStatus() === 'saved') {
+              <span class="text-sm text-emerald-600"><i class="pi pi-check-circle mr-1 text-xs"></i>Saved</span>
+            }
+            @if (mtStatus() === 'error') {
+              <span class="text-sm text-red-600"><i class="pi pi-times-circle mr-1 text-xs"></i>Failed to save</span>
+            }
+          </div>
+        </div>
       </div>
     </div>
+
+    <app-confirm-dialog
+      [visible]="!!marginTargetPendingDelete()"
+      header="Delete Margin Target"
+      [message]="'Delete this margin target? Suggestions will fall back to the next resolution level (category default, or 40%).'"
+      (confirmed)="executeDeleteMarginTarget()"
+      (cancelled)="marginTargetPendingDelete.set(null)"
+    />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsPageComponent implements OnInit {
   private readonly settingsService = inject(SettingsService);
+  private readonly pricingService = inject(PricingService);
+  private readonly productsService = inject(ProductsService);
+  private readonly messageService = inject(MessageService);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -424,6 +588,18 @@ export class SettingsPageComponent implements OnInit {
   prefSaving = signal(false);
   prefStatus = signal<'saved' | 'error' | null>(null);
 
+  // Margin Targets
+  marginTargets = signal<MarginTargetRead[]>([]);
+  products = signal<Product[]>([]);
+  categories = signal<Category[]>([]);
+  mtForm: { scope: 'product' | 'category'; product_id: string; category_id: string; target_margin_pct: number | null; min_margin_pct: number | null; priority: number } = {
+    scope: 'product', product_id: '', category_id: '',
+    target_margin_pct: null, min_margin_pct: null, priority: 1,
+  };
+  mtSaving = signal(false);
+  mtStatus = signal<'saved' | 'error' | null>(null);
+  marginTargetPendingDelete = signal<MarginTargetRead | null>(null);
+
   fyDayWarning = computed(() => {
     const m = parseInt(this.fyMonth(), 10);
     const d = this.fyDay();
@@ -432,6 +608,27 @@ export class SettingsPageComponent implements OnInit {
     if (d > max) return `${MONTH_NAMES[m - 1]} has at most ${max} days`;
     return null;
   });
+
+  flatCategories = computed(() => {
+    const out: Category[] = [];
+    const walk = (cats: Category[]) => {
+      for (const c of cats) {
+        out.push(c);
+        if (c.children?.length) walk(c.children);
+      }
+    };
+    walk(this.categories());
+    return out;
+  });
+
+  mtFormValid(): boolean {
+    const targetSelected = this.mtForm.scope === 'product' ? !!this.mtForm.product_id : !!this.mtForm.category_id;
+    return (
+      targetSelected &&
+      this.mtForm.target_margin_pct != null &&
+      this.mtForm.min_margin_pct != null
+    );
+  }
 
   ngOnInit(): void {
     this.settingsService.getApiKeyStatus('anthropic').subscribe({
@@ -481,6 +678,68 @@ export class SettingsPageComponent implements OnInit {
         },
         error: () => {},
       });
+    this.loadMarginTargets();
+    this.productsService.getAll().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => this.products.set(p),
+    });
+    this.productsService.getCategories().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c) => this.categories.set(c),
+    });
+  }
+
+  private loadMarginTargets(): void {
+    this.pricingService.getMarginTargets().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (t) => this.marginTargets.set(t),
+      error: () => this.marginTargets.set([]),
+    });
+  }
+
+  productName(productId: string): string {
+    return this.products().find((p) => p.id === productId)?.name ?? productId;
+  }
+
+  categoryName(categoryId: string): string {
+    return this.flatCategories().find((c) => c.id === categoryId)?.name ?? categoryId;
+  }
+
+  saveMarginTarget(): void {
+    if (!this.mtFormValid()) return;
+    this.mtSaving.set(true);
+    this.mtStatus.set(null);
+    this.pricingService
+      .createMarginTarget({
+        product_id: this.mtForm.scope === 'product' ? this.mtForm.product_id : null,
+        category_id: this.mtForm.scope === 'category' ? this.mtForm.category_id : null,
+        target_margin_pct: this.mtForm.target_margin_pct!,
+        min_margin_pct: this.mtForm.min_margin_pct!,
+        priority: this.mtForm.priority,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.mtSaving.set(false);
+          this.mtStatus.set('saved');
+          this.mtForm = { scope: 'product', product_id: '', category_id: '', target_margin_pct: null, min_margin_pct: null, priority: 1 };
+          this.loadMarginTargets();
+        },
+        error: () => {
+          this.mtSaving.set(false);
+          this.mtStatus.set('error');
+        },
+      });
+  }
+
+  executeDeleteMarginTarget(): void {
+    const target = this.marginTargetPendingDelete();
+    this.marginTargetPendingDelete.set(null);
+    if (!target) return;
+    this.pricingService.deleteMarginTarget(target.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => this.loadMarginTargets(),
+      error: (err: HttpErrorResponse) => {
+        const detail = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to delete margin target';
+        this.messageService.add({ severity: 'error', summary: 'Error', detail });
+      },
+    });
   }
 
   saveBusinessProfile(): void {
