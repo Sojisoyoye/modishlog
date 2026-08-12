@@ -1454,6 +1454,23 @@ class TestPayments:
         payment = await record_payment(db, order.id, data, uuid.uuid4())
         assert payment.amount == Decimal("3243.243243")
 
+    def test_payment_create_rejects_zero_or_negative_fx_rate(self):
+        """A negative fx_rate would silently flip _convert_to_order_currency()'s
+        sign, storing a negative payment that corrupts the order's balance
+        instead of reducing it — must be rejected at the schema level, same
+        as amount already is."""
+        from pydantic import ValidationError
+
+        for bad_rate in (Decimal("0"), Decimal("-1480")):
+            with pytest.raises(ValidationError):
+                PaymentCreate(
+                    amount=Decimal("500"),
+                    currency="NGN",
+                    fx_rate=bad_rate,
+                    payment_date=date(2026, 1, 14),
+                    payment_method="BANK_TRANSFER",
+                )
+
     @pytest.mark.asyncio
     async def test_overpayment_raises(self):
         order = _make_order(total_amount=Decimal("5000"))
