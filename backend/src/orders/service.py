@@ -907,26 +907,37 @@ async def correct_delivered_order_costs(
     order_id: uuid.UUID,
     corrections: list[LineItemCostCorrection],
     business_id: uuid.UUID | None = None,
+    fx_rate_at_creation: Decimal | None = None,
+    shipping_cost: Decimal | None = None,
+    clearing_cost: Decimal | None = None,
 ) -> PurchaseOrder:
-    """Correct unit costs on an already-DELIVERED order's line items,
-    cascading the correction through InventoryBatch landed costs and every
+    """Correct costs on an already-DELIVERED order, cascading the
+    correction through InventoryBatch landed costs and every
     already-recorded sale's FIFO COGS/gross-profit.
 
     update_order() deliberately refuses any edit once an order is DELIVERED
     (see EDITABLE_STATUSES) — that lock is intentional (task 94) and stays
     in place for quantities/supplier/dates. This is a narrow, separate
-    operation solely for correcting a delivered order's unit costs against
+    operation solely for correcting a delivered order's costs against
     reality (e.g. the real supplier invoice), since neither update_order()
     nor anything else touches InventoryBatch or Sale.fifo_cogs after
     delivery — those are only ever written once, at the DELIVERED
     transition.
 
-    For every corrected line item: updates its own unit_cost/line_total,
-    every InventoryBatch created for that (order, product, variant), and
-    then re-sums fifo_cogs from scratch (not a delta) for every sale that
-    consumed from any touched batch — across that sale's FULL consumption
-    set, since some sales draw from more than one order's batches for the
-    same product.
+    Two independent correction paths, both landing in the same cascade:
+    - `corrections`: per-line-item unit_cost, cascading to that
+      (order, product, variant)'s own batches only.
+    - `fx_rate_at_creation`/`shipping_cost`/`clearing_cost`: order-wide
+      fields transition_status()'s DELIVERED handling baked into *every*
+      batch's fx_rate_at_arrival/logistics_allocation_per_unit (see that
+      function's fx_rate fallback and total_logistics/total_units
+      formula, reproduced identically here) — so correcting them cascades
+      to every batch on the order, not just the corrected line items'.
+
+    Either way, every touched batch's fifo_cogs impact is re-summed from
+    scratch (not a delta) for every sale that consumed from it, across
+    that sale's FULL consumption set, since some sales draw from more
+    than one order's batches for the same product.
     """
     order = await get_order(db, order_id, business_id)
     if order.status != OrderStatus.DELIVERED:
@@ -964,6 +975,44 @@ async def correct_delivered_order_costs(
     order.total_amount = sum(
         (item.line_total for item in order.line_items), Decimal("0")
     )
+
+    if (
+        fx_rate_at_creation is not None
+        or shipping_cost is not None
+        or clearing_cost is not None
+    ):
+        if fx_rate_at_creation is not None:
+            order.fx_rate_at_creation = fx_rate_at_creation
+        if shipping_cost is not None:
+            order.shipping_cost = shipping_cost
+        if clearing_cost is not None:
+            order.clearing_cost = clearing_cost
+
+        # Same fallback/formula as transition_status()'s DELIVERED handling.
+        new_fx_rate = (
+            order.fx_rate_at_delivery
+            or order.fx_rate_at_creation
+            or Decimal("1500")
+        )
+        total_logistics = (order.shipping_cost or Decimal("0")) + (
+            order.clearing_cost or Decimal("0")
+        )
+        total_units = sum(li.quantity for li in order.line_items) or 1
+        new_logistics_per_unit = (
+            total_logistics / Decimal(str(total_units))
+        ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+        order_batches_result = await db.execute(
+            select(InventoryBatch).where(InventoryBatch.order_id == order_id)
+        )
+        for batch in order_batches_result.scalars().all():
+            batch.fx_rate_at_arrival = new_fx_rate
+            batch.logistics_allocation_per_unit = new_logistics_per_unit
+            batch.landed_cost_per_unit = compute_landed_cost(
+                batch.unit_cost_usd, new_fx_rate, new_logistics_per_unit
+            )
+            touched_batch_ids.add(batch.id)
+
     await db.flush()  # so the resum below reads the corrected batch costs
 
     if touched_batch_ids:

@@ -30,6 +30,7 @@ from src.orders.models import (
 )
 import src.suppliers.models  # noqa: F401 — register Supplier mapper for PurchaseOrder.supplier relationship
 from src.orders.schemas import (
+    OrderCostCorrectionRequest,
     OrderCreate,
     OrderLineItemCreate,
     OrderUpdate,
@@ -1727,6 +1728,137 @@ class TestCorrectDeliveredOrderCosts:
         assert mixed_sale.fifo_cogs == expected_cogs.quantize(Decimal("0.000001"))
         expected_profit = mixed_sale.total_amount - mixed_sale.fifo_cogs
         assert mixed_sale.fifo_gross_profit == expected_profit
+
+    @pytest.mark.asyncio
+    async def test_order_wide_fx_rate_and_shipping_cascade_to_every_batch(self):
+        """Correcting fx_rate_at_creation/shipping_cost (not a line-item
+        unit_cost) must recompute EVERY batch on the order — not just ones
+        tied to a specific line item — using the identical fallback/formula
+        transition_status()'s DELIVERED handling used to create them:
+        fx_rate = fx_rate_at_delivery or fx_rate_at_creation or 1500;
+        logistics_per_unit = (shipping_cost + clearing_cost) / total_units."""
+        from src.orders.service import correct_delivered_order_costs
+
+        item_a = _make_line_item(
+            product_id=uuid.uuid4(),
+            unit_cost=Decimal("5.26"),
+            quantity=80,
+            line_total=Decimal("420.80"),
+        )
+        item_b = _make_line_item(
+            product_id=uuid.uuid4(),
+            unit_cost=Decimal("6.55"),
+            quantity=20,
+            line_total=Decimal("131.00"),
+        )
+        order = _make_order(
+            status=OrderStatus.DELIVERED,
+            line_items=[item_a, item_b],
+            fx_rate_at_creation=Decimal("1600"),
+            fx_rate_at_delivery=None,
+            shipping_cost=Decimal("0"),
+            clearing_cost=Decimal("0"),
+        )
+
+        batch_a = InventoryBatch(
+            product_id=item_a.product_id,
+            order_id=order.id,
+            variant_id=None,
+            quantity_received=80,
+            quantity_remaining=80,
+            unit_cost_usd=Decimal("5.26"),
+            fx_rate_at_arrival=Decimal("1600"),
+            logistics_allocation_per_unit=Decimal("0"),
+            landed_cost_per_unit=Decimal("8416.000000"),
+            received_at=date(2026, 1, 14),
+            created_at=datetime.now(timezone.utc),
+        )
+        batch_a.id = uuid.uuid4()
+        batch_b = InventoryBatch(
+            product_id=item_b.product_id,
+            order_id=order.id,
+            variant_id=None,
+            quantity_received=20,
+            quantity_remaining=20,
+            unit_cost_usd=Decimal("6.55"),
+            fx_rate_at_arrival=Decimal("1600"),
+            logistics_allocation_per_unit=Decimal("0"),
+            landed_cost_per_unit=Decimal("10480.000000"),
+            received_at=date(2026, 1, 14),
+            created_at=datetime.now(timezone.utc),
+        )
+        batch_b.id = uuid.uuid4()
+
+        sale_id = uuid.uuid4()
+        fc = FifoConsumption(sale_id=sale_id, batch_id=batch_a.id, quantity_consumed=10)
+        sale = Sale(
+            id=sale_id,
+            product_id=item_a.product_id,
+            quantity=10,
+            unit_price=Decimal("12000"),
+            total_amount=Decimal("120000"),
+            currency="NGN",
+            sale_date=date(2026, 2, 1),
+            channel=SaleChannel.RETAIL,
+            recorded_by=uuid.uuid4(),
+            business_id=uuid.uuid4(),
+        )
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                # ALL batches on the order (order-wide correction path)
+                result.scalars.return_value.all.return_value = [batch_a, batch_b]
+            elif call_count == 3:
+                result.all.return_value = [(sale_id,)]
+            elif call_count == 4:
+                result.all.return_value = [(fc, batch_a.landed_cost_per_unit)]
+            elif call_count == 5:
+                result.scalar_one.return_value = sale
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        await correct_delivered_order_costs(
+            db,
+            order.id,
+            [],
+            fx_rate_at_creation=Decimal("1650"),
+            shipping_cost=Decimal("1000"),
+        )
+
+        assert order.fx_rate_at_creation == Decimal("1650")
+        assert order.shipping_cost == Decimal("1000")
+
+        # logistics_per_unit = (1000 + 0) / (80 + 20) = 10 per unit
+        for batch in (batch_a, batch_b):
+            assert batch.fx_rate_at_arrival == Decimal("1650")
+            assert batch.logistics_allocation_per_unit == Decimal("10.000000")
+        # batch_a: 5.26 * 1650 + 10 = 8679 + 10 = 8689
+        assert batch_a.landed_cost_per_unit == Decimal("8679.000000") + Decimal("10")
+        # batch_b: 6.55 * 1650 + 10 = 10807.5 + 10 = 10817.5
+        assert batch_b.landed_cost_per_unit == Decimal("10807.500000") + Decimal("10")
+
+        assert sale.fifo_cogs == 10 * batch_a.landed_cost_per_unit
+        assert sale.fifo_gross_profit == sale.total_amount - sale.fifo_cogs
+
+    def test_request_rejects_when_nothing_to_correct(self):
+        """Neither line-item corrections nor any order-wide field provided
+        — schema validation must reject before the service layer even
+        runs, matching how amount/fx_rate already validate at this layer."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            OrderCostCorrectionRequest(corrections=[])
 
 
 # ---------------------------------------------------------------------------

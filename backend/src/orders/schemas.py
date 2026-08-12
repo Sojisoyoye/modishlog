@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.orders.models import DiscountType, PayTermType
 
@@ -246,7 +246,29 @@ class LineItemCostCorrection(BaseModel):
 
 
 class OrderCostCorrectionRequest(BaseModel):
-    corrections: list[LineItemCostCorrection] = Field(..., min_length=1)
+    corrections: list[LineItemCostCorrection] = Field(default_factory=list)
+    # Order-wide fields — transition_status()'s DELIVERED handling bakes
+    # these into every batch's fx_rate_at_arrival/logistics_allocation_per_unit
+    # at delivery time (see fx_rate fallback: fx_rate_at_delivery or
+    # fx_rate_at_creation), so correcting them post-delivery needs the same
+    # cascade as a line-item unit_cost correction.
+    fx_rate_at_creation: Decimal | None = Field(None, gt=0)
+    shipping_cost: Decimal | None = Field(None, ge=0)
+    clearing_cost: Decimal | None = Field(None, ge=0)
+
+    @model_validator(mode="after")
+    def _at_least_one_correction(self) -> "OrderCostCorrectionRequest":
+        if (
+            not self.corrections
+            and self.fx_rate_at_creation is None
+            and self.shipping_cost is None
+            and self.clearing_cost is None
+        ):
+            raise ValueError(
+                "At least one of corrections, fx_rate_at_creation, "
+                "shipping_cost, or clearing_cost must be provided"
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------

@@ -581,7 +581,13 @@ async def correct_delivered_order_costs_endpoint(
     _check_ownership(existing.created_by, current_user)
     try:
         return await correct_delivered_order_costs(
-            db, order_id, body.corrections, business_id=business_id
+            db,
+            order_id,
+            body.corrections,
+            business_id=business_id,
+            fx_rate_at_creation=body.fx_rate_at_creation,
+            shipping_cost=body.shipping_cost,
+            clearing_cost=body.clearing_cost,
         )
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

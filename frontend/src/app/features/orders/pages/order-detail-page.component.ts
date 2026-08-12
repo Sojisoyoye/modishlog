@@ -21,6 +21,7 @@ import {
   OrderPayment,
   RecordPaymentPayload,
   UpdateOrderPayload,
+  LineItemCostCorrectionPayload,
 } from '../../../core/services/orders.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
 import { FxService } from '../../../core/services/fx.service';
@@ -1011,7 +1012,7 @@ export class OrderDetailPageComponent implements OnInit {
   recordingPayment = signal(false);
   deliveryFxRate: number | null = null;
 
-  editLineItems: { product_id: string; quantity: number; unit_cost: number; unit_cost_ngn: number | null; sell_price_ngn: number | null }[] = [];
+  editLineItems: { id?: string; product_id: string; quantity: number; unit_cost: number; unit_cost_ngn: number | null; sell_price_ngn: number | null }[] = [];
   editDeletedProductIds = signal<Set<string>>(new Set());
 
   editForm: {
@@ -1271,6 +1272,7 @@ export class OrderDetailPageComponent implements OnInit {
       location_id: o.location_id ?? '',
     };
     this.editLineItems = o.line_items.map((i) => ({
+      id: i.id,
       product_id: i.product_id,
       quantity: i.quantity,
       unit_cost: i.unit_cost,
@@ -1296,6 +1298,18 @@ export class OrderDetailPageComponent implements OnInit {
   saveEdit(): void {
     const o = this.order();
     if (!o) return;
+
+    // DELIVERED orders can't go through the general update — that's an
+    // intentional lock (retroactively editing quantities/supplier/dates on
+    // a delivered order corrupts FIFO cost calculations and payment
+    // status). Only unit_cost/fx_rate_at_creation/shipping_cost can be
+    // corrected post-delivery, via the narrow cost-corrections endpoint
+    // that cascades the change through inventory batches and sales COGS.
+    if (o.status === 'DELIVERED') {
+      this.saveDeliveredOrderCostCorrection(o);
+      return;
+    }
+
     this.saving.set(true);
     const payload: UpdateOrderPayload = {
       supplier_name: this.editForm.supplier_name || null,
@@ -1334,11 +1348,61 @@ export class OrderDetailPageComponent implements OnInit {
         this.editing.set(false);
         this.messageService.add({ severity: 'success', summary: 'Saved', detail: 'Order updated' });
       },
-      error: () => {
+      error: (err: HttpErrorResponse) => {
         this.saving.set(false);
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to save changes' });
+        const detail = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to save changes';
+        this.messageService.add({ severity: 'error', summary: 'Error', detail });
       },
     });
+  }
+
+  /** DELIVERED orders: only unit_cost/fx_rate_at_creation/shipping_cost can
+   * be corrected, via POST /orders/{id}/cost-corrections — cascades
+   * through inventory batches and already-recorded sales' FIFO COGS. */
+  private saveDeliveredOrderCostCorrection(o: OrderDetail): void {
+    const originalById = new Map(o.line_items.map((i) => [i.id, i]));
+    const corrections: LineItemCostCorrectionPayload[] = [];
+    for (const item of this.editLineItems) {
+      if (!item.id) continue;
+      const original = originalById.get(item.id);
+      if (original && Number(item.unit_cost) !== Number(original.unit_cost)) {
+        corrections.push({ line_item_id: item.id, new_unit_cost: item.unit_cost });
+      }
+    }
+
+    const fxChanged =
+      this.editForm.fx_rate_at_creation != null &&
+      Number(this.editForm.fx_rate_at_creation) !== Number(o.fx_rate_at_creation ?? null);
+    const shippingChanged =
+      this.editForm.shipping_cost_ngn != null &&
+      Number(this.editForm.shipping_cost_ngn) !== Number(o.shipping_cost ?? 0);
+
+    if (corrections.length === 0 && !fxChanged && !shippingChanged) {
+      this.editing.set(false);
+      return;
+    }
+
+    this.saving.set(true);
+    this.ordersService
+      .correctDeliveredOrderCosts(o.id, {
+        corrections,
+        fx_rate_at_creation: fxChanged ? this.editForm.fx_rate_at_creation : null,
+        shipping_cost: shippingChanged ? this.editForm.shipping_cost_ngn : null,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => {
+          this.order.set({ ...updated, payment_summary: o.payment_summary });
+          this.saving.set(false);
+          this.editing.set(false);
+          this.messageService.add({ severity: 'success', summary: 'Saved', detail: 'Order costs corrected' });
+        },
+        error: (err: HttpErrorResponse) => {
+          this.saving.set(false);
+          const detail = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to save changes';
+          this.messageService.add({ severity: 'error', summary: 'Error', detail });
+        },
+      });
   }
 
   transitionStatus(newStatus: string): void {
