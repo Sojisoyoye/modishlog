@@ -171,6 +171,79 @@ class TestSyncStateBusinessIsolation:
         assert added_sale.business_id == business_id
 
     @pytest.mark.asyncio
+    async def test_insert_sell_sets_transaction_id(self):
+        """_insert_sell must set transaction_id — sales/service.py's grouped
+        "All Sales" list only shows rows with a non-NULL transaction_id, so
+        a synced sale with transaction_id=None is permanently invisible
+        there even though it exists in the DB."""
+        from src.pos_sync.service import POSSyncService
+
+        business_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        db = AsyncMock()
+        db.flush = AsyncMock()
+
+        pos_client = MagicMock()
+        service = POSSyncService(db=db, pos_client=pos_client, business_id=business_id)
+
+        sell = _make_pos_sell(101)
+        name_map = {"test product": product_id}
+        system_user_id = uuid.uuid4()
+
+        await service._insert_sell(
+            sell, "101", name_map=name_map, system_user_id=system_user_id
+        )
+
+        added_sale = db.add.call_args[0][0]
+        assert added_sale.transaction_id is not None
+
+    @pytest.mark.asyncio
+    async def test_insert_sell_multi_line_shares_one_transaction_id(self):
+        """A multi-line POS sell must fan out into Sale rows sharing one
+        transaction_id, so they group into a single transaction in the UI
+        instead of appearing as unrelated sales."""
+        from src.pos_sync.service import POSSyncService
+
+        business_id = uuid.uuid4()
+        product_id_1 = uuid.uuid4()
+        product_id_2 = uuid.uuid4()
+        db = AsyncMock()
+        db.flush = AsyncMock()
+
+        pos_client = MagicMock()
+        service = POSSyncService(db=db, pos_client=pos_client, business_id=business_id)
+
+        sell = _make_pos_sell(101)
+        sell["sell_lines"] = [
+            {
+                "product_id": "1001",
+                "quantity": 1,
+                "unit_price": "5000.0",
+                "line_total": "5000.0",
+                "product": {"name": "Product One"},
+            },
+            {
+                "product_id": "1002",
+                "quantity": 2,
+                "unit_price": "2000.0",
+                "line_total": "4000.0",
+                "product": {"name": "Product Two"},
+            },
+        ]
+        name_map = {"product one": product_id_1, "product two": product_id_2}
+        system_user_id = uuid.uuid4()
+
+        rows = await service._insert_sell(
+            sell, "101", name_map=name_map, system_user_id=system_user_id
+        )
+
+        assert rows == 2
+        assert db.add.call_count == 2
+        added_sales = [call.args[0] for call in db.add.call_args_list]
+        assert added_sales[0].transaction_id is not None
+        assert added_sales[0].transaction_id == added_sales[1].transaction_id
+
+    @pytest.mark.asyncio
     async def test_insert_purchase_sets_business_id(self):
         """_insert_purchase creates PurchaseOrder with the correct business_id."""
         from src.pos_sync.service import POSSyncService

@@ -231,6 +231,12 @@ class POSSyncService:
         sell_date = self._parse_date(sell.get("transaction_date") or "")
         lines: list[dict] = sell.get("sell_lines") or []
         rows = 0
+        # One transaction_id per POS sell — sales/service.py's grouped "All
+        # Sales" list only shows rows with a non-NULL transaction_id, so a
+        # multi-line sell's line items must share one to appear as a single
+        # transaction there (see the identical fix in the data_import
+        # Transformer.transform_sales()).
+        transaction_id = uuid.uuid4()
 
         for line in lines:
             product_name: str = ""
@@ -261,6 +267,7 @@ class POSSyncService:
                 channel=SaleChannel.RETAIL,
                 status=SaleStatus.COMPLETED,
                 recorded_by=system_user_id,
+                transaction_id=transaction_id,
                 pos_id=pos_id,
                 invoice_number=sell.get("invoice_no"),
                 payment_status=sell.get("payment_status"),
