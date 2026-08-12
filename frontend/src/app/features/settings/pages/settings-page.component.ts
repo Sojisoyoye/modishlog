@@ -408,7 +408,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                   @for (t of marginTargets(); track t.id) {
-                    <tr>
+                    <tr data-testid="margin-target-row">
                       <td class="px-3 py-2 text-text">
                         @if (t.product_id) {
                           <span class="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">Product</span>
@@ -428,6 +428,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                           type="button"
                           (click)="marginTargetPendingDelete.set(t)"
                           title="Delete"
+                          data-testid="margin-target-delete-btn"
                           class="rounded p-1 text-muted transition-colors hover:bg-red-50 hover:text-danger"
                         >
                           <i class="pi pi-trash text-xs"></i>
@@ -448,6 +449,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
               <select
                 [(ngModel)]="mtForm.scope"
                 (ngModelChange)="mtForm.product_id = ''; mtForm.category_id = ''"
+                data-testid="margin-target-scope-select"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               >
                 <option value="product">Specific Product</option>
@@ -459,6 +461,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                 <label class="mb-1.5 block text-xs font-medium text-muted">Product</label>
                 <select
                   [(ngModel)]="mtForm.product_id"
+                  data-testid="margin-target-product-select"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
                 >
                   <option value="">Select product…</option>
@@ -470,6 +473,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                 <label class="mb-1.5 block text-xs font-medium text-muted">Category</label>
                 <select
                   [(ngModel)]="mtForm.category_id"
+                  data-testid="margin-target-category-select"
                   class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
                 >
                   <option value="">Select category…</option>
@@ -487,6 +491,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                 min="0"
                 max="100"
                 step="0.1"
+                data-testid="margin-target-target-pct-input"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               />
             </div>
@@ -498,6 +503,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                 min="0"
                 max="100"
                 step="0.1"
+                data-testid="margin-target-min-pct-input"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               />
             </div>
@@ -507,6 +513,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                 type="number"
                 [(ngModel)]="mtForm.priority"
                 min="1"
+                data-testid="margin-target-priority-input"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[44px]"
               />
             </div>
@@ -515,6 +522,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
             <button
               (click)="saveMarginTarget()"
               [disabled]="mtSaving() || !mtFormValid()"
+              data-testid="margin-target-save-btn"
               class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50 min-h-[44px]"
             >
               <i class="pi pi-plus text-sm"></i> Add Margin Target

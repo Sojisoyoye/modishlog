@@ -140,6 +140,15 @@ function coerceOrderDetail(o: OrderDetail): OrderDetail {
   return coerced as unknown as OrderDetail;
 }
 
+function coerceOrderPayment(p: OrderPayment): OrderPayment {
+  return {
+    ...p,
+    amount: Number(p.amount),
+    fx_rate: p.fx_rate != null ? Number(p.fx_rate) : null,
+    original_amount: p.original_amount != null ? Number(p.original_amount) : null,
+  };
+}
+
 @Injectable({ providedIn: 'root' })
 export class OrdersService {
   private readonly api = inject(ApiService);
@@ -237,19 +246,21 @@ export class OrdersService {
   }
 
   listPayments(orderId: string): Observable<OrderPayment[]> {
-    return this.api.get<OrderPayment[]>(`/orders/${orderId}/payments`);
+    return this.api.get<OrderPayment[]>(`/orders/${orderId}/payments`).pipe(
+      map((payments) => payments.map(coerceOrderPayment)),
+    );
   }
 
   recordPayment(orderId: string, data: RecordPaymentPayload): Observable<OrderPayment> {
-    return this.api.post<OrderPayment>(`/orders/${orderId}/payments`, data);
+    return this.api.post<OrderPayment>(`/orders/${orderId}/payments`, data).pipe(map(coerceOrderPayment));
   }
 
   voidPayment(orderId: string, paymentId: string): Observable<OrderPayment> {
-    return this.api.delete<OrderPayment>(`/orders/${orderId}/payments/${paymentId}`);
+    return this.api.delete<OrderPayment>(`/orders/${orderId}/payments/${paymentId}`).pipe(map(coerceOrderPayment));
   }
 
   updatePayment(orderId: string, paymentId: string, data: PaymentUpdatePayload): Observable<OrderPayment> {
-    return this.api.patch<OrderPayment>(`/orders/${orderId}/payments/${paymentId}`, data);
+    return this.api.patch<OrderPayment>(`/orders/${orderId}/payments/${paymentId}`, data).pipe(map(coerceOrderPayment));
   }
 
   correctDeliveredOrderCosts(orderId: string, data: OrderCostCorrectionPayload): Observable<Order> {
