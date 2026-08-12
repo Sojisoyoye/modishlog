@@ -443,3 +443,87 @@ export async function addStock(
     await ctx.dispose();
   }
 }
+
+/**
+ * Record a payment against an order via POST /orders/:id/payments.
+ */
+export async function recordPayment(
+  orderId: string,
+  options: { amount: string; currency?: string; fxRate?: string; paymentDate?: string; paymentMethod?: string } = { amount: '100.00' },
+): Promise<{ id: string }> {
+  const { amount, currency = 'USD', fxRate, paymentDate = new Date().toISOString().split('T')[0], paymentMethod = 'BANK_TRANSFER' } = options;
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const body: Record<string, unknown> = {
+      amount,
+      currency,
+      payment_date: paymentDate,
+      payment_method: paymentMethod,
+    };
+    if (fxRate) body['fx_rate'] = fxRate;
+    const resp = await ctx.post(`${API}/orders/${orderId}/payments`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: body,
+    });
+    if (!resp.ok()) throw new Error(`Record payment failed: ${resp.status()} ${await resp.text()}`);
+    return { id: (await resp.json()).id };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Fetch an order's full detail via GET /orders/:id.
+ */
+export async function getOrder(orderId: string): Promise<Record<string, unknown>> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.get(`${API}/orders/${orderId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok()) throw new Error(`Get order failed: ${resp.status()} ${await resp.text()}`);
+    return await resp.json();
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Create a margin target via POST /pricing/margins/target.
+ */
+export async function createMarginTarget(
+  data: { product_id?: string; category_id?: string; target_margin_pct: string; min_margin_pct: string; priority?: number },
+): Promise<{ id: string }> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.post(`${API}/pricing/margins/target`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data,
+    });
+    if (!resp.ok()) throw new Error(`Create margin target failed: ${resp.status()} ${await resp.text()}`);
+    return { id: (await resp.json()).id };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Delete a margin target via DELETE /pricing/margins/target/:id.
+ */
+export async function deleteMarginTarget(id: string): Promise<void> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.delete(`${API}/pricing/margins/target/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok() && resp.status() !== 404) {
+      throw new Error(`Delete margin target failed: ${resp.status()} ${await resp.text()}`);
+    }
+  } finally {
+    await ctx.dispose();
+  }
+}
