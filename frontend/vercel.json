@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build:staging",
+  "buildCommand": "if [ \"$VERCEL_ENV\" = \"production\" ]; then npm run build; else npm run build:staging; fi",
   "outputDirectory": "dist/frontend/browser",
   "installCommand": "npm ci",
   "framework": null,

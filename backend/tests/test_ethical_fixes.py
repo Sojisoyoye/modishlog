@@ -15,7 +15,7 @@ import pytest
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-NOW = datetime(2026, 7, 8, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc)
 
 
 def _make_ai_recommendation(**overrides):
