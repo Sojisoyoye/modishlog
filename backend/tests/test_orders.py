@@ -1570,6 +1570,292 @@ class TestPayments:
         assert order.payment_status == OrderPaymentStatus.UNPAID
 
 
+class TestUpdatePayment:
+    """update_payment() — editing an existing payment (e.g. correcting its
+    fx_rate so it fully covers the balance), not just void-and-re-record."""
+
+    @pytest.mark.asyncio
+    async def test_correcting_fx_rate_recomputes_converted_amount(self):
+        """The real use case: a payment was recorded at the wrong rate;
+        editing just the fx_rate re-derives amount from the payment's own
+        original_amount/original_currency (not its already-converted
+        amount), so a smaller/larger rate correctly changes how much of
+        the order's balance this payment actually covers."""
+        from src.orders.schemas import PaymentUpdate
+        from src.orders.service import update_payment
+
+        order = _make_order(total_amount=Decimal("19180.26"), currency="USD")
+        payment = OrderPayment(
+            order_id=order.id,
+            amount=Decimal("2123.239382"),  # 3,142,000 / 1480 (the wrong rate)
+            currency="USD",
+            fx_rate=Decimal("1480"),
+            original_amount=Decimal("3142000"),
+            original_currency="NGN",
+            payment_date=date(2026, 2, 19),
+            payment_method=PaymentMethod.BANK_TRANSFER,
+            status=PaymentStatus.COMPLETED,
+            recorded_by=uuid.uuid4(),
+            created_at=datetime.now(timezone.utc),
+        )
+        payment.id = uuid.uuid4()
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = payment
+            elif call_count == 3:
+                # get_order() inside get_payment_summary()
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 4:
+                # sum/count in get_payment_summary — this payment's OWN old
+                # amount is still counted here (not yet mutated)
+                result.one.return_value = (Decimal("2123.239382"), 1)
+            elif call_count == 5:
+                # sum in _sync_payment_status, post-mutation
+                result.scalar.return_value = Decimal("19180.260000")
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        # New rate chosen so ₦3,142,000 exactly covers the remaining
+        # balance: 3,142,000 / (19180.26 - 0) is not it — the order also
+        # has no other payments here, so the rate that exactly zeroes the
+        # balance is 3,142,000 / 19,180.26.
+        new_rate = (Decimal("3142000") / Decimal("19180.26")).quantize(Decimal("0.000001"))
+        result = await update_payment(
+            db, order.id, payment.id, PaymentUpdate(fx_rate=new_rate)
+        )
+
+        assert result.fx_rate == new_rate
+        assert result.original_amount == Decimal("3142000")
+        assert result.original_currency == "NGN"
+        assert result.amount == (Decimal("3142000") / new_rate).quantize(Decimal("0.000001"))
+        assert order.payment_status == OrderPaymentStatus.PAID
+
+    @pytest.mark.asyncio
+    async def test_rejects_editing_a_voided_payment(self):
+        from src.orders.exceptions import PaymentAlreadyVoidedError
+        from src.orders.schemas import PaymentUpdate
+        from src.orders.service import update_payment
+
+        order = _make_order()
+        payment = OrderPayment(
+            order_id=order.id,
+            amount=Decimal("1000"),
+            currency="USD",
+            payment_date=date(2026, 3, 15),
+            payment_method=PaymentMethod.BANK_TRANSFER,
+            status=PaymentStatus.VOIDED,
+            recorded_by=uuid.uuid4(),
+            created_at=datetime.now(timezone.utc),
+        )
+        payment.id = uuid.uuid4()
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = payment
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with pytest.raises(PaymentAlreadyVoidedError):
+            await update_payment(
+                db, order.id, payment.id, PaymentUpdate(fx_rate=Decimal("1500"))
+            )
+
+    @pytest.mark.asyncio
+    async def test_overpayment_check_excludes_this_payments_own_amount(self):
+        """A payment must be editable up to (balance + its own current
+        amount) — not rejected just because its existing amount is already
+        counted in today's balance_remaining."""
+        from src.orders.schemas import PaymentUpdate
+        from src.orders.service import update_payment
+
+        order = _make_order(total_amount=Decimal("5000"), currency="USD")
+        payment = OrderPayment(
+            order_id=order.id,
+            amount=Decimal("1000"),
+            currency="USD",
+            payment_date=date(2026, 3, 15),
+            payment_method=PaymentMethod.BANK_TRANSFER,
+            status=PaymentStatus.COMPLETED,
+            recorded_by=uuid.uuid4(),
+            created_at=datetime.now(timezone.utc),
+        )
+        payment.id = uuid.uuid4()
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = payment
+            elif call_count == 3:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 4:
+                # total_paid=1000 (just this payment) -> balance=4000;
+                # balance excluding this payment = 4000 + 1000 = 5000
+                result.one.return_value = (Decimal("1000"), 1)
+            elif call_count == 5:
+                # sum in _sync_payment_status, post-mutation
+                result.scalar.return_value = Decimal("5000")
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        # Within the allowed ceiling (5000) — must NOT raise.
+        await update_payment(
+            db, order.id, payment.id, PaymentUpdate(amount=Decimal("5000"))
+        )
+
+    @pytest.mark.asyncio
+    async def test_overpayment_still_rejected_beyond_the_ceiling(self):
+        from src.orders.exceptions import OverpaymentError
+        from src.orders.schemas import PaymentUpdate
+        from src.orders.service import update_payment
+
+        order = _make_order(total_amount=Decimal("5000"), currency="USD")
+        payment = OrderPayment(
+            order_id=order.id,
+            amount=Decimal("1000"),
+            currency="USD",
+            payment_date=date(2026, 3, 15),
+            payment_method=PaymentMethod.BANK_TRANSFER,
+            status=PaymentStatus.COMPLETED,
+            recorded_by=uuid.uuid4(),
+            created_at=datetime.now(timezone.utc),
+        )
+        payment.id = uuid.uuid4()
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = payment
+            elif call_count == 3:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 4:
+                result.one.return_value = (Decimal("1000"), 1)
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with pytest.raises(OverpaymentError):
+            await update_payment(
+                db, order.id, payment.id, PaymentUpdate(amount=Decimal("5000.01"))
+            )
+
+
+class TestPaymentBalanceTolerance:
+    """Multi-currency payments are converted via amount/fx_rate division
+    (see _convert_to_order_currency), which leaves a sub-cent residue once
+    several converted amounts are summed. A truly-settled order shouldn't
+    stay stuck on PARTIAL/"Partially Paid" because of that residue."""
+
+    @pytest.mark.asyncio
+    async def test_sync_payment_status_treats_subcent_residue_as_paid(self):
+        """Real-world case: PO-2026-00004's three NGN payments converted to
+        USD sum to 19180.259995 against a 19180.26 total — a $0.000005
+        shortfall from real Decimal division, not a mocked exact match."""
+        from src.orders.models import OrderPaymentStatus
+        from src.orders.service import _sync_payment_status
+
+        order = _make_order(total_amount=Decimal("19180.26"), currency="USD")
+        total_paid = (
+            Decimal("4800000") / Decimal("1480")
+            + Decimal("3142000") / Decimal("1363")
+            + Decimal("19042334") / Decimal("1396.904540")
+        ).quantize(Decimal("0.000001"))
+
+        db = _mock_db()
+        result = MagicMock()
+        result.scalar.return_value = total_paid
+        db.execute = AsyncMock(return_value=result)
+
+        await _sync_payment_status(db, order)
+
+        assert order.total_amount - total_paid <= Decimal("0.01")
+        assert order.payment_status == OrderPaymentStatus.PAID
+
+    @pytest.mark.asyncio
+    async def test_sync_payment_status_still_partial_beyond_tolerance(self):
+        """A real outstanding balance (well above the sub-cent tolerance)
+        must still be reported as PARTIAL, not silently marked PAID."""
+        from src.orders.models import OrderPaymentStatus
+        from src.orders.service import _sync_payment_status
+
+        order = _make_order(total_amount=Decimal("19180.26"), currency="USD")
+        db = _mock_db()
+        result = MagicMock()
+        result.scalar.return_value = Decimal("19175.00")  # $5.26 short
+        db.execute = AsyncMock(return_value=result)
+
+        await _sync_payment_status(db, order)
+
+        assert order.payment_status == OrderPaymentStatus.PARTIAL
+
+    @pytest.mark.asyncio
+    async def test_get_payment_summary_is_fully_paid_within_tolerance(self):
+        from src.orders.service import get_payment_summary
+
+        order = _make_order(total_amount=Decimal("19180.26"), currency="USD")
+        total_paid = Decimal("19180.259995")
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            else:
+                result.one.return_value = (total_paid, 3)
+            return result
+
+        db.execute = mock_execute
+
+        summary = await get_payment_summary(db, order.id, order.created_by)
+
+        assert summary.is_fully_paid is True
+
+
 class TestCorrectDeliveredOrderCosts:
     """correct_delivered_order_costs() — the narrow, DELIVERED-only cost
     correction that update_order() deliberately can't do (task 179)."""
@@ -1851,6 +2137,96 @@ class TestCorrectDeliveredOrderCosts:
         assert sale.fifo_cogs == 10 * batch_a.landed_cost_per_unit
         assert sale.fifo_gross_profit == sale.total_amount - sale.fifo_cogs
 
+    @pytest.mark.asyncio
+    async def test_fx_rate_at_delivery_correction_takes_priority_over_creation_rate(self):
+        """fx_rate_at_delivery was never set on the order (the input only
+        ever appeared during the DELIVERED transition itself), so COGS was
+        booked at fx_rate_at_creation. Correcting fx_rate_at_delivery here
+        must persist it AND take priority over fx_rate_at_creation for the
+        batch recompute — matching transition_status()'s own fallback."""
+        from src.orders.service import correct_delivered_order_costs
+
+        item = _make_line_item(
+            product_id=uuid.uuid4(), unit_cost=Decimal("5.26"), quantity=80
+        )
+        order = _make_order(
+            status=OrderStatus.DELIVERED,
+            line_items=[item],
+            fx_rate_at_creation=Decimal("1400"),
+            fx_rate_at_delivery=None,
+            shipping_cost=Decimal("0"),
+            clearing_cost=Decimal("0"),
+        )
+        batch = InventoryBatch(
+            product_id=item.product_id,
+            order_id=order.id,
+            variant_id=None,
+            quantity_received=80,
+            quantity_remaining=80,
+            unit_cost_usd=Decimal("5.26"),
+            fx_rate_at_arrival=Decimal("1400"),
+            logistics_allocation_per_unit=Decimal("0"),
+            landed_cost_per_unit=Decimal("7364.000000"),
+            received_at=date(2026, 7, 3),
+            created_at=datetime.now(timezone.utc),
+        )
+        batch.id = uuid.uuid4()
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalars.return_value.all.return_value = [batch]
+            elif call_count == 3:
+                result.all.return_value = []  # no sales consumed from it
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        await correct_delivered_order_costs(
+            db, order.id, [], fx_rate_at_delivery=Decimal("1480")
+        )
+
+        assert order.fx_rate_at_delivery == Decimal("1480")
+        assert order.fx_rate_at_creation == Decimal("1400")  # untouched
+        assert batch.fx_rate_at_arrival == Decimal("1480")
+        assert batch.landed_cost_per_unit == Decimal("5.26") * Decimal("1480")
+
+    def test_request_accepts_fx_rate_at_delivery_alone(self):
+        req = OrderCostCorrectionRequest(corrections=[], fx_rate_at_delivery=Decimal("1480"))
+        assert req.fx_rate_at_delivery == Decimal("1480")
+
+    @pytest.mark.asyncio
+    async def test_shipping_details_persists_without_touching_costs(self):
+        """shipping_details is plain descriptive text (e.g. a tracking
+        note) with no COGS impact — it must persist on the order without
+        triggering the batch/FIFO cascade that fx_rate_at_creation and
+        shipping_cost correctly do trigger."""
+        from src.orders.service import correct_delivered_order_costs
+
+        order = _make_order(status=OrderStatus.DELIVERED, shipping_details="old note")
+
+        db = _mock_db()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = order
+        db.execute = AsyncMock(return_value=result)
+
+        updated = await correct_delivered_order_costs(
+            db, order.id, [], shipping_details="Shipped via DHL, tracking #12345"
+        )
+
+        assert updated.shipping_details == "Shipped via DHL, tracking #12345"
+        # only the get_order() lookup ran — no batch/sale cascade query
+        assert db.execute.await_count == 1
+
     def test_request_rejects_when_nothing_to_correct(self):
         """Neither line-item corrections nor any order-wide field provided
         — schema validation must reject before the service layer even
@@ -1859,6 +2235,138 @@ class TestCorrectDeliveredOrderCosts:
 
         with pytest.raises(ValidationError):
             OrderCostCorrectionRequest(corrections=[])
+
+    def test_request_accepts_shipping_details_alone(self):
+        """shipping_details alone is a valid correction — no cost field or
+        line-item correction required."""
+        req = OrderCostCorrectionRequest(corrections=[], shipping_details="Shipped via DHL")
+        assert req.shipping_details == "Shipped via DHL"
+
+
+class TestRevertDeliveredOrder:
+    """revert_delivered_order() — undo a DELIVERED transition made in
+    error, back to CLEARED. Narrowly gated: only allowed while nothing has
+    been sold from the batches that delivery created (task 94 keeps
+    DELIVERED locked otherwise, to protect FIFO/COGS history)."""
+
+    @pytest.mark.asyncio
+    async def test_reverts_untouched_delivery_back_to_cleared(self):
+        from src.orders.service import revert_delivered_order
+
+        item = _make_line_item(product_id=uuid.uuid4(), quantity=80)
+        item.units_remaining = Decimal("80")
+        order = _make_order(
+            status=OrderStatus.DELIVERED,
+            line_items=[item],
+            actual_delivery_date=date(2026, 7, 3),
+            fx_rate_at_delivery=Decimal("1480"),
+        )
+        batch = InventoryBatch(
+            product_id=item.product_id,
+            order_id=order.id,
+            variant_id=None,
+            quantity_received=80,
+            quantity_remaining=80,
+            unit_cost_usd=Decimal("5.26"),
+            fx_rate_at_arrival=Decimal("1480"),
+            logistics_allocation_per_unit=Decimal("0"),
+            landed_cost_per_unit=Decimal("7784.800000"),
+            received_at=date(2026, 7, 3),
+            created_at=datetime.now(timezone.utc),
+        )
+        batch.id = uuid.uuid4()
+
+        inventory = _make_inventory(product_id=item.product_id, quantity_on_hand=80)
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                # batches for the order
+                result.scalars.return_value.all.return_value = [batch]
+            elif call_count == 3:
+                # no FifoConsumption rows for this batch
+                result.scalar_one_or_none.return_value = None
+            elif call_count == 4:
+                # adjust_stock()'s InventoryLevel lookup (with_for_update)
+                result.scalar_one_or_none.return_value = inventory
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        updated = await revert_delivered_order(db, order.id, uuid.uuid4())
+
+        assert updated.status == OrderStatus.CLEARED
+        assert updated.actual_delivery_date is None
+        assert updated.fx_rate_at_delivery is None
+        assert item.units_remaining is None
+        assert inventory.quantity_on_hand == 0
+        db.delete.assert_called_once_with(batch)
+
+    @pytest.mark.asyncio
+    async def test_rejects_when_batch_already_sold_from(self):
+        from src.orders.exceptions import OrderAlreadyConsumedError
+        from src.orders.service import revert_delivered_order
+
+        item = _make_line_item(product_id=uuid.uuid4(), quantity=80)
+        order = _make_order(status=OrderStatus.DELIVERED, line_items=[item])
+        batch = InventoryBatch(
+            product_id=item.product_id,
+            order_id=order.id,
+            variant_id=None,
+            quantity_received=80,
+            quantity_remaining=70,  # 10 already sold
+            unit_cost_usd=Decimal("5.26"),
+            fx_rate_at_arrival=Decimal("1480"),
+            logistics_allocation_per_unit=Decimal("0"),
+            landed_cost_per_unit=Decimal("7784.800000"),
+            received_at=date(2026, 7, 3),
+            created_at=datetime.now(timezone.utc),
+        )
+        batch.id = uuid.uuid4()
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalars.return_value.all.return_value = [batch]
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with pytest.raises(OrderAlreadyConsumedError) as exc_info:
+            await revert_delivered_order(db, order.id, uuid.uuid4())
+        assert order.order_number in str(exc_info.value)
+        assert str(order.id) not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_delivered_order(self):
+        from src.orders.exceptions import OrderNotDeliveredError
+        from src.orders.service import revert_delivered_order
+
+        order = _make_order(status=OrderStatus.CLEARED)
+        db = _mock_db_with_execute(scalar_result=order)
+
+        with pytest.raises(OrderNotDeliveredError) as exc_info:
+            await revert_delivered_order(db, order.id, uuid.uuid4())
+        assert order.order_number in str(exc_info.value)
+        assert str(order.id) not in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

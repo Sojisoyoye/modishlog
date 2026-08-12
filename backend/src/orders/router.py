@@ -22,11 +22,13 @@ from src.orders.exceptions import (
     InvalidStatusTransitionError,
     LineItemNotFoundError,
     MissingFxRateError,
+    OrderAlreadyConsumedError,
     OrderLineItemError,
     OrderNotDeliveredError,
     OrderNotEditableError,
     OrderNotFoundError,
     OverpaymentError,
+    PaymentAlreadyVoidedError,
     PaymentNotFoundError,
     PurchaseReturnNotFoundError,
 )
@@ -47,6 +49,7 @@ from src.orders.schemas import (
     PaymentCreate,
     PaymentRead,
     PaymentSummary,
+    PaymentUpdate,
     PurchaseReturnCreate,
     PurchaseReturnListResponse,
     PurchaseReturnRead,
@@ -61,6 +64,7 @@ from src.orders.service import (
     correct_delivered_order_costs,
     create_order,
     create_purchase_return,
+    derive_payment_status,
     get_logistics_efficiency,
     get_order,
     get_order_status_counts,
@@ -76,8 +80,10 @@ from src.orders.service import (
     list_purchase_returns,
     parse_products_from_file,
     record_payment,
+    revert_delivered_order,
     transition_status,
     update_order,
+    update_payment,
     void_payment,
 )
 
@@ -142,12 +148,7 @@ async def list_orders_endpoint(
         r = OrderRead.model_validate(order)
         r.total_paid = paid_map.get(order.id, Decimal("0"))
         r.balance_remaining = order.total_amount - r.total_paid
-        if r.total_paid == 0:
-            r.payment_status = "UNPAID"
-        elif r.balance_remaining <= 0:
-            r.payment_status = "PAID"
-        else:
-            r.payment_status = "PARTIAL"
+        r.payment_status = derive_payment_status(r.total_paid, r.balance_remaining)
         order_reads.append(r)
 
     return OrderListResponse(
@@ -423,12 +424,7 @@ async def get_order_endpoint(
         order_data.payment_summary = summary
         order_data.total_paid = summary.total_paid
         order_data.balance_remaining = summary.balance_remaining
-        if summary.total_paid == 0:
-            order_data.payment_status = "UNPAID"
-        elif summary.is_fully_paid:
-            order_data.payment_status = "PAID"
-        else:
-            order_data.payment_status = "PARTIAL"
+        order_data.payment_status = derive_payment_status(summary.total_paid, summary.balance_remaining)
         return order_data
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -586,8 +582,10 @@ async def correct_delivered_order_costs_endpoint(
             body.corrections,
             business_id=business_id,
             fx_rate_at_creation=body.fx_rate_at_creation,
+            fx_rate_at_delivery=body.fx_rate_at_delivery,
             shipping_cost=body.shipping_cost,
             clearing_cost=body.clearing_cost,
+            shipping_details=body.shipping_details,
         )
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -595,6 +593,34 @@ async def correct_delivered_order_costs_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except LineItemNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.post("/{order_id}/revert-delivery", response_model=OrderRead)
+async def revert_delivered_order_endpoint(
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Undo a DELIVERED transition back to CLEARED — only allowed while
+    every inventory batch it created is still untouched (nothing sold from
+    it yet). Same ownership gate as every other order mutation, not
+    require_admin (see task 177)."""
+    try:
+        existing = await get_order(db, order_id, business_id=business_id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(existing.created_by, current_user)
+    try:
+        return await revert_delivered_order(
+            db, order_id, current_user.id, business_id=business_id
+        )
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except OrderNotDeliveredError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except OrderAlreadyConsumedError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("/{order_id}/payments", response_model=list[PaymentRead])
@@ -627,6 +653,37 @@ async def payment_summary_endpoint(
         return await get_payment_summary(db, order_id, business_id)
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.patch("/{order_id}/payments/{payment_id}", response_model=PaymentRead)
+async def update_payment_endpoint(
+    order_id: uuid.UUID,
+    payment_id: uuid.UUID,
+    body: PaymentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Edit an existing (non-voided) payment — e.g. correcting its fx_rate."""
+    try:
+        existing = await get_order(db, order_id, business_id=business_id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(existing.created_by, current_user)
+    try:
+        return await update_payment(
+            db, order_id, payment_id, body, business_id=business_id
+        )
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except PaymentNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except PaymentAlreadyVoidedError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except OverpaymentError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except MissingFxRateError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.delete("/{order_id}/payments/{payment_id}", response_model=PaymentRead)

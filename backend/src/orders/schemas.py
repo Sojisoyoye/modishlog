@@ -216,6 +216,23 @@ class PaymentCreate(BaseModel):
     notes: str | None = None
 
 
+class PaymentUpdate(BaseModel):
+    """Partial update — only fields actually provided are changed. amount/
+    currency/fx_rate mean the same thing as on PaymentCreate: what was
+    actually paid, in what currency, at what rate. Omitted fields keep the
+    payment's current value (falling back to its original_amount/
+    original_currency when re-deriving the raw paid figure, not its
+    already-converted amount/currency)."""
+
+    amount: Decimal | None = Field(None, gt=0)
+    currency: str | None = None
+    fx_rate: Decimal | None = Field(None, gt=0)
+    payment_date: date | None = None
+    payment_method: str | None = Field(None, pattern="^(BANK_TRANSFER|LC|CASH)$")
+    reference: str | None = None
+    notes: str | None = None
+
+
 class PaymentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -253,16 +270,28 @@ class OrderCostCorrectionRequest(BaseModel):
     # fx_rate_at_creation), so correcting them post-delivery needs the same
     # cascade as a line-item unit_cost correction.
     fx_rate_at_creation: Decimal | None = Field(None, gt=0)
+    # The rate transition_status()'s DELIVERED handling actually prefers
+    # (fx_rate_at_delivery, falling back to fx_rate_at_creation) — was
+    # never set on some orders because the "FX Rate at Delivery" input
+    # only appears during the (now-past) DELIVERED transition itself, with
+    # no way to set/correct it afterward. Correctable here for that reason.
+    fx_rate_at_delivery: Decimal | None = Field(None, gt=0)
     shipping_cost: Decimal | None = Field(None, ge=0)
     clearing_cost: Decimal | None = Field(None, ge=0)
+    # Plain descriptive text (e.g. a carrier/tracking note) — no COGS
+    # impact, so it's persisted directly without the batch/FIFO cascade
+    # the cost fields above trigger.
+    shipping_details: str | None = None
 
     @model_validator(mode="after")
     def _at_least_one_correction(self) -> "OrderCostCorrectionRequest":
         if (
             not self.corrections
             and self.fx_rate_at_creation is None
+            and self.fx_rate_at_delivery is None
             and self.shipping_cost is None
             and self.clearing_cost is None
+            and self.shipping_details is None
         ):
             raise ValueError(
                 "At least one of corrections, fx_rate_at_creation, "
