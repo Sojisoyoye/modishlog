@@ -8,7 +8,7 @@ from decimal import ROUND_HALF_UP, Decimal
 import pandas as pd
 import structlog
 from scipy.optimize import minimize
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,10 +16,12 @@ from src.core.config import settings
 from src.core.query_helpers import variant_or_untagged_filter
 from src.fx.service import get_live_usdngn_rate
 from src.orders.models import OrderLineItem, PurchaseOrder
+from src.orders.service import get_order
 from src.fx.exceptions import ForecastTimeoutError
 from src.pricing.exceptions import (
     ElasticityNotFoundError,
     InsufficientPriceDataError,
+    MarginTargetNotFoundError,
     MixTargetSumError,
     OptimizationInfeasibleError,
     PricingSuggestionError,
@@ -429,6 +431,25 @@ async def get_margin_targets(
         .order_by(MarginTarget.priority.desc())
     )
     return list(result.scalars().all())
+
+
+async def delete_margin_target(
+    db: AsyncSession,
+    target_id: uuid.UUID,
+    business_id: uuid.UUID,
+) -> None:
+    """Delete a margin target — business-scoped so one business can't
+    delete another's targets by guessing IDs."""
+    result = await db.execute(
+        select(MarginTarget).where(
+            MarginTarget.id == target_id, MarginTarget.business_id == business_id
+        )
+    )
+    target = result.scalar_one_or_none()
+    if target is None:
+        raise MarginTargetNotFoundError(target_id)
+    await db.delete(target)
+    await db.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -1225,11 +1246,92 @@ async def get_selling_price_suggestion(
 # ---------------------------------------------------------------------------
 
 
+def _pick_margin_target_pct(
+    margin_targets: list[MarginTarget], product: Product | None
+) -> Decimal | None:
+    """Most-specific-wins: a product-level MarginTarget beats a
+    category-level one regardless of priority — priority only breaks ties
+    among rows at the SAME specificity (e.g. two product-level rows for
+    the same product). Returns a 0-1 fraction (MarginTarget stores 0-100,
+    e.g. 35.00 for 35%) or None if no MarginTarget applies."""
+    if product is None:
+        return None
+
+    product_rows = sorted(
+        (t for t in margin_targets if t.product_id == product.id),
+        key=lambda t: t.priority,
+        reverse=True,
+    )
+    if product_rows:
+        return product_rows[0].target_margin_pct / Decimal("100")
+
+    category_ids = []
+    if product.category_id is not None:
+        category_ids.append(product.category_id)
+    if product.category is not None and product.category.parent_id is not None:
+        category_ids.append(product.category.parent_id)
+    category_rows = sorted(
+        (t for t in margin_targets if t.category_id in category_ids),
+        key=lambda t: t.priority,
+        reverse=True,
+    )
+    if category_rows:
+        return category_rows[0].target_margin_pct / Decimal("100")
+
+    return None
+
+
+def _resolve_target_margin(
+    product: Product | None, margin_targets: list[MarginTarget] | None = None
+) -> Decimal:
+    """Settings-configured MarginTarget (product → category → parent
+    category) → ProductCategory.default_margin_pct (sub-category →
+    parent) → system default (40%). Shared by every price-suggestion path
+    so they can't drift out of sync."""
+    picked = _pick_margin_target_pct(margin_targets or [], product)
+    if picked is not None:
+        return picked
+    if product and product.category:
+        if product.category.default_margin_pct is not None:
+            return product.category.default_margin_pct
+        if (
+            product.category.parent is not None
+            and product.category.parent.default_margin_pct is not None
+        ):
+            return product.category.parent.default_margin_pct
+    return Decimal("0.40")
+
+
+async def _fetch_margin_targets(
+    db: AsyncSession,
+    business_id: uuid.UUID | None,
+    product_ids: set[uuid.UUID],
+    category_ids: set[uuid.UUID],
+) -> list[MarginTarget]:
+    """Batch-fetch every MarginTarget row that could apply to the given
+    products/categories, in one query — callers resolve per-item via
+    _resolve_target_margin() instead of querying per line item."""
+    if business_id is None or (not product_ids and not category_ids):
+        return []
+    conditions = []
+    if product_ids:
+        conditions.append(MarginTarget.product_id.in_(product_ids))
+    if category_ids:
+        conditions.append(MarginTarget.category_id.in_(category_ids))
+    result = await db.execute(
+        select(MarginTarget).where(
+            MarginTarget.business_id == business_id, or_(*conditions)
+        )
+    )
+    return list(result.scalars().all())
+
+
 async def compute_suggestion(
     db: AsyncSession,
     product_id: uuid.UUID,
     target_margin: Decimal | None = None,
     variant_id: uuid.UUID | None = None,
+    business_id: uuid.UUID | None = None,
 ) -> "PriceSuggestion":  # noqa: F821 — forward ref resolved at runtime
     """Compute and persist a sell-price suggestion from active lot cost basis.
 
@@ -1314,18 +1416,22 @@ async def compute_suggestion(
     )
     product = prod_result.scalar_one_or_none()
 
-    # Resolve effective margin: caller override → sub-category → parent → system default
+    # Resolve effective margin: caller override → MarginTarget (Settings) →
+    # sub-category → parent → system default
     if target_margin is None:
-        if product and product.category:
-            if product.category.default_margin_pct is not None:
-                target_margin = product.category.default_margin_pct
-            elif (
-                product.category.parent is not None
-                and product.category.parent.default_margin_pct is not None
-            ):
-                target_margin = product.category.parent.default_margin_pct
-        if target_margin is None:
-            target_margin = Decimal("0.40")
+        category_ids: set[uuid.UUID] = set()
+        if product and product.category_id is not None:
+            category_ids.add(product.category_id)
+        if (
+            product
+            and product.category is not None
+            and product.category.parent_id is not None
+        ):
+            category_ids.add(product.category.parent_id)
+        margin_targets = await _fetch_margin_targets(
+            db, business_id, product_ids={product_id}, category_ids=category_ids
+        )
+        target_margin = _resolve_target_margin(product, margin_targets)
 
     # Suggested price
     margin_factor = Decimal("1") - target_margin
@@ -1374,6 +1480,97 @@ async def compute_suggestion(
         margin=str(target_margin),
     )
     return suggestion
+
+
+async def suggest_prices_for_order(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
+) -> dict:
+    """Per-line-item selling-price suggestions for a purchase order.
+
+    Unlike compute_suggestion() (lot-based, requires units_remaining > 0 —
+    i.e. the order must already be DELIVERED), this costs directly off the
+    order's own line items, so it works at any status, including before
+    delivery. Always uses the LIVE current FX rate (not the order's own
+    booked fx_rate_at_creation/fx_rate_at_delivery) — the point is "what
+    would I price this at today", not "what did it cost historically".
+
+    Same shipping/clearing logistics-per-unit formula as
+    transition_status()'s DELIVERED handling and correct_delivered_order_
+    costs() (orders/service.py), and the same MarginTarget → category →
+    parent → 40% margin resolution as compute_suggestion(), via
+    _resolve_target_margin() — MarginTarget rows are batch-fetched once
+    for the whole order rather than per line item.
+    """
+    order = await get_order(db, order_id, business_id)
+
+    fx_rate, _, _ = await get_live_usdngn_rate(db)
+
+    total_logistics = (order.shipping_cost or Decimal("0")) + (
+        order.clearing_cost or Decimal("0")
+    )
+    total_units = sum(li.quantity for li in order.line_items) or 1
+    logistics_per_unit = (total_logistics / Decimal(str(total_units))).quantize(
+        Decimal("0.000001"), rounding=ROUND_HALF_UP
+    )
+
+    product_ids = {li.product_id for li in order.line_items}
+    products_by_id: dict[uuid.UUID, Product] = {}
+    if product_ids:
+        prod_result = await db.execute(
+            select(Product)
+            .options(selectinload(Product.category).selectinload(ProductCategory.parent))
+            .where(Product.id.in_(product_ids))
+        )
+        products_by_id = {p.id: p for p in prod_result.scalars().all()}
+
+    category_ids: set[uuid.UUID] = set()
+    for p in products_by_id.values():
+        if p.category_id is not None:
+            category_ids.add(p.category_id)
+        if p.category is not None and p.category.parent_id is not None:
+            category_ids.add(p.category.parent_id)
+    margin_targets = await _fetch_margin_targets(
+        db, business_id, product_ids=product_ids, category_ids=category_ids
+    )
+
+    items = []
+    for li in order.line_items:
+        if li.unit_cost_ngn is not None:
+            cost_ngn = li.unit_cost_ngn
+        elif order.currency == "USD":
+            cost_ngn = li.unit_cost * fx_rate
+        else:
+            cost_ngn = li.unit_cost
+        landed_cost_ngn = (cost_ngn + logistics_per_unit).quantize(
+            Decimal("0.000001"), rounding=ROUND_HALF_UP
+        )
+
+        product = products_by_id.get(li.product_id)
+        target_margin = _resolve_target_margin(product, margin_targets)
+        margin_factor = Decimal("1") - target_margin
+        suggested_price = (
+            (landed_cost_ngn / margin_factor).quantize(
+                Decimal("0.000001"), rounding=ROUND_HALF_UP
+            )
+            if margin_factor > 0
+            else None
+        )
+
+        items.append(
+            {
+                "line_item_id": li.id,
+                "product_id": li.product_id,
+                "product_name": product.name if product else "",
+                "unit_cost_ngn": landed_cost_ngn,
+                "current_price_ngn": product.selling_price if product else None,
+                "target_margin_pct": target_margin,
+                "suggested_price_ngn": suggested_price,
+            }
+        )
+
+    return {"order_id": order.id, "fx_rate_used": fx_rate, "items": items}
 
 
 async def get_suggestion_history(
