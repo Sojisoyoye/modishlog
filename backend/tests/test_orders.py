@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 
 from src.auth.service import build_token
 from src.core.security import get_password_hash
-from src.inventory.models import InventoryLevel
+from src.inventory.models import FifoConsumption, InventoryBatch, InventoryLevel
+from src.sales.models import Sale, SaleChannel
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
     MissingFxRateError,
@@ -1566,6 +1567,166 @@ class TestPayments:
         result = await void_payment(db, order.id, payment.id, uuid.uuid4())
         assert result.status == PaymentStatus.VOIDED
         assert order.payment_status == OrderPaymentStatus.UNPAID
+
+
+class TestCorrectDeliveredOrderCosts:
+    """correct_delivered_order_costs() — the narrow, DELIVERED-only cost
+    correction that update_order() deliberately can't do (task 179)."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_delivered_order(self):
+        from src.orders.exceptions import OrderNotDeliveredError
+        from src.orders.schemas import LineItemCostCorrection
+        from src.orders.service import correct_delivered_order_costs
+
+        order = _make_order(status=OrderStatus.PENDING)
+        db = _mock_db_with_execute(scalar_result=order)
+        correction = LineItemCostCorrection(
+            line_item_id=uuid.uuid4(), new_unit_cost=Decimal("6.55")
+        )
+
+        with pytest.raises(OrderNotDeliveredError):
+            await correct_delivered_order_costs(db, order.id, [correction])
+
+    @pytest.mark.asyncio
+    async def test_rejects_line_item_not_on_order(self):
+        from src.orders.exceptions import LineItemNotFoundError
+        from src.orders.schemas import LineItemCostCorrection
+        from src.orders.service import correct_delivered_order_costs
+
+        item = _make_line_item(
+            unit_cost=Decimal("5.731250"), quantity=41, line_total=Decimal("235.00")
+        )
+        order = _make_order(status=OrderStatus.DELIVERED, line_items=[item])
+        db = _mock_db_with_execute(scalar_result=order)
+        correction = LineItemCostCorrection(
+            line_item_id=uuid.uuid4(), new_unit_cost=Decimal("6.55")
+        )
+
+        with pytest.raises(LineItemNotFoundError):
+            await correct_delivered_order_costs(db, order.id, [correction])
+
+    @pytest.mark.asyncio
+    async def test_full_cascade_through_batches_and_mixed_batch_sale(self):
+        """Regression test for the real PO-2026-00004 correction: fixing one
+        line item's cost must update its InventoryBatch AND recompute every
+        sale that drew from it — including a sale that also drew from a
+        DIFFERENT (untouched) batch for the same product, which must keep
+        its untouched portion's old cost while only the touched portion's
+        contribution changes."""
+        from src.orders.schemas import LineItemCostCorrection
+        from src.orders.service import correct_delivered_order_costs
+
+        product_id = uuid.uuid4()
+        untouched_item = _make_line_item(
+            product_id=uuid.uuid4(),
+            unit_cost=Decimal("5.26"),
+            quantity=96,
+            line_total=Decimal("504.96"),
+        )
+        corrected_item = _make_line_item(
+            product_id=product_id,
+            unit_cost=Decimal("5.731250"),
+            quantity=41,
+            line_total=Decimal("235.0"),
+        )
+        order = _make_order(
+            status=OrderStatus.DELIVERED,
+            line_items=[untouched_item, corrected_item],
+        )
+
+        touched_batch = InventoryBatch(
+            product_id=product_id,
+            order_id=order.id,
+            variant_id=None,
+            quantity_received=41,
+            quantity_remaining=0,
+            unit_cost_usd=Decimal("5.731250"),
+            fx_rate_at_arrival=Decimal("1600"),
+            logistics_allocation_per_unit=Decimal("0"),
+            landed_cost_per_unit=Decimal("9170.000000"),
+            received_at=date(2026, 1, 14),
+            created_at=datetime.now(timezone.utc),
+        )
+        touched_batch.id = uuid.uuid4()
+
+        # A sale that drew 10 units from the touched batch and 5 from an
+        # untouched batch elsewhere (different order) for the same product.
+        mixed_sale_id = uuid.uuid4()
+        untouched_batch_landed_cost = Decimal("8000.000000")
+        fc_touched = FifoConsumption(
+            sale_id=mixed_sale_id, batch_id=touched_batch.id, quantity_consumed=10
+        )
+        fc_untouched = FifoConsumption(
+            sale_id=mixed_sale_id, batch_id=uuid.uuid4(), quantity_consumed=5
+        )
+        mixed_sale = Sale(
+            id=mixed_sale_id,
+            product_id=product_id,
+            quantity=15,
+            unit_price=Decimal("12000"),
+            total_amount=Decimal("180000"),
+            currency="NGN",
+            sale_date=date(2026, 2, 1),
+            channel=SaleChannel.RETAIL,
+            recorded_by=uuid.uuid4(),
+            business_id=uuid.uuid4(),
+        )
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                # get_order
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                # InventoryBatch lookup for the corrected line item
+                result.scalars.return_value.all.return_value = [touched_batch]
+            elif call_count == 3:
+                # distinct sale_ids touching the corrected batch
+                result.all.return_value = [(mixed_sale_id,)]
+            elif call_count == 4:
+                # this sale's full consumption set, joined to (now-updated)
+                # batch costs
+                result.all.return_value = [
+                    (fc_touched, touched_batch.landed_cost_per_unit),
+                    (fc_untouched, untouched_batch_landed_cost),
+                ]
+            elif call_count == 5:
+                result.scalar_one.return_value = mixed_sale
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        correction = LineItemCostCorrection(
+            line_item_id=corrected_item.id, new_unit_cost=Decimal("6.55")
+        )
+        result = await correct_delivered_order_costs(db, order.id, [correction])
+
+        # Line item + batch corrected
+        assert corrected_item.unit_cost == Decimal("6.55")
+        assert corrected_item.line_total == Decimal("268.55")  # 6.55 * 41
+        assert touched_batch.unit_cost_usd == Decimal("6.55")
+        # 6.55 * 1600
+        assert touched_batch.landed_cost_per_unit == Decimal("10480.000000")
+
+        # Order total = corrected line item + untouched line item, unchanged
+        assert result.total_amount == Decimal("504.96") + Decimal("268.55")
+
+        # Mixed-batch sale: 10 units at the NEW touched cost + 5 units at the
+        # OLD untouched cost — not a blanket resum at one rate.
+        expected_cogs = (10 * Decimal("10480.000000")) + (
+            5 * untouched_batch_landed_cost
+        )
+        assert mixed_sale.fifo_cogs == expected_cogs.quantize(Decimal("0.000001"))
+        expected_profit = mixed_sale.total_amount - mixed_sale.fifo_cogs
+        assert mixed_sale.fifo_gross_profit == expected_profit
 
 
 # ---------------------------------------------------------------------------

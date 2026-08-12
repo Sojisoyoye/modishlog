@@ -13,16 +13,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from src.core.query_helpers import reverse_ledger_consumption
-from src.inventory.models import MovementType
+from src.inventory.models import FifoConsumption, InventoryBatch, MovementType
 from src.inventory.service import (
     adjust_stock,
+    compute_landed_cost,
     create_batch,
     ensure_inventory_level_exists,
 )
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
+    LineItemNotFoundError,
     MissingFxRateError,
     OrderLineItemError,
+    OrderNotDeliveredError,
     OrderNotEditableError,
     OrderNotFoundError,
     OverpaymentError,
@@ -46,6 +49,7 @@ from src.orders.models import (
 from src.orders.schemas import (
     BulkImportResult,
     ImportRowError,
+    LineItemCostCorrection,
     OrderCreate,
     OrderLineItemCreate,
     OrderUpdate,
@@ -57,6 +61,7 @@ from src.orders.schemas import (
     StatusTransition,
 )
 from src.products.models import Product, ProductVariant
+from src.sales.models import Sale
 
 logger = structlog.get_logger()
 
@@ -890,6 +895,108 @@ async def void_payment(
         payment_id=str(payment_id),
     )
     return payment
+
+
+# ---------------------------------------------------------------------------
+# Delivered-order cost correction
+# ---------------------------------------------------------------------------
+
+
+async def correct_delivered_order_costs(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    corrections: list[LineItemCostCorrection],
+    business_id: uuid.UUID | None = None,
+) -> PurchaseOrder:
+    """Correct unit costs on an already-DELIVERED order's line items,
+    cascading the correction through InventoryBatch landed costs and every
+    already-recorded sale's FIFO COGS/gross-profit.
+
+    update_order() deliberately refuses any edit once an order is DELIVERED
+    (see EDITABLE_STATUSES) — that lock is intentional (task 94) and stays
+    in place for quantities/supplier/dates. This is a narrow, separate
+    operation solely for correcting a delivered order's unit costs against
+    reality (e.g. the real supplier invoice), since neither update_order()
+    nor anything else touches InventoryBatch or Sale.fifo_cogs after
+    delivery — those are only ever written once, at the DELIVERED
+    transition.
+
+    For every corrected line item: updates its own unit_cost/line_total,
+    every InventoryBatch created for that (order, product, variant), and
+    then re-sums fifo_cogs from scratch (not a delta) for every sale that
+    consumed from any touched batch — across that sale's FULL consumption
+    set, since some sales draw from more than one order's batches for the
+    same product.
+    """
+    order = await get_order(db, order_id, business_id)
+    if order.status != OrderStatus.DELIVERED:
+        raise OrderNotDeliveredError(order_id, order.status.value)
+
+    items_by_id = {item.id: item for item in order.line_items}
+
+    touched_batch_ids: set[uuid.UUID] = set()
+    for correction in corrections:
+        item = items_by_id.get(correction.line_item_id)
+        if item is None:
+            raise LineItemNotFoundError(order_id, correction.line_item_id)
+
+        item.unit_cost = correction.new_unit_cost
+        item.line_total = (correction.new_unit_cost * item.quantity).quantize(
+            Decimal("0.000001"), rounding=ROUND_HALF_UP
+        )
+
+        batch_result = await db.execute(
+            select(InventoryBatch).where(
+                InventoryBatch.order_id == order_id,
+                InventoryBatch.product_id == item.product_id,
+                InventoryBatch.variant_id == item.variant_id,
+            )
+        )
+        for batch in batch_result.scalars().all():
+            batch.unit_cost_usd = correction.new_unit_cost
+            batch.landed_cost_per_unit = compute_landed_cost(
+                correction.new_unit_cost,
+                batch.fx_rate_at_arrival,
+                batch.logistics_allocation_per_unit,
+            )
+            touched_batch_ids.add(batch.id)
+
+    order.total_amount = sum(
+        (item.line_total for item in order.line_items), Decimal("0")
+    )
+    await db.flush()  # so the resum below reads the corrected batch costs
+
+    if touched_batch_ids:
+        sale_id_result = await db.execute(
+            select(FifoConsumption.sale_id)
+            .where(FifoConsumption.batch_id.in_(touched_batch_ids))
+            .distinct()
+        )
+        for (sale_id,) in sale_id_result.all():
+            consumption_result = await db.execute(
+                select(FifoConsumption, InventoryBatch.landed_cost_per_unit)
+                .join(InventoryBatch, InventoryBatch.id == FifoConsumption.batch_id)
+                .where(FifoConsumption.sale_id == sale_id)
+            )
+            rows = consumption_result.all()
+            new_cogs = sum(
+                (fc.quantity_consumed * landed for fc, landed in rows), Decimal("0")
+            ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+            sale_result = await db.execute(select(Sale).where(Sale.id == sale_id))
+            sale = sale_result.scalar_one()
+            sale.fifo_cogs = new_cogs
+            sale.fifo_gross_profit = sale.total_amount - new_cogs
+
+    await db.flush()
+
+    await logger.ainfo(
+        "order_costs_corrected",
+        order_id=str(order_id),
+        line_items_corrected=len(corrections),
+        batches_touched=len(touched_batch_ids),
+    )
+    return order
 
 
 # ---------------------------------------------------------------------------

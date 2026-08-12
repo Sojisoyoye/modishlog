@@ -20,8 +20,10 @@ from src.inventory.exceptions import (
 )
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
+    LineItemNotFoundError,
     MissingFxRateError,
     OrderLineItemError,
+    OrderNotDeliveredError,
     OrderNotEditableError,
     OrderNotFoundError,
     OverpaymentError,
@@ -34,6 +36,7 @@ from src.orders.schemas import (
     BulkImportResult,
     LogisticsEfficiencyResponse,
     LotRead,
+    OrderCostCorrectionRequest,
     ParseProductsResult,
     OrderCreate,
     OrderDetailRead,
@@ -55,6 +58,7 @@ from src.orders.service import (
     build_products_template_csv,
     cancel_order,
     convert_po_to_purchase,
+    correct_delivered_order_costs,
     create_order,
     create_purchase_return,
     get_logistics_efficiency,
@@ -554,6 +558,37 @@ async def record_payment_endpoint(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except MissingFxRateError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/{order_id}/cost-corrections", response_model=OrderRead)
+async def correct_delivered_order_costs_endpoint(
+    order_id: uuid.UUID,
+    body: OrderCostCorrectionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Correct unit costs on a DELIVERED order's line items, cascading
+    through InventoryBatch landed costs and already-recorded sales' FIFO
+    COGS/gross-profit. Same ownership gate as every other order mutation
+    (record_payment, void_payment, etc.) — not require_admin, which rejects
+    the OWNER role every self-serve business actually has (see task 177)
+    and would make this unusable for any real business's own orders."""
+    try:
+        existing = await get_order(db, order_id, business_id=business_id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    _check_ownership(existing.created_by, current_user)
+    try:
+        return await correct_delivered_order_costs(
+            db, order_id, body.corrections, business_id=business_id
+        )
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except OrderNotDeliveredError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except LineItemNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get("/{order_id}/payments", response_model=list[PaymentRead])

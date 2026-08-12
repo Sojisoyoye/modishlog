@@ -102,6 +102,31 @@ class OrderLineItemError(Exception):
         )
 
 
+class OrderNotDeliveredError(Exception):
+    """Raised when a cost correction is attempted on an order that hasn't
+    been delivered yet — use the normal order-edit flow for those instead,
+    since no InventoryBatch/FIFO cost basis exists to cascade into."""
+
+    def __init__(self, order_id: uuid.UUID, current_status: str) -> None:
+        self.order_id = order_id
+        self.current_status = current_status
+        super().__init__(
+            f"Order {order_id} is '{current_status}', not DELIVERED — cost "
+            "corrections only apply to delivered orders (use the normal "
+            "order edit for other statuses)"
+        )
+
+
+class LineItemNotFoundError(Exception):
+    """Raised when a cost correction references a line item that doesn't
+    belong to the given order."""
+
+    def __init__(self, order_id: uuid.UUID, line_item_id: uuid.UUID) -> None:
+        self.order_id = order_id
+        self.line_item_id = line_item_id
+        super().__init__(f"Line item {line_item_id} not found on order {order_id}")
+
+
 class PurchaseReturnNotFoundError(Exception):
     """Raised when a purchase return lookup by ID yields no result."""
 

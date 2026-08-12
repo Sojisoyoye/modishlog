@@ -236,6 +236,20 @@ class PaymentRead(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Delivered-order cost correction schemas
+# ---------------------------------------------------------------------------
+
+
+class LineItemCostCorrection(BaseModel):
+    line_item_id: uuid.UUID
+    new_unit_cost: Decimal = Field(..., gt=0)
+
+
+class OrderCostCorrectionRequest(BaseModel):
+    corrections: list[LineItemCostCorrection] = Field(..., min_length=1)
+
+
+# ---------------------------------------------------------------------------
 # Reporting schemas
 # ---------------------------------------------------------------------------
 

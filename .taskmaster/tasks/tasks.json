@@ -5067,6 +5067,17 @@
         "dependencies": [],
         "priority": "medium",
         "subtasks": []
+      },
+      {
+        "id": 179,
+        "title": "No supported way to correct costs on a DELIVERED purchase order — cascades through inventory batches and sales COGS",
+        "description": "update_order() flatly rejects any edit once an order is DELIVERED (EDITABLE_STATUSES excludes it by design), and even if that guard were lifted it has no code path touching InventoryBatch or recomputing Sale.fifo_cogs — those are only ever written once, at delivery time. There is currently no supported operation to correct a delivered order's unit costs against reality (e.g. the actual supplier invoice) without a one-off script.",
+        "details": "Found while manually correcting PO-2026-00004's costs against a real supplier proforma invoice (dogfood session, 2026-08-12) — required a standalone script (not committed, run once against local dev data) since no built-in operation does this. The script: 1) updated order_line_items.unit_cost/line_total + purchase_orders.total_amount, 2) updated the order's InventoryBatch.unit_cost_usd/landed_cost_per_unit (via compute_landed_cost()), 3) recomputed fifo_cogs/fifo_gross_profit for every sale with a FifoConsumption against those batches — re-summing each sale's FULL consumption set (not just this order's portion), since some sales draw from multiple orders' batches for the same product.\n\nNeeds a narrow, purpose-built service function + endpoint (NOT loosening update_order()'s general edit-lock — that lock is intentional, see task 94 'sec: remove DELIVERED from EDITABLE_STATUSES', and touches quantities/supplier/dates which must stay locked post-delivery). Scope should be limited to per-line-item unit_cost corrections on already-DELIVERED orders, with the same three-step cascade the script performed. Consider: should this require ADMIN role given it retroactively changes historical COGS/margin figures? Should it be logged/audited distinctly from a normal order edit?\n\nResolved (PR: fix/delivered-order-cost-correction): implemented as POST /orders/{id}/cost-corrections. Uses the same ownership check as every other order mutation (record_payment, void_payment), not require_admin — the OWNER role every self-serve business actually has cannot pass require_admin (task 177), which would have made this unusable for real businesses correcting their own orders.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
       }
     ],
     "metadata": {
@@ -5079,7 +5090,7 @@
       ],
       "created": "2026-07-23T16:07:30.039Z",
       "description": "Tasks for master context",
-      "updated": "2026-07-23T16:47:15.835Z"
+      "updated": "2026-08-12T14:50:00.000Z"
     }
   }
 }
