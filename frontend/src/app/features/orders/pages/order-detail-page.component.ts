@@ -15,6 +15,7 @@ import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { switchMap } from 'rxjs';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
+import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 import {
   OrdersService,
   OrderDetail,
@@ -25,6 +26,7 @@ import {
 } from '../../../core/services/orders.service';
 import { ProductsService, Product } from '../../../core/services/products.service';
 import { FxService } from '../../../core/services/fx.service';
+import { PricingService, OrderLineSuggestionItem } from '../../../core/services/pricing.service';
 import { LocationsService, Location } from '../../../core/services/locations.service';
 
 @Component({
@@ -38,6 +40,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
     RouterLink,
     Toast,
     StatusBadgeComponent,
+    ConfirmDialogComponent,
   ],
   template: `
     <p-toast />
@@ -281,12 +284,24 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
             </div>
           }
 
-          @if (order()!.fx_rate_at_delivery) {
+          @if ((editing() && order()!.status === 'DELIVERED') || order()!.fx_rate_at_delivery) {
             <div>
               <p class="text-xs font-medium text-muted">FX Rate (delivery)</p>
-              <p class="mt-0.5 font-semibold text-text">
-                ₦{{ order()!.fx_rate_at_delivery | number: '1.0-0' }}/{{ order()!.currency }}
-              </p>
+              @if (editing() && order()!.status === 'DELIVERED') {
+                <input
+                  type="number"
+                  [(ngModel)]="editForm.fx_rate_at_delivery"
+                  step="1"
+                  min="0"
+                  placeholder="e.g. 1600"
+                  data-testid="edit-fx-rate-at-delivery-input"
+                  class="mt-0.5 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
+                />
+              } @else {
+                <p class="mt-0.5 font-semibold text-text">
+                  ₦{{ order()!.fx_rate_at_delivery | number: '1.0-0' }}/{{ order()!.currency }}
+                </p>
+              }
             </div>
           }
 
@@ -318,6 +333,21 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                   </button>
                 }
               </div>
+            </div>
+          }
+
+          <!-- Revert delivery — only offered while nothing has been sold
+               from the batches it created; backend re-validates this. -->
+          @if (!editing() && order()!.status === 'DELIVERED') {
+            <div class="col-span-2 border-t border-gray-100 pt-4 sm:col-span-3 lg:col-span-4">
+              <p class="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Marked Delivered By Mistake?</p>
+              <button
+                (click)="revertDeliveryConfirmVisible.set(true)"
+                [disabled]="revertingDelivery()"
+                class="flex items-center gap-1.5 rounded-lg border border-red-600 px-4 py-2 text-sm font-semibold text-red-600 transition-all hover:bg-red-600 hover:text-white disabled:opacity-50 min-h-[44px]"
+              >
+                <i class="pi pi-undo text-xs"></i> Revert to Cleared
+              </button>
             </div>
           }
         </div>
@@ -356,6 +386,12 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                       }
                       <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                         Sell (₦)
+                      </th>
+                      <th
+                        class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500"
+                        [title]="suggestedColumnTitle()"
+                      >
+                        Suggested (₦)
                       </th>
                       <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
                         Margin (₦)
@@ -456,6 +492,16 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                             <span class="block text-xs font-normal opacity-50">(catalog)</span>
                           }
                         </td>
+                        <td class="px-3 py-2.5 text-right text-secondary" data-testid="suggested-price-cell">
+                          @if (priceSuggestion(item.id)?.suggested_price_ngn != null) {
+                            {{ priceSuggestion(item.id)!.suggested_price_ngn | number: '1.0-0' }}
+                            <span class="block text-xs font-normal opacity-60">
+                              ({{ priceSuggestion(item.id)!.target_margin_pct * 100 | number: '1.0-0' }}% margin)
+                            </span>
+                          } @else {
+                            <span class="text-xs font-normal text-muted">—</span>
+                          }
+                        </td>
                         <td class="px-3 py-2.5 text-right font-semibold"
                             [class]="!canComputeMargin(order()!) ? 'text-muted' : marginNGN(item, order()!) >= 0 ? 'text-success' : 'text-danger'">
                           @if (canComputeMargin(order()!)) {
@@ -494,12 +540,12 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                       }
                     } @empty {
                       <tr>
-                        <td colspan="10" class="px-3 py-8 text-center text-muted">No line items</td>
+                        <td colspan="11" class="px-3 py-8 text-center text-muted">No line items</td>
                       </tr>
                     }
                     @if (editing() && order()!.line_items.length > 0 && order()!.line_items.every(i => editDeletedProductIds().has(i.product_id))) {
                       <tr>
-                        <td colspan="10" class="px-3 py-8 text-center text-muted">No line items — all products removed</td>
+                        <td colspan="11" class="px-3 py-8 text-center text-muted">No line items — all products removed</td>
                       </tr>
                     }
                   </tbody>
@@ -748,42 +794,110 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
               @if (payments().length > 0) {
                 <div class="mb-3 divide-y divide-gray-100 rounded-lg border border-gray-200 text-xs">
                   @for (p of payments(); track p.id) {
-                    <div
-                      class="flex items-center justify-between gap-2 px-3 py-2"
-                      [class.opacity-40]="p.status === 'VOIDED'"
-                      data-testid="payment-row"
-                    >
-                      <div class="min-w-0">
-                        <span class="font-semibold text-text">
-                          {{ p.amount | currency: p.currency : 'symbol' : '1.2-2' }}
-                        </span>
-                        @if (p.original_amount !== null && p.original_currency !== null) {
-                          <span class="ml-1 text-xs text-muted">
-                            (paid {{ p.original_currency }} {{ p.original_amount | number: '1.2-2' }}
-                            @if (p.fx_rate) { @ {{ p.fx_rate | number: '1.0-0' }} })
-                          </span>
-                        }
-                        <span class="ml-1 text-muted">{{ p.payment_method }}</span>
-                        @if (p.reference) {
-                          <span class="ml-1 text-muted">· {{ p.reference }}</span>
-                        }
-                        <span class="ml-1 text-muted">· {{ p.payment_date | date: 'shortDate' }}</span>
-                        @if (p.status === 'VOIDED') {
-                          <span class="ml-1 font-semibold text-danger">VOIDED</span>
+                    @if (editingPaymentId() === p.id) {
+                      <div class="space-y-2 px-3 py-2" data-testid="payment-edit-row">
+                        <div class="flex flex-wrap items-end gap-2">
+                          <div>
+                            <label class="mb-0.5 block text-xs text-muted">Amount ({{ p.original_currency || p.currency }})</label>
+                            <input
+                              type="number"
+                              [(ngModel)]="editPaymentForm.amount"
+                              step="0.01"
+                              class="w-28 rounded border border-gray-300 px-2 py-1 text-xs"
+                              data-testid="edit-payment-amount-input"
+                            />
+                          </div>
+                          <div>
+                            <label class="mb-0.5 block text-xs text-muted">Exchange Rate</label>
+                            <input
+                              type="number"
+                              [(ngModel)]="editPaymentForm.fx_rate"
+                              step="0.01"
+                              class="w-24 rounded border border-gray-300 px-2 py-1 text-xs"
+                              data-testid="edit-payment-fx-rate-input"
+                            />
+                          </div>
+                          <div>
+                            <label class="mb-0.5 block text-xs text-muted">Date</label>
+                            <input
+                              type="date"
+                              [(ngModel)]="editPaymentForm.payment_date"
+                              class="rounded border border-gray-300 px-2 py-1 text-xs"
+                              data-testid="edit-payment-date-input"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            (click)="saveEditPayment(p)"
+                            [disabled]="savingPayment()"
+                            class="rounded bg-primary px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                            data-testid="save-payment-btn"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            (click)="cancelEditPayment()"
+                            class="rounded border border-gray-300 px-2.5 py-1 text-xs text-muted"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        @if (editPaymentConvertedPreview !== null) {
+                          <p class="text-xs text-muted">
+                            ≈ <span class="font-semibold text-text">{{ p.currency }} {{ editPaymentConvertedPreview | number: '1.2-2' }}</span>
+                          </p>
                         }
                       </div>
-                      @if (editing() && p.status !== 'VOIDED') {
-                        <button
-                          type="button"
-                          (click)="voidPayment(p.id)"
-                          title="Void payment"
-                          class="shrink-0 rounded p-1 text-muted transition-colors hover:bg-red-50 hover:text-danger"
-                          data-testid="void-payment-btn"
-                        >
-                          <i class="pi pi-times-circle text-xs"></i>
-                        </button>
-                      }
-                    </div>
+                    } @else {
+                      <div
+                        class="flex items-center justify-between gap-2 px-3 py-2"
+                        [class.opacity-40]="p.status === 'VOIDED'"
+                        data-testid="payment-row"
+                      >
+                        <div class="min-w-0">
+                          <span class="font-semibold text-text">
+                            {{ p.amount | currency: p.currency : 'symbol' : '1.2-2' }}
+                          </span>
+                          @if (p.original_amount !== null && p.original_currency !== null) {
+                            <span class="ml-1 text-xs text-muted">
+                              (paid {{ p.original_currency }} {{ p.original_amount | number: '1.2-2' }}
+                              @if (p.fx_rate) { @ {{ p.fx_rate | number: '1.0-0' }} })
+                            </span>
+                          }
+                          <span class="ml-1 text-muted">{{ p.payment_method }}</span>
+                          @if (p.reference) {
+                            <span class="ml-1 text-muted">· {{ p.reference }}</span>
+                          }
+                          <span class="ml-1 text-muted">· {{ p.payment_date | date: 'dd/MM/yyyy' }}</span>
+                          @if (p.status === 'VOIDED') {
+                            <span class="ml-1 font-semibold text-danger">VOIDED</span>
+                          }
+                        </div>
+                        @if (editing() && p.status !== 'VOIDED') {
+                          <div class="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              (click)="startEditPayment(p)"
+                              title="Edit payment"
+                              class="rounded p-1 text-muted transition-colors hover:bg-gray-100 hover:text-text"
+                              data-testid="edit-payment-btn"
+                            >
+                              <i class="pi pi-pencil text-xs"></i>
+                            </button>
+                            <button
+                              type="button"
+                              (click)="voidPayment(p.id)"
+                              title="Void payment"
+                              class="rounded p-1 text-muted transition-colors hover:bg-red-50 hover:text-danger"
+                              data-testid="void-payment-btn"
+                            >
+                              <i class="pi pi-times-circle text-xs"></i>
+                            </button>
+                          </div>
+                        }
+                      </div>
+                    }
                   }
                 </div>
               }
@@ -979,6 +1093,15 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
             </div>
           }
         </div>
+
+        <app-confirm-dialog
+          [visible]="revertDeliveryConfirmVisible()"
+          header="Revert to Cleared"
+          [message]="'Revert order ' + order()!.order_number + ' from DELIVERED back to CLEARED? This only works if nothing has been sold from its inventory yet.'"
+          confirmLabel="Revert"
+          (confirmed)="executeRevertDelivery()"
+          (cancelled)="revertDeliveryConfirmVisible.set(false)"
+        />
       </div>
     } @else if (!loading()) {
       <div class="flex h-64 flex-col items-center justify-center gap-4">
@@ -998,6 +1121,7 @@ export class OrderDetailPageComponent implements OnInit {
   private readonly ordersService = inject(OrdersService);
   private readonly productsService = inject(ProductsService);
   private readonly fxService = inject(FxService);
+  private readonly pricingService = inject(PricingService);
   private readonly locationsService = inject(LocationsService);
   private readonly messageService = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
@@ -1006,10 +1130,14 @@ export class OrderDetailPageComponent implements OnInit {
   products = signal<Product[]>([]);
   locations = signal<Location[]>([]);
   payments = signal<OrderPayment[]>([]);
+  priceSuggestionsByLineItem = signal<Map<string, OrderLineSuggestionItem>>(new Map());
+  priceSuggestionsFxRate = signal<number | null>(null);
   loading = signal(true);
   editing = signal(false);
   saving = signal(false);
   recordingPayment = signal(false);
+  revertingDelivery = signal(false);
+  revertDeliveryConfirmVisible = signal(false);
   deliveryFxRate: number | null = null;
 
   editLineItems: { id?: string; product_id: string; quantity: number; unit_cost: number; unit_cost_ngn: number | null; sell_price_ngn: number | null }[] = [];
@@ -1022,6 +1150,7 @@ export class OrderDetailPageComponent implements OnInit {
     shipping_cost_ngn: number;
     shipping_details: string;
     fx_rate_at_creation: number | null;
+    fx_rate_at_delivery: number | null;
     supplier_invoice_number: string;
     supplier_invoice_date: string;
     pay_term_number: number | null;
@@ -1033,7 +1162,7 @@ export class OrderDetailPageComponent implements OnInit {
   } = {
     supplier_name: '', expected_delivery_date: '', notes: '',
     shipping_cost_ngn: 0, shipping_details: '',
-    fx_rate_at_creation: null,
+    fx_rate_at_creation: null, fx_rate_at_delivery: null,
     supplier_invoice_number: '', supplier_invoice_date: '',
     pay_term_number: null, pay_term_type: '',
     status: '', order_date: '',
@@ -1048,6 +1177,14 @@ export class OrderDetailPageComponent implements OnInit {
     payment_date: string;
     reference: string;
   } = { amount: null, currency: 'USD', fx_rate: null, payment_method: 'BANK_TRANSFER', payment_date: '', reference: '' };
+
+  editingPaymentId = signal<string | null>(null);
+  savingPayment = signal(false);
+  editPaymentForm: { amount: number | null; fx_rate: number | null; payment_date: string } = {
+    amount: null,
+    fx_rate: null,
+    payment_date: '',
+  };
 
   private readonly statusTransitions: Record<string, string[]> = {
     ORDERED: ['PENDING', 'CANCELLED'],
@@ -1079,6 +1216,7 @@ export class OrderDetailPageComponent implements OnInit {
           this.order.set(o);
           this.loading.set(false);
           this.loadPayments(o.id);
+          this.loadPriceSuggestions(o.id);
         },
         error: () => {
           this.order.set(null);
@@ -1089,6 +1227,17 @@ export class OrderDetailPageComponent implements OnInit {
 
   productName(productId: string): string {
     return this.products().find((p) => p.id === productId)?.name ?? productId;
+  }
+
+  priceSuggestion(lineItemId: string): OrderLineSuggestionItem | undefined {
+    return this.priceSuggestionsByLineItem().get(lineItemId);
+  }
+
+  suggestedColumnTitle(): string {
+    const rate = this.priceSuggestionsFxRate();
+    return rate
+      ? `Suggested at today's FX rate (₦${Math.round(rate)}/USD) and category target margin`
+      : '';
   }
 
   getEditUnitCost(productId: string): number {
@@ -1262,6 +1411,7 @@ export class OrderDetailPageComponent implements OnInit {
       shipping_cost_ngn: o.shipping_cost,
       shipping_details: o.shipping_details ?? '',
       fx_rate_at_creation: o.fx_rate_at_creation ?? null,
+      fx_rate_at_delivery: o.fx_rate_at_delivery ?? null,
       supplier_invoice_number: o.supplier_invoice_number ?? '',
       supplier_invoice_date: o.supplier_invoice_date ?? '',
       pay_term_number: o.pay_term_number ?? null,
@@ -1373,11 +1523,22 @@ export class OrderDetailPageComponent implements OnInit {
     const fxChanged =
       this.editForm.fx_rate_at_creation != null &&
       Number(this.editForm.fx_rate_at_creation) !== Number(o.fx_rate_at_creation ?? null);
+    const fxDeliveryChanged =
+      this.editForm.fx_rate_at_delivery != null &&
+      Number(this.editForm.fx_rate_at_delivery) !== Number(o.fx_rate_at_delivery ?? null);
     const shippingChanged =
       this.editForm.shipping_cost_ngn != null &&
       Number(this.editForm.shipping_cost_ngn) !== Number(o.shipping_cost ?? 0);
+    const shippingDetailsChanged =
+      (this.editForm.shipping_details || null) !== (o.shipping_details || null);
 
-    if (corrections.length === 0 && !fxChanged && !shippingChanged) {
+    if (
+      corrections.length === 0 &&
+      !fxChanged &&
+      !fxDeliveryChanged &&
+      !shippingChanged &&
+      !shippingDetailsChanged
+    ) {
       this.editing.set(false);
       return;
     }
@@ -1387,7 +1548,9 @@ export class OrderDetailPageComponent implements OnInit {
       .correctDeliveredOrderCosts(o.id, {
         corrections,
         fx_rate_at_creation: fxChanged ? this.editForm.fx_rate_at_creation : null,
+        fx_rate_at_delivery: fxDeliveryChanged ? this.editForm.fx_rate_at_delivery : null,
         shipping_cost: shippingChanged ? this.editForm.shipping_cost_ngn : null,
+        shipping_details: shippingDetailsChanged ? this.editForm.shipping_details || null : null,
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -1423,6 +1586,28 @@ export class OrderDetailPageComponent implements OnInit {
         },
         error: () => {
           this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Status update failed' });
+        },
+      });
+  }
+
+  executeRevertDelivery(): void {
+    const o = this.order();
+    this.revertDeliveryConfirmVisible.set(false);
+    if (!o) return;
+    this.revertingDelivery.set(true);
+    this.ordersService
+      .revertDelivery(o.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (updated) => {
+          this.order.set({ ...updated, payment_summary: o.payment_summary });
+          this.revertingDelivery.set(false);
+          this.messageService.add({ severity: 'success', summary: 'Reverted', detail: 'Order moved back to CLEARED' });
+        },
+        error: (err: HttpErrorResponse) => {
+          this.revertingDelivery.set(false);
+          const detail = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to revert delivery';
+          this.messageService.add({ severity: 'error', summary: 'Error', detail });
         },
       });
   }
@@ -1466,8 +1651,66 @@ export class OrderDetailPageComponent implements OnInit {
           this.refreshPaymentsAndSummary(o.id);
           this.messageService.add({ severity: 'info', summary: 'Payment voided' });
         },
-        error: () => {
-          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to void payment' });
+        error: (err: HttpErrorResponse) => {
+          const detail = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to void payment';
+          this.messageService.add({ severity: 'error', summary: 'Error', detail });
+        },
+      });
+  }
+
+  startEditPayment(p: OrderPayment): void {
+    this.editingPaymentId.set(p.id);
+    const rawAmount = p.original_amount ?? p.amount;
+    this.editPaymentForm = {
+      amount: rawAmount != null ? Number(rawAmount.toFixed(2)) : rawAmount,
+      fx_rate: p.fx_rate,
+      payment_date: p.payment_date,
+    };
+  }
+
+  cancelEditPayment(): void {
+    this.editingPaymentId.set(null);
+  }
+
+  /** Live preview of what the payment will convert to in the order's
+   * currency at the entered amount/rate — same conversion direction as
+   * the backend's _convert_to_order_currency(). */
+  get editPaymentConvertedPreview(): number | null {
+    const o = this.order();
+    const editingId = this.editingPaymentId();
+    if (!o || !editingId) return null;
+    const p = this.payments().find((x) => x.id === editingId);
+    if (!p) return null;
+    const rawCurrency = p.original_currency ?? p.currency;
+    const { amount, fx_rate } = this.editPaymentForm;
+    if (!amount || rawCurrency === o.currency) return null;
+    if (!fx_rate) return null;
+    if (rawCurrency === 'NGN') return amount / fx_rate;
+    return amount * fx_rate;
+  }
+
+  saveEditPayment(p: OrderPayment): void {
+    const o = this.order();
+    if (!o || !this.editPaymentForm.amount || !this.editPaymentForm.payment_date) return;
+    this.savingPayment.set(true);
+    this.ordersService
+      .updatePayment(o.id, p.id, {
+        amount: this.editPaymentForm.amount,
+        fx_rate: this.editPaymentForm.fx_rate,
+        payment_date: this.editPaymentForm.payment_date,
+      })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.savingPayment.set(false);
+          this.editingPaymentId.set(null);
+          this.refreshPaymentsAndSummary(o.id);
+          this.messageService.add({ severity: 'success', summary: 'Saved', detail: 'Payment updated' });
+        },
+        error: (err: HttpErrorResponse) => {
+          this.savingPayment.set(false);
+          const detail = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to save payment';
+          this.messageService.add({ severity: 'error', summary: 'Error', detail });
         },
       });
   }
@@ -1494,6 +1737,23 @@ export class OrderDetailPageComponent implements OnInit {
     this.ordersService.listPayments(orderId)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (p) => this.payments.set(p), error: () => this.payments.set([]) });
+  }
+
+  private loadPriceSuggestions(orderId: string): void {
+    this.pricingService.getOrderPriceSuggestions(orderId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.priceSuggestionsByLineItem.set(
+            new Map(r.items.map((i) => [i.line_item_id, i])),
+          );
+          this.priceSuggestionsFxRate.set(r.fx_rate_used);
+        },
+        error: () => {
+          this.priceSuggestionsByLineItem.set(new Map());
+          this.priceSuggestionsFxRate.set(null);
+        },
+      });
   }
 
   private refreshPaymentsAndSummary(orderId: string): void {

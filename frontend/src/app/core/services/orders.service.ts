@@ -248,9 +248,27 @@ export class OrdersService {
     return this.api.delete<OrderPayment>(`/orders/${orderId}/payments/${paymentId}`);
   }
 
+  updatePayment(orderId: string, paymentId: string, data: PaymentUpdatePayload): Observable<OrderPayment> {
+    return this.api.patch<OrderPayment>(`/orders/${orderId}/payments/${paymentId}`, data);
+  }
+
   correctDeliveredOrderCosts(orderId: string, data: OrderCostCorrectionPayload): Observable<Order> {
     return this.api.post<Order>(`/orders/${orderId}/cost-corrections`, data);
   }
+
+  revertDelivery(orderId: string): Observable<Order> {
+    return this.api.post<Order>(`/orders/${orderId}/revert-delivery`, {});
+  }
+}
+
+export interface PaymentUpdatePayload {
+  amount?: number | null;
+  currency?: string | null;
+  fx_rate?: number | null;
+  payment_date?: string | null;
+  payment_method?: string | null;
+  reference?: string | null;
+  notes?: string | null;
 }
 
 export interface LineItemCostCorrectionPayload {
@@ -261,8 +279,10 @@ export interface LineItemCostCorrectionPayload {
 export interface OrderCostCorrectionPayload {
   corrections: LineItemCostCorrectionPayload[];
   fx_rate_at_creation?: number | null;
+  fx_rate_at_delivery?: number | null;
   shipping_cost?: number | null;
   clearing_cost?: number | null;
+  shipping_details?: string | null;
 }
 
 export interface ImportRowError {
