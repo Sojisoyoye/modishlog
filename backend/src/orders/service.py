@@ -373,9 +373,14 @@ async def list_orders(
     offset = (page - 1) * page_size
     # Sort by order_date (the real-world order date), falling back to created_at
     # for rows where it's still NULL — matches the frontend's own display fallback.
+    # order_date is day-precision, so many rows can tie on it (common for
+    # imported historical orders) — .id as a secondary key makes the sort
+    # fully deterministic, or OFFSET/LIMIT pagination could return duplicate
+    # or skipped rows across page loads depending on how Postgres breaks ties.
     query = (
         query.order_by(
-            func.coalesce(PurchaseOrder.order_date, cast(PurchaseOrder.created_at, Date)).desc()
+            func.coalesce(PurchaseOrder.order_date, cast(PurchaseOrder.created_at, Date)).desc(),
+            PurchaseOrder.id,
         )
         .offset(offset)
         .limit(page_size)

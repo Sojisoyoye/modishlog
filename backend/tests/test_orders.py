@@ -439,6 +439,36 @@ class TestGetListOrders:
         assert items == []
 
     @pytest.mark.asyncio
+    async def test_list_orders_sorts_by_order_date_with_deterministic_tiebreak(self):
+        """Regression test: list_orders() must sort by order_date (falling
+        back to created_at), not created_at alone — otherwise imported
+        historical orders display in insertion order instead of real
+        chronological order. order_date is day-precision, so a secondary
+        tiebreak (PurchaseOrder.id) is required for stable pagination when
+        multiple orders share the same date."""
+        db = _mock_db()
+        count_result = MagicMock()
+        count_result.scalar.return_value = 0
+        list_result = MagicMock()
+        scalars_mock = MagicMock()
+        scalars_mock.all.return_value = []
+        list_result.scalars.return_value = scalars_mock
+        db.execute = AsyncMock(side_effect=[count_result, list_result])
+
+        await list_orders(db)
+
+        list_query = db.execute.call_args_list[1].args[0]
+        order_by_clauses = list_query._order_by_clause.clauses
+        assert len(order_by_clauses) == 2, (
+            "expected a primary sort key plus a deterministic tiebreaker"
+        )
+        primary_sql = str(order_by_clauses[0])
+        assert "coalesce" in primary_sql.lower()
+        assert "order_date" in primary_sql.lower()
+        assert "created_at" in primary_sql.lower()
+        assert "id" in str(order_by_clauses[1]).lower()
+
+    @pytest.mark.asyncio
     async def test_get_order_status_counts_returns_dict(self):
         """get_order_status_counts returns a dict mapping status → count."""
         from src.orders.service import get_order_status_counts
