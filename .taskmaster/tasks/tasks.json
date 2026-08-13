@@ -5122,6 +5122,17 @@
         "dependencies": [],
         "priority": "high",
         "subtasks": []
+      },
+      {
+        "id": 184,
+        "title": "E2E gate: duplicate 'Add X' button strict-mode violations across list pages — RESOLVED",
+        "description": "Several list pages (customers, suppliers, locations, stock-count, recommendations, expenses) rendered an 'Add X' call-to-action with IDENTICAL accessible text twice — once in the toolbar, once inside the empty-state row — so Playwright's getByRole('button', { name: 'Add X' }) threw a strict-mode violation (2+ matching elements) whenever the seeded E2E test business had an empty list for that page. This was a large chunk of the E2E gate's chronic failures, distinct from task #178 (which is about serial-run speed/timeout flakiness, not correctness).",
+        "details": "Root-caused and fixed 2026-08-13 (PR #335) after the user asked for a permanent fix. Confirmed via live CI failure logs (84 failing tests in one run) that this was actually two separate pre-existing issues compounding: (1) this deterministic duplicate-button bug, (2) task #178's timeout flakiness deep into the ~28min serial run. Fixed (1) only, per user's explicit scoping decision, since (2) needs a bigger sharding effort already tracked separately.\n\nFix applied: gave each empty-state CTA distinct text instead of repeating the toolbar's exact label (matching products-page.component.ts's existing 'Add your first product' convention):\n- customers-page: 'Add Customer' -> 'Add your first customer'\n- suppliers-page: 'Add Supplier' -> 'Add your first supplier'\n- locations-page: 'Add Location' -> 'Add your first location'\n- stock-count-list-page: 'New Stock Count' -> 'Start your first count'\n- recommendations-page: 'Generate New' -> 'Generate Recommendations'\n- expenses.spec.ts: scoped the category-manager modal's 'Add' button locator to the dialog (Playwright's default name match is a case-insensitive substring, so it also matched the page's own 'Add Expense' button)\n- sales-page: added a disambiguating aria-label to the 'Add Sale' tab (visually unchanged) — a latent, not-yet-triggered collision with the real 'Add Sale' action button\n\nVerified live against the isolated e2e stack: all previously-failing tests in these 6 areas now pass. Remaining E2E failures after this fix are confirmed unrelated (a missing 'Deactivate' button in customers, a stock-count finalization flow issue, a locations duplicate-code toast timing issue, and task #178's flakiness) — filed separately if not already tracked.\n\nMarked done since the fix is verified and shipped; if the pattern recurs on a new page, the fix is the same: never let an empty-state CTA repeat the toolbar button's exact accessible name.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
       }
     ],
     "metadata": {
