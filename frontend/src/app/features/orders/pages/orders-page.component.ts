@@ -571,6 +571,7 @@ import { FxService } from '../../../core/services/fx.service';
                 <select
                   [(ngModel)]="item.product_id"
                   (ngModelChange)="item.variant_id = null; newOrderItems.update(items => [...items])"
+                  data-testid="order-item-product-select"
                   class="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
                 >
                   <option value="">Select product</option>
@@ -581,6 +582,7 @@ import { FxService } from '../../../core/services/fx.service';
                 <input type="number" [(ngModel)]="item.quantity" placeholder="Qty" min="1"
                   class="w-20 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
                 <input type="number" [(ngModel)]="item.unit_cost" placeholder="$/unit" min="0" step="0.01"
+                  data-testid="order-item-unit-cost-input"
                   class="w-24 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary" />
                 <button type="button" (click)="removeOrderItem($index)"
                   class="rounded p-1.5 text-muted hover:bg-red-50 hover:text-red-500">
@@ -592,6 +594,7 @@ import { FxService } from '../../../core/services/fx.service';
                   <select
                     [ngModel]="item.variant_id"
                     (ngModelChange)="onOrderVariantChange(item, $event)"
+                    data-testid="order-item-variant-select"
                     class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm min-h-[44px]"
                     [class.border-red-400]="!item.variant_id && orderSubmitted()">
                     <option value="">— Select variant —</option>
@@ -1182,9 +1185,13 @@ export class OrdersPageComponent implements OnInit {
     item.variant_id = variantId || null;
     const product = this.getOrderProductForItem(item);
     const variant = product?.variants?.find((v) => v.id === variantId);
-    if (variant && variant.cost_price_override != null) {
-      item.unit_cost = variant.cost_price_override;
-    } else if (!variantId) {
+    if (variant) {
+      // Always reset on a variant change — falling back to the product's
+      // own cost when the variant has no override — so switching from a
+      // variant WITH an override to one WITHOUT doesn't leave unit_cost
+      // silently stuck on the previous variant/product's stale value.
+      item.unit_cost = variant.cost_price_override != null ? variant.cost_price_override : (product?.unit_cost ?? 0);
+    } else {
       // Variant deselected — reset cost so the input doesn't show a stale value
       item.unit_cost = 0;
     }

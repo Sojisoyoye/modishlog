@@ -5020,7 +5020,7 @@
         "description": "os.makedirs()/app.mount() setup for serving uploaded files used to crash the app at startup on failure; now a PermissionError/RuntimeError is caught and discarded with no log line, so a misconfigured uploads volume ships a silently broken image-serving path.",
         "details": "Found via code review (PR #321 review, 2026-07-23). backend/src/main.py:~185. If settings.UPLOAD_DIR is root-owned or otherwise unwritable in a given deploy (a real Docker named-volume scenario), the setup raises PermissionError, which is now caught and discarded with no log line. The app reports healthy and starts normally, but the /static route was never mounted, so every request for a previously-uploaded product image 404s in production with no error surfaced anywhere. Before this change the same misconfiguration would fail the deploy immediately and visibly instead.\n\nFix: log the error (at minimum) when the static mount setup fails, rather than silently swallowing it — consider whether it should still fail loudly at startup given the previous behavior was intentional.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
@@ -5032,7 +5032,7 @@
         "description": "orders-page.component.ts's onOrderVariantChange only overwrites item.unit_cost when the selected variant has a non-null cost_price_override; otherwise unit_cost silently keeps the previous variant/product's value, so a PO line item can be submitted with a stale, wrong cost.",
         "details": "Found via code review (PR #321 review, 2026-07-23). frontend/src/app/features/orders/pages/orders-page.component.ts:~1176-1187. Compare to sales-page.component.ts's near-identical onVariantChange (line ~1539-1550) for prices, which always resets row.unit_price (falling back to the product's selling_price, or null) so it never exhibits this bug. The variant-picker logic (product lookup, active-variant filtering, price/cost pre-fill) is duplicated near-identically across orders-page and sales-page instead of factored into one shared component/service, which is how this divergence happened unnoticed.\n\nFix: make onOrderVariantChange always reset unit_cost on variant change (falling back to the product's own cost when the variant has no override), matching sales-page's pattern. Consider factoring the shared variant-picker logic (also flagged: duplicated formatMoney() helper, same two files) into one place to prevent future divergence — separate follow-up if scope allows.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "medium",
         "subtasks": []

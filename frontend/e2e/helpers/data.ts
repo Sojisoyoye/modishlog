@@ -445,6 +445,72 @@ export async function addStock(
 }
 
 /**
+ * Create (or reuse) a product with has_variants=true.
+ */
+export async function ensureVariantProduct(
+  name = 'E2E Variant Product',
+  unitCost = '2000.00',
+): Promise<{ id: string; name: string }> {
+  const token = await getAPIToken();
+  const categoryId = await ensureE2ECategory();
+  const ctx = await request.newContext();
+  try {
+    const listResp = await ctx.get(`${API}/products?search=${encodeURIComponent(name)}&page_size=25`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (listResp.ok()) {
+      const data = await listResp.json();
+      const items: { id: string; name: string }[] = Array.isArray(data) ? data : (data.items ?? []);
+      const found = items.find((p) => p.name === name);
+      if (found) return { id: found.id, name: found.name };
+    }
+    const sku = `E2E-VAR-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const resp = await ctx.post(`${API}/products`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        name,
+        sku,
+        unit_cost: unitCost,
+        selling_price: '3500.00',
+        currency: 'NGN',
+        category_id: categoryId,
+        has_variants: true,
+      },
+    });
+    if (!resp.ok()) throw new Error(`Create variant product failed: ${resp.status()} ${await resp.text()}`);
+    const product = await resp.json();
+    return { id: product.id, name: product.name };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Create a product variant via POST /products/:id/variants.
+ */
+export async function createVariant(
+  productId: string,
+  name: string,
+  costPriceOverride?: string,
+): Promise<{ id: string; name: string }> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const body: Record<string, unknown> = { name };
+    if (costPriceOverride) body['cost_price_override'] = costPriceOverride;
+    const resp = await ctx.post(`${API}/products/${productId}/variants`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: body,
+    });
+    if (!resp.ok()) throw new Error(`Create variant failed: ${resp.status()} ${await resp.text()}`);
+    const variant = await resp.json();
+    return { id: variant.id, name: variant.name };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
  * Record a payment against an order via POST /orders/:id/payments.
  */
 export async function recordPayment(
