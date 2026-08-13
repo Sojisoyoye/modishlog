@@ -10,7 +10,7 @@ from sqlalchemy import Date, DateTime, Enum, ForeignKey, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import TYPE_CHECKING
 
-from src.core.database import Base, TimestampMixin, UUIDMixin
+from src.core.database import Base, MigrationTaggedMixin, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from src.products.models import Product
@@ -26,7 +26,7 @@ class StockCountType(str, enum.Enum):
     LOT = "LOT"
 
 
-class StockCount(UUIDMixin, TimestampMixin, Base):
+class StockCount(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     """Header record for a physical stock count session."""
 
     __tablename__ = "stock_counts"
@@ -57,7 +57,6 @@ class StockCount(UUIDMixin, TimestampMixin, Base):
     finalized_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), default=None
     )
-    migration_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     items: Mapped[list["StockCountItem"]] = relationship(
         back_populates="stock_count", cascade="all, delete-orphan"
@@ -69,7 +68,7 @@ class StockCount(UUIDMixin, TimestampMixin, Base):
         )
 
 
-class StockCountItem(UUIDMixin, Base):
+class StockCountItem(UUIDMixin, MigrationTaggedMixin, Base):
     """One line in a stock count session — one product or one lot."""
 
     __tablename__ = "stock_count_items"
@@ -93,7 +92,6 @@ class StockCountItem(UUIDMixin, Base):
         Numeric(18, 6), nullable=True, default=None
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, default=None)
-    migration_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     stock_count: Mapped["StockCount"] = relationship(back_populates="items")
     product: Mapped["Product"] = relationship(  # type: ignore[name-defined]

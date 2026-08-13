@@ -4,7 +4,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, func
+from sqlalchemy import DateTime, ForeignKey, func
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -58,6 +58,15 @@ class TimestampMixin:
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
         onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class MigrationTaggedMixin:
+    """Mixin that tags a row with the data-import migration job that created
+    it, so an import's rollback can find and remove exactly its own rows."""
+
+    migration_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None
     )
 
 

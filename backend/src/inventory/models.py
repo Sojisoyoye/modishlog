@@ -20,7 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.database import Base, TimestampMixin, UUIDMixin
+from src.core.database import Base, MigrationTaggedMixin, TimestampMixin, UUIDMixin
 
 
 class MovementType(str, enum.Enum):
@@ -44,7 +44,7 @@ class AlertStatus(str, enum.Enum):
     RESOLVED = "resolved"
 
 
-class InventoryLevel(UUIDMixin, TimestampMixin, Base):
+class InventoryLevel(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     """Current stock level for a product or product variant.
 
     One row per (product_id, variant_id) pair. When variant_id is NULL the row
@@ -86,13 +86,12 @@ class InventoryLevel(UUIDMixin, TimestampMixin, Base):
     last_replenished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<InventoryLevel(product_id={self.product_id}, variant_id={self.variant_id}, on_hand={self.quantity_on_hand})>"
 
 
-class StockMovement(UUIDMixin, Base):
+class StockMovement(UUIDMixin, MigrationTaggedMixin, Base):
     """Immutable record of a stock quantity change."""
 
     __tablename__ = "stock_movements"
@@ -124,7 +123,6 @@ class StockMovement(UUIDMixin, Base):
         default=lambda: datetime.now(timezone.utc),
         server_default=func.now(),
     )
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<StockMovement(id={self.id}, type={self.movement_type})>"
@@ -153,7 +151,7 @@ class LowStockAlert(UUIDMixin, Base):
         return f"<LowStockAlert(id={self.id}, product_id={self.product_id})>"
 
 
-class InventoryBatch(UUIDMixin, Base):
+class InventoryBatch(UUIDMixin, MigrationTaggedMixin, Base):
     """A batch of inventory received from a purchase order.
 
     Tracks quantity remaining for FIFO cost matching on sales.
@@ -185,7 +183,6 @@ class InventoryBatch(UUIDMixin, Base):
     landed_cost_per_unit: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     received_at: Mapped[date] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<InventoryBatch(id={self.id}, product_id={self.product_id}, remaining={self.quantity_remaining})>"

@@ -18,6 +18,7 @@ import {
 } from '../../../core/services/orders.service';
 import { ProductsService, Product, ProductVariant } from '../../../core/services/products.service';
 import { FxService } from '../../../core/services/fx.service';
+import { formatMoney as formatMoneyUtil } from '../../../core/utils/money.utils';
 
 @Component({
   selector: 'app-orders-page',
@@ -1199,7 +1200,7 @@ export class OrdersPageComponent implements OnInit {
   }
 
   formatMoney(amount: string | number): string {
-    return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(Number(amount));
+    return formatMoneyUtil(amount);
   }
 
   addExpense(): void {

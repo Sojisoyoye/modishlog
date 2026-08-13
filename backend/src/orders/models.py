@@ -22,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 if TYPE_CHECKING:
     from src.suppliers.models import Supplier
 
-from src.core.database import Base, TimestampMixin, UUIDMixin
+from src.core.database import Base, MigrationTaggedMixin, TimestampMixin, UUIDMixin
 
 
 class OrderStatus(str, enum.Enum):
@@ -70,7 +70,7 @@ class OrderPaymentStatus(str, enum.Enum):
     PAID = "PAID"
 
 
-class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
+class PurchaseOrder(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     """Purchase order from a supplier."""
 
     __tablename__ = "purchase_orders"
@@ -205,7 +205,6 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
     business_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("businesses.id"), nullable=False, index=True
     )
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     line_items: Mapped[list["OrderLineItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
@@ -222,7 +221,7 @@ class PurchaseOrder(UUIDMixin, TimestampMixin, Base):
         return f"<PurchaseOrder(id={self.id}, number={self.order_number})>"
 
 
-class OrderLineItem(UUIDMixin, Base):
+class OrderLineItem(UUIDMixin, MigrationTaggedMixin, Base):
     """Line item within a purchase order."""
 
     __tablename__ = "order_line_items"
@@ -244,7 +243,6 @@ class OrderLineItem(UUIDMixin, Base):
     )
     line_total: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     notes: Mapped[str | None] = mapped_column(Text, default=None)
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     order: Mapped["PurchaseOrder"] = relationship(back_populates="line_items")
 
@@ -252,7 +250,7 @@ class OrderLineItem(UUIDMixin, Base):
         return f"<OrderLineItem(id={self.id}, order_id={self.order_id})>"
 
 
-class OrderStatusHistory(UUIDMixin, Base):
+class OrderStatusHistory(UUIDMixin, MigrationTaggedMixin, Base):
     """Immutable log of purchase order status transitions."""
 
     __tablename__ = "order_status_history"
@@ -263,7 +261,6 @@ class OrderStatusHistory(UUIDMixin, Base):
     transitioned_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     order: Mapped["PurchaseOrder"] = relationship(back_populates="status_history")
 
@@ -271,7 +268,7 @@ class OrderStatusHistory(UUIDMixin, Base):
         return f"<OrderStatusHistory(id={self.id}, to={self.to_status})>"
 
 
-class OrderPayment(UUIDMixin, Base):
+class OrderPayment(UUIDMixin, MigrationTaggedMixin, Base):
     """Payment record against a purchase order."""
 
     __tablename__ = "order_payments"
@@ -303,7 +300,6 @@ class OrderPayment(UUIDMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text, default=None)
     recorded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     order: Mapped["PurchaseOrder"] = relationship(back_populates="payments")
 
@@ -311,7 +307,7 @@ class OrderPayment(UUIDMixin, Base):
         return f"<OrderPayment(id={self.id}, order_id={self.order_id})>"
 
 
-class PurchaseReturn(UUIDMixin, TimestampMixin, Base):
+class PurchaseReturn(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     """Return of goods against a received purchase order."""
 
     __tablename__ = "purchase_returns"
@@ -330,7 +326,6 @@ class PurchaseReturn(UUIDMixin, TimestampMixin, Base):
     business_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("businesses.id"), nullable=False, index=True
     )
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     original_order: Mapped["PurchaseOrder"] = relationship(
         "PurchaseOrder", foreign_keys=[original_order_id], lazy="raise", viewonly=True
