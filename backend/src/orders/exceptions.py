@@ -12,6 +12,23 @@ class OrderNotFoundError(Exception):
         super().__init__(f"Order {order_id} not found")
 
 
+class MissingDeliveryFxRateError(Exception):
+    """Raised when an interactive DELIVERED transition omits fx_rate_at_delivery.
+
+    Required so FIFO landed cost is booked at the actual delivery-date rate
+    instead of silently falling back to the less-accurate creation-time rate
+    (task 181). Only enforced for interactive (router-driven) transitions —
+    data_import's bulk backfill deliberately bypasses this (see
+    transition_status()'s migration_id-gated check).
+    """
+
+    def __init__(self, order_id: uuid.UUID) -> None:
+        self.order_id = order_id
+        super().__init__(
+            f"fx_rate_at_delivery is required to mark order {order_id} as delivered"
+        )
+
+
 class OrderNotEditableError(Exception):
     """Raised when attempting to edit an order whose status does not allow modifications."""
 

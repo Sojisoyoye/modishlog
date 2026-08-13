@@ -1106,6 +1106,7 @@ class TestTransitionStatus:
         transition = StatusTransition(
             new_status="DELIVERED",
             actual_delivery_date=date(2026, 3, 30),
+            fx_rate_at_delivery=Decimal("1500.000000"),
         )
         result = await transition_status(db, order.id, transition, uuid.uuid4())
         assert result.status == OrderStatus.DELIVERED
@@ -1152,8 +1153,34 @@ class TestTransitionStatus:
         assert result.fx_rate_at_delivery == Decimal("1620.500000")
 
     @pytest.mark.asyncio
-    async def test_delivery_without_fx_rate_still_works(self):
-        """Transitioning to DELIVERED without fx_rate_at_delivery still works (field stays None)."""
+    async def test_interactive_delivery_without_fx_rate_raises(self):
+        """An interactive (non-migration) DELIVERED transition without
+        fx_rate_at_delivery must be rejected — task 181: silently falling
+        back to the creation-time rate degrades FIFO COGS accuracy, and
+        this was easy to click through unnoticed."""
+        from src.orders.exceptions import MissingDeliveryFxRateError
+
+        product_id = uuid.uuid4()
+        line_item = _make_line_item(product_id=product_id, quantity=3)
+        order = _make_order(
+            status=OrderStatus.CLEARED,
+            line_items=[line_item],
+        )
+        db = _mock_db_with_execute(scalar_result=order)
+
+        transition = StatusTransition(
+            new_status="DELIVERED",
+            actual_delivery_date=date(2026, 4, 10),
+        )
+        with pytest.raises(MissingDeliveryFxRateError):
+            await transition_status(db, order.id, transition, uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_migration_delivery_without_fx_rate_still_works(self):
+        """data_import's bulk backfill (migration_id set) has no per-record
+        delivery-date rate to supply and must not be blocked by task 181's
+        new requirement — only interactive transitions are required to
+        supply fx_rate_at_delivery."""
         product_id = uuid.uuid4()
         line_item = _make_line_item(product_id=product_id, quantity=3)
         inventory = _make_inventory(product_id=product_id, quantity_on_hand=10)
@@ -1183,7 +1210,9 @@ class TestTransitionStatus:
             new_status="DELIVERED",
             actual_delivery_date=date(2026, 4, 10),
         )
-        result = await transition_status(db, order.id, transition, uuid.uuid4())
+        result = await transition_status(
+            db, order.id, transition, uuid.uuid4(), migration_id=uuid.uuid4()
+        )
         assert result.status == OrderStatus.DELIVERED
         assert result.fx_rate_at_delivery is None
 
@@ -2767,7 +2796,10 @@ class TestLotInventoryTracking:
         with patch("src.orders.service.adjust_stock", new_callable=AsyncMock), \
              patch("src.orders.service.create_batch", new_callable=AsyncMock):
             await transition_status(
-                db, order.id, StatusTransition(new_status="DELIVERED"), uuid.uuid4()
+                db,
+                order.id,
+                StatusTransition(new_status="DELIVERED", fx_rate_at_delivery=Decimal("1500.000000")),
+                uuid.uuid4(),
             )
 
         assert item.units_remaining == Decimal(str(item.quantity))
@@ -2816,7 +2848,10 @@ class TestLotInventoryTracking:
             ) as mock_create_batch,
         ):
             await transition_status(
-                db, order.id, StatusTransition(new_status="DELIVERED"), uuid.uuid4()
+                db,
+                order.id,
+                StatusTransition(new_status="DELIVERED", fx_rate_at_delivery=Decimal("1500.000000")),
+                uuid.uuid4(),
             )
 
         assert mock_adjust.call_args.kwargs["variant_id"] == variant_id
@@ -2884,7 +2919,7 @@ class TestLotInventoryTracking:
                 await transition_status(
                     db,
                     order.id,
-                    StatusTransition(new_status="DELIVERED"),
+                    StatusTransition(new_status="DELIVERED", fx_rate_at_delivery=Decimal("1500.000000")),
                     uuid.uuid4(),
                 )
             except ProductStockNotFoundError:
@@ -3249,6 +3284,44 @@ class TestOrdersOwnershipChecks:
                 json={"new_status": "CANCELLED"},
             )
         assert resp.status_code != 403
+
+    def test_deliver_without_fx_rate_returns_422(self):
+        """PUT /{id}/status to DELIVERED without fx_rate_at_delivery returns
+        422 (task 181) — an interactive transition must supply it."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        order = _make_order(created_by=owner.id, status=OrderStatus.CLEARED)
+        db = _mock_db_with_execute(scalar_result=order)
+        self._override_db(db)
+        self._override_auth_as(owner)
+
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.put(
+                f"/api/v1/orders/{order.id}/status",
+                json={"new_status": "DELIVERED"},
+            )
+        assert resp.status_code == 422
+        assert "fx_rate_at_delivery" in resp.json()["detail"]
+
+    def test_deliver_with_zero_fx_rate_returns_422(self):
+        """fx_rate_at_delivery=0 must be rejected too — a submitted 0 would
+        pass the service layer's `is None` presence check but still be
+        falsy in the `fx_rate_at_delivery or fx_rate_at_creation or
+        Decimal("1500")` fallback, silently reintroducing the exact
+        degradation task 181 exists to prevent."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        order = _make_order(created_by=owner.id, status=OrderStatus.CLEARED)
+        db = _mock_db_with_execute(scalar_result=order)
+        self._override_db(db)
+        self._override_auth_as(owner)
+
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.put(
+                f"/api/v1/orders/{order.id}/status",
+                json={"new_status": "DELIVERED", "fx_rate_at_delivery": 0},
+            )
+        assert resp.status_code == 422
 
     def test_get_order_returns_fx_variance(self):
         """GET /{id} surfaces the computed fx_variance field (task 182)."""

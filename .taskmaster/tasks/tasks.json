@@ -5087,7 +5087,7 @@
         "description": "order-detail-page saveEdit() now routes DELIVERED orders through the cost-corrections endpoint (unit_cost/fx_rate_at_creation/shipping_cost only), but the edit UI itself still lets users interact with supplier name, dates, notes, quantities, and line-item deletion while editing a DELIVERED order — none of those are sent to the new endpoint, so those edits silently do nothing on save with no error telling the user why.",
         "details": "Found via code review, PR #335 (2026-08-12). Not a data-safety bug (nothing gets corrupted server-side — update_order() still rejects those fields entirely, and the new endpoint just does not send them), but a real UX trap: a user could believe they changed the supplier or removed a line item on a delivered order and only discover otherwise later.\n\nFix: when order.status === 'DELIVERED', disable/hide the non-cost fields in the edit form (supplier_name, expected_delivery_date, notes, quantity inputs, the line-item delete button, pay_term_number/type, supplier_invoice_number/date) and leave only unit_cost per line item + fx_rate_at_creation + shipping_cost editable, matching exactly what correct_delivered_order_costs() actually supports.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": []
@@ -5098,7 +5098,7 @@
         "description": "transition_status()'s DELIVERED handling computes FIFO landed cost from `transition.fx_rate_at_delivery or order.fx_rate_at_creation or Decimal(\"1500\")` (orders/service.py ~line 586-589). The UI exposes an FX Rate (delivery) field on the delivery transition, but nothing requires it to be filled in, so it's easy to click through delivery without setting it — PO-2026-00004 did exactly this (fx_rate_at_delivery is NULL in prod/local data) and its COGS was booked at the ₦1,400 creation-time rate instead of whatever the actual rate was on the 2026-07-03 arrival date.",
         "details": "Found 2026-08-12 while explaining to the user which FX rate the cost breakdown actually uses (creation vs. delivery vs. payment-time rates — see conversation same day). Confirmed via `_sync_payment_status`-adjacent code read of orders/service.py's DELIVERED transition block and a direct DB check of PO-2026-00004 (fx_rate_at_creation=1400, fx_rate_at_delivery=NULL).\n\nNot urgent/high-risk — the fallback chain means nothing crashes and a rate always gets used — but it silently degrades costing accuracy whenever a user skips the field. Two options to consider (not yet decided):\n1. Make fx_rate_at_delivery required in the DELIVERED transition schema/UI (blocks transition until set) — most correct, but adds friction to a workflow that currently allows one-click delivery.\n2. Keep it optional but surface a visible warning/banner on the order once delivered without it (\"COGS was booked at the creation-time rate — no delivery rate was recorded\"), and let the existing correct_delivered_order_costs() endpoint (task 179) fix it after the fact.\nLean toward option 2 first (lower friction, non-blocking), with option 1 only if inaccurate COGS turns out to be a recurring problem in practice.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": []
