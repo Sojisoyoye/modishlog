@@ -142,20 +142,20 @@ test.describe('Account lockout', () => {
   test.describe.configure({ mode: 'serial' });
 
   test.beforeAll(async () => {
-    // /auth/register requires an authenticated ADMIN-role user — the E2E
-    // owner account (created via /auth/onboard) is role OWNER, which
-    // require_admin() doesn't accept, so this always 403'd. /auth/onboard
-    // is public and creates its own business, so it works here without
-    // needing any admin token at all.
+    // OWNER (the role /auth/onboard assigns to the E2E suite's own account)
+    // is admin-equivalent within its own business (task 177), so /register
+    // now works with the E2E owner's own token — the lockout test user is
+    // created inside that same business, which lets afterAll's unlock call
+    // below reach it too.
+    const token = await getAPIToken();
     const ctx = await request.newContext();
     try {
-      const resp = await ctx.post(`${API}/auth/onboard`, {
+      const resp = await ctx.post(`${API}/auth/register`, {
+        headers: { Authorization: `Bearer ${token}` },
         data: {
           full_name: 'E2E Lockout Tester',
           email: LOCKOUT_EMAIL,
           password: LOCKOUT_PASSWORD,
-          business_name: 'E2E Lockout Test Business',
-          ndpr_consent: true,
         },
       });
       if (!resp.ok() && resp.status() !== 409) {

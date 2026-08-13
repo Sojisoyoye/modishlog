@@ -56,8 +56,9 @@ async def create_user(
     password: str,
     full_name: str,
     role: UserRole = UserRole.SALES_MANAGER,
+    business_id: uuid.UUID | None = None,
 ) -> User:
-    """Register a new user account."""
+    """Register a new user account, optionally scoped to a business."""
     validate_password(password)
 
     existing = await db.execute(select(User).where(User.email == email))
@@ -70,6 +71,7 @@ async def create_user(
         full_name=full_name,
         is_active=True,
         role=role,
+        business_id=business_id,
         failed_login_attempts=0,
     )
     db.add(user)
@@ -298,9 +300,15 @@ async def refresh_access_token(db: AsyncSession, raw_token: str) -> str:
     return new_access_token
 
 
-async def unlock_user(db: AsyncSession, email: str) -> User:
-    """Reset failed_login_attempts and locked_until for a user (admin action)."""
-    result = await db.execute(select(User).where(User.email == email))
+async def unlock_user(db: AsyncSession, email: str, business_id: uuid.UUID) -> User:
+    """Reset failed_login_attempts and locked_until for a user (admin action).
+
+    S4: scoped by business_id — an admin/owner must not be able to unlock a
+    user belonging to a different business by guessing their email.
+    """
+    result = await db.execute(
+        select(User).where(User.email == email, User.business_id == business_id)
+    )
     user = result.scalar_one_or_none()
     if user is None:
         raise UserNotFoundError(f"User {email} not found")
@@ -366,9 +374,16 @@ async def list_users(
     return result.scalars().all(), total
 
 
-async def get_user_by_id(db: AsyncSession, user_id: uuid.UUID) -> User:
-    """Fetch a single user by ID; raise UserNotFoundError if absent."""
-    user = await db.get(User, user_id)
+async def get_user_by_id(db: AsyncSession, user_id: uuid.UUID, business_id: uuid.UUID) -> User:
+    """Fetch a single user by ID, scoped to business_id; raise UserNotFoundError if absent.
+
+    S4: scoped by business_id — an admin/owner must not be able to reach a
+    user belonging to a different business by guessing/enumerating UUIDs.
+    """
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.business_id == business_id)
+    )
+    user = result.scalar_one_or_none()
     if user is None:
         raise UserNotFoundError(f"User {user_id} not found")
     return user
@@ -379,13 +394,17 @@ async def update_user(
     user_id: uuid.UUID,
     data: dict,
     requesting_user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> User:
     """Update full_name, role, or is_active for a user.
 
     Raises CannotModifySelfError if the admin attempts to deactivate or
-    demote their own account.
+    demote their own account. S4: lookup is scoped to business_id.
     """
-    user = await db.get(User, user_id)
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.business_id == business_id)
+    )
+    user = result.scalar_one_or_none()
     if user is None:
         raise UserNotFoundError(f"User {user_id} not found")
 
@@ -411,12 +430,19 @@ async def deactivate_user(
     db: AsyncSession,
     user_id: uuid.UUID,
     requesting_user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> None:
-    """Set is_active=False and delete all refresh tokens for the user."""
+    """Set is_active=False and delete all refresh tokens for the user.
+
+    S4: lookup is scoped to business_id.
+    """
     if user_id == requesting_user_id:
         raise CannotModifySelfError("Cannot deactivate your own account")
 
-    user = await db.get(User, user_id)
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.business_id == business_id)
+    )
+    user = result.scalar_one_or_none()
     if user is None:
         raise UserNotFoundError(f"User {user_id} not found")
 
@@ -426,9 +452,12 @@ async def deactivate_user(
     await logger.ainfo("user_deactivated", user_id=str(user_id))
 
 
-async def activate_user(db: AsyncSession, user_id: uuid.UUID) -> None:
-    """Set is_active=True for a user."""
-    user = await db.get(User, user_id)
+async def activate_user(db: AsyncSession, user_id: uuid.UUID, business_id: uuid.UUID) -> None:
+    """Set is_active=True for a user. S4: lookup is scoped to business_id."""
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.business_id == business_id)
+    )
+    user = result.scalar_one_or_none()
     if user is None:
         raise UserNotFoundError(f"User {user_id} not found")
 
@@ -437,12 +466,18 @@ async def activate_user(db: AsyncSession, user_id: uuid.UUID) -> None:
     await logger.ainfo("user_activated", user_id=str(user_id))
 
 
-async def admin_reset_user_password(db: AsyncSession, user_id: uuid.UUID) -> str | None:
+async def admin_reset_user_password(
+    db: AsyncSession, user_id: uuid.UUID, business_id: uuid.UUID
+) -> str | None:
     """Generate a password-reset token for a user (admin-initiated).
 
     Returns the raw reset token string, or None on unexpected lookup failure.
+    S4: lookup is scoped to business_id.
     """
-    user = await db.get(User, user_id)
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.business_id == business_id)
+    )
+    user = result.scalar_one_or_none()
     if user is None:
         raise UserNotFoundError(f"User {user_id} not found")
 

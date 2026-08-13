@@ -204,6 +204,26 @@ class TestCreateUser:
         user = await create_user(db, "sm@example.com", VALID_PASSWORD, "SM Test")
         assert user.role == UserRole.SALES_MANAGER
 
+    @pytest.mark.asyncio
+    async def test_business_id_is_assigned_when_provided(self):
+        """create_user must assign business_id when given one — an invited/
+        registered user must not be created as a business-less orphan
+        (task 177)."""
+        business_id = uuid.uuid4()
+        db = _mock_db(user=None)
+        user = await create_user(
+            db, "invited@example.com", VALID_PASSWORD, "Invited User", business_id=business_id
+        )
+        assert user.business_id == business_id
+
+    @pytest.mark.asyncio
+    async def test_business_id_defaults_to_none(self):
+        """Without an explicit business_id (e.g. onboarding's own flow, which
+        assigns it separately), create_user must not silently invent one."""
+        db = _mock_db(user=None)
+        user = await create_user(db, "noorg@example.com", VALID_PASSWORD, "No Org")
+        assert user.business_id is None
+
 
 # ---------------------------------------------------------------------------
 # authenticate_user service
@@ -334,7 +354,7 @@ class TestAuthEndpoints:
         from src.auth.dependencies import require_admin
 
         if admin_user is None:
-            admin_user = _make_user()
+            admin_user = _make_user(business_id=uuid.uuid4())
 
         async def _fake_admin():
             return admin_user
@@ -549,7 +569,7 @@ class TestRegisterAdminAuth:
         from src.auth.dependencies import require_admin
 
         if admin_user is None:
-            admin_user = _make_user()
+            admin_user = _make_user(business_id=uuid.uuid4())
 
         async def _fake_admin():
             return admin_user
@@ -573,7 +593,7 @@ class TestRegisterAdminAuth:
         """An authenticated admin must be able to register a new user."""
         from src.auth.models import UserRole
 
-        admin = _make_user(role=UserRole.ADMIN)
+        admin = _make_user(role=UserRole.ADMIN, business_id=uuid.uuid4())
         db = _mock_db(user=None)
         original_add = db.add
 
@@ -599,6 +619,96 @@ class TestRegisterAdminAuth:
         assert resp.status_code == 201
         data = resp.json()
         assert data["email"] == "newuser@example.com"
+
+    def test_owner_can_register_new_user(self):
+        """A business OWNER (self-serve business owner) must pass the real
+        require_admin dependency too, not just ADMIN — task 177."""
+        from src.auth.models import UserRole
+
+        owner = _make_user(role=UserRole.OWNER, business_id=uuid.uuid4())
+        token = build_token(owner)
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=owner)  # get_current_user's lookup
+        dup_check_result = MagicMock()
+        dup_check_result.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=dup_check_result)
+        db.flush = AsyncMock()
+
+        def _add(user):
+            user.id = uuid.uuid4()
+            user.created_at = datetime.now(timezone.utc)
+            user.updated_at = datetime.now(timezone.utc)
+
+        db.add = _add
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/register",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "email": "staffinvite@example.com",
+                    "password": VALID_PASSWORD,
+                    "full_name": "Staff Invite",
+                },
+            )
+        assert resp.status_code == 201
+        assert resp.json()["email"] == "staffinvite@example.com"
+
+    def test_owner_without_business_returns_403(self):
+        """An OWNER with no business_id must be rejected — task 177's guard
+        against an unscoped admin-gated call, not just a permissive role check."""
+        from src.auth.models import UserRole
+
+        owner = _make_user(role=UserRole.OWNER, business_id=None)
+        token = build_token(owner)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=owner)
+        self._override_db(db)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/register",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "email": "orphan@example.com",
+                    "password": VALID_PASSWORD,
+                    "full_name": "Orphan Invite",
+                },
+            )
+        assert resp.status_code == 403
+
+    def test_register_sets_business_id_from_admin(self):
+        """POST /register must assign the new user to the admin's own business."""
+        admin_business_id = uuid.uuid4()
+        admin = _make_user(business_id=admin_business_id)
+        db = _mock_db(user=None)
+        captured = {}
+        original_add = db.add
+
+        def _add_and_capture(user):
+            user.id = uuid.uuid4()
+            user.created_at = datetime.now(timezone.utc)
+            user.updated_at = datetime.now(timezone.utc)
+            captured["user"] = user
+            return original_add(user)
+
+        db.add = _add_and_capture
+        self._override_db(db)
+        self._override_require_admin(admin)
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/register",
+                json={
+                    "email": "bizscoped@example.com",
+                    "password": VALID_PASSWORD,
+                    "full_name": "Biz Scoped",
+                },
+            )
+        assert resp.status_code == 201
+        assert captured["user"].business_id == admin_business_id
 
     def test_non_admin_register_returns_403(self):
         """A non-admin authenticated user must be refused with 403."""
@@ -1489,7 +1599,7 @@ class TestAdminUnlockEndpoint:
         from src.auth.dependencies import require_admin
 
         if admin_user is None:
-            admin_user = _make_user()
+            admin_user = _make_user(business_id=uuid.uuid4())
 
         async def _fake_admin():
             return admin_user
@@ -1549,6 +1659,51 @@ class TestAdminUnlockEndpoint:
                 json={"email": "anyone@example.com"},
             )
         assert resp.status_code == 403
+
+
+class TestUnlockUserServiceBusinessIsolation:
+    """unlock_user's lookup must filter by business_id (S4, task 177) — an
+    admin/owner from business A must not be able to unlock a business B user
+    by guessing their email.
+
+    Named with the literal 'cross_tenant' substring so the dedicated
+    "Cross-tenant isolation tests" CI gate (risk-checks.yml, `pytest -k
+    "cross_tenant or business_isolation or tenant_isolation"`) actually
+    collects and runs this — a CamelCase-only name doesn't contain that
+    literal keyword and would otherwise be silently skipped.
+    """
+
+    @pytest.mark.asyncio
+    async def test_unlock_user_prevents_cross_tenant_access(self):
+        from src.auth.exceptions import UserNotFoundError
+        from src.auth.service import unlock_user
+
+        business_id = uuid.uuid4()
+        db = _mock_db(user=None)
+
+        with pytest.raises(UserNotFoundError):
+            await unlock_user(db, "someone@example.com", business_id)
+
+        stmt = db.execute.call_args[0][0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True})).replace("-", "")
+        assert f"AND users.business_id = '{business_id.hex}'" in compiled, compiled
+
+    @pytest.mark.asyncio
+    async def test_unlock_user_succeeds_when_business_id_matches(self):
+        from src.auth.service import unlock_user
+
+        business_id = uuid.uuid4()
+        locked_user = _make_user(
+            email="mine@example.com",
+            business_id=business_id,
+            failed_login_attempts=3,
+        )
+        db = _mock_db(user=locked_user)
+
+        result = await unlock_user(db, "mine@example.com", business_id)
+
+        assert result.failed_login_attempts == 0
+        assert result.locked_until is None
 
 
 class TestLoginRateLimit:

@@ -62,6 +62,20 @@ from src.core.database import get_db
 router = APIRouter()
 
 
+def _require_admin_business_id(admin: User) -> uuid.UUID:
+    """Every admin-gated user-management endpoint must scope its data access
+    to the caller's own business (S4) — this guards the case where the
+    caller has no business_id at all, rather than letting an unscoped query
+    silently match only business-less rows.
+    """
+    if admin.business_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin user is not associated with a business",
+        )
+    return admin.business_id
+
+
 def _login_rate_limit() -> str:
     """A real E2E suite legitimately logs in far more than 10 times/minute
     across its full test run (many specs, each with their own beforeEach
@@ -119,11 +133,12 @@ async def onboard_business(
 async def register(
     body: UserRegister,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     """Create a new user account. Requires an existing admin to be authenticated."""
+    business_id = _require_admin_business_id(admin)
     try:
-        user = await create_user(db, body.email, body.password, body.full_name)
+        user = await create_user(db, body.email, body.password, body.full_name, business_id=business_id)
     except WeakPasswordError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except UserAlreadyExistsError as e:
@@ -286,11 +301,12 @@ async def do_reset_password(
 async def admin_unlock_user(
     body: UnlockUserRequest,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     """Reset account lockout for a given email. Admin only."""
+    business_id = _require_admin_business_id(admin)
     try:
-        user = await unlock_user(db, body.email)
+        user = await unlock_user(db, body.email, business_id)
     except UserNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return user
@@ -321,14 +337,10 @@ async def admin_list_users(
     S4: Results are scoped to the admin's own business — cross-tenant enumeration
     is prevented at the service layer.
     """
-    if admin.business_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin user is not associated with a business",
-        )
+    business_id = _require_admin_business_id(admin)
     items, total = await list_users(
         db,
-        business_id=admin.business_id,
+        business_id=business_id,
         page=page,
         page_size=page_size,
         search=search,
@@ -347,11 +359,19 @@ async def admin_list_users(
 async def admin_invite_user(
     body: UserInvite,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     """Create a new user account (admin invite). Admin only."""
+    business_id = _require_admin_business_id(admin)
     try:
-        user = await create_user(db, body.email, body.password, body.full_name, role=UserRole(body.role))
+        user = await create_user(
+            db,
+            body.email,
+            body.password,
+            body.full_name,
+            role=UserRole(body.role),
+            business_id=business_id,
+        )
     except WeakPasswordError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except UserAlreadyExistsError as e:
@@ -363,11 +383,12 @@ async def admin_invite_user(
 async def admin_get_user(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     """Get a single user by ID. Admin only."""
+    business_id = _require_admin_business_id(admin)
     try:
-        user = await get_user_by_id(db, user_id)
+        user = await get_user_by_id(db, user_id, business_id)
     except UserNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return user
@@ -381,9 +402,10 @@ async def admin_update_user(
     admin: User = Depends(require_admin),
 ):
     """Update a user's full_name, role, or is_active status. Admin only."""
+    business_id = _require_admin_business_id(admin)
     data = body.model_dump(exclude_none=True)
     try:
-        user = await update_user(db, user_id, data, admin.id)
+        user = await update_user(db, user_id, data, admin.id, business_id)
     except UserNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except CannotModifySelfError as e:
@@ -398,8 +420,9 @@ async def admin_deactivate_user(
     admin: User = Depends(require_admin),
 ):
     """Deactivate a user account and revoke their tokens. Admin only."""
+    business_id = _require_admin_business_id(admin)
     try:
-        await deactivate_user(db, user_id, admin.id)
+        await deactivate_user(db, user_id, admin.id, business_id)
     except CannotModifySelfError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except UserNotFoundError as e:
@@ -411,11 +434,12 @@ async def admin_deactivate_user(
 async def admin_activate_user(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     """Reactivate a deactivated user account. Admin only."""
+    business_id = _require_admin_business_id(admin)
     try:
-        await activate_user(db, user_id)
+        await activate_user(db, user_id, business_id)
     except UserNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return MessageResponse(message="User activated successfully.")
@@ -425,11 +449,12 @@ async def admin_activate_user(
 async def admin_reset_password(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
 ):
     """Generate a password-reset token for a user (admin-initiated). Admin only."""
+    business_id = _require_admin_business_id(admin)
     try:
-        raw_token = await admin_reset_user_password(db, user_id)
+        raw_token = await admin_reset_user_password(db, user_id, business_id)
     except UserNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     if not raw_token:

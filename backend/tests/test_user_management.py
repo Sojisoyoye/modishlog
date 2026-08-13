@@ -60,7 +60,7 @@ class TestListUsersService:
         """list_users must return a list of users and total count."""
         from src.auth.service import list_users
 
-        admin = _make_user()
+        admin = _make_user(business_id=uuid.uuid4())
         user2 = _make_user(email="other@example.com", role=UserRole.SALES_MANAGER)
 
         db = AsyncMock()
@@ -96,6 +96,16 @@ class TestListUsersService:
         assert items[0].email == "soji@example.com"
 
 
+def _mock_db_lookup(user=None):
+    """AsyncMock db whose db.execute(select(...)) returns *user* via scalar_one_or_none."""
+    db = AsyncMock()
+    result_mock = MagicMock()
+    result_mock.scalar_one_or_none.return_value = user
+    db.execute = AsyncMock(return_value=result_mock)
+    db.flush = AsyncMock()
+    return db
+
+
 class TestUpdateUserService:
     """Unit tests for update_user service function."""
 
@@ -104,12 +114,12 @@ class TestUpdateUserService:
         """update_user must update the user's role."""
         from src.auth.service import update_user
 
-        target = _make_user(role=UserRole.SALES_MANAGER)
-        admin = _make_user()
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=target)
+        business_id = uuid.uuid4()
+        target = _make_user(role=UserRole.SALES_MANAGER, business_id=business_id)
+        admin = _make_user(business_id=business_id)
+        db = _mock_db_lookup(target)
 
-        result = await update_user(db, target.id, {"role": UserRole.ADMIN}, admin.id)
+        result = await update_user(db, target.id, {"role": UserRole.ADMIN}, admin.id, business_id)
 
         assert result.role == UserRole.ADMIN
 
@@ -118,12 +128,12 @@ class TestUpdateUserService:
         """update_user must update full_name."""
         from src.auth.service import update_user
 
-        target = _make_user(full_name="Old Name")
-        admin = _make_user()
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=target)
+        business_id = uuid.uuid4()
+        target = _make_user(full_name="Old Name", business_id=business_id)
+        admin = _make_user(business_id=business_id)
+        db = _mock_db_lookup(target)
 
-        result = await update_user(db, target.id, {"full_name": "New Name"}, admin.id)
+        result = await update_user(db, target.id, {"full_name": "New Name"}, admin.id, business_id)
 
         assert result.full_name == "New Name"
 
@@ -133,11 +143,10 @@ class TestUpdateUserService:
         from src.auth.exceptions import UserNotFoundError
         from src.auth.service import update_user
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
+        db = _mock_db_lookup(None)
 
         with pytest.raises(UserNotFoundError):
-            await update_user(db, uuid.uuid4(), {"full_name": "X"}, uuid.uuid4())
+            await update_user(db, uuid.uuid4(), {"full_name": "X"}, uuid.uuid4(), uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_admin_cannot_deactivate_self(self):
@@ -145,12 +154,12 @@ class TestUpdateUserService:
         from src.auth.exceptions import CannotModifySelfError
         from src.auth.service import update_user
 
-        admin = _make_user()
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=admin)
+        business_id = uuid.uuid4()
+        admin = _make_user(business_id=business_id)
+        db = _mock_db_lookup(admin)
 
         with pytest.raises(CannotModifySelfError):
-            await update_user(db, admin.id, {"is_active": False}, admin.id)
+            await update_user(db, admin.id, {"is_active": False}, admin.id, business_id)
 
     @pytest.mark.asyncio
     async def test_admin_cannot_demote_own_role(self):
@@ -158,12 +167,100 @@ class TestUpdateUserService:
         from src.auth.exceptions import CannotModifySelfError
         from src.auth.service import update_user
 
-        admin = _make_user()
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=admin)
+        business_id = uuid.uuid4()
+        admin = _make_user(business_id=business_id)
+        db = _mock_db_lookup(admin)
 
         with pytest.raises(CannotModifySelfError):
-            await update_user(db, admin.id, {"role": UserRole.SALES_MANAGER}, admin.id)
+            await update_user(db, admin.id, {"role": UserRole.SALES_MANAGER}, admin.id, business_id)
+
+
+def _assert_and_scoped_by_business_id(stmt, business_id: uuid.UUID) -> None:
+    """Assert the compiled statement's WHERE clause ANDs in a business_id
+    match (not just that the value appears somewhere) — a plain substring
+    check on the value would still pass a broken `OR business_id = ...`.
+    """
+    compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+    assert f"AND users.business_id = '{business_id.hex}'" in compiled.replace("-", ""), compiled
+
+
+class TestUserManagementBusinessIsolation:
+    """Compiled-SQL checks proving get_user_by_id/update_user/deactivate_user/
+    activate_user/admin_reset_user_password filter their lookup by business_id
+    (S4, task 177) — an admin/owner from business A must not be able to reach
+    a business B user by guessing their UUID.
+
+    Named with the literal 'cross_tenant' substring so the dedicated
+    "Cross-tenant isolation tests" CI gate (risk-checks.yml, `pytest -k
+    "cross_tenant or business_isolation or tenant_isolation"`) actually
+    collects and runs these — a CamelCase-only class/method name doesn't
+    contain that literal keyword and would otherwise be silently skipped.
+    """
+
+    @pytest.mark.asyncio
+    async def test_get_user_by_id_prevents_cross_tenant_access(self):
+        from src.auth.service import get_user_by_id
+        from src.auth.exceptions import UserNotFoundError
+
+        business_id = uuid.uuid4()
+        db = _mock_db_lookup(None)
+
+        with pytest.raises(UserNotFoundError):
+            await get_user_by_id(db, uuid.uuid4(), business_id)
+
+        _assert_and_scoped_by_business_id(db.execute.call_args[0][0], business_id)
+
+    @pytest.mark.asyncio
+    async def test_update_user_prevents_cross_tenant_access(self):
+        from src.auth.service import update_user
+        from src.auth.exceptions import UserNotFoundError
+
+        business_id = uuid.uuid4()
+        db = _mock_db_lookup(None)
+
+        with pytest.raises(UserNotFoundError):
+            await update_user(db, uuid.uuid4(), {"full_name": "X"}, uuid.uuid4(), business_id)
+
+        _assert_and_scoped_by_business_id(db.execute.call_args[0][0], business_id)
+
+    @pytest.mark.asyncio
+    async def test_deactivate_user_prevents_cross_tenant_access(self):
+        from src.auth.service import deactivate_user
+        from src.auth.exceptions import UserNotFoundError
+
+        business_id = uuid.uuid4()
+        db = _mock_db_lookup(None)
+
+        with pytest.raises(UserNotFoundError):
+            await deactivate_user(db, uuid.uuid4(), uuid.uuid4(), business_id)
+
+        _assert_and_scoped_by_business_id(db.execute.call_args[0][0], business_id)
+
+    @pytest.mark.asyncio
+    async def test_activate_user_prevents_cross_tenant_access(self):
+        from src.auth.service import activate_user
+        from src.auth.exceptions import UserNotFoundError
+
+        business_id = uuid.uuid4()
+        db = _mock_db_lookup(None)
+
+        with pytest.raises(UserNotFoundError):
+            await activate_user(db, uuid.uuid4(), business_id)
+
+        _assert_and_scoped_by_business_id(db.execute.call_args[0][0], business_id)
+
+    @pytest.mark.asyncio
+    async def test_admin_reset_user_password_prevents_cross_tenant_access(self):
+        from src.auth.service import admin_reset_user_password
+        from src.auth.exceptions import UserNotFoundError
+
+        business_id = uuid.uuid4()
+        db = _mock_db_lookup(None)
+
+        with pytest.raises(UserNotFoundError):
+            await admin_reset_user_password(db, uuid.uuid4(), business_id)
+
+        _assert_and_scoped_by_business_id(db.execute.call_args[0][0], business_id)
 
 
 class TestDeactivateUserService:
@@ -174,13 +271,12 @@ class TestDeactivateUserService:
         """deactivate_user must set is_active=False."""
         from src.auth.service import deactivate_user
 
-        target = _make_user(is_active=True)
-        admin = _make_user()
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=target)
-        db.execute = AsyncMock()
+        business_id = uuid.uuid4()
+        target = _make_user(is_active=True, business_id=business_id)
+        admin = _make_user(business_id=business_id)
+        db = _mock_db_lookup(target)
 
-        await deactivate_user(db, target.id, admin.id)
+        await deactivate_user(db, target.id, admin.id, business_id)
 
         assert target.is_active is False
 
@@ -190,27 +286,26 @@ class TestDeactivateUserService:
         from src.auth.exceptions import CannotModifySelfError
         from src.auth.service import deactivate_user
 
-        admin = _make_user()
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=admin)
+        business_id = uuid.uuid4()
+        admin = _make_user(business_id=business_id)
+        db = _mock_db_lookup(admin)
 
         with pytest.raises(CannotModifySelfError):
-            await deactivate_user(db, admin.id, admin.id)
+            await deactivate_user(db, admin.id, admin.id, business_id)
 
     @pytest.mark.asyncio
     async def test_deactivate_revokes_refresh_tokens(self):
         """deactivate_user must delete refresh tokens for the deactivated user."""
         from src.auth.service import deactivate_user
 
-        target = _make_user()
-        admin = _make_user()
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=target)
-        db.execute = AsyncMock()
+        business_id = uuid.uuid4()
+        target = _make_user(business_id=business_id)
+        admin = _make_user(business_id=business_id)
+        db = _mock_db_lookup(target)
 
-        await deactivate_user(db, target.id, admin.id)
+        await deactivate_user(db, target.id, admin.id, business_id)
 
-        db.execute.assert_called()  # Token deletion query was executed
+        db.execute.assert_called()  # Lookup + token deletion queries were executed
 
 
 class TestActivateUserService:
@@ -221,11 +316,11 @@ class TestActivateUserService:
         """activate_user must set is_active=True."""
         from src.auth.service import activate_user
 
-        target = _make_user(is_active=False)
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=target)
+        business_id = uuid.uuid4()
+        target = _make_user(is_active=False, business_id=business_id)
+        db = _mock_db_lookup(target)
 
-        await activate_user(db, target.id)
+        await activate_user(db, target.id, business_id)
 
         assert target.is_active is True
 
@@ -235,11 +330,10 @@ class TestActivateUserService:
         from src.auth.exceptions import UserNotFoundError
         from src.auth.service import activate_user
 
-        db = AsyncMock()
-        db.get = AsyncMock(return_value=None)
+        db = _mock_db_lookup(None)
 
         with pytest.raises(UserNotFoundError):
-            await activate_user(db, uuid.uuid4())
+            await activate_user(db, uuid.uuid4(), uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +365,7 @@ class TestAdminUsersEndpoints:
         from src.auth.dependencies import require_admin
 
         if admin_user is None:
-            admin_user = _make_user()
+            admin_user = _make_user(business_id=uuid.uuid4())
 
         async def _fake_admin():
             return admin_user
@@ -317,7 +411,7 @@ class TestAdminUsersEndpoints:
 
     def test_invite_user_creates_account(self):
         """POST /admin/users/invite must create a new user and return 201."""
-        admin = _make_user()
+        admin = _make_user(business_id=uuid.uuid4())
         new_user = _make_user(email="new@example.com", role=UserRole.SALES_MANAGER)
         self._override_require_admin(admin)
 
@@ -342,7 +436,7 @@ class TestAdminUsersEndpoints:
         """POST /admin/users/invite with existing email must return 409."""
         from src.auth.exceptions import UserAlreadyExistsError
 
-        admin = _make_user()
+        admin = _make_user(business_id=uuid.uuid4())
         self._override_require_admin(admin)
 
         with patch(
@@ -366,7 +460,7 @@ class TestAdminUsersEndpoints:
 
     def test_get_user_by_id_returns_user(self):
         """GET /admin/users/{id} must return user details."""
-        admin = _make_user()
+        admin = _make_user(business_id=uuid.uuid4())
         target = _make_user(email="target@example.com")
         self._override_require_admin(admin)
 
@@ -383,7 +477,7 @@ class TestAdminUsersEndpoints:
         """GET /admin/users/{id} for unknown user must return 404."""
         from src.auth.exceptions import UserNotFoundError
 
-        admin = _make_user()
+        admin = _make_user(business_id=uuid.uuid4())
         self._override_require_admin(admin)
 
         with patch(
@@ -399,7 +493,7 @@ class TestAdminUsersEndpoints:
 
     def test_update_user_role_returns_updated_user(self):
         """PATCH /admin/users/{id} must return updated user."""
-        admin = _make_user()
+        admin = _make_user(business_id=uuid.uuid4())
         target = _make_user(role=UserRole.SALES_MANAGER)
         target.role = UserRole.ADMIN
         self._override_require_admin(admin)
@@ -420,7 +514,7 @@ class TestAdminUsersEndpoints:
         """PATCH /admin/users/{id} to deactivate own account must return 400."""
         from src.auth.exceptions import CannotModifySelfError
 
-        admin = _make_user()
+        admin = _make_user(business_id=uuid.uuid4())
         self._override_require_admin(admin)
 
         with patch(
@@ -439,7 +533,7 @@ class TestAdminUsersEndpoints:
 
     def test_deactivate_user_sets_inactive(self):
         """POST /admin/users/{id}/deactivate must set user inactive."""
-        admin = _make_user()
+        admin = _make_user(business_id=uuid.uuid4())
         target = _make_user(email="target@example.com")
         self._override_require_admin(admin)
 
@@ -455,7 +549,7 @@ class TestAdminUsersEndpoints:
         """POST /admin/users/{id}/deactivate for own account must return 400."""
         from src.auth.exceptions import CannotModifySelfError
 
-        admin = _make_user()
+        admin = _make_user(business_id=uuid.uuid4())
         self._override_require_admin(admin)
 
         with patch(
@@ -471,7 +565,7 @@ class TestAdminUsersEndpoints:
 
     def test_activate_user_sets_active(self):
         """POST /admin/users/{id}/activate must set user active."""
-        admin = _make_user()
+        admin = _make_user(business_id=uuid.uuid4())
         target = _make_user(is_active=False)
         self._override_require_admin(admin)
 
@@ -485,7 +579,7 @@ class TestAdminUsersEndpoints:
 
     def test_admin_reset_password_returns_message(self):
         """POST /admin/users/{id}/reset-password must return a token/message."""
-        admin = _make_user()
+        admin = _make_user(business_id=uuid.uuid4())
         target = _make_user(email="target@example.com")
         self._override_require_admin(admin)
 

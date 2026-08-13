@@ -1185,6 +1185,17 @@ class TestRequireAdmin:
         result = await require_admin(current_user=user)
         assert result.role == UserRole.ADMIN
 
+    @pytest.mark.asyncio
+    async def test_require_admin_allows_owner(self):
+        """OWNER role must pass require_admin — self-serve business owners are
+        admin-equivalent within their own business (task 177)."""
+        from src.auth.dependencies import require_admin
+        from src.auth.models import UserRole
+
+        user = _make_user(role=UserRole.OWNER)
+        result = await require_admin(current_user=user)
+        assert result.role == UserRole.OWNER
+
 
 # ---------------------------------------------------------------------------
 # Service tests - transaction grouping (task #64)
