@@ -118,6 +118,45 @@ test.describe('Revert delivery', () => {
   });
 });
 
+test.describe('Delivered-order edit form locks non-cost fields', () => {
+  let orderId: string;
+
+  test.beforeAll(async () => {
+    await ensureTestUser();
+    const product = await ensureProduct('E2E Delivered Edit Lock Product');
+    const order = await createOrder(product.id, { currency: 'NGN', quantity: 3, unitCost: '2000.00' });
+    orderId = order.id;
+    await advanceOrderToStatus(orderId, 'DELIVERED', { fxRateAtDelivery: '1500' });
+  });
+
+  test.afterAll(async () => {
+    if (orderId) await deleteOrder(orderId).catch((e: Error) => {
+      if (!/4\d\d/.test(e.message)) throw e;
+    });
+  });
+
+  test('non-cost fields render read-only while cost-correction fields stay editable', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto(`/orders/${orderId}`);
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    // Non-cost fields: task 175's edit-lock — no input renders, only display text.
+    await expect(page.getByTestId('edit-supplier-name-input')).not.toBeVisible();
+    await expect(page.getByTestId('edit-notes-textarea')).not.toBeVisible();
+    await expect(page.getByTestId('edit-line-item-qty-input').first()).not.toBeVisible();
+    await expect(page.getByTitle('Remove product')).not.toBeVisible();
+
+    // Cost-correction fields: must remain interactive — these are exactly
+    // what correctDeliveredOrderCosts() sends to the backend.
+    await expect(page.getByTestId('edit-line-item-unit-cost-input').first()).toBeVisible();
+    await expect(page.getByTestId('edit-fx-rate-at-creation-input')).toBeVisible();
+    await expect(page.getByTestId('edit-fx-rate-at-delivery-input')).toBeVisible();
+    await expect(page.getByTestId('edit-shipping-cost-input')).toBeVisible();
+  });
+});
+
 test.describe('Price suggestion column', () => {
   let orderId: string;
 
