@@ -23,6 +23,7 @@ from src.inventory.service import (
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
     LineItemNotFoundError,
+    MissingDeliveryFxRateError,
     MissingFxRateError,
     OrderAlreadyConsumedError,
     OrderLineItemError,
@@ -583,6 +584,14 @@ async def transition_status(
 
     # Handle delivery
     if new_status == OrderStatus.DELIVERED:
+        # fx_rate_at_delivery is required for interactive (non-migration)
+        # transitions — FIFO landed cost otherwise silently falls back to
+        # the less-accurate creation-time rate (task 181). data_import's
+        # bulk backfill (migration_id set) is exempt: it has no per-record
+        # delivery-date rate to supply and must not be blocked by this.
+        if migration_id is None and transition.fx_rate_at_delivery is None:
+            raise MissingDeliveryFxRateError(order_id)
+
         order.actual_delivery_date = transition.actual_delivery_date or date.today()
 
         # Store FX rate at delivery if provided

@@ -23,9 +23,11 @@ async function seedDeliveredOrder(productId: string): Promise<{ id: string }> {
 
     // Transition through full lifecycle to DELIVERED (order is already created in PENDING state)
     for (const status of ['IN_PRODUCTION', 'SHIPPING', 'CLEARED', 'DELIVERED']) {
+      const data: Record<string, unknown> = { new_status: status };
+      if (status === 'DELIVERED') data['fx_rate_at_delivery'] = '1600'; // now required, task 181
       const tr = await ctx.put(`${API}/orders/${order.id}/status`, {
         headers: { Authorization: `Bearer ${token}` },
-        data: { new_status: status },
+        data,
       });
       if (!tr.ok()) throw new Error(`Transition to ${status} failed: ${tr.status()} ${await tr.text()}`);
     }
@@ -281,9 +283,11 @@ test.describe('Category-aware price suggestion margin (#80)', () => {
       orderId = order.id;
 
       for (const status of ['IN_PRODUCTION', 'SHIPPING', 'CLEARED', 'DELIVERED']) {
+        const data: Record<string, unknown> = { new_status: status };
+        if (status === 'DELIVERED') data['fx_rate_at_delivery'] = '1600'; // now required, task 181
         const tr = await ctx.put(`${API}/orders/${order.id}/status`, {
           headers: { Authorization: `Bearer ${token}` },
-          data: { new_status: status },
+          data,
         });
         if (!tr.ok()) throw new Error(`Transition to ${status} failed`);
       }
