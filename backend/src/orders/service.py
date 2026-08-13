@@ -24,11 +24,13 @@ from src.orders.exceptions import (
     InvalidStatusTransitionError,
     LineItemNotFoundError,
     MissingFxRateError,
+    OrderAlreadyConsumedError,
     OrderLineItemError,
     OrderNotDeliveredError,
     OrderNotEditableError,
     OrderNotFoundError,
     OverpaymentError,
+    PaymentAlreadyVoidedError,
     PaymentNotFoundError,
     PurchaseReturnNotFoundError,
 )
@@ -57,6 +59,7 @@ from src.orders.schemas import (
     ParseProductsResult,
     PaymentCreate,
     PaymentSummary,
+    PaymentUpdate,
     PurchaseReturnCreate,
     StatusTransition,
 )
@@ -64,6 +67,24 @@ from src.products.models import Product, ProductVariant
 from src.sales.models import Sale
 
 logger = structlog.get_logger()
+
+# Multi-currency payments are converted through a raw NGN amount / fx_rate
+# division (see _convert_to_order_currency), which can leave a sub-cent
+# residue after summing several payments (e.g. $0.000005 short on a
+# $19,180.26 order). Balances at or under this tolerance are treated as
+# fully settled so "Partially Paid" doesn't linger on an order a user has
+# actually paid off in full.
+PAYMENT_BALANCE_TOLERANCE = Decimal("0.01")
+
+
+def derive_payment_status(total_paid: Decimal, balance: Decimal) -> OrderPaymentStatus:
+    """Single source of truth for UNPAID/PARTIAL/PAID, shared by every read
+    and write path so they can't drift out of sync with each other."""
+    if total_paid == 0:
+        return OrderPaymentStatus.UNPAID
+    if balance <= PAYMENT_BALANCE_TOLERANCE:
+        return OrderPaymentStatus.PAID
+    return OrderPaymentStatus.PARTIAL
 
 # Valid status transitions
 VALID_TRANSITIONS: dict[OrderStatus, list[OrderStatus]] = {
@@ -643,6 +664,91 @@ async def transition_status(
     return order
 
 
+async def revert_delivered_order(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    user_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
+) -> PurchaseOrder:
+    """Undo a DELIVERED transition, moving the order back to CLEARED.
+
+    DELIVERED is otherwise a terminal, locked status (EDITABLE_STATUSES
+    excludes it, task 94) because the transition creates InventoryBatch
+    rows that sales can draw FIFO cost from — reverting after that has
+    happened would corrupt COGS history. This is narrowly scoped to the
+    "marked delivered by mistake, nothing has touched it yet" case: it
+    only proceeds if every batch this delivery created is still fully
+    untouched, then reverses exactly what transition_status()'s DELIVERED
+    handling did (inverse of orders/service.py's own DELIVERED block).
+    """
+    order = await get_order(db, order_id, business_id)
+    if order.status != OrderStatus.DELIVERED:
+        raise OrderNotDeliveredError(order_id, order.status.value, order.order_number)
+
+    # Locked so a concurrent sale (fifo_deduct() locks the same
+    # InventoryBatch rows via its own .with_for_update()) can't consume
+    # from a batch in the window between this check and the delete below —
+    # whichever transaction gets here first wins, the other blocks until
+    # it commits, closing the race instead of leaving it to chance.
+    batch_result = await db.execute(
+        select(InventoryBatch)
+        .where(InventoryBatch.order_id == order_id)
+        .with_for_update()
+    )
+    batches = list(batch_result.scalars().all())
+
+    for batch in batches:
+        if batch.quantity_remaining != batch.quantity_received:
+            raise OrderAlreadyConsumedError(order_id, order.order_number)
+
+    if batches:
+        consumption_result = await db.execute(
+            select(FifoConsumption.id)
+            .where(FifoConsumption.batch_id.in_([b.id for b in batches]))
+            .limit(1)
+        )
+        if consumption_result.scalar_one_or_none() is not None:
+            raise OrderAlreadyConsumedError(order_id, order.order_number)
+
+    for batch in batches:
+        await adjust_stock(
+            db,
+            product_id=batch.product_id,
+            variant_id=batch.variant_id,
+            quantity_change=-batch.quantity_received,
+            movement_type=MovementType.MANUAL_REMOVE.value,
+            reason=f"Reverted delivery of order {order.order_number}",
+            user_id=user_id,
+            reference_id=order.id,
+            reference_type="purchase_order",
+        )
+        await db.delete(batch)
+
+    for item in order.line_items:
+        item.units_remaining = None
+
+    old_status = order.status.value
+    order.status = OrderStatus.CLEARED
+    order.actual_delivery_date = None
+    order.fx_rate_at_delivery = None
+
+    await db.flush()
+
+    history = OrderStatusHistory(
+        order_id=order.id,
+        from_status=old_status,
+        to_status=OrderStatus.CLEARED.value,
+        transitioned_by=user_id,
+        notes="Reverted: order was marked DELIVERED in error",
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(history)
+    await db.flush()
+
+    await logger.ainfo("order_delivery_reverted", order_id=str(order_id))
+    return order
+
+
 async def reverse_lot_consumption(
     db: AsyncSession, sale_ids: Collection[uuid.UUID]
 ) -> None:
@@ -703,12 +809,7 @@ async def _sync_payment_status(db: AsyncSession, order: PurchaseOrder) -> None:
     )
     total_paid = result.scalar() or Decimal("0")
     balance = order.total_amount - total_paid
-    if total_paid == 0:
-        order.payment_status = OrderPaymentStatus.UNPAID
-    elif balance <= 0:
-        order.payment_status = OrderPaymentStatus.PAID
-    else:
-        order.payment_status = OrderPaymentStatus.PARTIAL
+    order.payment_status = derive_payment_status(total_paid, balance)
 
 
 async def get_paid_totals_for_orders(
@@ -871,7 +972,7 @@ async def get_payment_summary(
         total_paid=total_paid,
         balance_remaining=balance,
         payment_count=payment_count,
-        is_fully_paid=balance <= 0,
+        is_fully_paid=balance <= PAYMENT_BALANCE_TOLERANCE,
     )
 
 
@@ -904,6 +1005,99 @@ async def void_payment(
     return payment
 
 
+async def update_payment(
+    db: AsyncSession,
+    order_id: uuid.UUID,
+    payment_id: uuid.UUID,
+    data: PaymentUpdate,
+    business_id: uuid.UUID | None = None,
+) -> OrderPayment:
+    """Edit an existing (non-voided) payment — e.g. correcting its fx_rate
+    after the fact, such as when the exchange rate used at record time was
+    wrong or an updated rate is needed to fully cover the order's balance.
+
+    Same conversion semantics as record_payment(): amount/currency/fx_rate
+    describe what was actually paid, converted into the order's own
+    currency for storage exactly like on create. Any field omitted from
+    `data` keeps its current value — re-deriving the "raw paid" figure
+    from original_amount/original_currency (not the already-converted
+    amount/currency) when those weren't part of this edit either.
+
+    The overpayment check compares against the balance as if this
+    payment's *current* contribution didn't exist yet (balance_remaining +
+    payment.amount), not today's balance — otherwise a payment could never
+    be edited without first voiding it, since its own existing amount is
+    already counted against the balance.
+    """
+    order = await get_order(db, order_id, business_id)
+    result = await db.execute(
+        select(OrderPayment)
+        .where(OrderPayment.id == payment_id)
+        .where(OrderPayment.order_id == order_id)
+    )
+    payment = result.scalar_one_or_none()
+    if not payment:
+        raise PaymentNotFoundError(payment_id, order_id)
+    if payment.status == PaymentStatus.VOIDED:
+        raise PaymentAlreadyVoidedError(payment_id, order_id)
+
+    raw_amount = (
+        data.amount
+        if data.amount is not None
+        else (payment.original_amount if payment.original_amount is not None else payment.amount)
+    )
+    raw_currency = (
+        data.currency
+        if data.currency is not None
+        else (payment.original_currency if payment.original_currency is not None else payment.currency)
+    )
+    raw_fx_rate = data.fx_rate if data.fx_rate is not None else payment.fx_rate
+
+    if raw_currency == order.currency:
+        converted_amount = raw_amount
+        original_amount = None
+        original_currency = None
+    else:
+        if not raw_fx_rate:
+            raise MissingFxRateError(order_id, raw_currency, order.currency)
+        converted_amount = _convert_to_order_currency(
+            raw_amount, raw_currency, order.currency, raw_fx_rate
+        )
+        original_amount = raw_amount
+        original_currency = raw_currency
+
+    summary = await get_payment_summary(db, order_id, business_id)
+    balance_excluding_this_payment = summary.balance_remaining + payment.amount
+    if converted_amount > balance_excluding_this_payment:
+        raise OverpaymentError(
+            order_id, converted_amount, order.total_amount, summary.total_paid
+        )
+
+    payment.amount = converted_amount
+    payment.currency = order.currency
+    payment.fx_rate = raw_fx_rate
+    payment.original_amount = original_amount
+    payment.original_currency = original_currency
+    if data.payment_date is not None:
+        payment.payment_date = data.payment_date
+    if data.payment_method is not None:
+        payment.payment_method = PaymentMethod(data.payment_method)
+    if data.reference is not None:
+        payment.reference = data.reference
+    if data.notes is not None:
+        payment.notes = data.notes
+
+    await db.flush()
+    await _sync_payment_status(db, order)
+
+    await logger.ainfo(
+        "payment_updated",
+        order_id=str(order_id),
+        payment_id=str(payment_id),
+    )
+    return payment
+
+
 # ---------------------------------------------------------------------------
 # Delivered-order cost correction
 # ---------------------------------------------------------------------------
@@ -914,30 +1108,46 @@ async def correct_delivered_order_costs(
     order_id: uuid.UUID,
     corrections: list[LineItemCostCorrection],
     business_id: uuid.UUID | None = None,
+    fx_rate_at_creation: Decimal | None = None,
+    fx_rate_at_delivery: Decimal | None = None,
+    shipping_cost: Decimal | None = None,
+    clearing_cost: Decimal | None = None,
+    shipping_details: str | None = None,
 ) -> PurchaseOrder:
-    """Correct unit costs on an already-DELIVERED order's line items,
-    cascading the correction through InventoryBatch landed costs and every
+    """Correct costs on an already-DELIVERED order, cascading the
+    correction through InventoryBatch landed costs and every
     already-recorded sale's FIFO COGS/gross-profit.
 
     update_order() deliberately refuses any edit once an order is DELIVERED
     (see EDITABLE_STATUSES) — that lock is intentional (task 94) and stays
     in place for quantities/supplier/dates. This is a narrow, separate
-    operation solely for correcting a delivered order's unit costs against
+    operation solely for correcting a delivered order's costs against
     reality (e.g. the real supplier invoice), since neither update_order()
     nor anything else touches InventoryBatch or Sale.fifo_cogs after
     delivery — those are only ever written once, at the DELIVERED
     transition.
 
-    For every corrected line item: updates its own unit_cost/line_total,
-    every InventoryBatch created for that (order, product, variant), and
-    then re-sums fifo_cogs from scratch (not a delta) for every sale that
-    consumed from any touched batch — across that sale's FULL consumption
-    set, since some sales draw from more than one order's batches for the
-    same product.
+    Two independent correction paths, both landing in the same cascade:
+    - `corrections`: per-line-item unit_cost, cascading to that
+      (order, product, variant)'s own batches only.
+    - `fx_rate_at_creation`/`shipping_cost`/`clearing_cost`: order-wide
+      fields transition_status()'s DELIVERED handling baked into *every*
+      batch's fx_rate_at_arrival/logistics_allocation_per_unit (see that
+      function's fx_rate fallback and total_logistics/total_units
+      formula, reproduced identically here) — so correcting them cascades
+      to every batch on the order, not just the corrected line items'.
+
+    Either way, every touched batch's fifo_cogs impact is re-summed from
+    scratch (not a delta) for every sale that consumed from it, across
+    that sale's FULL consumption set, since some sales draw from more
+    than one order's batches for the same product.
     """
     order = await get_order(db, order_id, business_id)
     if order.status != OrderStatus.DELIVERED:
-        raise OrderNotDeliveredError(order_id, order.status.value)
+        raise OrderNotDeliveredError(order_id, order.status.value, order.order_number)
+
+    if shipping_details is not None:
+        order.shipping_details = shipping_details
 
     items_by_id = {item.id: item for item in order.line_items}
 
@@ -971,6 +1181,47 @@ async def correct_delivered_order_costs(
     order.total_amount = sum(
         (item.line_total for item in order.line_items), Decimal("0")
     )
+
+    if (
+        fx_rate_at_creation is not None
+        or fx_rate_at_delivery is not None
+        or shipping_cost is not None
+        or clearing_cost is not None
+    ):
+        if fx_rate_at_creation is not None:
+            order.fx_rate_at_creation = fx_rate_at_creation
+        if fx_rate_at_delivery is not None:
+            order.fx_rate_at_delivery = fx_rate_at_delivery
+        if shipping_cost is not None:
+            order.shipping_cost = shipping_cost
+        if clearing_cost is not None:
+            order.clearing_cost = clearing_cost
+
+        # Same fallback/formula as transition_status()'s DELIVERED handling.
+        new_fx_rate = (
+            order.fx_rate_at_delivery
+            or order.fx_rate_at_creation
+            or Decimal("1500")
+        )
+        total_logistics = (order.shipping_cost or Decimal("0")) + (
+            order.clearing_cost or Decimal("0")
+        )
+        total_units = sum(li.quantity for li in order.line_items) or 1
+        new_logistics_per_unit = (
+            total_logistics / Decimal(str(total_units))
+        ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+
+        order_batches_result = await db.execute(
+            select(InventoryBatch).where(InventoryBatch.order_id == order_id)
+        )
+        for batch in order_batches_result.scalars().all():
+            batch.fx_rate_at_arrival = new_fx_rate
+            batch.logistics_allocation_per_unit = new_logistics_per_unit
+            batch.landed_cost_per_unit = compute_landed_cost(
+                batch.unit_cost_usd, new_fx_rate, new_logistics_per_unit
+            )
+            touched_batch_ids.add(batch.id)
+
     await db.flush()  # so the resum below reads the corrected batch costs
 
     if touched_batch_ids:

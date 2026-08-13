@@ -265,6 +265,22 @@ class SuggestRequest(BaseModel):
     variant_id: Optional[uuid.UUID] = None
 
 
+class OrderLineSuggestionItem(BaseModel):
+    line_item_id: uuid.UUID
+    product_id: uuid.UUID
+    product_name: str
+    unit_cost_ngn: Decimal
+    current_price_ngn: Decimal | None = None
+    target_margin_pct: Decimal
+    suggested_price_ngn: Decimal | None = None
+
+
+class OrderPriceSuggestionsResponse(BaseModel):
+    order_id: uuid.UUID
+    fx_rate_used: Decimal
+    items: list[OrderLineSuggestionItem]
+
+
 class PriceSuggestionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -402,6 +402,166 @@ class TestMarginTargets:
         result = await get_margin_targets(db, business_id=uuid.uuid4())
         assert len(result) == 1
 
+    @pytest.mark.asyncio
+    async def test_delete_margin_target_removes_it(self):
+        from src.pricing.service import delete_margin_target
+
+        target = MarginTarget(
+            target_margin_pct=Decimal("35.00"),
+            min_margin_pct=Decimal("25.00"),
+            priority=1,
+            set_by=uuid.uuid4(),
+        )
+        target.id = uuid.uuid4()
+        business_id = uuid.uuid4()
+        db = _mock_db_with_execute(scalar_result=target)
+
+        await delete_margin_target(db, target.id, business_id=business_id)
+
+        db.delete.assert_called_once_with(target)
+
+    @pytest.mark.asyncio
+    async def test_delete_margin_target_not_found_raises(self):
+        from src.pricing.exceptions import MarginTargetNotFoundError
+        from src.pricing.service import delete_margin_target
+
+        db = _mock_db_with_execute(scalar_result=None)
+
+        with pytest.raises(MarginTargetNotFoundError):
+            await delete_margin_target(db, uuid.uuid4(), business_id=uuid.uuid4())
+
+
+class TestMarginTargetResolution:
+    """_pick_margin_target() / _resolve_target_margin() — Settings-
+    configured MarginTarget rows take priority over ProductCategory.
+    default_margin_pct, product-level beating category-level regardless
+    of priority (priority only tie-breaks within the same specificity)."""
+
+    def _product(self, category_id=None, category=None):
+        product = Product(name="Widget", slug="widget", sku="SKU-1", selling_price=Decimal("100"), business_id=uuid.uuid4())
+        product.id = uuid.uuid4()
+        product.category_id = category_id
+        product.category = category
+        return product
+
+    def _target(self, product_id=None, category_id=None, pct="35.00", min_pct="10.00", priority=1):
+        t = MarginTarget(
+            product_id=product_id,
+            category_id=category_id,
+            target_margin_pct=Decimal(pct),
+            min_margin_pct=Decimal(min_pct),
+            priority=priority,
+            set_by=uuid.uuid4(),
+        )
+        t.id = uuid.uuid4()
+        return t
+
+    def test_product_level_target_wins_over_category(self):
+        from src.pricing.service import _resolve_target_margin
+
+        cat_id = uuid.uuid4()
+        category = ProductCategory(name="Cat", business_id=uuid.uuid4())
+        category.id = cat_id
+        category.default_margin_pct = Decimal("0.50")
+        category.parent = None
+        product = self._product(category_id=cat_id, category=category)
+
+        targets = [
+            self._target(category_id=cat_id, pct="45.00"),
+            self._target(product_id=product.id, pct="35.00"),
+        ]
+
+        assert _resolve_target_margin(product, targets) == Decimal("0.35")
+
+    def test_category_level_target_wins_over_default_margin_pct(self):
+        from src.pricing.service import _resolve_target_margin
+
+        cat_id = uuid.uuid4()
+        category = ProductCategory(name="Cat", business_id=uuid.uuid4())
+        category.id = cat_id
+        category.default_margin_pct = Decimal("0.50")
+        category.parent = None
+        product = self._product(category_id=cat_id, category=category)
+
+        targets = [self._target(category_id=cat_id, pct="45.00")]
+
+        assert _resolve_target_margin(product, targets) == Decimal("0.45")
+
+    def test_priority_breaks_ties_among_same_specificity(self):
+        from src.pricing.service import _resolve_target_margin
+
+        product = self._product()
+        targets = [
+            self._target(product_id=product.id, pct="30.00", priority=1),
+            self._target(product_id=product.id, pct="40.00", priority=5),
+        ]
+
+        assert _resolve_target_margin(product, targets) == Decimal("0.40")
+
+    def test_no_matching_target_falls_back_to_category_default(self):
+        from src.pricing.service import _resolve_target_margin
+
+        cat_id = uuid.uuid4()
+        category = ProductCategory(name="Cat", business_id=uuid.uuid4())
+        category.id = cat_id
+        category.default_margin_pct = Decimal("0.50")
+        category.parent = None
+        product = self._product(category_id=cat_id, category=category)
+
+        other_product_target = [self._target(product_id=uuid.uuid4(), pct="99.00")]
+
+        assert _resolve_target_margin(product, other_product_target) == Decimal("0.50")
+
+    def test_no_target_no_category_default_falls_back_to_40_pct(self):
+        from src.pricing.service import _resolve_target_margin
+
+        product = self._product()
+        assert _resolve_target_margin(product, []) == Decimal("0.40")
+
+    def test_resolve_min_margin_reads_matched_targets_min_pct(self):
+        from src.pricing.service import _resolve_min_margin
+
+        product = self._product()
+        targets = [self._target(product_id=product.id, pct="35.00", min_pct="25.00")]
+
+        assert _resolve_min_margin(product, targets) == Decimal("0.25")
+
+    def test_resolve_min_margin_none_when_no_target_matches(self):
+        from src.pricing.service import _resolve_min_margin
+
+        product = self._product()
+        assert _resolve_min_margin(product, []) is None
+        other = [self._target(product_id=uuid.uuid4(), min_pct="99.00")]
+        assert _resolve_min_margin(product, other) is None
+
+    def test_apply_min_margin_floor_bumps_price_up_when_below_floor(self):
+        from src.pricing.service import _apply_min_margin_floor
+
+        # cost=15000, target-margin-derived suggestion=15000/0.60=25000,
+        # but a 50% min margin floor requires 15000/0.50=30000
+        result = _apply_min_margin_floor(Decimal("25000"), Decimal("15000"), Decimal("0.50"))
+        assert result == Decimal("30000.000000")
+
+    def test_apply_min_margin_floor_leaves_price_when_already_above_floor(self):
+        from src.pricing.service import _apply_min_margin_floor
+
+        # suggestion=30000 already clears a 20% floor (15000/0.80=18750)
+        result = _apply_min_margin_floor(Decimal("30000"), Decimal("15000"), Decimal("0.20"))
+        assert result == Decimal("30000")
+
+    def test_apply_min_margin_floor_noop_when_none(self):
+        from src.pricing.service import _apply_min_margin_floor
+
+        assert _apply_min_margin_floor(Decimal("25000"), Decimal("15000"), None) == Decimal("25000")
+
+    def test_apply_min_margin_floor_ignores_impossible_100pct_plus(self):
+        from src.pricing.service import _apply_min_margin_floor
+
+        # min_margin >= 100% can't produce a finite price — ignored rather
+        # than dividing by zero/negative
+        result = _apply_min_margin_floor(Decimal("25000"), Decimal("15000"), Decimal("1.00"))
+        assert result == Decimal("25000")
+
 
 # ---------------------------------------------------------------------------
 # Demand Forecast Helpers
@@ -1139,6 +1299,60 @@ class TestPriceSuggestionEngine:
         with pytest.raises(ValidationError):
             SuggestRequest(target_margin_pct=Decimal("-0.1"))
 
+    @pytest.mark.asyncio
+    async def test_min_margin_pct_floors_the_suggested_price(self):
+        """A MarginTarget's min_margin_pct must actually change the
+        suggested price, not just get stored — the whole point of the
+        Settings 'Min Margin %' field the frontend exposes."""
+        from src.pricing.models import MarginTarget
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        business_id = uuid.uuid4()
+        lot = self._make_lot(product_id, units_remaining=10, unit_cost_ngn="15000")
+        margin_target = MarginTarget(
+            product_id=product_id,
+            target_margin_pct=Decimal("40.00"),
+            min_margin_pct=Decimal("50.00"),
+            priority=1,
+            set_by=uuid.uuid4(),
+        )
+        margin_target.id = uuid.uuid4()
+
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.all.return_value = [(lot, "USD")]
+            elif call_count == 2:
+                p = Product(
+                    name="Widget", slug="widget", sku="SKU-1",
+                    selling_price=Decimal("20000"), business_id=uuid.uuid4(),
+                )
+                p.id = product_id
+                p.category_id = None
+                p.category = None
+                result.scalar_one_or_none.return_value = p
+            else:
+                result.scalars.return_value.all.return_value = [margin_target]
+            return result
+
+        db = _mock_db()
+        db.execute = mock_execute
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            suggestion = await compute_suggestion(
+                db, product_id, business_id=business_id
+            )
+
+        # target_margin (40%) alone would give 15000/0.60=25000, but the
+        # 50% min_margin floor requires 15000/0.50=30000
+        assert suggestion.suggested_price_ngn == Decimal("30000.000000")
+
 
 # ---------------------------------------------------------------------------
 # Tests for variant-scoped lot cost (task 171)
@@ -1474,6 +1688,117 @@ class TestComputeSuggestionVariantScoping:
             return result
 
         return mock_execute
+
+
+class TestComputeSuggestionBusinessIsolation:
+    """compute_suggestion()'s lot/product queries must be business_id-scoped
+    (task 183) — otherwise any authenticated user of ANY business could get
+    a price suggestion (revealing another business's landed cost, FX rate,
+    and catalog price) for an arbitrary product_id belonging to a different
+    business, just by guessing/enumerating UUIDs. The MarginTarget lookup
+    was already scoped when business_id was added for that purpose; the
+    original lot/product queries were not."""
+
+    def _make_lot(self, product_id, units_remaining=10, unit_cost_ngn="14000"):
+        from src.orders.models import OrderLineItem
+        lot = MagicMock(spec=OrderLineItem)
+        lot.product_id = product_id
+        lot.units_remaining = Decimal(str(units_remaining))
+        lot.unit_cost = Decimal("10")
+        lot.unit_cost_ngn = Decimal(str(unit_cost_ngn))
+        return lot
+
+    @pytest.mark.asyncio
+    async def test_lot_and_product_queries_filter_by_business_id(self):
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        business_id = uuid.uuid4()
+        lot = self._make_lot(product_id)
+
+        captured = {}
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                captured["lot_stmt"] = stmt
+                result.all.return_value = [(lot, "USD")]
+            elif call_count == 2:
+                captured["product_stmt"] = stmt
+                p = Product(
+                    name="Widget", slug="widget", sku="SKU-1",
+                    selling_price=Decimal("20000"), business_id=business_id,
+                )
+                p.id = product_id
+                p.category_id = None
+                p.category = None
+                result.scalar_one_or_none.return_value = p
+            else:
+                result.scalars.return_value.all.return_value = []
+            return result
+
+        db = _mock_db()
+        db.execute = mock_execute
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            await compute_suggestion(
+                db, product_id, target_margin=Decimal("0.40"), business_id=business_id
+            )
+
+        lot_sql = str(captured["lot_stmt"].compile(compile_kwargs={"literal_binds": True}))
+        product_sql = str(captured["product_stmt"].compile(compile_kwargs={"literal_binds": True}))
+        needle = str(business_id).replace("-", "")
+        assert needle in lot_sql.replace("-", ""), "lot query must filter by business_id"
+        assert needle in product_sql.replace("-", ""), "product query must filter by business_id"
+
+    @pytest.mark.asyncio
+    async def test_no_business_id_does_not_filter(self):
+        """business_id=None (internal/legacy callers) must not add a filter
+        clause that would break them — preserves prior behaviour."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        lot = self._make_lot(product_id)
+
+        captured = {}
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                captured["lot_stmt"] = stmt
+                result.all.return_value = [(lot, "USD")]
+            elif call_count == 2:
+                p = Product(
+                    name="Widget", slug="widget", sku="SKU-1",
+                    selling_price=Decimal("20000"), business_id=uuid.uuid4(),
+                )
+                p.id = product_id
+                p.category_id = None
+                p.category = None
+                result.scalar_one_or_none.return_value = p
+            else:
+                result.scalars.return_value.all.return_value = []
+            return result
+
+        db = _mock_db()
+        db.execute = mock_execute
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            suggestion = await compute_suggestion(
+                db, product_id, target_margin=Decimal("0.40"), business_id=None
+            )
+
+        assert suggestion.product_id == product_id
+        lot_sql = str(captured["lot_stmt"].compile(compile_kwargs={"literal_binds": True})).lower()
+        assert "business_id" not in lot_sql
 
 
 class TestSuggestionHistoryVariantScoping:
@@ -2280,3 +2605,271 @@ class TestOptimizationTimeout:
                 await generate_recommendations(
                     db, business_id=uuid.uuid4(), target_margin=Decimal("35")
                 )
+
+
+class TestSuggestPricesForOrder:
+    """suggest_prices_for_order() — per-line-item selling-price suggestions
+    costed directly off the order's own line items (works at any order
+    status, unlike the lot-based compute_suggestion()), using the LIVE
+    current FX rate and each product's category target margin."""
+
+    def _make_order(self, currency="USD", shipping_cost="0", clearing_cost="0", line_items=None):
+        from src.orders.models import PurchaseOrder
+
+        order = PurchaseOrder(
+            order_number="PO-2026-00001",
+            supplier_name="Test Supplier",
+            status="DELIVERED",
+            total_amount=Decimal("1000"),
+            currency=currency,
+            shipping_cost=Decimal(shipping_cost),
+            clearing_cost=Decimal(clearing_cost),
+            created_by=uuid.uuid4(),
+        )
+        order.id = uuid.uuid4()
+        order.line_items = line_items or []
+        return order
+
+    def _make_line_item(self, product_id, quantity=1, unit_cost="10", unit_cost_ngn=None):
+        from src.orders.models import OrderLineItem
+
+        li = OrderLineItem(
+            order_id=uuid.uuid4(),
+            product_id=product_id,
+            quantity=quantity,
+            unit_cost=Decimal(unit_cost),
+            unit_cost_ngn=Decimal(unit_cost_ngn) if unit_cost_ngn is not None else None,
+            line_total=Decimal(unit_cost) * quantity,
+        )
+        li.id = uuid.uuid4()
+        return li
+
+    def _make_product(self, product_id, name="Widget", selling_price="20000", default_margin_pct=None):
+        product = Product(
+            name=name,
+            slug=name.lower(),
+            sku=f"SKU-{name}",
+            selling_price=Decimal(selling_price),
+            business_id=uuid.uuid4(),
+        )
+        product.id = product_id
+        if default_margin_pct is not None:
+            category = ProductCategory(name="Cat", business_id=uuid.uuid4())
+            category.id = uuid.uuid4()
+            category.default_margin_pct = Decimal(default_margin_pct)
+            category.parent = None
+            category.parent_id = None
+            product.category = category
+            product.category_id = category.id
+        else:
+            product.category = None
+            product.category_id = None
+        return product
+
+    def _mock_execute_products(self, products):
+        async def mock_execute(stmt):
+            result = MagicMock()
+            result.scalars.return_value.all.return_value = products
+            return result
+
+        return mock_execute
+
+    def _mock_execute_products_then_targets(self, products, margin_targets):
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            result.scalars.return_value.all.return_value = (
+                products if call_count == 1 else margin_targets
+            )
+            return result
+
+        return mock_execute
+
+    @pytest.mark.asyncio
+    async def test_usd_order_converts_via_live_fx_rate(self):
+        from src.pricing.service import suggest_prices_for_order
+
+        product_id = uuid.uuid4()
+        li = self._make_line_item(product_id, quantity=10, unit_cost="10")
+        order = self._make_order(currency="USD", line_items=[li])
+        product = self._make_product(product_id, default_margin_pct="0.40")
+
+        db = _mock_db()
+        db.execute = self._mock_execute_products([product])
+
+        with patch("src.pricing.service.get_order", new_callable=AsyncMock, return_value=order), \
+             patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1500"), datetime.now(timezone.utc), True)):
+            result = await suggest_prices_for_order(db, order.id)
+
+        # cost_ngn = 10 * 1500 = 15000; suggested = 15000 / 0.60 = 25000
+        assert result["fx_rate_used"] == Decimal("1500")
+        item = result["items"][0]
+        assert item["unit_cost_ngn"] == Decimal("15000.000000")
+        assert item["suggested_price_ngn"] == Decimal("15000") / Decimal("0.60")
+        assert item["target_margin_pct"] == Decimal("0.40")
+        assert item["current_price_ngn"] == Decimal("20000")
+
+    @pytest.mark.asyncio
+    async def test_ngn_order_uses_unit_cost_directly_no_fx_conversion(self):
+        from src.pricing.service import suggest_prices_for_order
+
+        product_id = uuid.uuid4()
+        li = self._make_line_item(product_id, quantity=5, unit_cost="14000")
+        order = self._make_order(currency="NGN", line_items=[li])
+        product = self._make_product(product_id, default_margin_pct="0.40")
+
+        db = _mock_db()
+        db.execute = self._mock_execute_products([product])
+
+        with patch("src.pricing.service.get_order", new_callable=AsyncMock, return_value=order), \
+             patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1500"), datetime.now(timezone.utc), True)):
+            result = await suggest_prices_for_order(db, order.id)
+
+        item = result["items"][0]
+        assert item["unit_cost_ngn"] == Decimal("14000.000000")
+
+    @pytest.mark.asyncio
+    async def test_shipping_and_clearing_allocated_per_unit(self):
+        from src.pricing.service import suggest_prices_for_order
+
+        product_id = uuid.uuid4()
+        li = self._make_line_item(product_id, quantity=10, unit_cost="10")
+        order = self._make_order(
+            currency="USD", shipping_cost="500", clearing_cost="500", line_items=[li]
+        )
+        product = self._make_product(product_id, default_margin_pct="0.40")
+
+        db = _mock_db()
+        db.execute = self._mock_execute_products([product])
+
+        with patch("src.pricing.service.get_order", new_callable=AsyncMock, return_value=order), \
+             patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1500"), datetime.now(timezone.utc), True)):
+            result = await suggest_prices_for_order(db, order.id)
+
+        # logistics_per_unit = (500+500)/10 = 100; landed = 10*1500 + 100 = 15100
+        item = result["items"][0]
+        assert item["unit_cost_ngn"] == Decimal("15100.000000")
+
+    @pytest.mark.asyncio
+    async def test_no_category_falls_back_to_default_margin(self):
+        from src.pricing.service import suggest_prices_for_order
+
+        product_id = uuid.uuid4()
+        li = self._make_line_item(product_id, quantity=1, unit_cost="10")
+        order = self._make_order(currency="USD", line_items=[li])
+        product = self._make_product(product_id, default_margin_pct=None)
+
+        db = _mock_db()
+        db.execute = self._mock_execute_products([product])
+
+        with patch("src.pricing.service.get_order", new_callable=AsyncMock, return_value=order), \
+             patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1500"), datetime.now(timezone.utc), True)):
+            result = await suggest_prices_for_order(db, order.id)
+
+        assert result["items"][0]["target_margin_pct"] == Decimal("0.40")
+
+    @pytest.mark.asyncio
+    async def test_order_not_found_propagates(self):
+        from src.orders.exceptions import OrderNotFoundError
+        from src.pricing.service import suggest_prices_for_order
+
+        db = _mock_db()
+        order_id = uuid.uuid4()
+
+        with patch("src.pricing.service.get_order", new_callable=AsyncMock,
+                   side_effect=OrderNotFoundError(order_id)):
+            with pytest.raises(OrderNotFoundError):
+                await suggest_prices_for_order(db, order_id)
+
+    @pytest.mark.asyncio
+    async def test_margin_target_overrides_category_default(self):
+        """A Settings-configured MarginTarget for the product's category
+        must be used instead of ProductCategory.default_margin_pct, when
+        business_id is provided."""
+        from src.pricing.service import suggest_prices_for_order
+
+        product_id = uuid.uuid4()
+        li = self._make_line_item(product_id, quantity=1, unit_cost="10")
+        order = self._make_order(currency="USD", line_items=[li])
+        product = self._make_product(product_id, default_margin_pct="0.50")
+        margin_target = MarginTarget(
+            category_id=product.category_id,
+            target_margin_pct=Decimal("25.00"),
+            min_margin_pct=Decimal("10.00"),
+            priority=1,
+            set_by=uuid.uuid4(),
+        )
+        margin_target.id = uuid.uuid4()
+
+        db = _mock_db()
+        db.execute = self._mock_execute_products_then_targets([product], [margin_target])
+        business_id = uuid.uuid4()
+
+        with patch("src.pricing.service.get_order", new_callable=AsyncMock, return_value=order), \
+             patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1500"), datetime.now(timezone.utc), True)):
+            result = await suggest_prices_for_order(db, order.id, business_id=business_id)
+
+        # MarginTarget's 25% (0.25), not the category's default 50% (0.50)
+        assert result["items"][0]["target_margin_pct"] == Decimal("0.25")
+
+    @pytest.mark.asyncio
+    async def test_no_business_id_skips_margin_target_lookup(self):
+        """business_id=None (e.g. a caller that doesn't have tenant
+        context) must not attempt a MarginTarget query at all — falls
+        through to the category default cleanly."""
+        from src.pricing.service import suggest_prices_for_order
+
+        product_id = uuid.uuid4()
+        li = self._make_line_item(product_id, quantity=1, unit_cost="10")
+        order = self._make_order(currency="USD", line_items=[li])
+        product = self._make_product(product_id, default_margin_pct="0.50")
+
+        db = _mock_db()
+        db.execute = self._mock_execute_products([product])
+
+        with patch("src.pricing.service.get_order", new_callable=AsyncMock, return_value=order), \
+             patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1500"), datetime.now(timezone.utc), True)):
+            result = await suggest_prices_for_order(db, order.id, business_id=None)
+
+        assert result["items"][0]["target_margin_pct"] == Decimal("0.50")
+
+    @pytest.mark.asyncio
+    async def test_min_margin_pct_floors_the_suggested_price(self):
+        """Same min_margin_pct floor as compute_suggestion(), applied per
+        line item here."""
+        from src.pricing.service import suggest_prices_for_order
+
+        product_id = uuid.uuid4()
+        li = self._make_line_item(product_id, quantity=10, unit_cost="10")
+        order = self._make_order(currency="USD", line_items=[li])
+        product = self._make_product(product_id, default_margin_pct="0.40")
+        margin_target = MarginTarget(
+            product_id=product_id,
+            target_margin_pct=Decimal("40.00"),
+            min_margin_pct=Decimal("50.00"),
+            priority=1,
+            set_by=uuid.uuid4(),
+        )
+        margin_target.id = uuid.uuid4()
+
+        db = _mock_db()
+        db.execute = self._mock_execute_products_then_targets([product], [margin_target])
+        business_id = uuid.uuid4()
+
+        with patch("src.pricing.service.get_order", new_callable=AsyncMock, return_value=order), \
+             patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1500"), datetime.now(timezone.utc), True)):
+            result = await suggest_prices_for_order(db, order.id, business_id=business_id)
+
+        # cost_ngn = 10 * 1500 = 15000; 40% target would give 25000, but
+        # the 50% min_margin floor requires 15000/0.50=30000
+        assert result["items"][0]["suggested_price_ngn"] == Decimal("30000.000000")

@@ -443,3 +443,153 @@ export async function addStock(
     await ctx.dispose();
   }
 }
+
+/**
+ * Create (or reuse) a product with has_variants=true.
+ */
+export async function ensureVariantProduct(
+  name = 'E2E Variant Product',
+  unitCost = '2000.00',
+): Promise<{ id: string; name: string }> {
+  const token = await getAPIToken();
+  const categoryId = await ensureE2ECategory();
+  const ctx = await request.newContext();
+  try {
+    const listResp = await ctx.get(`${API}/products?search=${encodeURIComponent(name)}&page_size=25`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (listResp.ok()) {
+      const data = await listResp.json();
+      const items: { id: string; name: string }[] = Array.isArray(data) ? data : (data.items ?? []);
+      const found = items.find((p) => p.name === name);
+      if (found) return { id: found.id, name: found.name };
+    }
+    const sku = `E2E-VAR-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const resp = await ctx.post(`${API}/products`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        name,
+        sku,
+        unit_cost: unitCost,
+        selling_price: '3500.00',
+        currency: 'NGN',
+        category_id: categoryId,
+        has_variants: true,
+      },
+    });
+    if (!resp.ok()) throw new Error(`Create variant product failed: ${resp.status()} ${await resp.text()}`);
+    const product = await resp.json();
+    return { id: product.id, name: product.name };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Create a product variant via POST /products/:id/variants.
+ */
+export async function createVariant(
+  productId: string,
+  name: string,
+  costPriceOverride?: string,
+): Promise<{ id: string; name: string }> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const body: Record<string, unknown> = { name };
+    if (costPriceOverride) body['cost_price_override'] = costPriceOverride;
+    const resp = await ctx.post(`${API}/products/${productId}/variants`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: body,
+    });
+    if (!resp.ok()) throw new Error(`Create variant failed: ${resp.status()} ${await resp.text()}`);
+    const variant = await resp.json();
+    return { id: variant.id, name: variant.name };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Record a payment against an order via POST /orders/:id/payments.
+ */
+export async function recordPayment(
+  orderId: string,
+  options: { amount: string; currency?: string; fxRate?: string; paymentDate?: string; paymentMethod?: string } = { amount: '100.00' },
+): Promise<{ id: string }> {
+  const { amount, currency = 'USD', fxRate, paymentDate = new Date().toISOString().split('T')[0], paymentMethod = 'BANK_TRANSFER' } = options;
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const body: Record<string, unknown> = {
+      amount,
+      currency,
+      payment_date: paymentDate,
+      payment_method: paymentMethod,
+    };
+    if (fxRate) body['fx_rate'] = fxRate;
+    const resp = await ctx.post(`${API}/orders/${orderId}/payments`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: body,
+    });
+    if (!resp.ok()) throw new Error(`Record payment failed: ${resp.status()} ${await resp.text()}`);
+    return { id: (await resp.json()).id };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Fetch an order's full detail via GET /orders/:id.
+ */
+export async function getOrder(orderId: string): Promise<Record<string, unknown>> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.get(`${API}/orders/${orderId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok()) throw new Error(`Get order failed: ${resp.status()} ${await resp.text()}`);
+    return await resp.json();
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Create a margin target via POST /pricing/margins/target.
+ */
+export async function createMarginTarget(
+  data: { product_id?: string; category_id?: string; target_margin_pct: string; min_margin_pct: string; priority?: number },
+): Promise<{ id: string }> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.post(`${API}/pricing/margins/target`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data,
+    });
+    if (!resp.ok()) throw new Error(`Create margin target failed: ${resp.status()} ${await resp.text()}`);
+    return { id: (await resp.json()).id };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Delete a margin target via DELETE /pricing/margins/target/:id.
+ */
+export async function deleteMarginTarget(id: string): Promise<void> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.delete(`${API}/pricing/margins/target/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok() && resp.status() !== 404) {
+      throw new Error(`Delete margin target failed: ${resp.status()} ${await resp.text()}`);
+    }
+  } finally {
+    await ctx.dispose();
+  }
+}

@@ -213,7 +213,7 @@ import {
                 [disabled]="generating()"
                 class="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:opacity-50"
               >
-                <i class="pi pi-sparkles text-sm"></i> Generate New
+                <i class="pi pi-sparkles text-sm"></i> Generate Recommendations
               </button>
             }
           </div>

@@ -52,6 +52,19 @@ class PaymentNotFoundError(Exception):
         super().__init__(f"Payment {payment_id} not found for order {order_id}")
 
 
+class PaymentAlreadyVoidedError(Exception):
+    """Raised when attempting to edit a payment that's already VOIDED —
+    void it, then record a fresh payment instead."""
+
+    def __init__(self, payment_id: uuid.UUID, order_id: uuid.UUID) -> None:
+        self.payment_id = payment_id
+        self.order_id = order_id
+        super().__init__(
+            f"Payment {payment_id} on order {order_id} is voided and cannot "
+            "be edited — record a new payment instead"
+        )
+
+
 class OverpaymentError(Exception):
     """Raised when a payment would exceed the order total amount."""
 
@@ -107,11 +120,14 @@ class OrderNotDeliveredError(Exception):
     been delivered yet — use the normal order-edit flow for those instead,
     since no InventoryBatch/FIFO cost basis exists to cascade into."""
 
-    def __init__(self, order_id: uuid.UUID, current_status: str) -> None:
+    def __init__(
+        self, order_id: uuid.UUID, current_status: str, order_number: str | None = None
+    ) -> None:
         self.order_id = order_id
         self.current_status = current_status
+        label = order_number or order_id
         super().__init__(
-            f"Order {order_id} is '{current_status}', not DELIVERED — cost "
+            f"Order {label} is '{current_status}', not DELIVERED — cost "
             "corrections only apply to delivered orders (use the normal "
             "order edit for other statuses)"
         )
@@ -125,6 +141,20 @@ class LineItemNotFoundError(Exception):
         self.order_id = order_id
         self.line_item_id = line_item_id
         super().__init__(f"Line item {line_item_id} not found on order {order_id}")
+
+
+class OrderAlreadyConsumedError(Exception):
+    """Raised when attempting to revert a DELIVERED order's delivery after
+    a sale has already drawn from the inventory batches it created —
+    reverting would corrupt FIFO/COGS history, so it's blocked outright."""
+
+    def __init__(self, order_id: uuid.UUID, order_number: str | None = None) -> None:
+        self.order_id = order_id
+        label = order_number or order_id
+        super().__init__(
+            f"Order {label} cannot be reverted from DELIVERED — one or "
+            "more of its inventory batches has already been sold from"
+        )
 
 
 class PurchaseReturnNotFoundError(Exception):

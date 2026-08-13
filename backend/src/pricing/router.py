@@ -9,10 +9,12 @@ from src.auth.dependencies import get_current_active_user, get_current_business_
 from src.auth.models import User
 from src.core.database import get_db
 from src.fx.exceptions import FXPairNotFoundError, ForecastTimeoutError
+from src.orders.exceptions import OrderNotFoundError
 from src.pricing.exceptions import (
     CrossSubsidyAnalysisError,
     ElasticityNotFoundError,
     InsufficientPriceDataError,
+    MarginTargetNotFoundError,
     MixTargetSumError,
     OptimizationInfeasibleError,
     PricingSuggestionError,
@@ -30,6 +32,7 @@ from src.pricing.schemas import (
     MixStatusResponse,
     MixTargetBulkCreate,
     MixTargetRead,
+    OrderPriceSuggestionsResponse,
     PortfolioMarginResponse,
     PriceSuggestionRead,
     RecommendationRead,
@@ -48,6 +51,7 @@ from src.pricing.service import (
     calculate_portfolio_margin,
     calculate_price_elasticity_impact,
     compute_suggestion,
+    delete_margin_target,
     dismiss_recommendation,
     generate_recommendations,
     get_elasticity,
@@ -60,6 +64,7 @@ from src.pricing.service import (
     save_scenario,
     sensitivity_calc,
     set_margin_target,
+    suggest_prices_for_order,
     update_elasticity_config,
     upsert_mix_targets,
 )
@@ -253,6 +258,19 @@ async def list_margin_targets_endpoint(
     return await get_margin_targets(db, business_id=business_id)
 
 
+@router.delete("/margins/target/{target_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_margin_target_endpoint(
+    target_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Delete a margin target."""
+    try:
+        await delete_margin_target(db, target_id, business_id=business_id)
+    except MarginTargetNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
 # ---------------------------------------------------------------------------
 # Product Mix Targets
 # ---------------------------------------------------------------------------
@@ -408,6 +426,7 @@ async def compute_suggestion_endpoint(
     body: SuggestRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Compute and persist a sell-price suggestion from active lot cost basis."""
     try:
@@ -416,6 +435,7 @@ async def compute_suggestion_endpoint(
             product_id,
             target_margin=body.target_margin_pct,
             variant_id=body.variant_id,
+            business_id=business_id,
         )
     except PricingSuggestionError as e:
         raise HTTPException(
@@ -441,3 +461,24 @@ async def suggestion_history_endpoint(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         )
+
+
+@router.get(
+    "/order-suggestions/{order_id}",
+    response_model=OrderPriceSuggestionsResponse,
+)
+async def order_price_suggestions_endpoint(
+    order_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Per-line-item selling-price suggestions for a purchase order, costed
+    directly off the order's own line items (works at any order status,
+    unlike the lot-based /suggest/{product_id} which needs a DELIVERED
+    order's units_remaining) using the LIVE current FX rate and each
+    product's category target margin."""
+    try:
+        return await suggest_prices_for_order(db, order_id, business_id=business_id)
+    except OrderNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
