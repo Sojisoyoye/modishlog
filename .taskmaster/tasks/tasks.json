@@ -5032,7 +5032,7 @@
         "description": "orders-page.component.ts's onOrderVariantChange only overwrites item.unit_cost when the selected variant has a non-null cost_price_override; otherwise unit_cost silently keeps the previous variant/product's value, so a PO line item can be submitted with a stale, wrong cost.",
         "details": "Found via code review (PR #321 review, 2026-07-23). frontend/src/app/features/orders/pages/orders-page.component.ts:~1176-1187. Compare to sales-page.component.ts's near-identical onVariantChange (line ~1539-1550) for prices, which always resets row.unit_price (falling back to the product's selling_price, or null) so it never exhibits this bug. The variant-picker logic (product lookup, active-variant filtering, price/cost pre-fill) is duplicated near-identically across orders-page and sales-page instead of factored into one shared component/service, which is how this divergence happened unnoticed.\n\nFix: make onOrderVariantChange always reset unit_cost on variant change (falling back to the product's own cost when the variant has no override), matching sales-page's pattern. Consider factoring the shared variant-picker logic (also flagged: duplicated formatMoney() helper, same two files) into one place to prevent future divergence — separate follow-up if scope allows.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": []
@@ -5065,7 +5065,7 @@
         "description": "playwright.config.ts deliberately pins workers: 1 (tests share one Postgres DB/business and would race on shared state if parallelized) — a fully healthy full E2E run still takes ~20-30 minutes on a single worker, which is slow for a CI gate blocking every frontend PR.",
         "details": "Investigated 2026-07-23 while diagnosing what looked like E2E \"hangs\" (actual root cause was unrelated — see PR #322/#323). Once those were fixed, the suite runs correctly but still takes its full serial runtime since parallelism is deliberately disabled (see playwright.config.ts's comment on `fullyParallel: false` / `workers: 1`).\n\nTwo viable permanent fixes, discussed with the user 2026-07-23 (deferred, not implemented yet):\n\n1. **CI sharding (recommended, lower risk)**: keep workers:1 and the shared-DB test design untouched. Split the 490 tests across N parallel GitHub Actions matrix jobs (`npx playwright test --shard=i/N`), each spinning up its own fully isolated backend+Postgres+Redis stack (each CI runner is already isolated — no cross-shard race). Restructure `.github/workflows/frontend-build.yml`: turn the current single `gate` job into a matrix job (`e2e-shard`, e.g. 4-way), then add a new fan-in `gate` job requiring `needs: [build, e2e-shard]` to all succeed, mirroring the existing dependency-scan+test fan-in pattern already used in `backend-tests.yml`. No test-code changes needed. Expected ~4x wall-clock speedup with 4 shards.\n\n2. **Per-worker tenant isolation (bigger, more powerful)**: ModishLog already has full business_id multi-tenancy — give each Playwright worker its own isolated business (instead of the current single shared \"E2E Test Business\" every spec file's `ensureTestUser()` creates) so `fullyParallel: true` becomes safe within a single job. Also incidentally closes off any other latent shared-state flakiness. Requires reworking test setup/teardown across the suite (every spec file currently assumes one shared E2E_EMAIL/business) — bigger, riskier change than sharding.\n\nRecommendation from discussion: start with sharding (option 1) since it's lower-risk and doesn't touch test logic; revisit per-worker isolation later if sharding isn't enough or other shared-state flakiness surfaces.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "medium",
         "subtasks": []
@@ -5154,7 +5154,7 @@
       "version": "1.0.0",
       "lastModified": "2026-08-13T11:15:00.000Z",
       "taskCount": 180,
-      "completedCount": 176,
+      "completedCount": 177,
       "tags": [
         "master"
       ],
