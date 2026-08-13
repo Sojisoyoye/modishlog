@@ -92,6 +92,7 @@ async def ensure_inventory_level_exists(
     product_id: uuid.UUID,
     variant_id: uuid.UUID | None,
     low_stock_threshold: int | None = None,
+    migration_id: uuid.UUID | None = None,
 ) -> None:
     """Create a zeroed InventoryLevel(product_id, variant_id) row if one
     doesn't already exist.
@@ -104,6 +105,13 @@ async def ensure_inventory_level_exists(
     crediting a PO delivery to a variant for the first time) must call
     this first, or adjust_stock() fails outright for a perfectly valid
     product/variant.
+
+    migration_id tags the row when this backfill happens during a
+    data-import PO delivery (transition_status() <- load_purchase_orders()),
+    so loader.py's rollback() can find and delete it — untagged, rollback
+    misses this row, then fails with an unhandled FK IntegrityError when it
+    later deletes the product_variants row this one still references
+    (task 173).
 
     When low_stock_threshold isn't given and this is a variant row
     (variant_id is not None), the new row inherits the product's
@@ -151,6 +159,7 @@ async def ensure_inventory_level_exists(
                     quantity_on_hand=0,
                     quantity_reserved=0,
                     low_stock_threshold=threshold,
+                    migration_id=migration_id,
                 )
             )
             await db.flush()

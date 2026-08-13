@@ -231,7 +231,9 @@ async def load_purchase_orders(
                 if status == OrderStatus.DELIVERED
                 else None,
             )
-            order = await transition_status(db, order.id, transition, user_id)
+            order = await transition_status(
+                db, order.id, transition, user_id, migration_id=migration_id
+            )
 
         order_ids.append(order.id)
 
