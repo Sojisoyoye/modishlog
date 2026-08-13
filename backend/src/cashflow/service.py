@@ -113,9 +113,7 @@ async def create_loan(
     return loan
 
 
-async def get_loans(
-    db: AsyncSession, business_id: uuid.UUID
-) -> list[LoanObligation]:
+async def get_loans(db: AsyncSession, business_id: uuid.UUID) -> list[LoanObligation]:
     """List active loans for the given business."""
     result = await db.execute(
         select(LoanObligation).where(
@@ -314,12 +312,29 @@ async def _get_latest_fx_rate(db: AsyncSession) -> Decimal:
     return DEFAULT_FX_RATE
 
 
+# Sentinel values used internally when DSCR/runway are mathematically
+# undefined (no debt-service obligation, or no burn — i.e. "infinite").
+# Never displayed raw to the user — every API response that carries one of
+# these also carries a paired `*_is_finite` flag so the frontend can render
+# a friendly "No debt" / "No burn" state instead (task 187).
+UNDEFINED_DSCR = Decimal("999.000")
+INFINITE_RUNWAY = Decimal("999.0")
+
+
+def _dscr_is_finite(dscr: Decimal) -> bool:
+    return dscr < UNDEFINED_DSCR
+
+
+def _runway_is_finite(runway: Decimal) -> bool:
+    return runway < INFINITE_RUNWAY
+
+
 def _calculate_dscr(
     revenue: Decimal, operating_costs: Decimal, loan_payment: Decimal
 ) -> Decimal:
     """Calculate DSCR = (revenue - operating_costs) / loan_payment."""
     if loan_payment <= 0:
-        return Decimal("999.000")
+        return UNDEFINED_DSCR
     noi = revenue - operating_costs
     return (noi / loan_payment).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
@@ -386,7 +401,7 @@ async def generate_cashflow_projection(
         elif cumulative <= 0:
             runway = Decimal("0")
         else:
-            runway = Decimal("999.0")
+            runway = INFINITE_RUNWAY
 
         risk = _assign_risk_rating(dscr, runway)
 
@@ -400,7 +415,9 @@ async def generate_cashflow_projection(
                 "net_cashflow": str(net),
                 "cumulative_cashflow": str(cumulative),
                 "dscr": str(dscr),
+                "dscr_is_finite": _dscr_is_finite(dscr),
                 "cash_runway_months": str(runway),
+                "cash_runway_is_finite": _runway_is_finite(runway),
                 "risk_rating": risk,
             }
         )
@@ -473,7 +490,8 @@ async def calculate_cash_runway(db: AsyncSession, business_id: uuid.UUID) -> dic
 
     if not burns:
         return {
-            "runway_months": Decimal("999.0"),
+            "runway_months": INFINITE_RUNWAY,
+            "runway_months_is_finite": False,
             "avg_monthly_burn": Decimal("0"),
         }
 
@@ -489,6 +507,7 @@ async def calculate_cash_runway(db: AsyncSession, business_id: uuid.UUID) -> dic
 
     return {
         "runway_months": runway,
+        "runway_months_is_finite": _runway_is_finite(runway),
         "avg_monthly_burn": avg_burn.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
     }
 
@@ -515,6 +534,7 @@ async def get_current_dscr(db: AsyncSession, business_id: uuid.UUID) -> dict:
 
     return {
         "dscr": dscr,
+        "dscr_is_finite": _dscr_is_finite(dscr),
         "net_operating_income": monthly_revenue - monthly_opex,
         "total_debt_service": monthly_loan,
         "color": color,
@@ -527,18 +547,35 @@ async def get_current_dscr(db: AsyncSession, business_id: uuid.UUID) -> dict:
 
 
 def _avg_dscr_from_buckets(buckets: list[dict]) -> Decimal:
+    """Average DSCR across buckets, excluding debt-free (sentinel) months —
+    blending a real ratio with the undefined-DSCR sentinel would produce a
+    meaningless number (task 187). Buckets that are all debt-free average
+    to the sentinel itself, which is correct: no debt across the horizon."""
     if not buckets:
         return Decimal("0")
-    total = sum(Decimal(b["dscr"]) for b in buckets)
-    return (total / len(buckets)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    finite = [
+        Decimal(b["dscr"]) for b in buckets if _dscr_is_finite(Decimal(b["dscr"]))
+    ]
+    if not finite:
+        return UNDEFINED_DSCR
+    return (sum(finite) / len(finite)).quantize(
+        Decimal("0.001"), rounding=ROUND_HALF_UP
+    )
 
 
 def _avg_runway_from_buckets(buckets: list[dict]) -> int:
+    """Average runway across buckets, excluding no-burn (sentinel) months —
+    same rationale as _avg_dscr_from_buckets (task 187)."""
     if not buckets:
         return 0
-    total = sum(Decimal(b["cash_runway_months"]) for b in buckets)
-    avg = total / len(buckets)
-    return int(avg)
+    finite = [
+        Decimal(b["cash_runway_months"])
+        for b in buckets
+        if _runway_is_finite(Decimal(b["cash_runway_months"]))
+    ]
+    if not finite:
+        return int(INFINITE_RUNWAY)
+    return int(sum(finite) / len(finite))
 
 
 def _summarize_projection(proj: CashflowProjection) -> dict:
@@ -550,8 +587,14 @@ def _summarize_projection(proj: CashflowProjection) -> dict:
     last_risk = buckets[-1]["risk_rating"] if buckets else "HIGH"
 
     return {
-        "cash_runway": float(last_runway),  # financial-float-ok — display summary, not a stored amount
-        "avg_dscr": float(avg_dscr),  # financial-float-ok — display summary, not a stored amount
+        "cash_runway": float(
+            last_runway
+        ),  # financial-float-ok — display summary, not a stored amount
+        "cash_runway_is_finite": _runway_is_finite(last_runway),
+        "avg_dscr": float(
+            avg_dscr
+        ),  # financial-float-ok — display summary, not a stored amount
+        "avg_dscr_is_finite": _dscr_is_finite(avg_dscr),
         "risk_rating": last_risk,
         "net_cashflow": str(proj.net_cashflow),
     }
@@ -744,9 +787,7 @@ async def _trailing_30d_avg_monthly_revenue_usd(
     return (total_ngn / ngn_usd_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-async def calculate_global_exposure(
-    db: AsyncSession, business_id: uuid.UUID
-) -> dict:
+async def calculate_global_exposure(db: AsyncSession, business_id: uuid.UUID) -> dict:
     """Calculate global multi-currency exposure in NGN terms.
 
     total_global_exposure_ngn =
@@ -787,7 +828,9 @@ async def calculate_global_exposure(
 
     # Debt-to-trade ratio
     eur_balance_usd_equiv = eur_loan_balance * eur_usd_rate
-    trailing_revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(db, business_id, ngn_usd_rate)
+    trailing_revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(
+        db, business_id, ngn_usd_rate
+    )
     if trailing_revenue_usd > 0:
         debt_to_trade = (eur_balance_usd_equiv / trailing_revenue_usd).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP

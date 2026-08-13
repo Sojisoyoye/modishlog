@@ -10,11 +10,14 @@ export interface CashflowMonth {
   net_cashflow: number;
   cumulative: number;
   dscr: number;
+  dscr_is_finite: boolean;
 }
 
 export interface LiquidityInfo {
   cash_runway_days: number;
+  runway_is_finite: boolean;
   dscr: number;
+  dscr_is_finite: boolean;
   risk_rating: string;
   alerts: LiquidityAlert[];
 }
@@ -33,7 +36,9 @@ export interface ScenarioResult {
   label: string;
   months: CashflowMonth[];
   worst_dscr: number;
+  worst_dscr_is_finite: boolean;
   cash_runway_days: number;
+  cash_runway_is_finite: boolean;
   risk_rating: string;
 }
 
@@ -89,6 +94,7 @@ interface MonthlyBucket {
   net_cashflow: number;
   cumulative_cashflow: number;
   dscr: number;
+  dscr_is_finite: boolean;
   cash_runway_months: number;
   risk_rating: string;
 }
@@ -99,11 +105,13 @@ interface ProjectionRead {
 
 interface RunwayResponse {
   runway_months: number;
+  runway_months_is_finite: boolean;
   avg_monthly_burn: number;
 }
 
 interface DSCRResponse {
   dscr: number;
+  dscr_is_finite: boolean;
   net_operating_income: number;
   total_debt_service: number;
   color: string;
@@ -116,9 +124,17 @@ interface AlertResponse {
   message: string;
 }
 
+interface ScenarioSummary {
+  cash_runway: number;
+  cash_runway_is_finite: boolean;
+  avg_dscr: number;
+  avg_dscr_is_finite: boolean;
+  risk_rating: string;
+}
+
 interface ScenarioComparisonResponse {
-  base: { cash_runway: number; avg_dscr: number; risk_rating: string };
-  stressed: { cash_runway: number; avg_dscr: number; risk_rating: string };
+  base: ScenarioSummary;
+  stressed: ScenarioSummary;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -138,6 +154,7 @@ export class CashflowService {
           net_cashflow: Number(b.net_cashflow),
           cumulative: Number(b.cumulative_cashflow),
           dscr: Number(b.dscr),
+          dscr_is_finite: b.dscr_is_finite,
         }))
       )
     );
@@ -151,7 +168,9 @@ export class CashflowService {
     }).pipe(
       map(({ runway, dscr, alerts }) => ({
         cash_runway_days: Math.round(Number(runway.runway_months) * 30),
+        runway_is_finite: runway.runway_months_is_finite,
         dscr: Number(dscr.dscr),
+        dscr_is_finite: dscr.dscr_is_finite,
         risk_rating: this.colorToRiskRating(dscr.color),
         alerts: alerts.map((a) => ({ severity: a.severity, message: a.message })),
       }))
@@ -167,7 +186,9 @@ export class CashflowService {
           label: scenario_type.replace(/_/g, ' '),
           months: [],
           worst_dscr: Number(res.stressed.avg_dscr),
+          worst_dscr_is_finite: res.stressed.avg_dscr_is_finite,
           cash_runway_days: Math.round(Number(res.stressed.cash_runway) * 30),
+          cash_runway_is_finite: res.stressed.cash_runway_is_finite,
           risk_rating: res.stressed.risk_rating,
         }))
       );
@@ -210,7 +231,11 @@ export class CashflowService {
 
   private colorToRiskRating(color: string): string {
     if (color === 'green') return 'LOW';
-    if (color === 'yellow') return 'MEDIUM';
+    // Backend's get_current_dscr() returns 'amber' for the 1.0-1.49 band
+    // (matching its own color-coding, cashflow/service.py) — this used to
+    // check 'yellow', which never matched, so a medium-risk DSCR silently
+    // fell through to 'UNKNOWN' (task 187).
+    if (color === 'amber') return 'MEDIUM';
     if (color === 'red') return 'HIGH';
     return 'UNKNOWN';
   }

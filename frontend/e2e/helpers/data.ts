@@ -405,6 +405,37 @@ export async function createOperatingCost(
 }
 
 /**
+ * Create a cashflow loan obligation via POST /cashflow/loans.
+ */
+export async function createLoan(
+  lenderName: string,
+  principalAmount: string,
+  monthlyPayment: string,
+): Promise<{ id: string }> {
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const resp = await ctx.post(`${API}/cashflow/loans`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: {
+        lender_name: lenderName,
+        principal_amount: principalAmount,
+        interest_rate: '12',
+        term_months: 12,
+        start_date: new Date().toISOString().slice(0, 10),
+        payment_frequency: 'monthly',
+        monthly_payment: monthlyPayment,
+        currency: 'NGN',
+      },
+    });
+    if (!resp.ok()) throw new Error(`Create loan failed: ${resp.status()} ${await resp.text()}`);
+    return { id: (await resp.json()).id };
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
  * Fetch the current quantity_on_hand for a product via GET /inventory/:id.
  */
 export async function getInventoryQty(productId: string): Promise<number> {

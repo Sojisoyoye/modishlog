@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureTestUser, loginViaUI } from './helpers/auth';
-import { createOperatingCost } from './helpers/data';
+import { createOperatingCost, createLoan } from './helpers/data';
 
 // ---------------------------------------------------------------------------
 // Cashflow Page E2E Tests
@@ -27,10 +27,16 @@ test.describe('Cashflow page layout', () => {
     ).toBeVisible();
   });
 
-  test('displays Cash Runway metric with a numeric value', async ({ page }) => {
+  test('displays Cash Runway metric with a numeric value or a friendly no-burn state', async ({
+    page,
+  }) => {
     await expect(page.getByText('Cash Runway').first()).toBeVisible();
-    // runwayMonths() shows "X.X months" (days / 30, 1 decimal)
-    await expect(page.getByText(/\d+\.\d\s*months/).first()).toBeVisible({ timeout: 10_000 });
+    // Task 187 — an account with no burn shows a friendly indicator instead
+    // of a raw "999.0 months" sentinel; only a real burn rate shows "X.X
+    // months" (days / 30, 1 decimal).
+    await expect(
+      page.getByText(/\d+\.\d\s*months/).or(page.getByText(/no burn/i)).first(),
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test('displays DSCR metric', async ({ page }) => {
@@ -112,9 +118,10 @@ test.describe('Scenario Simulator', () => {
 
     // Cash Runway in the scenario panel (nth(1) to skip the page-level metric)
     await expect(page.getByText('Cash Runway').nth(1)).toBeVisible();
-    // Runway value shows "X.X months"
+    // Task 187 — runway value shows "X.X months", or a friendly no-burn
+    // state if the stressed scenario is still cash-flow-positive.
     await expect(
-      page.getByText(/\d+\.\d\s*months/).last(),
+      page.getByText(/\d+\.\d\s*months/).or(page.getByText(/no burn/i)).last(),
     ).toBeVisible({ timeout: 5_000 });
   });
 
@@ -137,5 +144,60 @@ test.describe('Scenario Simulator', () => {
 
     await expect(page.locator('#cf-demand-drop')).toHaveValue('20');
     await expect(page.getByText('Worst DSCR')).toBeVisible({ timeout: 15_000 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 187 — 999 sentinel must never leak to the UI as a raw number, and
+// the Risk Rating badge must never fall back to "UNKNOWN".
+// ---------------------------------------------------------------------------
+
+test.describe('Undefined DSCR/Runway shown as friendly text, not raw 999', () => {
+  test('Cash Runway card never shows the raw 999.0 sentinel', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto('/cashflow');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByText('999.0 months')).not.toBeVisible();
+  });
+
+  test('DSCR card never shows the raw 999.00 sentinel when there is no loan', async ({ page }) => {
+    // No spec in this suite ever creates a loan obligation, so DSCR is
+    // deterministically undefined (no debt-service obligation) here.
+    await loginViaUI(page);
+    await page.goto('/cashflow');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByText('999.00', { exact: true })).not.toBeVisible();
+    await expect(page.getByText(/no debt/i).first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('Risk Rating badge is never shown as UNKNOWN', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto('/cashflow');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByText('Risk Rating').first()).toBeVisible();
+    await expect(page.getByText('UNKNOWN', { exact: true })).not.toBeVisible();
+  });
+
+  test('DSCR shows a real numeric ratio once a loan obligation exists', async ({ page }) => {
+    await ensureTestUser();
+    await createLoan('E2E Sentinel Test Bank', '500000.00', '50000.00');
+
+    await loginViaUI(page);
+    await page.goto('/cashflow');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
+
+    // A real loan payment exists now — the finite path must still render a
+    // genuine ratio, not stay stuck on the 'No debt' friendly text.
+    // DSCR is the second "text-3xl font-bold" metric (after Cash Runway).
+    const dscrValue = page.locator('p.text-3xl.font-bold').nth(1);
+    await expect(dscrValue).toBeVisible({ timeout: 10_000 });
+    await expect(dscrValue).toHaveText(/\d+\.\d{2}/);
   });
 });
