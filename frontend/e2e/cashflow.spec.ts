@@ -108,11 +108,12 @@ test.describe('Scenario Simulator', () => {
     // Scenario result panel must appear — no soft catches
     await expect(page.getByText('Worst DSCR')).toBeVisible({ timeout: 15_000 });
 
-    // DSCR value must be a decimal number (e.g. "0.00" or "1.23")
-    // Use containsText since Angular may add whitespace around the value
+    // Task 187 — DSCR value must be a decimal number (e.g. "0.00" or
+    // "1.23"), or a friendly "No debt" state if this account has no loan.
+    // Use containsText since Angular may add whitespace around the value.
     const dscrValueEl = page
       .locator('p.text-2xl.font-bold')
-      .filter({ hasText: /\d+\.\d{2}/ })
+      .filter({ hasText: /(\d+\.\d{2}|no debt)/i })
       .first();
     await expect(dscrValueEl).toBeVisible({ timeout: 5_000 });
 
