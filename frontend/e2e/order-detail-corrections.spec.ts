@@ -118,6 +118,56 @@ test.describe('Revert delivery', () => {
   });
 });
 
+test.describe('Delivered-order edit form locks non-cost fields', () => {
+  let orderId: string;
+
+  test.beforeAll(async () => {
+    await ensureTestUser();
+    const product = await ensureProduct('E2E Delivered Edit Lock Product');
+    // USD + fx_rate_at_creation so the unit_cost_ngn column (gated on both)
+    // actually renders — needed to verify that field's lock too.
+    const order = await createOrder(product.id, {
+      currency: 'USD',
+      quantity: 3,
+      unitCost: '20.00',
+      fxRateAtCreation: '1500',
+    });
+    orderId = order.id;
+    await advanceOrderToStatus(orderId, 'DELIVERED', { fxRateAtDelivery: '1550' });
+  });
+
+  test.afterAll(async () => {
+    if (orderId) await deleteOrder(orderId).catch((e: Error) => {
+      if (!/4\d\d/.test(e.message)) throw e;
+    });
+  });
+
+  test('non-cost fields render read-only while cost-correction fields stay editable', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto(`/orders/${orderId}`);
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    // Non-cost fields: task 180's edit-lock — no input renders, only display text.
+    await expect(page.getByTestId('edit-supplier-name-input')).not.toBeVisible();
+    await expect(page.getByTestId('edit-notes-textarea')).not.toBeVisible();
+    await expect(page.getByTestId('edit-line-item-qty-input').first()).not.toBeVisible();
+    await expect(page.getByTitle('Remove product')).not.toBeVisible();
+    // unit_cost_ngn and sell_price_ngn aren't sent by correctDeliveredOrderCosts()
+    // either — same bug, not explicitly named in the original ticket.
+    await expect(page.getByTestId('edit-line-item-unit-cost-ngn-input').first()).not.toBeVisible();
+    await expect(page.getByTestId('sell-price-input').first()).not.toBeVisible();
+
+    // Cost-correction fields: must remain interactive — these are exactly
+    // what correctDeliveredOrderCosts() sends to the backend.
+    await expect(page.getByTestId('edit-line-item-unit-cost-input').first()).toBeVisible();
+    await expect(page.getByTestId('edit-fx-rate-at-creation-input')).toBeVisible();
+    await expect(page.getByTestId('edit-fx-rate-at-delivery-input')).toBeVisible();
+    await expect(page.getByTestId('edit-shipping-cost-input')).toBeVisible();
+  });
+});
+
 test.describe('Price suggestion column', () => {
   let orderId: string;
 

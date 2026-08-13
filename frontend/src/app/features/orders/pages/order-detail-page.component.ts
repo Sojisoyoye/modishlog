@@ -117,10 +117,11 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         <div class="grid grid-cols-2 gap-4 rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow sm:grid-cols-3 lg:grid-cols-4">
           <div>
             <p class="text-xs font-medium text-muted">Supplier</p>
-            @if (editing()) {
+            @if (editing() && order()!.status !== 'DELIVERED') {
               <input
                 type="text"
                 [(ngModel)]="editForm.supplier_name"
+                data-testid="edit-supplier-name-input"
                 class="mt-0.5 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
               />
             } @else {
@@ -144,7 +145,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
           </div>
           <div>
             <p class="text-xs font-medium text-muted">Order Date</p>
-            @if (editing()) {
+            @if (editing() && order()!.status !== 'DELIVERED') {
               <input
                 type="date"
                 [(ngModel)]="editForm.order_date"
@@ -158,7 +159,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
           </div>
           <div>
             <p class="text-xs font-medium text-muted">Expected Delivery</p>
-            @if (editing()) {
+            @if (editing() && order()!.status !== 'DELIVERED') {
               <input
                 type="date"
                 [(ngModel)]="editForm.expected_delivery_date"
@@ -184,7 +185,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
           </div>
           <div>
             <p class="text-xs font-medium text-muted">Location</p>
-            @if (editing()) {
+            @if (editing() && order()!.status !== 'DELIVERED') {
               <select
                 [(ngModel)]="editForm.location_id"
                 class="mt-0.5 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
@@ -202,7 +203,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
           @if (editing() || order()!.supplier_invoice_number) {
             <div>
               <p class="text-xs font-medium text-muted">Invoice #</p>
-              @if (editing()) {
+              @if (editing() && order()!.status !== 'DELIVERED') {
                 <input
                   type="text"
                   [(ngModel)]="editForm.supplier_invoice_number"
@@ -219,7 +220,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
           @if (editing() || order()!.supplier_invoice_date) {
             <div>
               <p class="text-xs font-medium text-muted">Invoice Date</p>
-              @if (editing()) {
+              @if (editing() && order()!.status !== 'DELIVERED') {
                 <input
                   type="date"
                   [(ngModel)]="editForm.supplier_invoice_date"
@@ -237,7 +238,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
           @if (editing() || order()!.pay_term_number) {
             <div>
               <p class="text-xs font-medium text-muted">Payment Terms</p>
-              @if (editing()) {
+              @if (editing() && order()!.status !== 'DELIVERED') {
                 <div class="mt-0.5 flex gap-1">
                   <input
                     type="number"
@@ -273,6 +274,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                   [(ngModel)]="editForm.fx_rate_at_creation"
                   step="1"
                   min="0"
+                  data-testid="edit-fx-rate-at-creation-input"
                   placeholder="e.g. 1600"
                   class="mt-0.5 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
                 />
@@ -406,7 +408,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                           In Stock
                         </th>
                       }
-                      @if (editing()) {
+                      @if (editing() && order()!.status !== 'DELIVERED') {
                         <th class="px-3 py-2.5 w-8"></th>
                       }
                     </tr>
@@ -419,13 +421,14 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                           {{ productName(item.product_id) }}
                         </td>
                         <td class="px-3 py-2.5 text-right text-text">
-                          @if (editing()) {
+                          @if (editing() && order()!.status !== 'DELIVERED') {
                             <input
                               type="number"
                               [ngModel]="getEditQty(item.product_id)"
                               (ngModelChange)="setEditQty(item.product_id, $event)"
                               step="1"
                               min="0"
+                              data-testid="edit-line-item-qty-input"
                               class="w-20 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary"
                             />
                           } @else {
@@ -440,6 +443,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                               (ngModelChange)="setEditUnitCost(item.product_id, $event)"
                               step="0.01"
                               min="0"
+                              data-testid="edit-line-item-unit-cost-input"
                               class="w-24 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary"
                             />
                           } @else {
@@ -448,13 +452,14 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                         </td>
                         @if (order()!.currency === 'USD' && order()!.fx_rate_at_creation) {
                           <td class="px-3 py-2.5 text-right text-muted">
-                            @if (editing()) {
+                            @if (editing() && order()!.status !== 'DELIVERED') {
                               <input
                                 type="number"
                                 [ngModel]="getEditUnitCostNGN(item.product_id)"
                                 (ngModelChange)="setEditUnitCostNGN(item.product_id, $event)"
                                 step="1"
                                 min="0"
+                                data-testid="edit-line-item-unit-cost-ngn-input"
                                 [placeholder]="item.unit_cost * order()!.fx_rate_at_creation! | number: '1.0-0'"
                                 class="w-28 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary"
                               />
@@ -477,7 +482,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                           </td>
                         }
                         <td class="px-3 py-2.5 text-right text-muted">
-                          @if (editing()) {
+                          @if (editing() && order()!.status !== 'DELIVERED') {
                             <input
                               type="number"
                               [ngModel]="getEditSellPriceNGN(item.product_id)"
@@ -526,7 +531,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                             {{ item.units_remaining != null ? (item.units_remaining | number: '1.0-0') : '—' }}
                           </td>
                         }
-                        @if (editing()) {
+                        @if (editing() && order()!.status !== 'DELIVERED') {
                           <td class="px-2 py-2.5 text-center">
                             <button
                               type="button"
@@ -558,10 +563,11 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
         <!-- Notes (full width) -->
         <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
           <p class="mb-3 text-xs font-bold uppercase tracking-wider text-muted">Notes</p>
-          @if (editing()) {
+          @if (editing() && order()!.status !== 'DELIVERED') {
             <textarea
               [(ngModel)]="editForm.notes"
               rows="4"
+              data-testid="edit-notes-textarea"
               placeholder="Internal notes about this order…"
               class="w-full resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
             ></textarea>
@@ -650,6 +656,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                         [(ngModel)]="editForm.shipping_cost_ngn"
                         step="1000"
                         min="0"
+                        data-testid="edit-shipping-cost-input"
                         class="w-36 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary"
                       />
                     } @else {
