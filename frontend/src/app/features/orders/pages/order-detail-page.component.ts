@@ -457,6 +457,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                                 (ngModelChange)="setEditUnitCostNGN(item.product_id, $event)"
                                 step="1"
                                 min="0"
+                                data-testid="edit-line-item-unit-cost-ngn-input"
                                 [placeholder]="item.unit_cost * order()!.fx_rate_at_creation! | number: '1.0-0'"
                                 class="w-28 rounded border border-gray-300 px-2 py-1 text-sm text-right focus:border-primary focus:ring-1 focus:ring-primary"
                               />

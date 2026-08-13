@@ -189,9 +189,9 @@ export async function ensureProductInCategory(
  */
 export async function createOrder(
   productId: string,
-  options: { currency?: string; quantity?: number; unitCost?: string; supplierId?: string; isPurchaseOrder?: boolean } = {},
+  options: { currency?: string; quantity?: number; unitCost?: string; supplierId?: string; isPurchaseOrder?: boolean; fxRateAtCreation?: string } = {},
 ): Promise<{ id: string; order_number?: string }> {
-  const { currency = 'USD', quantity = 10, unitCost = '100.00', supplierId, isPurchaseOrder = true } = options;
+  const { currency = 'USD', quantity = 10, unitCost = '100.00', supplierId, isPurchaseOrder = true, fxRateAtCreation } = options;
   const token = await getAPIToken();
   const body: Record<string, unknown> = {
     supplier_name: 'E2E Test Supplier',
@@ -200,6 +200,7 @@ export async function createOrder(
     line_items: [{ product_id: productId, quantity, unit_cost: unitCost }],
   };
   if (supplierId) body['supplier_id'] = supplierId;
+  if (fxRateAtCreation) body['fx_rate_at_creation'] = fxRateAtCreation;
   // Retry up to 3 times on transient 5xx errors (backend can return 500 under concurrent load)
   for (let attempt = 0; attempt < 3; attempt++) {
     const ctx = await request.newContext();

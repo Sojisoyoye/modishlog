@@ -124,9 +124,16 @@ test.describe('Delivered-order edit form locks non-cost fields', () => {
   test.beforeAll(async () => {
     await ensureTestUser();
     const product = await ensureProduct('E2E Delivered Edit Lock Product');
-    const order = await createOrder(product.id, { currency: 'NGN', quantity: 3, unitCost: '2000.00' });
+    // USD + fx_rate_at_creation so the unit_cost_ngn column (gated on both)
+    // actually renders — needed to verify that field's lock too.
+    const order = await createOrder(product.id, {
+      currency: 'USD',
+      quantity: 3,
+      unitCost: '20.00',
+      fxRateAtCreation: '1500',
+    });
     orderId = order.id;
-    await advanceOrderToStatus(orderId, 'DELIVERED', { fxRateAtDelivery: '1500' });
+    await advanceOrderToStatus(orderId, 'DELIVERED', { fxRateAtDelivery: '1550' });
   });
 
   test.afterAll(async () => {
@@ -142,11 +149,15 @@ test.describe('Delivered-order edit form locks non-cost fields', () => {
 
     await page.getByRole('button', { name: 'Edit' }).click();
 
-    // Non-cost fields: task 175's edit-lock — no input renders, only display text.
+    // Non-cost fields: task 180's edit-lock — no input renders, only display text.
     await expect(page.getByTestId('edit-supplier-name-input')).not.toBeVisible();
     await expect(page.getByTestId('edit-notes-textarea')).not.toBeVisible();
     await expect(page.getByTestId('edit-line-item-qty-input').first()).not.toBeVisible();
     await expect(page.getByTitle('Remove product')).not.toBeVisible();
+    // unit_cost_ngn and sell_price_ngn aren't sent by correctDeliveredOrderCosts()
+    // either — same bug, not explicitly named in the original ticket.
+    await expect(page.getByTestId('edit-line-item-unit-cost-ngn-input').first()).not.toBeVisible();
+    await expect(page.getByTestId('sell-price-input').first()).not.toBeVisible();
 
     // Cost-correction fields: must remain interactive — these are exactly
     // what correctDeliveredOrderCosts() sends to the backend.
