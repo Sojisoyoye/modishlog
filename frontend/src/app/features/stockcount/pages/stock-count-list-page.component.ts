@@ -94,7 +94,7 @@ import { StatusBadgeComponent } from '../../../shared/components/status-badge/st
                       (click)="showCreate = true"
                       class="mt-1 flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90"
                     >
-                      <i class="pi pi-plus text-sm"></i> New Stock Count
+                      <i class="pi pi-plus text-sm"></i> Start your first count
                     </button>
                   </div>
                 </td>

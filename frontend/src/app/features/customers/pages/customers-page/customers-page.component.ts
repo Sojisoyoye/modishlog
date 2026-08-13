@@ -183,7 +183,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                             (click)="openAddDialog()"
                             class="mt-1 flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 min-h-[44px]"
                           >
-                            <i class="pi pi-plus text-xs"></i> Add Customer
+                            <i class="pi pi-plus text-xs"></i> Add your first customer
                           </button>
                         }
                       </div>
