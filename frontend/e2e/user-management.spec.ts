@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaUI, E2E_EMAIL } from './helpers/auth';
 
 test.beforeAll(async () => {
   await ensureTestUser();
@@ -22,7 +22,7 @@ test.describe('User Management — Users page', () => {
 
   test('Users page shows current admin user in list', async ({ page }) => {
     await page.goto('/settings/users');
-    await expect(page.getByText('soji.soyoye@gmail.com')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(E2E_EMAIL)).toBeVisible({ timeout: 10_000 });
   });
 
   test('Invite User button is visible on Users page', async ({ page }) => {
