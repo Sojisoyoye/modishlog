@@ -721,6 +721,35 @@ class TestEnsureInventoryLevelExists:
         assert created.quantity_on_hand == 0
 
     @pytest.mark.asyncio
+    async def test_migration_id_tags_the_backfilled_row(self):
+        """A row backfilled during a data-import PO delivery must carry the
+        import's migration_id — otherwise loader.py's rollback() (DELETE
+        FROM inventory_levels WHERE migration_id = :job_id) misses it, then
+        deletes the product_variants row it references, raising an
+        unhandled FK IntegrityError that aborts the whole rollback (task
+        173, found via PR #321 review)."""
+        from src.inventory.service import ensure_inventory_level_exists
+        from tests.conftest import NestedTransaction
+
+        product_id, variant_id = uuid.uuid4(), uuid.uuid4()
+        migration_id = uuid.uuid4()
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+        db.begin_nested = MagicMock(return_value=NestedTransaction())
+        result_mock = MagicMock()
+        result_mock.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=result_mock)
+
+        await ensure_inventory_level_exists(
+            db, product_id, variant_id, migration_id=migration_id
+        )
+
+        created = db.add.call_args[0][0]
+        assert created.migration_id == migration_id
+
+    @pytest.mark.asyncio
     async def test_concurrent_creation_race_is_swallowed_not_raised(self):
         """Two concurrent PO deliveries crediting the same new variant for
         the first time can both pass the existence check before either
