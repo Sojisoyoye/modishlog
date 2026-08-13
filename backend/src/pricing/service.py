@@ -134,7 +134,7 @@ async def calculate_demand_forecast(
     multiplier = 1.0
     if proposed_price is not None:
         product = await _get_product(db, product_id)
-        elasticity = await _get_elasticity_coefficient(db, product_id)
+        elasticity = await _get_elasticity_coefficient(db, product)
         price_change_pct = float(  # financial-float-ok
             (proposed_price - product.selling_price) / product.selling_price
         )
@@ -169,9 +169,19 @@ async def calculate_demand_forecast(
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_FX_SENSITIVITY = Decimal("0.0000")
+
+
 async def _get_product(db: AsyncSession, product_id: uuid.UUID) -> Product:
-    """Fetch product or raise."""
-    result = await db.execute(select(Product).where(Product.id == product_id))
+    """Fetch product or raise. Eager-loads category (+ its parent) since
+    every caller may need it to resolve a category-default elasticity/FX
+    sensitivity coefficient — ProductCategory.parent is lazy="raise", so
+    this isn't optional (task 186)."""
+    result = await db.execute(
+        select(Product)
+        .where(Product.id == product_id)
+        .options(selectinload(Product.category).selectinload(ProductCategory.parent))
+    )
     product = result.scalar_one_or_none()
     if product is None:
         from src.products.exceptions import ProductNotFoundError
@@ -180,17 +190,81 @@ async def _get_product(db: AsyncSession, product_id: uuid.UUID) -> Product:
     return product
 
 
-async def _get_elasticity_coefficient(
-    db: AsyncSession, product_id: uuid.UUID
+def _resolve_elasticity_coefficient(
+    product: Product, own: Decimal | None
 ) -> Decimal:
-    """Get elasticity coefficient for a product, or default."""
+    """Own DemandElasticity value -> category default -> parent-category
+    default -> system default (task 186, mirrors _resolve_target_margin's
+    category-then-parent fallback)."""
+    if own is not None:
+        return own
+    if product.category is not None:
+        if product.category.default_elasticity_coefficient is not None:
+            return product.category.default_elasticity_coefficient
+        if (
+            product.category.parent is not None
+            and product.category.parent.default_elasticity_coefficient is not None
+        ):
+            return product.category.parent.default_elasticity_coefficient
+    return DEFAULT_ELASTICITY
+
+
+def _resolve_fx_sensitivity_coefficient(
+    product: Product, own: Decimal | None
+) -> Decimal:
+    """Same fallback chain as _resolve_elasticity_coefficient, for FX
+    sensitivity (task 186)."""
+    if own is not None:
+        return own
+    if product.category is not None:
+        if product.category.default_fx_sensitivity_coefficient is not None:
+            return product.category.default_fx_sensitivity_coefficient
+        if (
+            product.category.parent is not None
+            and product.category.parent.default_fx_sensitivity_coefficient is not None
+        ):
+            return product.category.parent.default_fx_sensitivity_coefficient
+    return DEFAULT_FX_SENSITIVITY
+
+
+async def _get_elasticity_coefficient(db: AsyncSession, product: Product) -> Decimal:
+    """Get elasticity coefficient for a product: own configured value ->
+    category default -> parent-category default -> system default
+    (task 186)."""
+    result = await db.execute(
+        select(DemandElasticity).where(DemandElasticity.product_id == product.id)
+    )
+    elasticity = result.scalar_one_or_none()
+    own = elasticity.elasticity_coefficient if elasticity else None
+    return _resolve_elasticity_coefficient(product, own)
+
+
+async def get_resolved_elasticity_config(
+    db: AsyncSession, product_id: uuid.UUID
+) -> dict:
+    """Resolved elasticity + FX sensitivity coefficients for the config UI —
+    always returns a value (own override, else category default, else
+    system default) so the editor never starts blank (task 186, ST-802
+    criterion 3). *_is_custom tells the UI whether this is the product's
+    own saved override or an inherited default."""
+    product = await _get_product(db, product_id)
     result = await db.execute(
         select(DemandElasticity).where(DemandElasticity.product_id == product_id)
     )
     elasticity = result.scalar_one_or_none()
-    if elasticity is None:
-        return DEFAULT_ELASTICITY
-    return elasticity.elasticity_coefficient
+    own_elasticity = elasticity.elasticity_coefficient if elasticity else None
+    own_fx = elasticity.fx_sensitivity_coefficient if elasticity else None
+    return {
+        "product_id": product_id,
+        "elasticity_coefficient": _resolve_elasticity_coefficient(
+            product, own_elasticity
+        ),
+        "elasticity_is_custom": own_elasticity is not None,
+        "fx_sensitivity_coefficient": _resolve_fx_sensitivity_coefficient(
+            product, own_fx
+        ),
+        "fx_sensitivity_is_custom": own_fx is not None,
+    }
 
 
 async def calculate_price_elasticity_impact(
@@ -211,7 +285,7 @@ async def calculate_price_elasticity_impact(
             "Cannot evaluate a loss-making price.",
         )
 
-    elasticity = await _get_elasticity_coefficient(db, product_id)
+    elasticity = await _get_elasticity_coefficient(db, product)
 
     current_price = product.selling_price
     price_change_pct = float((proposed_price - current_price) / current_price)  # financial-float-ok
@@ -243,8 +317,11 @@ async def update_elasticity_config(
     db: AsyncSession,
     product_id: uuid.UUID,
     coefficient: Decimal,
+    fx_sensitivity_coefficient: Decimal | None = None,
 ) -> DemandElasticity:
-    """Create or update elasticity coefficient for a product."""
+    """Create or update elasticity (+ optional FX sensitivity) coefficient
+    for a product. fx_sensitivity_coefficient=None leaves an existing saved
+    value untouched rather than clobbering it (task 186)."""
     result = await db.execute(
         select(DemandElasticity).where(DemandElasticity.product_id == product_id)
     )
@@ -255,6 +332,7 @@ async def update_elasticity_config(
         elasticity = DemandElasticity(
             product_id=product_id,
             elasticity_coefficient=coefficient,
+            fx_sensitivity_coefficient=fx_sensitivity_coefficient,
             r_squared=Decimal("0"),
             data_points_used=0,
             calculation_date=now.date(),
@@ -265,6 +343,8 @@ async def update_elasticity_config(
         db.add(elasticity)
     else:
         elasticity.elasticity_coefficient = coefficient
+        if fx_sensitivity_coefficient is not None:
+            elasticity.fx_sensitivity_coefficient = fx_sensitivity_coefficient
         elasticity.calculation_date = now.date()
 
     await db.flush()
@@ -558,7 +638,8 @@ async def generate_recommendations(
     # Prepare data for optimizer
     opt_inputs = []
     for p in below_target:
-        elasticity = await _get_elasticity_coefficient(db, p["product_id"])
+        product = await _get_product(db, p["product_id"])
+        elasticity = await _get_elasticity_coefficient(db, product)
         avg_daily = p["quantity_30d"] / 30 if p["quantity_30d"] else 1
         opt_inputs.append(
             {
@@ -612,7 +693,8 @@ async def generate_recommendations(
             continue  # Skip this product; never recommend a loss-making price
 
         price_change_pct = float((recommended - current) / current * 100)  # financial-float-ok
-        elasticity = await _get_elasticity_coefficient(db, opt["product_id"])
+        opt_product = await _get_product(db, opt["product_id"])
+        elasticity = await _get_elasticity_coefficient(db, opt_product)
         demand_change = float(elasticity) * price_change_pct / 100  # financial-float-ok
 
         # Estimate margin improvement

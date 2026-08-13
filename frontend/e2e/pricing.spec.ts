@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import { loginViaAPI, ensureTestUser } from './helpers/auth';
 import { ensureProduct, createSale, voidSale, advanceOrderToStatus, createOrder } from './helpers/data';
 
@@ -9,6 +9,15 @@ test.setTimeout(90_000);
 let productId: string;
 let saleId: string;
 let orderId: string;
+
+/**
+ * The page is organized into tabs (Overview/Product Margins/Recommendations/
+ * Cross-Subsidisation/Tools/Demand & Mix) — most sections only render once
+ * their tab is active. "Overview" is the default on page load.
+ */
+async function switchToTab(page: Page, label: string): Promise<void> {
+  await page.getByRole('button', { name: label }).click();
+}
 
 test.beforeAll(async () => {
   test.setTimeout(90_000);
@@ -70,6 +79,7 @@ test.describe('Pricing & Margins page', () => {
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
+    await switchToTab(page, 'Product Margins');
 
     await expect(page.getByRole('heading', { name: 'Per-Product Margins' })).toBeVisible();
 
@@ -90,6 +100,7 @@ test.describe('Pricing & Margins page', () => {
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
+    await switchToTab(page, 'Demand & Mix');
 
     await expect(page.getByRole('heading', { name: 'Demand Elasticity' })).toBeVisible();
 
@@ -107,6 +118,7 @@ test.describe('Pricing & Margins page', () => {
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
+    await switchToTab(page, 'Tools');
 
     await expect(
       page.getByRole('heading', { name: 'Price-FX Sensitivity Calculator' }),
@@ -131,6 +143,7 @@ test.describe('Pricing & Margins page', () => {
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
+    await switchToTab(page, 'Tools');
 
     await expect(page.getByRole('heading', { name: 'Selling Price Suggestion' })).toBeVisible();
 
@@ -151,6 +164,7 @@ test.describe('Pricing & Margins page', () => {
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
+    await switchToTab(page, 'Demand & Mix');
 
     await expect(page.getByRole('heading', { name: 'Product Mix Status' })).toBeVisible();
   });
@@ -160,6 +174,7 @@ test.describe('Pricing & Margins page', () => {
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
+    await switchToTab(page, 'Recommendations');
 
     await expect(page.getByRole('heading', { name: 'Optimizer Recommendations' })).toBeVisible();
     await expect(page.getByRole('button', { name: /generate/i })).toBeVisible();
@@ -173,6 +188,7 @@ test.describe('Pricing & Margins page', () => {
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
+    await switchToTab(page, 'Demand & Mix');
 
     await expect(page.getByRole('heading', { name: 'Demand Forecast' })).toBeVisible();
     await expect(page.locator('#forecast-product')).toBeVisible();
@@ -192,6 +208,7 @@ test.describe('Pricing & Margins page', () => {
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
+    await switchToTab(page, 'Tools');
 
     await expect(page.getByRole('heading', { name: 'Saved Scenarios' })).toBeVisible();
     await expect(page.getByRole('button', { name: /refresh/i })).toBeVisible();
@@ -202,13 +219,14 @@ test.describe('Pricing & Margins page', () => {
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
+    await switchToTab(page, 'Tools');
 
     // Fill sensitivity form and calculate
     await page.locator('#sens-selling-price').fill('5000');
     await page.locator('#sens-fx-rate').fill('1500');
     await page.locator('#sens-quantity').fill('10');
     await page.locator('#sens-unit-cost').fill('2');
-    await page.getByRole('button', { name: /^calculate$/i }).click();
+    await page.getByRole('button', { name: /calculate/i }).click();
 
     // Wait for result to appear, then save
     await expect(page.locator('text=Landed Cost').first()).toBeVisible({ timeout: 10_000 });
@@ -228,6 +246,7 @@ test.describe('Pricing & Margins page', () => {
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
+    await switchToTab(page, 'Demand & Mix');
 
     const productSelect = page.locator('#pricing-elasticity-product');
     await productSelect.selectOption({ label: 'E2E Pricing Product' });
@@ -238,20 +257,92 @@ test.describe('Pricing & Margins page', () => {
 
     await expect(page.locator('.p-toast')).toContainText('Saved', { timeout: 10_000 });
 
-    // Locate the elasticity table via its unique "Coefficient" column header
+    // Locate the elasticity table via its unique "Elasticity" column header
     // (the per-product table uses different headers — Product/Cost/Selling/Margin/Target/Gap)
     const elasticityTable = page
       .locator('table')
-      .filter({ has: page.getByRole('columnheader', { name: 'Coefficient' }) });
+      .filter({ has: page.getByRole('columnheader', { name: 'Elasticity' }) });
     await expect(elasticityTable.locator('tbody tr').first()).toBeVisible({ timeout: 10_000 });
     await expect(elasticityTable).toContainText('E2E Pricing Product');
     await expect(elasticityTable).toContainText('-1.50');
+  });
+
+  test('FX sensitivity coefficient can be saved alongside elasticity and appears in the table', async ({
+    page,
+  }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await switchToTab(page, 'Demand & Mix');
+
+    const productSelect = page.locator('#pricing-elasticity-product');
+    await productSelect.selectOption({ label: 'E2E Pricing Product' });
+
+    await page.locator('#pricing-elasticity-coeff').fill('-1.5');
+    await page.locator('#pricing-fx-sensitivity-coeff').fill('0.8');
+    await page.getByRole('button', { name: /save/i }).click();
+
+    await expect(page.locator('.p-toast')).toContainText('Saved', { timeout: 10_000 });
+
+    const elasticityTable = page
+      .locator('table')
+      .filter({ has: page.getByRole('columnheader', { name: 'FX Sensitivity' }) });
+    await expect(elasticityTable.locator('tbody tr').first()).toBeVisible({ timeout: 10_000 });
+    await expect(elasticityTable).toContainText('0.80');
+  });
+
+  test('elasticity and FX sensitivity coefficients each have a tooltip affordance', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await switchToTab(page, 'Demand & Mix');
+
+    await expect(page.getByRole('heading', { name: 'Demand Elasticity' })).toBeVisible();
+
+    // The tooltip popup itself is PrimeNG's Tooltip directive (pTooltip) —
+    // its runtime show/hide behavior is that library's responsibility, not
+    // re-tested here. This asserts what task 186 actually adds: an
+    // info-circle affordance wired to each coefficient's label, present and
+    // hoverable (cursor-help), for both elasticity and FX sensitivity.
+    const elasticityTooltipIcon = page.locator(
+      'label[for="pricing-elasticity-coeff"] i.pi-info-circle.cursor-help',
+    );
+    await expect(elasticityTooltipIcon).toBeVisible();
+
+    const fxTooltipIcon = page.locator(
+      'label[for="pricing-fx-sensitivity-coeff"] i.pi-info-circle.cursor-help',
+    );
+    await expect(fxTooltipIcon).toBeVisible();
+  });
+
+  test('loading an unconfigured product pre-populates category-default coefficients, not a blank form', async ({
+    page,
+  }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await switchToTab(page, 'Demand & Mix');
+
+    const productSelect = page.locator('#pricing-elasticity-product');
+    // A freshly-seeded product with no saved elasticity config yet.
+    await productSelect.selectOption({ label: 'E2E Pricing Product' });
+    await page.getByRole('button', { name: /load/i }).click();
+
+    // Task 186 (ST-802 criterion 3) — the Load button must never leave the
+    // coefficient input blank/zero-by-omission; it always resolves to a
+    // real number (product override, category default, or system default).
+    const coeffInput = page.locator('#pricing-elasticity-coeff');
+    await expect(coeffInput).not.toHaveValue('');
   });
 });
 
 test('demand forecast shows insufficient data empty state when product has < 10 sales', async ({ page }) => {
   // The E2E test user has no sales data for any product, so running a
   // forecast should return a 400 InsufficientPriceDataError from the backend.
+  await loginViaAPI(page);
   await page.goto('/pricing');
   await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
     timeout: 10_000,

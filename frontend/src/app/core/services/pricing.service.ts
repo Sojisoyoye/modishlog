@@ -78,6 +78,7 @@ export interface ElasticityRead {
   id: string;
   product_id: string;
   elasticity_coefficient: number;
+  fx_sensitivity_coefficient: number | null;
   r_squared: number;
   data_points_used: number;
   calculation_date: string;
@@ -89,6 +90,15 @@ export interface ElasticityRead {
 
 export interface ElasticityConfigUpdate {
   elasticity_coefficient: number;
+  fx_sensitivity_coefficient?: number;
+}
+
+export interface ElasticityConfigRead {
+  product_id: string;
+  elasticity_coefficient: number;
+  elasticity_is_custom: boolean;
+  fx_sensitivity_coefficient: number;
+  fx_sensitivity_is_custom: boolean;
 }
 
 export interface ScenarioRead {
@@ -236,6 +246,10 @@ export class PricingService {
 
   getElasticity(productId: string): Observable<ElasticityRead> {
     return this.api.get<ElasticityRead>(`/pricing/elasticity/${productId}`);
+  }
+
+  getElasticityConfig(productId: string): Observable<ElasticityConfigRead> {
+    return this.api.get<ElasticityConfigRead>(`/pricing/elasticity-config/${productId}`);
   }
 
   updateElasticity(

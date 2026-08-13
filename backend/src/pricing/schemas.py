@@ -19,6 +19,7 @@ class ElasticityRead(BaseModel):
     id: uuid.UUID
     product_id: uuid.UUID
     elasticity_coefficient: Decimal
+    fx_sensitivity_coefficient: Decimal | None = None
     r_squared: Decimal
     data_points_used: int
     calculation_date: date
@@ -30,6 +31,25 @@ class ElasticityRead(BaseModel):
 
 class ElasticityConfigUpdate(BaseModel):
     elasticity_coefficient: Decimal = Field(..., ge=-10, le=0)
+    # Optional: how demand for this product responds to FX-rate movements
+    # (e.g. a 10% NGN depreciation). Unlike elasticity_coefficient, sign is
+    # not constrained -- a product's demand could rise OR fall as landed
+    # costs increase, depending on whether buyers are FX-cost-sensitive or
+    # rushing to buy ahead of expected price increases (task 186).
+    fx_sensitivity_coefficient: Decimal | None = Field(None, ge=-10, le=10)
+
+
+class ElasticityConfigRead(BaseModel):
+    """Resolved elasticity/FX-sensitivity coefficients for the config UI --
+    always populated (own override, else category default, else system
+    default), so the editor never starts blank (task 186, ST-802
+    criterion 3)."""
+
+    product_id: uuid.UUID
+    elasticity_coefficient: Decimal
+    elasticity_is_custom: bool
+    fx_sensitivity_coefficient: Decimal
+    fx_sensitivity_is_custom: bool
 
 
 # ---------------------------------------------------------------------------

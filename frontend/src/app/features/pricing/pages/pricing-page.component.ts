@@ -4,12 +4,12 @@ import { DecimalPipe, CurrencyPipe, DatePipe, UpperCasePipe } from '@angular/com
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { UIChart } from 'primeng/chart';
+import { Tooltip } from 'primeng/tooltip';
 import { StatusBadgeComponent } from '../../../shared/components/status-badge/status-badge.component';
 import {
   PricingService,
   PortfolioMarginData,
   ProductMargin,
-  ElasticityRead,
   SensitivityCalcResponse,
   MixCategoryStatus,
   SellingPriceSuggestionResponse,
@@ -38,12 +38,14 @@ interface ElasticityEntry {
   product_id: string;
   product_name: string;
   elasticity_coefficient: number;
+  fx_sensitivity_coefficient: number;
+  is_default: boolean;
 }
 
 @Component({
   selector: 'app-pricing-page',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, CurrencyPipe, DatePipe, UpperCasePipe, Toast, UIChart, StatusBadgeComponent],
+  imports: [FormsModule, DecimalPipe, CurrencyPipe, DatePipe, UpperCasePipe, Toast, UIChart, StatusBadgeComponent, Tooltip],
   template: `
     <p-toast />
     <div>
@@ -1221,9 +1223,14 @@ interface ElasticityEntry {
             </select>
           </div>
           <div>
-            <label for="pricing-elasticity-coeff" class="mb-1.5 block text-xs font-medium text-muted"
-              >Elasticity Coefficient</label
-            >
+            <label for="pricing-elasticity-coeff" class="mb-1.5 flex items-center gap-1 text-xs font-medium text-muted">
+              Elasticity Coefficient
+              <i
+                class="pi pi-info-circle cursor-help text-[10px] text-muted"
+                [pTooltip]="'An elasticity of -1.2 means a 10% price increase reduces demand by 12%. Must be between -10 and 0.'"
+                tooltipPosition="top"
+              ></i>
+            </label>
             <input
               id="pricing-elasticity-coeff"
               type="number"
@@ -1231,6 +1238,24 @@ interface ElasticityEntry {
               placeholder="e.g. -1.5"
               step="0.1"
               max="0"
+              class="w-40 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
+            />
+          </div>
+          <div>
+            <label for="pricing-fx-sensitivity-coeff" class="mb-1.5 flex items-center gap-1 text-xs font-medium text-muted">
+              FX Sensitivity Coefficient
+              <i
+                class="pi pi-info-circle cursor-help text-[10px] text-muted"
+                [pTooltip]="'An FX sensitivity of 0.8 means a 10% NGN depreciation changes demand by 8%. Can be positive or negative — depends on whether buyers cut back or rush to buy ahead of price increases.'"
+                tooltipPosition="top"
+              ></i>
+            </label>
+            <input
+              id="pricing-fx-sensitivity-coeff"
+              type="number"
+              [(ngModel)]="elasticityFxSensitivity"
+              placeholder="e.g. 0.5"
+              step="0.1"
               class="w-40 rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition-colors focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600"
             />
           </div>
@@ -1261,16 +1286,27 @@ interface ElasticityEntry {
                     Product
                   </th>
                   <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
-                    Coefficient
+                    Elasticity
+                  </th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">
+                    FX Sensitivity
                   </th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-100">
                 @for (e of elasticityEntries(); track e.product_id) {
                   <tr class="transition-colors hover:bg-gray-50/50">
-                    <td class="px-3 py-2.5 font-medium text-text">{{ e.product_name }}</td>
+                    <td class="px-3 py-2.5 font-medium text-text">
+                      {{ e.product_name }}
+                      @if (e.is_default) {
+                        <span class="ml-1 text-xs text-muted">(default)</span>
+                      }
+                    </td>
                     <td class="px-3 py-2.5 text-right font-semibold">
                       {{ e.elasticity_coefficient | number: '1.2-2' }}
+                    </td>
+                    <td class="px-3 py-2.5 text-right font-semibold">
+                      {{ e.fx_sensitivity_coefficient | number: '1.2-2' }}
                     </td>
                   </tr>
                 }
@@ -1461,6 +1497,7 @@ export class PricingPageComponent implements OnInit {
   elasticityEntries = signal<ElasticityEntry[]>([]);
   elasticityProductId = '';
   elasticityCoeff = 0;
+  elasticityFxSensitivity = 0;
 
   // Sensitivity calculator
   sensProductId = '';
@@ -1664,24 +1701,30 @@ export class PricingPageComponent implements OnInit {
   loadElasticity(): void {
     if (!this.elasticityProductId) return;
     const product = this.products().find((p) => p.id === this.elasticityProductId);
-    this.pricingService.getElasticity(this.elasticityProductId).subscribe({
-      next: (e) => {
+    // Task 186 (ST-802 criterion 3): resolved-config endpoint never 404s —
+    // it always returns a value (own override, else category default, else
+    // system default), so the form pre-populates instead of staying blank.
+    this.pricingService.getElasticityConfig(this.elasticityProductId).subscribe({
+      next: (c) => {
         const entry: ElasticityEntry = {
-          product_id: e.product_id,
+          product_id: c.product_id,
           product_name: product?.name ?? 'Unknown',
-          elasticity_coefficient: Number(e.elasticity_coefficient),
+          elasticity_coefficient: Number(c.elasticity_coefficient),
+          fx_sensitivity_coefficient: Number(c.fx_sensitivity_coefficient),
+          is_default: !c.elasticity_is_custom && !c.fx_sensitivity_is_custom,
         };
         this.elasticityEntries.update((list) => {
-          const filtered = list.filter((x) => x.product_id !== e.product_id);
+          const filtered = list.filter((x) => x.product_id !== c.product_id);
           return [...filtered, entry];
         });
-        this.elasticityCoeff = Number(e.elasticity_coefficient);
+        this.elasticityCoeff = Number(c.elasticity_coefficient);
+        this.elasticityFxSensitivity = Number(c.fx_sensitivity_coefficient);
       },
       error: () => {
         this.messageService.add({
-          severity: 'warn',
-          summary: 'Not Found',
-          detail: 'No elasticity data for this product',
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Failed to load elasticity config',
         });
       },
     });
@@ -1693,6 +1736,7 @@ export class PricingPageComponent implements OnInit {
     this.pricingService
       .updateElasticity(this.elasticityProductId, {
         elasticity_coefficient: this.elasticityCoeff,
+        fx_sensitivity_coefficient: this.elasticityFxSensitivity,
       })
       .subscribe({
         next: (e) => {
@@ -1700,6 +1744,8 @@ export class PricingPageComponent implements OnInit {
             product_id: e.product_id,
             product_name: product?.name ?? 'Unknown',
             elasticity_coefficient: Number(e.elasticity_coefficient),
+            fx_sensitivity_coefficient: Number(e.fx_sensitivity_coefficient ?? 0),
+            is_default: false,
           };
           this.elasticityEntries.update((list) => {
             const filtered = list.filter((x) => x.product_id !== e.product_id);
@@ -1710,6 +1756,15 @@ export class PricingPageComponent implements OnInit {
             summary: 'Saved',
             detail: `Elasticity updated for ${product?.name ?? 'product'}`,
           });
+          // Task 186 (ST-802 criterion 4) — live propagation: if this
+          // product's forecast or an optimizer recommendation is already
+          // on screen, refresh it so the user doesn't see stale numbers.
+          if (this.forecastProductId === e.product_id && this.forecastData()) {
+            this.runDemandForecast();
+          }
+          if (this.optimizerRecs().some((r) => r.product_id === e.product_id)) {
+            this.generateOptimizerRecs();
+          }
         },
         error: () => {
           this.messageService.add({
