@@ -83,7 +83,9 @@ class MonthlyBucket(BaseModel):
     net_cashflow: Decimal
     cumulative_cashflow: Decimal
     dscr: Decimal
+    dscr_is_finite: bool
     cash_runway_months: Decimal
+    cash_runway_is_finite: bool
     risk_rating: str
 
 
@@ -108,6 +110,7 @@ class ProjectionRead(BaseModel):
 
 class DSCRResponse(BaseModel):
     dscr: Decimal
+    dscr_is_finite: bool
     net_operating_income: Decimal
     total_debt_service: Decimal
     color: str
@@ -120,6 +123,7 @@ class DSCRResponse(BaseModel):
 
 class RunwayResponse(BaseModel):
     runway_months: Decimal
+    runway_months_is_finite: bool
     avg_monthly_burn: Decimal
 
 

@@ -300,9 +300,7 @@ class TestDSCR:
     def test_dscr_healthy(self):
         from src.cashflow.service import _calculate_dscr
 
-        dscr = _calculate_dscr(
-            Decimal("1000000"), Decimal("600000"), Decimal("200000")
-        )
+        dscr = _calculate_dscr(Decimal("1000000"), Decimal("600000"), Decimal("200000"))
         assert dscr == Decimal("2.000")
 
     def test_dscr_no_debt(self):
@@ -314,9 +312,7 @@ class TestDSCR:
     def test_dscr_below_1(self):
         from src.cashflow.service import _calculate_dscr
 
-        dscr = _calculate_dscr(
-            Decimal("500000"), Decimal("400000"), Decimal("200000")
-        )
+        dscr = _calculate_dscr(Decimal("500000"), Decimal("400000"), Decimal("200000"))
         assert dscr == Decimal("0.500")
 
     @pytest.mark.asyncio
@@ -336,6 +332,32 @@ class TestDSCR:
 
         result = await get_current_dscr(db, uuid.uuid4())
         assert result["dscr"] == Decimal("3.500")  # (1M - 300k) / 200k
+        assert result["color"] == "green"
+        # A real loan payment exists — DSCR is a meaningful, finite ratio.
+        assert result["dscr_is_finite"] is True
+
+    @pytest.mark.asyncio
+    async def test_get_current_dscr_no_loan_marks_dscr_not_finite(self):
+        """Task 187 — a debt-free business has no debt-service obligation, so
+        DSCR is mathematically undefined. The 999 sentinel must never be
+        displayed as a raw ratio; dscr_is_finite=False tells the frontend to
+        show a friendly 'No debt' state instead."""
+        from src.cashflow.service import get_current_dscr
+
+        db = _mock_db()
+        rev_result = MagicMock()
+        rev_result.scalar.return_value = Decimal("3000000")
+        opex_result = MagicMock()
+        opex_result.scalar.return_value = Decimal("300000")
+        loan_result = MagicMock()
+        loan_result.scalar.return_value = Decimal("0")
+
+        db.execute = AsyncMock(side_effect=[rev_result, opex_result, loan_result])
+
+        result = await get_current_dscr(db, uuid.uuid4())
+        assert result["dscr"] == Decimal("999.000")
+        assert result["dscr_is_finite"] is False
+        # Debt-free is the best case, not a risk signal — color stays green.
         assert result["color"] == "green"
 
 
@@ -427,6 +449,11 @@ class TestCashRunway:
         result = await calculate_cash_runway(db, uuid.uuid4())
         assert result["runway_months"] == Decimal("999.0")
         assert result["avg_monthly_burn"] == Decimal("0")
+        # Task 187 — cash-flow-positive with no burn means runway is
+        # mathematically infinite; the raw 999 sentinel must never be
+        # displayed. runway_months_is_finite=False signals the frontend to
+        # show a friendly 'No burn' state instead.
+        assert result["runway_months_is_finite"] is False
 
     @pytest.mark.asyncio
     async def test_runway_with_negative_months(self):
@@ -464,6 +491,8 @@ class TestCashRunway:
         result = await calculate_cash_runway(db, uuid.uuid4())
         assert result["runway_months"] == Decimal("3.0")
         assert result["avg_monthly_burn"] == Decimal("-100000.00")
+        # A real burn rate exists — runway is a meaningful, finite number.
+        assert result["runway_months_is_finite"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -554,11 +583,41 @@ class TestProjectionHelpers:
 
         assert _avg_dscr_from_buckets([]) == Decimal("0")
 
+    def test_avg_dscr_excludes_no_debt_sentinel_from_average(self):
+        """Task 187 — a debt-free month's dscr=999 sentinel must not pull a
+        blended average up to a meaningless value; only real (finite) DSCR
+        months should count."""
+        from src.cashflow.service import _avg_dscr_from_buckets
+
+        buckets = [{"dscr": "2.000"}, {"dscr": "999.000"}]
+        assert _avg_dscr_from_buckets(buckets) == Decimal("2.000")
+
+    def test_avg_dscr_all_sentinel_returns_sentinel(self):
+        from src.cashflow.service import _avg_dscr_from_buckets
+
+        buckets = [{"dscr": "999.000"}, {"dscr": "999.000"}]
+        assert _avg_dscr_from_buckets(buckets) == Decimal("999.000")
+
     def test_avg_runway_from_buckets(self):
         from src.cashflow.service import _avg_runway_from_buckets
 
         buckets = [{"cash_runway_months": "6.0"}, {"cash_runway_months": "4.0"}]
         assert _avg_runway_from_buckets(buckets) == 5
+
+    def test_avg_runway_excludes_infinite_sentinel_from_average(self):
+        """Task 187 — a no-burn month's runway=999 sentinel must not pull a
+        blended average up to a meaningless value; only real (finite)
+        runway months should count."""
+        from src.cashflow.service import _avg_runway_from_buckets
+
+        buckets = [{"cash_runway_months": "4.0"}, {"cash_runway_months": "999.0"}]
+        assert _avg_runway_from_buckets(buckets) == 4
+
+    def test_avg_runway_all_sentinel_returns_sentinel(self):
+        from src.cashflow.service import _avg_runway_from_buckets
+
+        buckets = [{"cash_runway_months": "999.0"}, {"cash_runway_months": "999.0"}]
+        assert _avg_runway_from_buckets(buckets) == 999
 
     def test_summarize_projection(self):
         from src.cashflow.service import _summarize_projection
@@ -568,6 +627,10 @@ class TestProjectionHelpers:
         assert summary["risk_rating"] == "LOW"
         assert summary["avg_dscr"] == 8.0
         assert "net_cashflow" in summary
+        # Task 187 — default fixture bucket: dscr=8.000 (finite),
+        # cash_runway_months=999.0 (infinite sentinel).
+        assert summary["avg_dscr_is_finite"] is True
+        assert summary["cash_runway_is_finite"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -599,7 +662,11 @@ class TestCashflowEndpoints:
         return {"Authorization": f"Bearer {token}"}, user
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user, get_current_business_id
+        from src.auth.dependencies import (
+            get_current_active_user,
+            get_current_business_id,
+        )
+
         biz_id = uuid.uuid4()
         u = _make_user()
         u.business_id = biz_id
@@ -718,6 +785,41 @@ class TestCashflowEndpoints:
             resp = client.get("/api/v1/cashflow/alerts")
         assert resp.status_code == 200
         assert resp.json() == []
+
+    def test_cash_runway_no_projection_fallback_is_finite(self):
+        """Task 187 — the ProjectionNotFoundError fallback returns
+        runway_months=0 (no data yet), which is a real finite number, not
+        the 'infinite runway' sentinel — must not trigger the friendly
+        'No burn' display."""
+        self._override_auth()
+        db = _mock_db_with_execute(scalar_result=None)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/cashflow/cash-runway")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert Decimal(body["runway_months"]) == Decimal("0")
+        assert body["runway_months_is_finite"] is True
+
+    def test_dscr_endpoint_returns_dscr_is_finite(self):
+        """Task 187 — GET /cashflow/dscr must surface dscr_is_finite so the
+        frontend can render 'No debt' instead of a raw 999.00 ratio."""
+        self._override_auth()
+        db = _mock_db()
+        rev_result = MagicMock()
+        rev_result.scalar.return_value = Decimal("3000000")
+        opex_result = MagicMock()
+        opex_result.scalar.return_value = Decimal("300000")
+        loan_result = MagicMock()
+        loan_result.scalar.return_value = Decimal("0")
+        db.execute = AsyncMock(side_effect=[rev_result, opex_result, loan_result])
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/cashflow/dscr")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert Decimal(body["dscr"]) == Decimal("999.000")
+        assert body["dscr_is_finite"] is False
 
     def test_triage_status_none(self):
         self._override_auth()
@@ -907,11 +1009,11 @@ class TestTriageFunctions:
 
         db.execute = AsyncMock(
             side_effect=[
-                loan_result,    # loan schedules
-                opex_result,    # opex
-                fx_rate_result, # fx rate
+                loan_result,  # loan schedules
+                opex_result,  # opex
+                fx_rate_result,  # fx rate
                 fx_orders_result,  # fx orders
-                proj_result,    # projection for starting balance
+                proj_result,  # projection for starting balance
                 triage_result,  # get_active_triage in auto_resolve
             ]
         )
@@ -950,10 +1052,10 @@ class TestTriageFunctions:
 
         db.execute = AsyncMock(
             side_effect=[
-                triage_result,      # get_active_triage
-                liquidation_result, # get_liquidation_candidates
-                opex_result,        # deferrable opex
-                pending_result,     # pending sales
+                triage_result,  # get_active_triage
+                liquidation_result,  # get_liquidation_candidates
+                opex_result,  # deferrable opex
+                pending_result,  # pending sales
             ]
         )
 
@@ -1000,7 +1102,11 @@ class TestTriageFunctions:
         result = await generate_triage_recommendations(db, uuid.uuid4())
         action_types = [r["action_type"] for r in result["recommendations"]]
         assert "ACCELERATE_COLLECTION" in action_types
-        accel = next(r for r in result["recommendations"] if r["action_type"] == "ACCELERATE_COLLECTION")
+        accel = next(
+            r
+            for r in result["recommendations"]
+            if r["action_type"] == "ACCELERATE_COLLECTION"
+        )
         assert accel["estimated_impact"] == Decimal("150000.000000")
         assert accel["priority"] == 3
 
@@ -1045,7 +1151,9 @@ class TestTriageFunctions:
         result = await generate_triage_recommendations(db, uuid.uuid4())
         action_types = [r["action_type"] for r in result["recommendations"]]
         assert "DELAY_PAYMENT" in action_types
-        delay = next(r for r in result["recommendations"] if r["action_type"] == "DELAY_PAYMENT")
+        delay = next(
+            r for r in result["recommendations"] if r["action_type"] == "DELAY_PAYMENT"
+        )
         assert delay["estimated_impact"] == Decimal("50000.00")
 
 
@@ -1084,6 +1192,7 @@ async def test_cashflow_projections_isolates_by_business():
     assert result_a is not None
 
     from src.cashflow.exceptions import ProjectionNotFoundError
+
     with pytest.raises(ProjectionNotFoundError):
         await get_latest_projection(db_b, business_id=business_b_id)
 
@@ -1263,7 +1372,9 @@ async def test_trailing_30d_avg_monthly_revenue_accepts_business_id():
     result_mock.scalar.return_value = Decimal("1500000")  # 1500 NGN/USD * 1000 USD
     db.execute = AsyncMock(return_value=result_mock)
 
-    revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(db, business_id, ngn_usd_rate)
+    revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(
+        db, business_id, ngn_usd_rate
+    )
     assert revenue_usd == Decimal("1000.00")  # 1500000 NGN / 1500
 
 
@@ -1279,7 +1390,9 @@ async def test_trailing_30d_avg_monthly_revenue_zero_for_unknown_business():
     result_mock.scalar.return_value = None
     db.execute = AsyncMock(return_value=result_mock)
 
-    revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(db, business_id, ngn_usd_rate)
+    revenue_usd = await _trailing_30d_avg_monthly_revenue_usd(
+        db, business_id, ngn_usd_rate
+    )
     assert revenue_usd == Decimal("0")
 
 

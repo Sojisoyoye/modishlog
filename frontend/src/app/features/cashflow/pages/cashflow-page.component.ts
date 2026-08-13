@@ -30,7 +30,9 @@ import {
               </div>
               <p class="text-sm font-medium text-muted">Cash Runway</p>
             </div>
-            <p class="text-3xl font-bold text-text">{{ runwayMonths() }} months</p>
+            <p class="text-3xl font-bold text-text">
+              {{ liquidity().runway_is_finite ? runwayMonths() + ' months' : 'No burn' }}
+            </p>
           </div>
           <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <div class="mb-2 flex items-center gap-2">
@@ -40,7 +42,7 @@ import {
               <p class="text-sm font-medium text-muted">DSCR</p>
             </div>
             <p class="text-3xl font-bold" [class]="dscrColor()">
-              {{ liquidity().dscr | number: '1.2-2' }}
+              {{ liquidity().dscr_is_finite ? (liquidity().dscr | number: '1.2-2') : 'No debt' }}
             </p>
           </div>
           <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -168,14 +170,14 @@ import {
                   <td
                     class="px-4 py-3 text-right font-semibold"
                     [class]="
-                      m.dscr >= 1.5
+                      !m.dscr_is_finite || m.dscr >= 1.5
                         ? 'text-success'
                         : m.dscr >= 1.0
                           ? 'text-warning'
                           : 'text-danger'
                     "
                   >
-                    {{ m.dscr | number: '1.2-2' }}
+                    {{ m.dscr_is_finite ? (m.dscr | number: '1.2-2') : 'No debt' }}
                   </td>
                 </tr>
               }
@@ -260,15 +262,27 @@ import {
                 <p class="text-xs font-medium text-muted">Worst DSCR</p>
                 <p
                   class="mt-1 text-2xl font-bold"
-                  [class]="scenarioResult()!.worst_dscr >= 1.0 ? 'text-success' : 'text-danger'"
+                  [class]="
+                    !scenarioResult()!.worst_dscr_is_finite || scenarioResult()!.worst_dscr >= 1.0
+                      ? 'text-success'
+                      : 'text-danger'
+                  "
                 >
-                  {{ scenarioResult()!.worst_dscr | number: '1.2-2' }}
+                  {{
+                    scenarioResult()!.worst_dscr_is_finite
+                      ? (scenarioResult()!.worst_dscr | number: '1.2-2')
+                      : 'No debt'
+                  }}
                 </p>
               </div>
               <div>
                 <p class="text-xs font-medium text-muted">Cash Runway</p>
                 <p class="mt-1 text-2xl font-bold text-text">
-                  {{ scenarioRunwayMonths() }} months
+                  {{
+                    scenarioResult()!.cash_runway_is_finite
+                      ? scenarioRunwayMonths() + ' months'
+                      : 'No burn'
+                  }}
                 </p>
               </div>
               @if (scenarioResult()!.risk_rating) {
@@ -299,7 +313,9 @@ export class CashflowPageComponent implements OnInit {
   projectionChart = signal<unknown>(null);
   liquidity = signal<LiquidityInfo>({
     cash_runway_days: 0,
+    runway_is_finite: true,
     dscr: 0,
+    dscr_is_finite: true,
     risk_rating: 'UNKNOWN',
     alerts: [],
   });
@@ -371,6 +387,8 @@ export class CashflowPageComponent implements OnInit {
   }
 
   dscrColor(): string {
+    // No debt is the best case, not a risk signal.
+    if (!this.liquidity().dscr_is_finite) return 'text-success';
     const d = this.liquidity().dscr;
     if (d >= 1.5) return 'text-success';
     if (d >= 1.0) return 'text-warning';

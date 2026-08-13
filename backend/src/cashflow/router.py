@@ -206,7 +206,9 @@ async def cash_runway_endpoint(
         data = await calculate_cash_runway(db, business_id)
         return RunwayResponse(**data)
     except ProjectionNotFoundError:
-        return RunwayResponse(runway_months=0, avg_monthly_burn=0)
+        return RunwayResponse(
+            runway_months=0, runway_months_is_finite=True, avg_monthly_burn=0
+        )
 
 
 # ---------------------------------------------------------------------------

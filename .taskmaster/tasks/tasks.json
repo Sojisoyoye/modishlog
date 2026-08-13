@@ -5144,23 +5144,68 @@
         "testStrategy": "",
         "status": "done",
         "dependencies": [
-          177
+          "177"
         ],
         "priority": "low",
+        "subtasks": []
+      },
+      {
+        "id": 186,
+        "title": "Pricing page ST-802 gaps: FX sensitivity coefficient, tooltips, category-based elasticity defaults, live propagation",
+        "description": "PRD compliance audit (2026-08-13) of the Pricing & Margins page against PRD section 6.8 ST-802 (Demand elasticity configuration) found all 4 acceptance criteria not fully met. Each product must have configurable price elasticity AND FX sensitivity coefficients, with tooltips explaining them, category-based defaults, and changes propagating live to any already-displayed forecasts/recommendations.",
+        "details": "Three gaps found, all scoped to backend/src/pricing/ and frontend/src/app/features/pricing/pages/pricing-page.component.ts:\n\n1. FX sensitivity coefficient is not implemented anywhere. Grepped backend/src/pricing/ and backend/src/products/ for fx_sensitivity — zero hits. PRD ST-802 requires each product to have BOTH a price elasticity coefficient AND an FX sensitivity coefficient; only elasticity exists (DemandElasticity model, backend/src/pricing/models.py:34-52).\n\n2. No tooltips explaining the elasticity/FX-sensitivity parameters with worked examples. PRD example wording: \"An elasticity of -1.2 means a 10% price increase reduces demand by 12%\". Currently only a placeholder hint \"e.g. -1.5\" on the input (pricing-page.component.ts, elasticity config UI around line 1208-1251) — no tooltip component or explanatory text anywhere in the file.\n\n3. No category-based elasticity defaults. DEFAULT_ELASTICITY is a single hardcoded global constant (-1.0, backend/src/pricing/service.py:49), used for every product regardless of category (service.py:192). The codebase already has this exact pattern working for margin targets — ProductCategory.default_margin_pct with category-then-parent-category fallback (service.py:1289-1302) — and should be extended the same way for elasticity, plus a similar fallback for the new FX sensitivity field once added.\n\nSuggested shape: add fx_sensitivity_coefficient to DemandElasticity (or a sibling column), add category-level default columns to ProductCategory mirroring default_margin_pct, thread the category fallback into the same lookup path get_elasticity_coefficient() (service.py ~line 180-192) uses, and add tooltip UI (PrimeNG has a Tooltip module) to both new and existing coefficient inputs.\n\n4. Coefficient changes don't propagate live to already-displayed forecasts/recommendations (ST-802 criterion 4). Verified in code: backend/src/pricing/service.py's _get_elasticity_coefficient() (line ~183-193) queries the DB fresh on every call, so the backend itself has no staleness problem — generate_recommendations() and the demand-forecast endpoint always use the current coefficient value on their next invocation. The gap is purely frontend: pricing-page.component.ts's updateElasticity() (line ~1690-1722) only updates the local elasticityEntries signal/table in its success handler — it never re-triggers or invalidates the Demand Forecast panel or Optimizer Recommendations section for that product, even if either is already open/rendered on screen. A user who edits a coefficient while a forecast/recommendation for that same product is visible sees stale numbers until they manually click Run Forecast / Generate again. Suggested fix: after updateElasticity()'s success handler, if the edited product_id matches the currently-selected demand-forecast product or appears in the currently-displayed optimizer recommendations, re-run those fetches automatically (or at minimum show a visible 'stale, re-run to update' indicator instead of silently leaving old numbers on screen).",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 187,
+        "title": "Fix cashflow page: 999 sentinel leaks to UI, amber DSCR shows risk rating as UNKNOWN",
+        "description": "Two live bugs on the Cashflow page found during a PRD audit (2026-08-13), both visible on any new/empty account. Urgent — user-facing and misleading.",
+        "details": "1. 999 sentinel leaks to the UI as literal numbers instead of a friendly display.\n   - backend/src/cashflow/service.py:322 — _calculate_dscr() returns Decimal(\"999.000\") when loan_payment <= 0 (no debt configured — DSCR is undefined, not 999).\n   - backend/src/cashflow/service.py:389 and :476 — Cash Runway returns Decimal(\"999.0\") whenever the account is cash-flow-positive with no burn (runway is mathematically infinite, not 999).\n   - Frontend has zero special-casing: frontend/src/app/features/cashflow/pages/cashflow-page.component.ts:33 renders \"{{ runwayMonths() }} months\" and :43 renders the DSCR through a plain number pipe. Result: a new account with no loan obligations shows \"999.0 months\" and DSCR \"999.00\" verbatim.\n   - Fix: pick a sentinel the frontend can detect (e.g. null, or a documented constant) and render something friendly (\"No debt\" / \"∞\" / \"N/A\") instead of the raw number, for both Cash Runway and DSCR.\n\n2. Amber DSCR color makes the Risk Rating badge show \"UNKNOWN\" instead of \"MEDIUM\".\n   - backend/src/cashflow/service.py:512 (get_current_dscr) returns color=\"amber\" for the 1.0-1.49 DSCR band.\n   - frontend/src/app/core/services/cashflow.service.ts:211-216, colorToRiskRating() only matches 'green', 'yellow', 'red' — 'amber' falls through to the `return 'UNKNOWN'` default.\n   - Fix: change the frontend match to 'amber' (or have the backend and frontend agree on one color vocabulary — check other cashflow color usages for the same yellow/amber mismatch, e.g. dscrColor() in cashflow-page.component.ts, to make sure the fix is consistent everywhere DSCR color is interpreted).\n\nFound via a full PRD audit of the Cashflow page against PRD section 6.7 (ST-701/702/703) on 2026-08-13. See task for the broader (lower-priority) PRD gaps found in the same audit.",
+        "testStrategy": "",
+        "status": "in-progress",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-08-13T19:36:39.081Z"
+      },
+      {
+        "id": 188,
+        "title": "Cashflow page PRD gaps: outflow breakdown, per-month chart coloring, scenario save/compare UI, daily recalc, trend arrows, scenario margin impact",
+        "description": "PRD compliance audit (2026-08-13) of the Cashflow page against PRD section 6.7 (ST-701 6-month projection, ST-702 Cash Runway/DSCR monitoring, ST-703 stress scenario simulation) found several acceptance criteria partially or not met. Lower priority than task #187 (the live 999-sentinel and amber/UNKNOWN bugs found in the same audit).",
+        "details": "Six gaps found, all scoped to backend/src/cashflow/ and frontend/src/app/features/cashflow/pages/cashflow-page.component.ts + frontend/src/app/core/services/cashflow.service.ts:\n\n1. ST-701 criterion 2 (PARTIALLY MET) — outflow breakdown not surfaced. Backend computes 4 distinct components correctly (projected_revenue, projected_loan_payment, projected_operating_costs, projected_fx_obligations — service.py:396-399), but cashflow.service.ts:134-137 collapses loan+opex+FX into one \"Outflows\" number before the frontend table (cashflow-page.component.ts:134-146, columns Month/Inflows/Outflows/Net/Cumulative) ever sees them. PRD requires each month to show inflows, outflows (loan/opex/FX broken out), and net position as distinct line items.\n\n2. ST-701 criterion 4 (NOT MET) — chart isn't colored by net position. PRD (8.2.5): \"Bar chart: monthly net cashflow for the next 6 months (positive bars green, negative bars red)\" — i.e. ONE bar per month colored by sign. Actual implementation (cashflow-page.component.ts:343-371, buildChart()) shows TWO bars per month: Inflows always green (#1A7A4A), Outflows always red (#C0392B) — not conditional on net position. Only the table's Net column text color changes by sign (line 161); the chart itself has no per-month conditional coloring.\n\n3. ST-701 criterion 5 (NOT MET) — no daily recalculation mechanism. No scheduler/cron exists anywhere in backend/src/cashflow (confirmed via repo-wide grep). GET /projection (router.py:130-140) returns the cached latest projection and only regenerates if none has ever been generated — no staleness check against projection_date. A projection can go stale indefinitely until a scenario run happens to regenerate one.\n\n4. ST-702 criterion 4 (NOT MET) — no 7-day trend arrows. PRD requires trend arrows showing whether Cash Runway and DSCR improved/deteriorated over the past 7 days. No trend fields exist in backend/src/cashflow/schemas.py, no trend logic in service.py, no arrow icons/comparison in cashflow-page.component.ts.\n\n5. ST-703 criterion 3 (NOT MET) — stress scenario \"Portfolio Margin\" impact is fabricated placeholder text, not computed. cashflow-page.component.ts:274-286 shows static text \"Likely impacted\" plus the risk-rating badge — no actual margin percentage. _summarize_projection (service.py:544-557) returns only cash_runway, avg_dscr, risk_rating, net_cashflow — no margin field at all, and no monthly cashflow breakdown per scenario either (PRD requires impact on Cash Runway, DSCR, portfolio margin, AND monthly cashflow — 4 distinct outputs).\n\n6. ST-703 criterion 4 (PARTIALLY MET, backend-only) — scenario save/compare has no frontend UI. Backend correctly persists every run to StressScenario (service.py:574-589) and GET /cashflow/scenarios exists (router.py:185-191), but CashflowService (frontend) has no getScenarios() call at all — the page never lists/fetches saved scenarios, so there's no side-by-side comparison view despite the backend supporting it.\n\nFound via the same full PRD audit as task #187 (2026-08-13), which also confirmed FX obligations correctly use the 70% factor (service.py:287, :1010) and all 5 stress-scenario presets (FX+10/+20%, Demand-10/-20%, Combined) exist and work.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 189,
+        "title": "Dashboard Cash Health card has the same 999-sentinel leak and yellow/amber DSCR-color bug as task 187",
+        "description": "The Dashboard page's 'Cash Health' card independently re-implements the same Cash Runway/DSCR display logic fixed in task #187 (Cashflow page), in a completely separate service/component that task #187 doesn't touch. Both of the same bugs exist here too.",
+        "details": "Found while E2E-testing task #187's fix. Confirmed by reading:\n\n1. frontend/src/app/core/services/dashboard.service.ts:51-63, loadDashboard() — calls\n   the same /cashflow/cash-runway and /cashflow/dscr endpoints (now returning\n   runway_months_is_finite / dscr_is_finite per task 187) but doesn't read\n   either flag. Also line 60: risk_rating is derived inline via\n   `dscr.color === 'green' ? 'LOW' : dscr.color === 'yellow' ? 'MEDIUM' : 'HIGH'`\n   — same 'yellow' vs 'amber' mismatch fixed in cashflow.service.ts's\n   colorToRiskRating() (task 187), except here a medium-risk DSCR falls through\n   to 'HIGH' instead of 'UNKNOWN' — arguably worse, since it inflates a\n   MEDIUM-risk account to display as HIGH risk.\n\n2. frontend/src/app/features/dashboard/pages/dashboard-page.component.ts:436-438 —\n   `@if (data().liquidity.runway_months > 0) { {{ runway_months | number }} mo }\n   @else { Profitable ✓ }` — since the 999 sentinel is > 0, this renders\n   \"999.0 mo\" raw on any cash-flow-positive account, same leak as the Cashflow\n   page had.\n   Note: the DSCR side of this same card (line 444-446) already has an\n   incidental workaround — `@if (dscr >= 99) { Excellent }` — so DSCR doesn't\n   leak the raw number here, only Cash Runway does. Still worth aligning with\n   the proper is_finite-flag approach from task 187 rather than relying on a\n   >=99 magic-number coincidence.\n\nFix: mirror task 187's pattern — add runway_months_is_finite/dscr_is_finite to\nLiquiditySnapshot (dashboard.service.ts:6-10), thread them through\nloadDashboard()'s map(), and update the Cash Health card template to use them\ninstead of the `> 0` / `>= 99` heuristics. Also fix the yellow->amber\nrisk_rating mapping at dashboard.service.ts:60 the same way as\ncashflow.service.ts's colorToRiskRating() was fixed.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
         "subtasks": []
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-13T11:15:00.000Z",
-      "taskCount": 185,
-      "completedCount": 183,
+      "lastModified": "2026-08-13T19:36:39.084Z",
+      "taskCount": 188,
+      "completedCount": 185,
       "tags": [
         "master"
       ],
-      "created": "2026-07-23T16:07:30.039Z",
+      "created": "2026-08-13T19:58:31.130Z",
       "description": "Tasks for master context",
-      "updated": "2026-08-13T11:15:00.000Z"
+      "updated": "2026-08-13T19:58:31.150Z"
     }
   }
 }
