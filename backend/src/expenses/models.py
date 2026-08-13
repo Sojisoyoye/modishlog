@@ -5,10 +5,10 @@ from decimal import Decimal
 from sqlalchemy import Date, ForeignKey, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.core.database import Base, TimestampMixin, UUIDMixin
+from src.core.database import Base, MigrationTaggedMixin, TimestampMixin, UUIDMixin
 
 
-class ExpenseCategory(UUIDMixin, TimestampMixin, Base):
+class ExpenseCategory(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     __tablename__ = "expense_categories"
 
     business_id: Mapped[uuid.UUID] = mapped_column(
@@ -17,14 +17,13 @@ class ExpenseCategory(UUIDMixin, TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(150), index=True)
     description: Mapped[str | None] = mapped_column(Text, default=None)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     expenses: Mapped[list["Expense"]] = relationship(
         "Expense", back_populates="category", lazy="raise"
     )
 
 
-class Expense(UUIDMixin, TimestampMixin, Base):
+class Expense(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     __tablename__ = "expenses"
 
     business_id: Mapped[uuid.UUID] = mapped_column(
@@ -45,7 +44,6 @@ class Expense(UUIDMixin, TimestampMixin, Base):
         ForeignKey("business_locations.id"), nullable=True
     )
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     category: Mapped["ExpenseCategory | None"] = relationship(
         "ExpenseCategory", back_populates="expenses", lazy="raise"

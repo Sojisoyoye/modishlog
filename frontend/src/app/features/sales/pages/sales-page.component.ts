@@ -21,6 +21,7 @@ import { ProductsService, Product, ProductVariant } from '../../../core/services
 import { InventoryService } from '../../../core/services/inventory.service';
 import { CustomerService, Customer } from '../../../core/services/customer.service';
 import { LocationsService, Location } from '../../../core/services/locations.service';
+import { formatMoney as formatMoneyUtil } from '../../../core/utils/money.utils';
 
 interface EntryRow {
   product_id: string;
@@ -1551,7 +1552,7 @@ export class SalesPageComponent implements OnInit {
   }
 
   formatMoney(amount: string | number): string {
-    return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(Number(amount));
+    return formatMoneyUtil(amount);
   }
 
   refreshRows(): void {

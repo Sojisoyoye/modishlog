@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import Boolean, Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.database import Base, TimestampMixin, UUIDMixin
+from src.core.database import Base, MigrationTaggedMixin, TimestampMixin, UUIDMixin
 
 
 class LocationType(str, enum.Enum):
@@ -15,7 +15,7 @@ class LocationType(str, enum.Enum):
     ONLINE = "online"
 
 
-class BusinessLocation(UUIDMixin, TimestampMixin, Base):
+class BusinessLocation(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     """A physical or virtual business location."""
 
     __tablename__ = "business_locations"
@@ -76,7 +76,6 @@ class BusinessLocation(UUIDMixin, TimestampMixin, Base):
     pos_location_id: Mapped[str | None] = mapped_column(
         String(50), nullable=True, default=None
     )
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<BusinessLocation(id={self.id}, name={self.name}, code={self.location_code})>"

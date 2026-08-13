@@ -6,11 +6,11 @@ from decimal import Decimal
 from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.database import Base, TimestampMixin, UUIDMixin
+from src.core.database import Base, MigrationTaggedMixin, TimestampMixin, UUIDMixin
 from src.suppliers.models import PayTermType
 
 
-class Customer(UUIDMixin, TimestampMixin, Base):
+class Customer(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     """A saved customer that can be associated with sales."""
 
     __tablename__ = "customers"
@@ -64,7 +64,6 @@ class Customer(UUIDMixin, TimestampMixin, Base):
     business_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("businesses.id"), nullable=False, index=True
     )
-    migration_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     def __repr__(self) -> str:
         return f"<Customer(id={self.id}, name={self.name})>"
