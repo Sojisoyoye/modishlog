@@ -21,25 +21,25 @@ jobs:
             echo ""
             echo "=== Products table row count and sample ==="
             docker exec modishlog-backend python3 -c "
-import asyncio, os, re
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy import text
+            import asyncio, os, re
+            from sqlalchemy.ext.asyncio import create_async_engine
+            from sqlalchemy import text
 
-db_url = os.environ.get('DATABASE_URL', '')
-ssl_required = 'sslmode=require' in db_url
-db_url = re.sub(r'[?&]sslmode=[^&]*', '', db_url).rstrip('?&')
-engine = create_async_engine(db_url, connect_args={'ssl': True} if ssl_required else {})
+            db_url = os.environ.get('DATABASE_URL', '')
+            ssl_required = 'sslmode=require' in db_url
+            db_url = re.sub(r'[?&]sslmode=[^&]*', '', db_url).rstrip('?&')
+            engine = create_async_engine(db_url, connect_args={'ssl': True} if ssl_required else {})
 
-async def main():
-    async with engine.begin() as conn:
-        count = await conn.execute(text('SELECT count(*) FROM products'))
-        print(f'Product count: {count.scalar()}')
-        rows = await conn.execute(text('SELECT id, name, sku, slug IS NULL as slug_null, business_id IS NULL as biz_null, category_id IS NULL as cat_null FROM products LIMIT 10'))
-        for r in rows.fetchall():
-            print(f'  {r}')
-        ver = await conn.execute(text('SELECT version_num FROM alembic_version'))
-        print(f'Alembic: {ver.scalar()}')
-    await engine.dispose()
+            async def main():
+                async with engine.begin() as conn:
+                    count = await conn.execute(text('SELECT count(*) FROM products'))
+                    print(f'Product count: {count.scalar()}')
+                    rows = await conn.execute(text('SELECT id, name, sku, slug IS NULL as slug_null, business_id IS NULL as biz_null, category_id IS NULL as cat_null FROM products LIMIT 10'))
+                    for r in rows.fetchall():
+                        print(f'  {r}')
+                    ver = await conn.execute(text('SELECT version_num FROM alembic_version'))
+                    print(f'Alembic: {ver.scalar()}')
+                await engine.dispose()
 
-asyncio.run(main())
-"
+            asyncio.run(main())
+            "
