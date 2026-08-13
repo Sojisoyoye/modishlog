@@ -175,29 +175,43 @@ class TestUpdateUserService:
             await update_user(db, admin.id, {"role": UserRole.SALES_MANAGER}, admin.id, business_id)
 
 
+def _assert_and_scoped_by_business_id(stmt, business_id: uuid.UUID) -> None:
+    """Assert the compiled statement's WHERE clause ANDs in a business_id
+    match (not just that the value appears somewhere) — a plain substring
+    check on the value would still pass a broken `OR business_id = ...`.
+    """
+    compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+    assert f"AND users.business_id = '{business_id.hex}'" in compiled.replace("-", ""), compiled
+
+
 class TestUserManagementBusinessIsolation:
     """Compiled-SQL checks proving get_user_by_id/update_user/deactivate_user/
     activate_user/admin_reset_user_password filter their lookup by business_id
     (S4, task 177) — an admin/owner from business A must not be able to reach
-    a business B user by guessing their UUID."""
+    a business B user by guessing their UUID.
+
+    Named with the literal 'cross_tenant' substring so the dedicated
+    "Cross-tenant isolation tests" CI gate (risk-checks.yml, `pytest -k
+    "cross_tenant or business_isolation or tenant_isolation"`) actually
+    collects and runs these — a CamelCase-only class/method name doesn't
+    contain that literal keyword and would otherwise be silently skipped.
+    """
 
     @pytest.mark.asyncio
-    async def test_get_user_by_id_query_filters_by_business_id(self):
+    async def test_get_user_by_id_prevents_cross_tenant_access(self):
         from src.auth.service import get_user_by_id
+        from src.auth.exceptions import UserNotFoundError
 
         business_id = uuid.uuid4()
         db = _mock_db_lookup(None)
-        from src.auth.exceptions import UserNotFoundError
 
         with pytest.raises(UserNotFoundError):
             await get_user_by_id(db, uuid.uuid4(), business_id)
 
-        stmt = db.execute.call_args[0][0]
-        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
-        assert business_id.hex in compiled.replace("-", "")
+        _assert_and_scoped_by_business_id(db.execute.call_args[0][0], business_id)
 
     @pytest.mark.asyncio
-    async def test_update_user_query_filters_by_business_id(self):
+    async def test_update_user_prevents_cross_tenant_access(self):
         from src.auth.service import update_user
         from src.auth.exceptions import UserNotFoundError
 
@@ -207,12 +221,10 @@ class TestUserManagementBusinessIsolation:
         with pytest.raises(UserNotFoundError):
             await update_user(db, uuid.uuid4(), {"full_name": "X"}, uuid.uuid4(), business_id)
 
-        stmt = db.execute.call_args[0][0]
-        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
-        assert business_id.hex in compiled.replace("-", "")
+        _assert_and_scoped_by_business_id(db.execute.call_args[0][0], business_id)
 
     @pytest.mark.asyncio
-    async def test_deactivate_user_query_filters_by_business_id(self):
+    async def test_deactivate_user_prevents_cross_tenant_access(self):
         from src.auth.service import deactivate_user
         from src.auth.exceptions import UserNotFoundError
 
@@ -222,12 +234,10 @@ class TestUserManagementBusinessIsolation:
         with pytest.raises(UserNotFoundError):
             await deactivate_user(db, uuid.uuid4(), uuid.uuid4(), business_id)
 
-        stmt = db.execute.call_args[0][0]
-        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
-        assert business_id.hex in compiled.replace("-", "")
+        _assert_and_scoped_by_business_id(db.execute.call_args[0][0], business_id)
 
     @pytest.mark.asyncio
-    async def test_activate_user_query_filters_by_business_id(self):
+    async def test_activate_user_prevents_cross_tenant_access(self):
         from src.auth.service import activate_user
         from src.auth.exceptions import UserNotFoundError
 
@@ -237,12 +247,10 @@ class TestUserManagementBusinessIsolation:
         with pytest.raises(UserNotFoundError):
             await activate_user(db, uuid.uuid4(), business_id)
 
-        stmt = db.execute.call_args[0][0]
-        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
-        assert business_id.hex in compiled.replace("-", "")
+        _assert_and_scoped_by_business_id(db.execute.call_args[0][0], business_id)
 
     @pytest.mark.asyncio
-    async def test_admin_reset_user_password_query_filters_by_business_id(self):
+    async def test_admin_reset_user_password_prevents_cross_tenant_access(self):
         from src.auth.service import admin_reset_user_password
         from src.auth.exceptions import UserNotFoundError
 
@@ -252,9 +260,7 @@ class TestUserManagementBusinessIsolation:
         with pytest.raises(UserNotFoundError):
             await admin_reset_user_password(db, uuid.uuid4(), business_id)
 
-        stmt = db.execute.call_args[0][0]
-        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
-        assert business_id.hex in compiled.replace("-", "")
+        _assert_and_scoped_by_business_id(db.execute.call_args[0][0], business_id)
 
 
 class TestDeactivateUserService:

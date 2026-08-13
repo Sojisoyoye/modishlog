@@ -1664,10 +1664,17 @@ class TestAdminUnlockEndpoint:
 class TestUnlockUserServiceBusinessIsolation:
     """unlock_user's lookup must filter by business_id (S4, task 177) — an
     admin/owner from business A must not be able to unlock a business B user
-    by guessing their email."""
+    by guessing their email.
+
+    Named with the literal 'cross_tenant' substring so the dedicated
+    "Cross-tenant isolation tests" CI gate (risk-checks.yml, `pytest -k
+    "cross_tenant or business_isolation or tenant_isolation"`) actually
+    collects and runs this — a CamelCase-only name doesn't contain that
+    literal keyword and would otherwise be silently skipped.
+    """
 
     @pytest.mark.asyncio
-    async def test_unlock_user_query_filters_by_business_id(self):
+    async def test_unlock_user_prevents_cross_tenant_access(self):
         from src.auth.exceptions import UserNotFoundError
         from src.auth.service import unlock_user
 
@@ -1678,9 +1685,8 @@ class TestUnlockUserServiceBusinessIsolation:
             await unlock_user(db, "someone@example.com", business_id)
 
         stmt = db.execute.call_args[0][0]
-        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
-        assert business_id.hex in compiled.replace("-", "")
-        assert "business_id" in compiled
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True})).replace("-", "")
+        assert f"AND users.business_id = '{business_id.hex}'" in compiled, compiled
 
     @pytest.mark.asyncio
     async def test_unlock_user_succeeds_when_business_id_matches(self):
