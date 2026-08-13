@@ -196,8 +196,9 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
           </div>
           <div class="space-y-4 px-6 py-5">
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Full Name</label>
+              <label for="invite-full-name" class="mb-1.5 block text-xs font-medium text-muted">Full Name</label>
               <input
+                id="invite-full-name"
                 type="text"
                 [(ngModel)]="inviteForm.full_name"
                 placeholder="Jane Smith"
@@ -205,8 +206,9 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
               />
             </div>
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Email</label>
+              <label for="invite-email" class="mb-1.5 block text-xs font-medium text-muted">Email</label>
               <input
+                id="invite-email"
                 type="email"
                 [(ngModel)]="inviteForm.email"
                 placeholder="jane@example.com"
@@ -214,8 +216,9 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
               />
             </div>
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Role</label>
+              <label for="invite-role" class="mb-1.5 block text-xs font-medium text-muted">Role</label>
               <select
+                id="invite-role"
                 [(ngModel)]="inviteForm.role"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[40px]"
               >
@@ -224,8 +227,9 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
               </select>
             </div>
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Temporary Password</label>
+              <label for="invite-password" class="mb-1.5 block text-xs font-medium text-muted">Temporary Password</label>
               <input
+                id="invite-password"
                 type="password"
                 [(ngModel)]="inviteForm.password"
                 placeholder="Min 12 chars, upper, lower, digit, special"
@@ -276,16 +280,18 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
           </div>
           <div class="space-y-4 px-6 py-5">
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Full Name</label>
+              <label for="edit-full-name" class="mb-1.5 block text-xs font-medium text-muted">Full Name</label>
               <input
+                id="edit-full-name"
                 type="text"
                 [(ngModel)]="editForm.full_name"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[40px]"
               />
             </div>
             <div>
-              <label class="mb-1.5 block text-xs font-medium text-muted">Role</label>
+              <label for="edit-role" class="mb-1.5 block text-xs font-medium text-muted">Role</label>
               <select
+                id="edit-role"
                 [(ngModel)]="editForm.role"
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 min-h-[40px]"
               >
