@@ -5008,10 +5008,11 @@
         "description": "ensure_inventory_level_exists() in inventory/service.py never tags the InventoryLevel row it backfills with migration_id, breaking data_import rollback for jobs that create a new product+variant and deliver stock to it in the same import.",
         "details": "Found via code review (PR #321 review, 2026-07-23). ensure_inventory_level_exists()'s only real caller is orders/service.py's transition_status(), invoked from data_import's load_purchase_orders() when a PO delivers to a brand-new variant created in the same import job. The InventoryLevel(product_id, variant_id) row it creates has migration_id=None since the function has no migration_id parameter. On rollback, loader.py's rollback() does `DELETE FROM inventory_levels WHERE migration_id = :job_id` (misses the untagged row), then deletes product_variants tagged with that migration_id — violating the FK from the surviving InventoryLevel.variant_id -> product_variants.id (no ondelete cascade), raising an unhandled IntegrityError that aborts the whole rollback transaction. The import can never be rolled back; the API request 500s instead of undoing the import.\n\nFix: thread migration_id through ensure_inventory_level_exists() (optional param, default None) from transition_status() -> load_purchase_orders(), so the backfilled row is correctly tagged when created during an import.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "high",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-08-13T10:17:26.389Z"
       },
       {
         "id": 174,
@@ -5019,10 +5020,11 @@
         "description": "os.makedirs()/app.mount() setup for serving uploaded files used to crash the app at startup on failure; now a PermissionError/RuntimeError is caught and discarded with no log line, so a misconfigured uploads volume ships a silently broken image-serving path.",
         "details": "Found via code review (PR #321 review, 2026-07-23). backend/src/main.py:~185. If settings.UPLOAD_DIR is root-owned or otherwise unwritable in a given deploy (a real Docker named-volume scenario), the setup raises PermissionError, which is now caught and discarded with no log line. The app reports healthy and starts normally, but the /static route was never mounted, so every request for a previously-uploaded product image 404s in production with no error surfaced anywhere. Before this change the same misconfiguration would fail the deploy immediately and visibly instead.\n\nFix: log the error (at minimum) when the static mount setup fails, rather than silently swallowing it — consider whether it should still fail loudly at startup given the previous behavior was intentional.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-08-13T10:17:51.943Z"
       },
       {
         "id": 175,
@@ -5082,15 +5084,15 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-07-12T12:45:42.226Z",
-      "taskCount": 172,
-      "completedCount": 172,
+      "lastModified": "2026-08-13T10:17:51.947Z",
+      "taskCount": 179,
+      "completedCount": 174,
       "tags": [
         "master"
       ],
       "created": "2026-07-23T16:07:30.039Z",
       "description": "Tasks for master context",
-      "updated": "2026-08-12T14:50:00.000Z"
+      "updated": "2026-08-13T10:17:51.947Z"
     }
   }
 }

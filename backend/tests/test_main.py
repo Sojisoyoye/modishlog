@@ -1,7 +1,51 @@
 """Tests for application-level behaviour in src/main.py."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
+
+
+class TestStaticFileMount:
+    """The uploads-directory static mount is wrapped in a try/except that
+    tolerates a Docker named volume being root-owned on first run (CI
+    without volume init) — but a real misconfigured production uploads
+    volume must not fail silently with zero diagnostic trail (task 174)."""
+
+    def test_mount_failure_is_logged_not_swallowed(self):
+        from src.main import _mount_static_files
+
+        fake_app = MagicMock()
+
+        with patch("src.main.os.makedirs", side_effect=PermissionError("denied")), \
+             patch("src.main.logger") as mock_logger:
+            _mount_static_files(fake_app)
+
+        mock_logger.error.assert_called_once()
+        fake_app.mount.assert_not_called()
+
+    def test_runtime_error_is_also_logged(self):
+        from src.main import _mount_static_files
+
+        fake_app = MagicMock()
+
+        with patch("src.main.os.makedirs", side_effect=RuntimeError("boom")), \
+             patch("src.main.logger") as mock_logger:
+            _mount_static_files(fake_app)
+
+        mock_logger.error.assert_called_once()
+
+    def test_mount_succeeds_when_directory_is_writable(self):
+        from src.main import _mount_static_files
+
+        fake_app = MagicMock()
+
+        with patch("src.main.os.makedirs"), \
+             patch("src.main.logger") as mock_logger:
+            _mount_static_files(fake_app)
+
+        fake_app.mount.assert_called_once()
+        mock_logger.error.assert_not_called()
 
 
 class TestUnhandledExceptionHandler:
