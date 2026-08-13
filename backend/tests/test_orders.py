@@ -3220,6 +3220,26 @@ class TestOrdersOwnershipChecks:
         assert resp.status_code == 422
         assert "fx_rate_at_delivery" in resp.json()["detail"]
 
+    def test_deliver_with_zero_fx_rate_returns_422(self):
+        """fx_rate_at_delivery=0 must be rejected too — a submitted 0 would
+        pass the service layer's `is None` presence check but still be
+        falsy in the `fx_rate_at_delivery or fx_rate_at_creation or
+        Decimal("1500")` fallback, silently reintroducing the exact
+        degradation task 181 exists to prevent."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        order = _make_order(created_by=owner.id, status=OrderStatus.CLEARED)
+        db = _mock_db_with_execute(scalar_result=order)
+        self._override_db(db)
+        self._override_auth_as(owner)
+
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.put(
+                f"/api/v1/orders/{order.id}/status",
+                json={"new_status": "DELIVERED", "fx_rate_at_delivery": 0},
+            )
+        assert resp.status_code == 422
+
     def test_user_cannot_record_payment_on_other_users_order(self):
         """Non-admin cannot POST /{id}/payments on an order they don't own."""
         from src.auth.models import UserRole
