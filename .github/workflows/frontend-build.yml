@@ -1,7 +1,7 @@
 name: frontend-build
 on:
   pull_request:
-    paths: ['frontend/**']
+    paths: ['frontend/**', '.github/workflows/frontend-build.yml']
 
 jobs:
   build:
@@ -16,10 +16,19 @@ jobs:
       - run: npx ng build --configuration production
         working-directory: frontend
 
-  gate:
-    name: gate
+  # 4-way sharded E2E run. workers:1 stays pinned in playwright.config.ts (test
+  # files share one Postgres DB/business and would race within a single run),
+  # but each shard gets its own fully isolated CI runner + its own
+  # backend/db_test/redis stack, so shards never contend with each other.
+  # ~4x wall-clock speedup over one 20-30min serial run (task #178).
+  e2e-shard:
+    name: e2e-shard
     needs: [build]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
 
@@ -103,7 +112,7 @@ jobs:
           exit 1
 
       - name: Run Playwright E2E tests
-        run: npx playwright test --project=chromium --reporter=list,html
+        run: npx playwright test --project=chromium --reporter=list,html --shard=${{ matrix.shard }}/4
         working-directory: frontend
         env:
           CI: 'true'
@@ -112,6 +121,23 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: frontend/playwright-report/
           retention-days: 7
+
+  # Fan-in: build AND every shard must pass. Branch protection should require
+  # this job ("frontend-build / gate") rather than the individual shard jobs
+  # (matches the dependency-scan+test fan-in pattern in backend-tests.yml).
+  gate:
+    name: gate
+    needs: [build, e2e-shard]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: All checks passed
+        run: |
+          if [[ "${{ needs.build.result }}" != "success" || \
+                "${{ needs.e2e-shard.result }}" != "success" ]]; then
+            echo "❌ build=${{ needs.build.result }} e2e-shard=${{ needs.e2e-shard.result }}"
+            exit 1
+          fi
