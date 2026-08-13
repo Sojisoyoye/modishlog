@@ -90,8 +90,9 @@ test.describe('Golden path — full MVP business cycle', () => {
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByText('CLEARED').first()).toBeVisible();
 
-    // --- CLEARED → DELIVERED (requires FX rate) ---
-    await page.getByPlaceholder('e.g. 1600').fill('1600');
+    // --- CLEARED → DELIVERED ---
+    // NGN orders are locally-sourced — nothing to convert, so no FX rate
+    // input renders and none is required (task 181/182 follow-up).
     await page.getByRole('button', { name: 'DELIVERED' }).click();
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByText('DELIVERED').first()).toBeVisible();

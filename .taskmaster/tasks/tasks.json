@@ -5109,7 +5109,7 @@
         "description": "COGS/landed cost is correctly computed from fx_rate_at_delivery (or fx_rate_at_creation as fallback) — a transaction-date snapshot, per standard inventory accounting (IAS 21/ASC 830: inventory is a non-monetary asset valued at the historical rate; payment-date FX differences are a realized gain/loss, not a cost-of-goods adjustment). Confirmed correct by design 2026-08-12 when the user asked whether payment-time FX rates should be averaged into COGS instead — they should not. But there is currently no reporting or UI surface showing the *difference* between that booked rate and what was actually paid, so a business has no visibility into FX gain/loss exposure on an order.",
         "details": "Proposed 2026-08-12 alongside task 181 as the two follow-ups from the same FX-rate-methodology discussion (PO-2026-00004 dogfood session). Purely additive/informational — must NOT feed back into InventoryBatch.landed_cost_per_unit or Sale.fifo_cogs, which should stay locked to the transaction-date rate per task 181's reasoning.\n\nSuggested shape: a computed (not stored) 'fx_variance' figure per order — booked rate (fx_rate_at_delivery/fx_rate_at_creation) vs. the payment-amount-weighted average of that order's OrderPayment.fx_rate values — surfaced either as a field on the order detail page (next to FX Rate (creation)) or as a line in an existing report (e.g. logistics-efficiency or a new FX exposure report). Needs product-side decision on where this is most useful before implementing.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": []
