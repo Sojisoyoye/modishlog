@@ -240,6 +240,213 @@ class TestElasticityCRUD:
         )
         assert result.elasticity_coefficient == Decimal("-2.0")
 
+    @pytest.mark.asyncio
+    async def test_update_elasticity_creates_new_with_fx_sensitivity(self):
+        """Task 186 — update_elasticity_config() accepts and persists an
+        optional fx_sensitivity_coefficient alongside elasticity."""
+        from src.pricing.service import update_elasticity_config
+
+        db = _mock_db_with_execute(scalar_result=None)
+        result = await update_elasticity_config(
+            db, uuid.uuid4(), Decimal("-0.5"), fx_sensitivity_coefficient=Decimal("0.8")
+        )
+        assert result.elasticity_coefficient == Decimal("-0.5")
+        assert result.fx_sensitivity_coefficient == Decimal("0.8")
+        assert db.add.called
+
+    @pytest.mark.asyncio
+    async def test_update_elasticity_updates_existing_fx_sensitivity(self):
+        from src.pricing.service import update_elasticity_config
+
+        e = _make_elasticity(fx_sensitivity_coefficient=Decimal("0.2"))
+        db = _mock_db_with_execute(scalar_result=e)
+        result = await update_elasticity_config(
+            db, e.product_id, Decimal("-2.0"), fx_sensitivity_coefficient=Decimal("1.5")
+        )
+        assert result.fx_sensitivity_coefficient == Decimal("1.5")
+
+    @pytest.mark.asyncio
+    async def test_update_elasticity_omitting_fx_sensitivity_leaves_it_unset(self):
+        """Task 186 — fx_sensitivity_coefficient is optional; omitting it on
+        an update must not clobber a previously-saved value with None."""
+        from src.pricing.service import update_elasticity_config
+
+        e = _make_elasticity(fx_sensitivity_coefficient=Decimal("0.2"))
+        db = _mock_db_with_execute(scalar_result=e)
+        result = await update_elasticity_config(db, e.product_id, Decimal("-2.0"))
+        assert result.fx_sensitivity_coefficient == Decimal("0.2")
+
+
+# ---------------------------------------------------------------------------
+# Elasticity/FX-sensitivity category-default resolution (task 186)
+# ---------------------------------------------------------------------------
+
+
+class TestElasticityCategoryDefaults:
+    def _make_product_with_category(
+        self,
+        elasticity_default=None,
+        fx_sensitivity_default=None,
+        parent_elasticity_default=None,
+        parent_fx_sensitivity_default=None,
+        has_category=True,
+    ):
+        product = _make_product()
+        if not has_category:
+            product.category = None
+            return product
+
+        parent = None
+        if parent_elasticity_default is not None or parent_fx_sensitivity_default is not None:
+            parent = ProductCategory(name="Parent Cat", business_id=uuid.uuid4())
+            parent.id = uuid.uuid4()
+            parent.parent = None
+            parent.parent_id = None
+            parent.default_elasticity_coefficient = (
+                Decimal(parent_elasticity_default)
+                if parent_elasticity_default is not None
+                else None
+            )
+            parent.default_fx_sensitivity_coefficient = (
+                Decimal(parent_fx_sensitivity_default)
+                if parent_fx_sensitivity_default is not None
+                else None
+            )
+
+        category = ProductCategory(name="Cat", business_id=uuid.uuid4())
+        category.id = uuid.uuid4()
+        category.default_elasticity_coefficient = (
+            Decimal(elasticity_default) if elasticity_default is not None else None
+        )
+        category.default_fx_sensitivity_coefficient = (
+            Decimal(fx_sensitivity_default) if fx_sensitivity_default is not None else None
+        )
+        category.parent = parent
+        category.parent_id = parent.id if parent else None
+        product.category = category
+        product.category_id = category.id
+        return product
+
+    def test_resolve_elasticity_uses_own_value_when_set(self):
+        from src.pricing.service import _resolve_elasticity_coefficient
+
+        product = self._make_product_with_category(elasticity_default="-0.9")
+        assert _resolve_elasticity_coefficient(
+            product, Decimal("-1.5")
+        ) == Decimal("-1.5")
+
+    def test_resolve_elasticity_falls_back_to_category_default(self):
+        from src.pricing.service import _resolve_elasticity_coefficient
+
+        product = self._make_product_with_category(elasticity_default="-0.9")
+        assert _resolve_elasticity_coefficient(product, None) == Decimal("-0.9")
+
+    def test_resolve_elasticity_falls_back_to_parent_category_default(self):
+        from src.pricing.service import _resolve_elasticity_coefficient
+
+        product = self._make_product_with_category(
+            elasticity_default=None, parent_elasticity_default="-0.7"
+        )
+        assert _resolve_elasticity_coefficient(product, None) == Decimal("-0.7")
+
+    def test_resolve_elasticity_falls_back_to_system_default(self):
+        from src.pricing.service import _resolve_elasticity_coefficient, DEFAULT_ELASTICITY
+
+        product = self._make_product_with_category(has_category=False)
+        assert _resolve_elasticity_coefficient(product, None) == DEFAULT_ELASTICITY
+
+    def test_resolve_fx_sensitivity_uses_own_value_when_set(self):
+        from src.pricing.service import _resolve_fx_sensitivity_coefficient
+
+        product = self._make_product_with_category(fx_sensitivity_default="0.3")
+        assert _resolve_fx_sensitivity_coefficient(
+            product, Decimal("1.2")
+        ) == Decimal("1.2")
+
+    def test_resolve_fx_sensitivity_falls_back_to_category_default(self):
+        from src.pricing.service import _resolve_fx_sensitivity_coefficient
+
+        product = self._make_product_with_category(fx_sensitivity_default="0.3")
+        assert _resolve_fx_sensitivity_coefficient(product, None) == Decimal("0.3")
+
+    def test_resolve_fx_sensitivity_falls_back_to_parent_category_default(self):
+        from src.pricing.service import _resolve_fx_sensitivity_coefficient
+
+        product = self._make_product_with_category(
+            fx_sensitivity_default=None, parent_fx_sensitivity_default="0.6"
+        )
+        assert _resolve_fx_sensitivity_coefficient(product, None) == Decimal("0.6")
+
+    def test_resolve_fx_sensitivity_falls_back_to_system_default(self):
+        from src.pricing.service import (
+            _resolve_fx_sensitivity_coefficient,
+            DEFAULT_FX_SENSITIVITY,
+        )
+
+        product = self._make_product_with_category(has_category=False)
+        assert (
+            _resolve_fx_sensitivity_coefficient(product, None) == DEFAULT_FX_SENSITIVITY
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_elasticity_coefficient_applies_category_default(self):
+        """Task 186 — _get_elasticity_coefficient() must resolve through
+        the category fallback chain, not just the flat system default."""
+        from src.pricing.service import _get_elasticity_coefficient
+
+        product = self._make_product_with_category(elasticity_default="-0.6")
+        db = _mock_db_with_execute(scalar_result=None)  # no DemandElasticity row
+        result = await _get_elasticity_coefficient(db, product)
+        assert result == Decimal("-0.6")
+
+    @pytest.mark.asyncio
+    async def test_get_resolved_elasticity_config_no_row_uses_category_defaults(self):
+        """Task 186 (ST-802 criterion 3) — the config-UI endpoint must
+        pre-populate both coefficients from category defaults when no
+        product-level override has been saved yet."""
+        from src.pricing.service import get_resolved_elasticity_config
+
+        product = self._make_product_with_category(
+            elasticity_default="-0.6", fx_sensitivity_default="0.4"
+        )
+        db = _mock_db()
+        product_result = MagicMock()
+        product_result.scalar_one_or_none.return_value = product
+        elasticity_result = MagicMock()
+        elasticity_result.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(side_effect=[product_result, elasticity_result])
+
+        result = await get_resolved_elasticity_config(db, product.id)
+        assert result["elasticity_coefficient"] == Decimal("-0.6")
+        assert result["elasticity_is_custom"] is False
+        assert result["fx_sensitivity_coefficient"] == Decimal("0.4")
+        assert result["fx_sensitivity_is_custom"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_resolved_elasticity_config_with_row_marks_custom(self):
+        from src.pricing.service import get_resolved_elasticity_config
+
+        product = self._make_product_with_category(
+            elasticity_default="-0.6", fx_sensitivity_default="0.4"
+        )
+        elasticity = _make_elasticity(
+            product_id=product.id,
+            elasticity_coefficient=Decimal("-3.0000"),
+            fx_sensitivity_coefficient=Decimal("2.0000"),
+        )
+        db = _mock_db()
+        product_result = MagicMock()
+        product_result.scalar_one_or_none.return_value = product
+        elasticity_result = MagicMock()
+        elasticity_result.scalar_one_or_none.return_value = elasticity
+        db.execute = AsyncMock(side_effect=[product_result, elasticity_result])
+
+        result = await get_resolved_elasticity_config(db, product.id)
+        assert result["elasticity_coefficient"] == Decimal("-3.0000")
+        assert result["elasticity_is_custom"] is True
+        assert result["fx_sensitivity_coefficient"] == Decimal("2.0000")
+        assert result["fx_sensitivity_is_custom"] is True
+
 
 # ---------------------------------------------------------------------------
 # SciPy Optimizer
@@ -302,6 +509,65 @@ class TestRecommendations:
         db = _mock_db_with_execute(scalars_result=[])
         result = await get_recommendations(db, business_id=uuid.uuid4())
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_generate_recommendations_resolves_elasticity_via_real_product(self):
+        """Regression (task 186) — _get_elasticity_coefficient() now takes a
+        Product (not a product_id) so it can resolve category-default
+        fallbacks. generate_recommendations() must fetch the product before
+        calling it at BOTH call sites (opt_inputs prep and the
+        recommendation-reasoning loop) — passing a bare product_id would
+        AttributeError inside _resolve_elasticity_coefficient(). This test
+        does NOT mock _get_elasticity_coefficient, so it fails loudly if
+        either call site regresses."""
+        from src.pricing.service import generate_recommendations
+
+        product = _make_product(
+            unit_cost=Decimal("1000.000000"), selling_price=Decimal("1200.000000")
+        )
+        product.category = None
+        mock_portfolio = {
+            "blended_margin": Decimal("16.7"),
+            "products": [
+                {
+                    "product_id": product.id,
+                    "product_name": product.name,
+                    "unit_cost": Decimal("1000"),
+                    "selling_price": Decimal("1200"),
+                    "margin_pct": 16.7,
+                    "quantity_30d": 300,
+                }
+            ],
+        }
+
+        db = _mock_db()
+        product_result = MagicMock()
+        product_result.scalar_one_or_none.return_value = product
+        no_elasticity_row = MagicMock()
+        no_elasticity_row.scalar_one_or_none.return_value = None
+        # 2 calls per product: _get_product then _get_elasticity_coefficient,
+        # repeated once in opt_inputs prep and once in the reasoning loop.
+        db.execute = AsyncMock(
+            side_effect=[
+                product_result,
+                no_elasticity_row,
+                product_result,
+                no_elasticity_row,
+            ]
+        )
+
+        with patch(
+            "src.pricing.service.calculate_portfolio_margin",
+            new_callable=AsyncMock,
+            return_value=mock_portfolio,
+        ):
+            result = await generate_recommendations(
+                db, business_id=uuid.uuid4(), target_margin=Decimal("35")
+            )
+
+        assert len(result) == 1
+        # Default elasticity (-1.0, no category) must appear in the reasoning.
+        assert "elasticity: -1.00" in result[0].reasoning
 
     @pytest.mark.asyncio
     async def test_apply_recommendation_not_found(self):
@@ -725,6 +991,51 @@ class TestPricingEndpoints:
                 json={"elasticity_coefficient": "-0.5"},
             )
         assert resp.status_code == 401
+
+    def test_configure_elasticity_passes_fx_sensitivity_through(self):
+        """Task 186 — the request body's fx_sensitivity_coefficient must
+        reach update_elasticity_config(), not just elasticity_coefficient."""
+        e = _make_elasticity()
+        self._override_auth()
+        db = _mock_db_with_execute(scalar_result=e)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                f"/api/v1/pricing/configure-elasticity/{e.product_id}",
+                json={"elasticity_coefficient": "-0.5", "fx_sensitivity_coefficient": "1.2"},
+            )
+        assert resp.status_code == 200
+        assert Decimal(resp.json()["fx_sensitivity_coefficient"]) == Decimal("1.2")
+
+    def test_elasticity_config_not_found_returns_404(self):
+        self._override_auth()
+        db = _mock_db_with_execute(scalar_result=None)
+        self._override_db(db)
+        fake_id = str(uuid.uuid4())
+        with TestClient(self.app) as client:
+            resp = client.get(f"/api/v1/pricing/elasticity-config/{fake_id}")
+        assert resp.status_code == 404
+
+    def test_elasticity_config_returns_resolved_defaults(self):
+        """Task 186 (ST-802 criterion 3) — unlike GET /elasticity/{id},
+        GET /elasticity-config/{id} never 404s for a product with no saved
+        override; it returns the resolved (category/system-default) value."""
+        product = _make_product()
+        product.category = None
+        self._override_auth()
+        db = _mock_db()
+        product_result = MagicMock()
+        product_result.scalar_one_or_none.return_value = product
+        elasticity_result = MagicMock()
+        elasticity_result.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(side_effect=[product_result, elasticity_result])
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get(f"/api/v1/pricing/elasticity-config/{product.id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert Decimal(body["elasticity_coefficient"]) == Decimal("-1.0000")
+        assert body["elasticity_is_custom"] is False
 
     def test_suggest_endpoint_passes_variant_id_through(self):
         """The /suggest/{product_id} endpoint must forward a request's

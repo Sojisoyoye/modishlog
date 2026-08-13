@@ -24,6 +24,7 @@ from src.pricing.exceptions import (
 from src.pricing.schemas import (
     CrossSubsidyRead,
     DemandForecastResponse,
+    ElasticityConfigRead,
     ElasticityConfigUpdate,
     ElasticityRead,
     GenerateRecommendationsRequest,
@@ -58,6 +59,7 @@ from src.pricing.service import (
     get_margin_targets,
     get_mix_status,
     get_recommendations,
+    get_resolved_elasticity_config,
     get_selling_price_suggestion,
     get_suggestion_history,
     list_scenarios,
@@ -68,6 +70,7 @@ from src.pricing.service import (
     update_elasticity_config,
     upsert_mix_targets,
 )
+from src.products.exceptions import ProductNotFoundError
 
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
 
@@ -201,6 +204,23 @@ async def get_elasticity_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
+@router.get(
+    "/elasticity-config/{product_id}",
+    response_model=ElasticityConfigRead,
+)
+async def get_elasticity_config_endpoint(
+    product_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get resolved elasticity/FX-sensitivity coefficients for the config
+    UI -- always populated via category-default fallback, never 404s
+    (task 186, ST-802 criterion 3)."""
+    try:
+        return await get_resolved_elasticity_config(db, product_id)
+    except ProductNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
 @router.post(
     "/configure-elasticity/{product_id}",
     response_model=ElasticityRead,
@@ -211,8 +231,13 @@ async def configure_elasticity_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Update elasticity coefficient for a product."""
-    return await update_elasticity_config(db, product_id, body.elasticity_coefficient)
+    """Update elasticity (+ optional FX sensitivity) coefficient for a product."""
+    return await update_elasticity_config(
+        db,
+        product_id,
+        body.elasticity_coefficient,
+        fx_sensitivity_coefficient=body.fx_sensitivity_coefficient,
+    )
 
 
 @router.get("/elasticity-impact/{product_id}")

@@ -40,6 +40,11 @@ class DemandElasticity(UUIDMixin, Base):
         ForeignKey("products.id"), unique=True
     )
     elasticity_coefficient: Mapped[Decimal] = mapped_column(Numeric(8, 4))
+    # NULL until the user explicitly configures it — resolved via category
+    # default -> parent-category default -> system default (task 186).
+    fx_sensitivity_coefficient: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 4), nullable=True, default=None
+    )
     r_squared: Mapped[Decimal] = mapped_column(Numeric(5, 4))
     data_points_used: Mapped[int] = mapped_column(Integer)
     calculation_date: Mapped[date] = mapped_column(Date)

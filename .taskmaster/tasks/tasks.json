@@ -5155,10 +5155,11 @@
         "description": "PRD compliance audit (2026-08-13) of the Pricing & Margins page against PRD section 6.8 ST-802 (Demand elasticity configuration) found all 4 acceptance criteria not fully met. Each product must have configurable price elasticity AND FX sensitivity coefficients, with tooltips explaining them, category-based defaults, and changes propagating live to any already-displayed forecasts/recommendations.",
         "details": "Three gaps found, all scoped to backend/src/pricing/ and frontend/src/app/features/pricing/pages/pricing-page.component.ts:\n\n1. FX sensitivity coefficient is not implemented anywhere. Grepped backend/src/pricing/ and backend/src/products/ for fx_sensitivity — zero hits. PRD ST-802 requires each product to have BOTH a price elasticity coefficient AND an FX sensitivity coefficient; only elasticity exists (DemandElasticity model, backend/src/pricing/models.py:34-52).\n\n2. No tooltips explaining the elasticity/FX-sensitivity parameters with worked examples. PRD example wording: \"An elasticity of -1.2 means a 10% price increase reduces demand by 12%\". Currently only a placeholder hint \"e.g. -1.5\" on the input (pricing-page.component.ts, elasticity config UI around line 1208-1251) — no tooltip component or explanatory text anywhere in the file.\n\n3. No category-based elasticity defaults. DEFAULT_ELASTICITY is a single hardcoded global constant (-1.0, backend/src/pricing/service.py:49), used for every product regardless of category (service.py:192). The codebase already has this exact pattern working for margin targets — ProductCategory.default_margin_pct with category-then-parent-category fallback (service.py:1289-1302) — and should be extended the same way for elasticity, plus a similar fallback for the new FX sensitivity field once added.\n\nSuggested shape: add fx_sensitivity_coefficient to DemandElasticity (or a sibling column), add category-level default columns to ProductCategory mirroring default_margin_pct, thread the category fallback into the same lookup path get_elasticity_coefficient() (service.py ~line 180-192) uses, and add tooltip UI (PrimeNG has a Tooltip module) to both new and existing coefficient inputs.\n\n4. Coefficient changes don't propagate live to already-displayed forecasts/recommendations (ST-802 criterion 4). Verified in code: backend/src/pricing/service.py's _get_elasticity_coefficient() (line ~183-193) queries the DB fresh on every call, so the backend itself has no staleness problem — generate_recommendations() and the demand-forecast endpoint always use the current coefficient value on their next invocation. The gap is purely frontend: pricing-page.component.ts's updateElasticity() (line ~1690-1722) only updates the local elasticityEntries signal/table in its success handler — it never re-triggers or invalidates the Demand Forecast panel or Optimizer Recommendations section for that product, even if either is already open/rendered on screen. A user who edits a coefficient while a forecast/recommendation for that same product is visible sees stale numbers until they manually click Run Forecast / Generate again. Suggested fix: after updateElasticity()'s success handler, if the edited product_id matches the currently-selected demand-forecast product or appears in the currently-displayed optimizer recommendations, re-run those fetches automatically (or at minimum show a visible 'stale, re-run to update' indicator instead of silently leaving old numbers on screen).",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-08-13T20:20:41.527Z"
       },
       {
         "id": 187,
@@ -5166,11 +5167,11 @@
         "description": "Two live bugs on the Cashflow page found during a PRD audit (2026-08-13), both visible on any new/empty account. Urgent — user-facing and misleading.",
         "details": "1. 999 sentinel leaks to the UI as literal numbers instead of a friendly display.\n   - backend/src/cashflow/service.py:322 — _calculate_dscr() returns Decimal(\"999.000\") when loan_payment <= 0 (no debt configured — DSCR is undefined, not 999).\n   - backend/src/cashflow/service.py:389 and :476 — Cash Runway returns Decimal(\"999.0\") whenever the account is cash-flow-positive with no burn (runway is mathematically infinite, not 999).\n   - Frontend has zero special-casing: frontend/src/app/features/cashflow/pages/cashflow-page.component.ts:33 renders \"{{ runwayMonths() }} months\" and :43 renders the DSCR through a plain number pipe. Result: a new account with no loan obligations shows \"999.0 months\" and DSCR \"999.00\" verbatim.\n   - Fix: pick a sentinel the frontend can detect (e.g. null, or a documented constant) and render something friendly (\"No debt\" / \"∞\" / \"N/A\") instead of the raw number, for both Cash Runway and DSCR.\n\n2. Amber DSCR color makes the Risk Rating badge show \"UNKNOWN\" instead of \"MEDIUM\".\n   - backend/src/cashflow/service.py:512 (get_current_dscr) returns color=\"amber\" for the 1.0-1.49 DSCR band.\n   - frontend/src/app/core/services/cashflow.service.ts:211-216, colorToRiskRating() only matches 'green', 'yellow', 'red' — 'amber' falls through to the `return 'UNKNOWN'` default.\n   - Fix: change the frontend match to 'amber' (or have the backend and frontend agree on one color vocabulary — check other cashflow color usages for the same yellow/amber mismatch, e.g. dscrColor() in cashflow-page.component.ts, to make sure the fix is consistent everywhere DSCR color is interpreted).\n\nFound via a full PRD audit of the Cashflow page against PRD section 6.7 (ST-701/702/703) on 2026-08-13. See task for the broader (lower-priority) PRD gaps found in the same audit.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-08-13T19:36:39.081Z"
+        "updatedAt": "2026-08-13T20:20:10.175Z"
       },
       {
         "id": 188,
@@ -5193,19 +5194,30 @@
         "dependencies": [],
         "priority": "medium",
         "subtasks": []
+      },
+      {
+        "id": 190,
+        "title": "pricing.spec.ts: fix pre-existing E2E test debt (tab navigation, login, flaky margin test)",
+        "description": "Found and partially fixed while verifying task #186's E2E coverage. Several pre-existing bugs in frontend/e2e/pricing.spec.ts were blocking the whole serial suite from running at all via cascading skips — fixed the ones needed to get CI green for task #186; one remains.",
+        "details": "Fixed already (as part of task #186's PR, since they blocked verifying that PR's own new tests):\n1. The Pricing page was reorganized into tabs (Overview/Product Margins/Recommendations/\n   Cross-Subsidisation/Tools/Demand & Mix) at some point, but most of pricing.spec.ts's\n   tests never switched tabs before asserting on section content — added a\n   switchToTab() helper and applied it to every test that needed a non-default tab.\n2. The standalone 'demand forecast shows insufficient data...' test (outside the main\n   describe.configure({mode:'serial'}) block) never called loginViaAPI()/loginViaUI() at\n   all, so it silently redirected to /login and failed on the heading assertion.\n3. 'sensitivity calc scenario is saved...' used an over-anchored regex\n   `/^calculate$/i` for the Calculate button that never matched (the button's\n   accessible name has a leading space before \"Calculate\" from the icon+text\n   layout) — changed to the same `/calculate/i` pattern already used successfully\n   elsewhere in the file.\n\nSTILL BROKEN — needs its own investigation:\n'Blended Portfolio Margin card shows a numeric % value' (line ~59) consistently\nreturns 0.0% right after beforeAll seeds a delivered order + a sale for\n'E2E Pricing Product', even on a freshly-reset E2E DB. Confirmed via direct API\nprobing that GET /pricing/portfolio-margin correctly filters\nSale.status == COMPLETED (backend logic is correct, not a bug in\ncalculate_portfolio_margin) — the actual issue is almost certainly a timing race\ninside beforeAll itself: the sale POST returns success but something (transaction\ncommit visibility? a downstream async recompute?) isn't settled by the time the\nfirst test's page load queries the margin. This blocks the ENTIRE rest of the\nserial describe block via cascading skips whenever it fires, which is why it was\nnever caught before — earlier tests in the file were also broken (see above), so\nthis one was masked until those got fixed.\n\nNext step: add a short retry/poll (or an explicit wait on order+sale creation\ncompletion) in the test itself, or investigate whether calculate_portfolio_margin's\n30-day revenue query has a genuine consistency issue right after a sale is created\nin the same request cycle.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-13T19:36:39.084Z",
-      "taskCount": 188,
-      "completedCount": 185,
+      "lastModified": "2026-08-13T20:20:41.540Z",
+      "taskCount": 189,
+      "completedCount": 186,
       "tags": [
         "master"
       ],
-      "created": "2026-08-13T19:58:31.130Z",
+      "created": "2026-08-13T21:08:00.633Z",
       "description": "Tasks for master context",
-      "updated": "2026-08-13T19:58:31.150Z"
+      "updated": "2026-08-13T21:08:00.656Z"
     }
   }
 }

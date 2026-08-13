@@ -33,6 +33,15 @@ class ProductCategory(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     default_margin_pct: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(5, 4), nullable=True, default=None
     )
+    # Category-level fallbacks for DemandElasticity's per-product
+    # coefficients, resolved category -> parent-category -> system default
+    # (task 186, mirrors default_margin_pct's own fallback chain).
+    default_elasticity_coefficient: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(8, 4), nullable=True, default=None
+    )
+    default_fx_sensitivity_coefficient: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(8, 4), nullable=True, default=None
+    )
 
     products: Mapped[list["Product"]] = relationship(back_populates="category")
     parent: Mapped[Optional["ProductCategory"]] = relationship(
