@@ -5080,6 +5080,61 @@
         "dependencies": [],
         "priority": "medium",
         "subtasks": []
+      },
+      {
+        "id": 180,
+        "title": "Delivered-order edit form still shows non-cost fields as editable (silently no-op on save)",
+        "description": "order-detail-page saveEdit() now routes DELIVERED orders through the cost-corrections endpoint (unit_cost/fx_rate_at_creation/shipping_cost only), but the edit UI itself still lets users interact with supplier name, dates, notes, quantities, and line-item deletion while editing a DELIVERED order — none of those are sent to the new endpoint, so those edits silently do nothing on save with no error telling the user why.",
+        "details": "Found via code review, PR #335 (2026-08-12). Not a data-safety bug (nothing gets corrupted server-side — update_order() still rejects those fields entirely, and the new endpoint just does not send them), but a real UX trap: a user could believe they changed the supplier or removed a line item on a delivered order and only discover otherwise later.\n\nFix: when order.status === 'DELIVERED', disable/hide the non-cost fields in the edit form (supplier_name, expected_delivery_date, notes, quantity inputs, the line-item delete button, pay_term_number/type, supplier_invoice_number/date) and leave only unit_cost per line item + fx_rate_at_creation + shipping_cost editable, matching exactly what correct_delivered_order_costs() actually supports.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
+      },
+      {
+        "id": 181,
+        "title": "fx_rate_at_delivery is never required/defaulted — COGS silently falls back to the (less accurate) creation-time rate",
+        "description": "transition_status()'s DELIVERED handling computes FIFO landed cost from `transition.fx_rate_at_delivery or order.fx_rate_at_creation or Decimal(\"1500\")` (orders/service.py ~line 586-589). The UI exposes an FX Rate (delivery) field on the delivery transition, but nothing requires it to be filled in, so it's easy to click through delivery without setting it — PO-2026-00004 did exactly this (fx_rate_at_delivery is NULL in prod/local data) and its COGS was booked at the ₦1,400 creation-time rate instead of whatever the actual rate was on the 2026-07-03 arrival date.",
+        "details": "Found 2026-08-12 while explaining to the user which FX rate the cost breakdown actually uses (creation vs. delivery vs. payment-time rates — see conversation same day). Confirmed via `_sync_payment_status`-adjacent code read of orders/service.py's DELIVERED transition block and a direct DB check of PO-2026-00004 (fx_rate_at_creation=1400, fx_rate_at_delivery=NULL).\n\nNot urgent/high-risk — the fallback chain means nothing crashes and a rate always gets used — but it silently degrades costing accuracy whenever a user skips the field. Two options to consider (not yet decided):\n1. Make fx_rate_at_delivery required in the DELIVERED transition schema/UI (blocks transition until set) — most correct, but adds friction to a workflow that currently allows one-click delivery.\n2. Keep it optional but surface a visible warning/banner on the order once delivered without it (\"COGS was booked at the creation-time rate — no delivery rate was recorded\"), and let the existing correct_delivered_order_costs() endpoint (task 179) fix it after the fact.\nLean toward option 2 first (lower friction, non-blocking), with option 1 only if inaccurate COGS turns out to be a recurring problem in practice.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
+      },
+      {
+        "id": 182,
+        "title": "No visibility into FX variance between booked landed-cost rate and actual payment rates",
+        "description": "COGS/landed cost is correctly computed from fx_rate_at_delivery (or fx_rate_at_creation as fallback) — a transaction-date snapshot, per standard inventory accounting (IAS 21/ASC 830: inventory is a non-monetary asset valued at the historical rate; payment-date FX differences are a realized gain/loss, not a cost-of-goods adjustment). Confirmed correct by design 2026-08-12 when the user asked whether payment-time FX rates should be averaged into COGS instead — they should not. But there is currently no reporting or UI surface showing the *difference* between that booked rate and what was actually paid, so a business has no visibility into FX gain/loss exposure on an order.",
+        "details": "Proposed 2026-08-12 alongside task 181 as the two follow-ups from the same FX-rate-methodology discussion (PO-2026-00004 dogfood session). Purely additive/informational — must NOT feed back into InventoryBatch.landed_cost_per_unit or Sale.fifo_cogs, which should stay locked to the transaction-date rate per task 181's reasoning.\n\nSuggested shape: a computed (not stored) 'fx_variance' figure per order — booked rate (fx_rate_at_delivery/fx_rate_at_creation) vs. the payment-amount-weighted average of that order's OrderPayment.fx_rate values — surfaced either as a field on the order detail page (next to FX Rate (creation)) or as a line in an existing report (e.g. logistics-efficiency or a new FX exposure report). Needs product-side decision on where this is most useful before implementing.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
+      },
+      {
+        "id": 183,
+        "title": "compute_suggestion()'s lot/product queries don't filter by business_id — cross-tenant COGS/cost leak via product_id guessing",
+        "description": "POST /pricing/suggest/{product_id} (compute_suggestion() in pricing/service.py) never filtered its OrderLineItem/PurchaseOrder lot query or its Product lookup by business_id — any authenticated user of ANY business could get a price suggestion (which reveals another business's landed cost, FX rate used, and catalog price) for an arbitrary product_id belonging to a different business, just by guessing/enumerating UUIDs.",
+        "details": "Found 2026-08-12 while wiring MarginTarget (Settings-configured target margins) into compute_suggestion() and suggest_prices_for_order() — doing that required adding a business_id param to compute_suggestion() for the new MarginTarget lookup only. Deliberately did NOT extend that business_id filtering to the function's PRE-EXISTING lot query (OrderLineItem joined to PurchaseOrder, ~line 1286-1298) or Product lookup (~line 1325-1330), since that's an unrelated, separately-shipped endpoint and fixing it silently inside an unrelated PR risked changing behavior without dedicated review/testing.\n\nFix: add `PurchaseOrder.business_id == business_id` to the lot query's where_clauses and `Product.business_id == business_id` to the product lookup, using the business_id param that now already flows into compute_suggestion() from the router (compute_suggestion_endpoint now depends on get_current_business_id — this task is now trivial/low-risk since the plumbing already exists, it's just applying the filter and adding a regression test for cross-tenant isolation, matching the pattern used across every other domain's business_id isolation task).",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 184,
+        "title": "E2E gate: duplicate 'Add X' button strict-mode violations across list pages — RESOLVED",
+        "description": "Several list pages (customers, suppliers, locations, stock-count, recommendations, expenses) rendered an 'Add X' call-to-action with IDENTICAL accessible text twice — once in the toolbar, once inside the empty-state row — so Playwright's getByRole('button', { name: 'Add X' }) threw a strict-mode violation (2+ matching elements) whenever the seeded E2E test business had an empty list for that page. This was a large chunk of the E2E gate's chronic failures, distinct from task #178 (which is about serial-run speed/timeout flakiness, not correctness).",
+        "details": "Root-caused and fixed 2026-08-13 (PR #335) after the user asked for a permanent fix. Confirmed via live CI failure logs (84 failing tests in one run) that this was actually two separate pre-existing issues compounding: (1) this deterministic duplicate-button bug, (2) task #178's timeout flakiness deep into the ~28min serial run. Fixed (1) only, per user's explicit scoping decision, since (2) needs a bigger sharding effort already tracked separately.\n\nFix applied: gave each empty-state CTA distinct text instead of repeating the toolbar's exact label (matching products-page.component.ts's existing 'Add your first product' convention):\n- customers-page: 'Add Customer' -> 'Add your first customer'\n- suppliers-page: 'Add Supplier' -> 'Add your first supplier'\n- locations-page: 'Add Location' -> 'Add your first location'\n- stock-count-list-page: 'New Stock Count' -> 'Start your first count'\n- recommendations-page: 'Generate New' -> 'Generate Recommendations'\n- expenses.spec.ts: scoped the category-manager modal's 'Add' button locator to the dialog (Playwright's default name match is a case-insensitive substring, so it also matched the page's own 'Add Expense' button)\n- sales-page: added a disambiguating aria-label to the 'Add Sale' tab (visually unchanged) — a latent, not-yet-triggered collision with the real 'Add Sale' action button\n\nVerified live against the isolated e2e stack: all previously-failing tests in these 6 areas now pass. Remaining E2E failures after this fix are confirmed unrelated (a missing 'Deactivate' button in customers, a stock-count finalization flow issue, a locations duplicate-code toast timing issue, and task #178's flakiness) — filed separately if not already tracked.\n\nMarked done since the fix is verified and shipped; if the pattern recurs on a new page, the fix is the same: never let an empty-state CTA repeat the toolbar button's exact accessible name.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
       }
     ],
     "metadata": {

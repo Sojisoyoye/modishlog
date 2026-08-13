@@ -48,14 +48,18 @@ test('expenses page loads with table', async ({ page }) => {
 
 test('create expense category via modal', async ({ page }) => {
   await page.getByRole('button', { name: 'Manage Categories' }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
 
   const catName = `E2E Cat ${Date.now()}`;
-  await page.getByPlaceholder('Category name').fill(catName);
-  await page.getByRole('button', { name: 'Add' }).click();
+  await dialog.getByPlaceholder('Category name').fill(catName);
+  // Scoped to the dialog — the page's own "Add Expense" button also
+  // matches an unscoped getByRole('button', { name: 'Add' }) since
+  // Playwright's default name match is a case-insensitive substring.
+  await dialog.getByRole('button', { name: 'Add' }).click();
 
-  await expect(page.getByText(catName)).toBeVisible({ timeout: 8000 });
-  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog.getByText(catName)).toBeVisible({ timeout: 8000 });
+  await dialog.getByRole('button', { name: 'Close' }).click();
 });
 
 test('create expense and see in list', async ({ page }) => {

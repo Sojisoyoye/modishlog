@@ -4,7 +4,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.orders.models import DiscountType, PayTermType
 
@@ -216,6 +216,37 @@ class PaymentCreate(BaseModel):
     notes: str | None = None
 
 
+class PaymentUpdate(BaseModel):
+    """Partial update — only fields actually provided are changed. amount/
+    currency/fx_rate mean the same thing as on PaymentCreate: what was
+    actually paid, in what currency, at what rate. Omitted fields keep the
+    payment's current value (falling back to its original_amount/
+    original_currency when re-deriving the raw paid figure, not its
+    already-converted amount/currency)."""
+
+    amount: Decimal | None = Field(None, gt=0)
+    currency: str | None = None
+    fx_rate: Decimal | None = Field(None, gt=0)
+    payment_date: date | None = None
+    payment_method: str | None = Field(None, pattern="^(BANK_TRANSFER|LC|CASH)$")
+    reference: str | None = None
+    notes: str | None = None
+
+    @model_validator(mode="after")
+    def _amount_required_when_currency_changes(self) -> "PaymentUpdate":
+        # Without a fresh amount, update_payment() would re-derive the raw
+        # paid figure from the payment's *already-converted* amount/
+        # original_amount and re-interpret it as if denominated in the new
+        # currency — producing a nonsensical converted amount.
+        if self.currency is not None and self.amount is None:
+            raise ValueError(
+                "amount is required when changing currency — omitting it "
+                "would re-interpret the payment's existing amount as if it "
+                "were already in the new currency"
+            )
+        return self
+
+
 class PaymentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -246,7 +277,42 @@ class LineItemCostCorrection(BaseModel):
 
 
 class OrderCostCorrectionRequest(BaseModel):
-    corrections: list[LineItemCostCorrection] = Field(..., min_length=1)
+    corrections: list[LineItemCostCorrection] = Field(default_factory=list)
+    # Order-wide fields — transition_status()'s DELIVERED handling bakes
+    # these into every batch's fx_rate_at_arrival/logistics_allocation_per_unit
+    # at delivery time (see fx_rate fallback: fx_rate_at_delivery or
+    # fx_rate_at_creation), so correcting them post-delivery needs the same
+    # cascade as a line-item unit_cost correction.
+    fx_rate_at_creation: Decimal | None = Field(None, gt=0)
+    # The rate transition_status()'s DELIVERED handling actually prefers
+    # (fx_rate_at_delivery, falling back to fx_rate_at_creation) — was
+    # never set on some orders because the "FX Rate at Delivery" input
+    # only appears during the (now-past) DELIVERED transition itself, with
+    # no way to set/correct it afterward. Correctable here for that reason.
+    fx_rate_at_delivery: Decimal | None = Field(None, gt=0)
+    shipping_cost: Decimal | None = Field(None, ge=0)
+    clearing_cost: Decimal | None = Field(None, ge=0)
+    # A plain descriptive note (e.g. carrier/tracking info) — no COGS
+    # impact, so it's persisted directly without the batch/FIFO cascade
+    # the cost fields above trigger.
+    shipping_details: str | None = None
+
+    @model_validator(mode="after")
+    def _at_least_one_correction(self) -> "OrderCostCorrectionRequest":
+        if (
+            not self.corrections
+            and self.fx_rate_at_creation is None
+            and self.fx_rate_at_delivery is None
+            and self.shipping_cost is None
+            and self.clearing_cost is None
+            and self.shipping_details is None
+        ):
+            raise ValueError(
+                "At least one of corrections, fx_rate_at_creation, "
+                "fx_rate_at_delivery, shipping_cost, clearing_cost, or "
+                "shipping_details must be provided"
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------

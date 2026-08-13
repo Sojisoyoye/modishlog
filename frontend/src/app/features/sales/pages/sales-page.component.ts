@@ -108,6 +108,7 @@ interface TransactionMeta {
             <button
               type="button"
               data-testid="tab-record-sales"
+              aria-label="Add Sale tab"
               (click)="activeTab.set('record')"
               [attr.aria-selected]="activeTab() === 'record'"
               class="min-h-[44px] shrink-0 whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors"
