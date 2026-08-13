@@ -292,7 +292,7 @@ class OrderCostCorrectionRequest(BaseModel):
     fx_rate_at_delivery: Decimal | None = Field(None, gt=0)
     shipping_cost: Decimal | None = Field(None, ge=0)
     clearing_cost: Decimal | None = Field(None, ge=0)
-    # Plain descriptive text (e.g. a carrier/tracking note) — no COGS
+    # A plain descriptive note (e.g. carrier/tracking info) — no COGS
     # impact, so it's persisted directly without the batch/FIFO cascade
     # the cost fields above trigger.
     shipping_details: str | None = None
