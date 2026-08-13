@@ -85,7 +85,7 @@ import {
               (click)="openAddDialog()"
               class="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 min-h-[44px]"
             >
-              <i class="pi pi-plus text-sm"></i> Add Location
+              <i class="pi pi-plus text-sm"></i> Add your first location
             </button>
           </div>
         } @else {

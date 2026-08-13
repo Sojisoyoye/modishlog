@@ -150,6 +150,40 @@ export interface SellingPriceSuggestionResponse {
   fx_rate_source: string;
 }
 
+export interface OrderLineSuggestionItem {
+  line_item_id: string;
+  product_id: string;
+  product_name: string;
+  unit_cost_ngn: number;
+  current_price_ngn: number | null;
+  target_margin_pct: number;
+  suggested_price_ngn: number | null;
+}
+
+export interface OrderPriceSuggestionsResponse {
+  order_id: string;
+  fx_rate_used: number;
+  items: OrderLineSuggestionItem[];
+}
+
+export interface MarginTargetRead {
+  id: string;
+  product_id: string | null;
+  category_id: string | null;
+  target_margin_pct: number;
+  min_margin_pct: number;
+  priority: number;
+  set_by: string;
+}
+
+export interface MarginTargetCreate {
+  product_id?: string | null;
+  category_id?: string | null;
+  target_margin_pct: number;
+  min_margin_pct: number;
+  priority?: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class PricingService {
   private readonly api = inject(ApiService);
@@ -221,6 +255,24 @@ export class PricingService {
       '/pricing/selling-price-suggestion',
       body,
     );
+  }
+
+  getOrderPriceSuggestions(orderId: string): Observable<OrderPriceSuggestionsResponse> {
+    return this.api.get<OrderPriceSuggestionsResponse>(
+      `/pricing/order-suggestions/${orderId}`,
+    );
+  }
+
+  getMarginTargets(): Observable<MarginTargetRead[]> {
+    return this.api.get<MarginTargetRead[]>('/pricing/margins/target');
+  }
+
+  createMarginTarget(body: MarginTargetCreate): Observable<MarginTargetRead> {
+    return this.api.post<MarginTargetRead>('/pricing/margins/target', body);
+  }
+
+  deleteMarginTarget(id: string): Observable<void> {
+    return this.api.delete<void>(`/pricing/margins/target/${id}`);
   }
 
   getDemandForecast(
