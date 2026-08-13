@@ -1690,6 +1690,117 @@ class TestComputeSuggestionVariantScoping:
         return mock_execute
 
 
+class TestComputeSuggestionBusinessIsolation:
+    """compute_suggestion()'s lot/product queries must be business_id-scoped
+    (task 183) — otherwise any authenticated user of ANY business could get
+    a price suggestion (revealing another business's landed cost, FX rate,
+    and catalog price) for an arbitrary product_id belonging to a different
+    business, just by guessing/enumerating UUIDs. The MarginTarget lookup
+    was already scoped when business_id was added for that purpose; the
+    original lot/product queries were not."""
+
+    def _make_lot(self, product_id, units_remaining=10, unit_cost_ngn="14000"):
+        from src.orders.models import OrderLineItem
+        lot = MagicMock(spec=OrderLineItem)
+        lot.product_id = product_id
+        lot.units_remaining = Decimal(str(units_remaining))
+        lot.unit_cost = Decimal("10")
+        lot.unit_cost_ngn = Decimal(str(unit_cost_ngn))
+        return lot
+
+    @pytest.mark.asyncio
+    async def test_lot_and_product_queries_filter_by_business_id(self):
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        business_id = uuid.uuid4()
+        lot = self._make_lot(product_id)
+
+        captured = {}
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                captured["lot_stmt"] = stmt
+                result.all.return_value = [(lot, "USD")]
+            elif call_count == 2:
+                captured["product_stmt"] = stmt
+                p = Product(
+                    name="Widget", slug="widget", sku="SKU-1",
+                    selling_price=Decimal("20000"), business_id=business_id,
+                )
+                p.id = product_id
+                p.category_id = None
+                p.category = None
+                result.scalar_one_or_none.return_value = p
+            else:
+                result.scalars.return_value.all.return_value = []
+            return result
+
+        db = _mock_db()
+        db.execute = mock_execute
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            await compute_suggestion(
+                db, product_id, target_margin=Decimal("0.40"), business_id=business_id
+            )
+
+        lot_sql = str(captured["lot_stmt"].compile(compile_kwargs={"literal_binds": True}))
+        product_sql = str(captured["product_stmt"].compile(compile_kwargs={"literal_binds": True}))
+        needle = str(business_id).replace("-", "")
+        assert needle in lot_sql.replace("-", ""), "lot query must filter by business_id"
+        assert needle in product_sql.replace("-", ""), "product query must filter by business_id"
+
+    @pytest.mark.asyncio
+    async def test_no_business_id_does_not_filter(self):
+        """business_id=None (internal/legacy callers) must not add a filter
+        clause that would break them — preserves prior behaviour."""
+        from src.pricing.service import compute_suggestion
+
+        product_id = uuid.uuid4()
+        lot = self._make_lot(product_id)
+
+        captured = {}
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                captured["lot_stmt"] = stmt
+                result.all.return_value = [(lot, "USD")]
+            elif call_count == 2:
+                p = Product(
+                    name="Widget", slug="widget", sku="SKU-1",
+                    selling_price=Decimal("20000"), business_id=uuid.uuid4(),
+                )
+                p.id = product_id
+                p.category_id = None
+                p.category = None
+                result.scalar_one_or_none.return_value = p
+            else:
+                result.scalars.return_value.all.return_value = []
+            return result
+
+        db = _mock_db()
+        db.execute = mock_execute
+
+        with patch("src.pricing.service.get_live_usdngn_rate", new_callable=AsyncMock,
+                   return_value=(Decimal("1700"), datetime.now(timezone.utc), True)):
+            suggestion = await compute_suggestion(
+                db, product_id, target_margin=Decimal("0.40"), business_id=None
+            )
+
+        assert suggestion.product_id == product_id
+        lot_sql = str(captured["lot_stmt"].compile(compile_kwargs={"literal_binds": True})).lower()
+        assert "business_id" not in lot_sql
+
+
 class TestSuggestionHistoryVariantScoping:
     """get_suggestion_history() must not interleave a product's different
     variants' suggestions — otherwise browsing one variant's price/cost

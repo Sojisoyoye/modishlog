@@ -1413,6 +1413,8 @@ async def compute_suggestion(
         where_clauses.append(
             variant_or_untagged_filter(OrderLineItem.variant_id, variant_id)
         )
+    if business_id is not None:
+        where_clauses.append(PurchaseOrder.business_id == business_id)
     lot_result = await db.execute(
         select(OrderLineItem, PurchaseOrder.currency)
         .join(PurchaseOrder, OrderLineItem.order_id == PurchaseOrder.id)
@@ -1444,10 +1446,13 @@ async def compute_suggestion(
     avg_cost_ngn = (total_cost / total_units).quantize(Decimal("0.000001"))
 
     # Load product with category + parent for margin resolution and catalog price
+    product_where = [Product.id == product_id]
+    if business_id is not None:
+        product_where.append(Product.business_id == business_id)
     prod_result = await db.execute(
         select(Product)
         .options(selectinload(Product.category).selectinload(ProductCategory.parent))
-        .where(Product.id == product_id)
+        .where(*product_where)
     )
     product = prod_result.scalar_one_or_none()
 
