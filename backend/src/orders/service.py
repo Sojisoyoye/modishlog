@@ -556,8 +556,15 @@ async def transition_status(
     order_id: uuid.UUID,
     transition: StatusTransition,
     user_id: uuid.UUID,
+    migration_id: uuid.UUID | None = None,
 ) -> PurchaseOrder:
-    """Transition an order to a new status."""
+    """Transition an order to a new status.
+
+    migration_id (set only by data_import's load_purchase_orders(), never
+    the real-time orders router) is threaded through to
+    ensure_inventory_level_exists() so a variant-scoped InventoryLevel row
+    backfilled during an import's DELIVERED transition is tagged and
+    rollback-able — see that function's docstring (task 173)."""
     order = await get_order(db, order_id)
 
     new_status = OrderStatus(transition.new_status)
@@ -610,7 +617,7 @@ async def transition_status(
                 # never need this: initialize_inventory() already created
                 # the product's aggregate row at product-creation time.
                 await ensure_inventory_level_exists(
-                    db, item.product_id, item.variant_id
+                    db, item.product_id, item.variant_id, migration_id=migration_id
                 )
             await adjust_stock(
                 db,

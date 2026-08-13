@@ -2810,6 +2810,77 @@ class TestLotInventoryTracking:
                     "missing InventoryLevel row instead of raising"
                 )
 
+    @pytest.mark.asyncio
+    async def test_delivered_backfill_threads_migration_id_through(self):
+        """When a data-import job delivers a PO to a brand-new variant in
+        the same import, the InventoryLevel row transition_status()
+        backfills must carry that import's migration_id (task 173) — passed
+        through from load_purchase_orders() via transition_status()'s own
+        migration_id param, all the way to ensure_inventory_level_exists().
+        Untagged, loader.py's rollback() misses the row and later deleting
+        the variant it references raises an unhandled FK IntegrityError."""
+        from src.orders.service import transition_status
+        from src.orders.schemas import StatusTransition
+
+        product_id = uuid.uuid4()
+        variant_id = uuid.uuid4()
+        migration_id = uuid.uuid4()
+        item = _make_line_item(
+            product_id=product_id, variant_id=variant_id, quantity=50
+        )
+        order = _make_order(status=OrderStatus.CLEARED)
+        order.line_items = [item]
+
+        db = _mock_db()
+        db.add = MagicMock()
+        db.begin_nested = MagicMock(return_value=NestedTransaction())
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalar_one_or_none.return_value = None
+            elif call_count == 3:
+                result.scalar_one_or_none.return_value = None
+            else:
+                backfilled = InventoryLevel(
+                    product_id=product_id,
+                    variant_id=variant_id,
+                    quantity_on_hand=0,
+                    quantity_reserved=0,
+                    low_stock_threshold=10,
+                )
+                result.scalar_one_or_none.return_value = backfilled
+            result.scalars.return_value.all.return_value = []
+            result.scalar.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        with patch("src.orders.service.create_batch", new_callable=AsyncMock):
+            await transition_status(
+                db,
+                order.id,
+                StatusTransition(new_status="DELIVERED"),
+                uuid.uuid4(),
+                migration_id=migration_id,
+            )
+
+        # db.add() is called multiple times during this transition (the
+        # InventoryLevel backfill, then OrderStatusHistory) — find the
+        # InventoryLevel one specifically rather than assuming it's last.
+        added_inventory_levels = [
+            call.args[0]
+            for call in db.add.call_args_list
+            if isinstance(call.args[0], InventoryLevel)
+        ]
+        assert len(added_inventory_levels) == 1
+        assert added_inventory_levels[0].migration_id == migration_id
+
     def test_units_remaining_null_before_delivery(self):
         """units_remaining stays None for orders that have not reached DELIVERED."""
         item = _make_line_item(quantity=10)
