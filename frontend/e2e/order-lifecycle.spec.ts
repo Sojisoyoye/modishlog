@@ -97,12 +97,16 @@ test('CLEARED → DELIVERED: fill FX rate, advance status, assert badge and In S
 
   await expect(statusText(page, 'CLEARED')).toBeVisible();
 
-  // DELIVERED transition requires FX rate at delivery
+  // DELIVERED transition requires FX rate at delivery (task 181) — button
+  // must be disabled until the rate is filled in, not just documented.
   const fxInput = page.locator('input[placeholder="e.g. 1600"]');
   await expect(fxInput).toBeVisible();
+  const deliveredButton = page.getByRole('button', { name: 'DELIVERED' });
+  await expect(deliveredButton).toBeDisabled();
   await fxInput.fill('1580');
+  await expect(deliveredButton).toBeEnabled();
 
-  await page.getByRole('button', { name: 'DELIVERED' }).click();
+  await deliveredButton.click();
   await page.screenshot({ path: 'e2e-screenshots/lifecycle-05-delivered.png' });
 
   await expect(statusText(page, 'DELIVERED')).toBeVisible();

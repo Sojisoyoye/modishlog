@@ -186,7 +186,11 @@ class OrderListResponse(BaseModel):
 class StatusTransition(BaseModel):
     new_status: str
     actual_delivery_date: date | None = None
-    fx_rate_at_delivery: Decimal | None = None
+    # gt=0: a submitted 0 would pass transition_status()'s `is None` presence
+    # check but still be falsy in `fx_rate_at_delivery or fx_rate_at_creation
+    # or Decimal("1500")` — silently falling through to the same
+    # less-accurate rate this field exists to prevent (task 181).
+    fx_rate_at_delivery: Decimal | None = Field(None, gt=0)
     notes: str | None = None
 
 

@@ -311,7 +311,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
               <p class="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Move Status</p>
               @if (nextStatuses(order()!.status).includes('DELIVERED')) {
                 <div class="mb-3 max-w-xs">
-                  <label for="order-detail-delivery-fx-rate" class="mb-1 block text-xs font-medium text-muted">FX Rate at Delivery</label>
+                  <label for="order-detail-delivery-fx-rate" class="mb-1 block text-xs font-medium text-muted">FX Rate at Delivery <span class="text-danger">*</span></label>
                   <input
                     id="order-detail-delivery-fx-rate"
                     type="number"
@@ -321,13 +321,15 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                     placeholder="e.g. 1600"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary"
                   />
+                  <p class="mt-1 text-xs text-muted">Required to mark this order delivered — locks in FIFO landed cost at today's rate instead of the (less accurate) creation-time rate.</p>
                 </div>
               }
               <div class="flex flex-wrap gap-2">
                 @for (ns of nextStatuses(order()!.status); track ns) {
                   <button
                     (click)="transitionStatus(ns)"
-                    class="flex items-center gap-1.5 rounded-lg border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-600 transition-all hover:bg-emerald-600 hover:text-white min-h-[44px]"
+                    [disabled]="ns === 'DELIVERED' && !deliveryFxRate"
+                    class="flex items-center gap-1.5 rounded-lg border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-600 transition-all hover:bg-emerald-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-emerald-600 min-h-[44px]"
                   >
                     <i class="pi pi-arrow-right text-xs"></i> {{ ns }}
                   </button>

@@ -21,6 +21,7 @@ from src.inventory.exceptions import (
 from src.orders.exceptions import (
     InvalidStatusTransitionError,
     LineItemNotFoundError,
+    MissingDeliveryFxRateError,
     MissingFxRateError,
     OrderAlreadyConsumedError,
     OrderLineItemError,
@@ -503,6 +504,8 @@ async def transition_status_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except InvalidStatusTransitionError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except MissingDeliveryFxRateError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except (ProductStockNotFoundError, InvalidStockAdjustmentError) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
