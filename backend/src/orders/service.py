@@ -942,6 +942,44 @@ async def list_payments(
     return list(result.scalars().all())
 
 
+def compute_fx_variance(order: PurchaseOrder) -> Decimal | None:
+    """Purely informational (task 182) — booked landed-cost rate
+    (fx_rate_at_delivery, falling back to fx_rate_at_creation, matching the
+    same rate FIFO landed cost is computed from — task 181) vs. the
+    payment-amount-weighted average of what was actually paid. Never feeds
+    back into InventoryBatch.landed_cost_per_unit or Sale.fifo_cogs, which
+    must stay locked to the transaction-date rate (IAS 21/ASC 830: payment-
+    date FX differences are a realized gain/loss, not a cost-of-goods
+    adjustment) — this is visibility into that gain/loss exposure, nothing
+    more.
+
+    Requires order.payments to already be loaded (get_order() selectinloads
+    it). Returns None when there's no booked rate to compare against, or no
+    FX-converted payments recorded (a payment made in the order's own
+    currency has fx_rate=None — no conversion happened, nothing to compare).
+    """
+    booked_rate = order.fx_rate_at_delivery or order.fx_rate_at_creation
+    if booked_rate is None:
+        return None
+
+    rated_payments = [
+        p
+        for p in order.payments
+        if p.fx_rate is not None and p.status == PaymentStatus.COMPLETED
+    ]
+    if not rated_payments:
+        return None
+
+    total_amount = sum(p.amount for p in rated_payments)
+    if total_amount == 0:
+        return None
+
+    weighted_rate = (
+        sum(p.amount * p.fx_rate for p in rated_payments) / total_amount
+    )
+    return weighted_rate - booked_rate
+
+
 async def get_payment_summary(
     db: AsyncSession,
     order_id: uuid.UUID,

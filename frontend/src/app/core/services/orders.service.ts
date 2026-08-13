@@ -375,6 +375,12 @@ export interface PaymentSummary {
 
 export interface OrderDetail extends Order {
   payment_summary: PaymentSummary | null;
+  // Purely informational (task 182) — booked landed-cost rate vs. the
+  // payment-amount-weighted average of what was actually paid. Never feeds
+  // into InventoryBatch.landed_cost_per_unit or Sale.fifo_cogs. Optional:
+  // only the GET /{id} detail fetch computes it — mutation responses (update,
+  // status transition, cost correction, payments) don't carry a fresh value.
+  fx_variance?: number | null;
 }
 
 export interface LogisticsEfficiency {

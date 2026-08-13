@@ -147,3 +147,58 @@ test.describe('Price suggestion column', () => {
     await expect(suggestionCell).not.toHaveText('—');
   });
 });
+
+test.describe('FX Variance field', () => {
+  let ratedOrderId: string;
+  let unratedOrderId: string;
+
+  test.beforeAll(async () => {
+    await ensureTestUser();
+
+    // Order with a payment recorded in a different currency (fx_rate set on
+    // the payment) — compute_fx_variance() has something to compare against.
+    const ratedProduct = await ensureProduct('E2E FX Variance Rated Product');
+    const ratedOrder = await createOrder(ratedProduct.id, {
+      currency: 'USD',
+      quantity: 5,
+      unitCost: '20.00',
+      fxRateAtCreation: '1500',
+    });
+    ratedOrderId = ratedOrder.id;
+    await advanceOrderToStatus(ratedOrderId, 'DELIVERED', { fxRateAtDelivery: '1550' });
+    await recordPayment(ratedOrderId, { amount: '30000', currency: 'NGN', fxRate: '1600' });
+
+    // Order delivered but paid in its own currency — no rated payment, so
+    // compute_fx_variance() has nothing to compare and returns null.
+    const unratedProduct = await ensureProduct('E2E FX Variance Unrated Product');
+    const unratedOrder = await createOrder(unratedProduct.id, { currency: 'NGN', quantity: 3, unitCost: '2000.00' });
+    unratedOrderId = unratedOrder.id;
+    await advanceOrderToStatus(unratedOrderId, 'DELIVERED', { fxRateAtDelivery: '1500' });
+    await recordPayment(unratedOrderId, { amount: '5000', currency: 'NGN' });
+  });
+
+  test.afterAll(async () => {
+    if (ratedOrderId) await deleteOrder(ratedOrderId).catch((e: Error) => {
+      if (!/4\d\d/.test(e.message)) throw e;
+    });
+    if (unratedOrderId) await deleteOrder(unratedOrderId).catch((e: Error) => {
+      if (!/4\d\d/.test(e.message)) throw e;
+    });
+  });
+
+  test('shows a computed FX Variance figure when a payment has a differing FX rate', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto(`/orders/${ratedOrderId}`);
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByText('FX Variance', { exact: true })).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('does not show FX Variance when no payment has a differing FX rate', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto(`/orders/${unratedOrderId}`);
+    await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByText('FX Variance', { exact: true })).not.toBeVisible();
+  });
+});

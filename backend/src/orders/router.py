@@ -60,6 +60,7 @@ from src.orders.service import (
     build_import_template_csv,
     build_products_template_csv,
     cancel_order,
+    compute_fx_variance,
     convert_po_to_purchase,
     correct_delivered_order_costs,
     create_order,
@@ -425,6 +426,7 @@ async def get_order_endpoint(
         order_data.total_paid = summary.total_paid
         order_data.balance_remaining = summary.balance_remaining
         order_data.payment_status = derive_payment_status(summary.total_paid, summary.balance_remaining)
+        order_data.fx_variance = compute_fx_variance(order)
         return order_data
     except OrderNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

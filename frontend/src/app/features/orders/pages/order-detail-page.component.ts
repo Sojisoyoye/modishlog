@@ -305,6 +305,18 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
             </div>
           }
 
+          <!-- FX Variance — purely informational (task 182): booked landed-cost
+               rate vs. the payment-amount-weighted average of what was
+               actually paid. Never affects COGS/margin figures. -->
+          @if (!editing() && order()!.fx_variance != null) {
+            <div>
+              <p class="text-xs font-medium text-muted" title="Booked landed-cost rate vs. what was actually paid — informational only, doesn't affect COGS">FX Variance</p>
+              <p class="mt-0.5 font-semibold" [class]="order()!.fx_variance! > 0 ? 'text-danger' : order()!.fx_variance! < 0 ? 'text-success' : 'text-text'">
+                {{ order()!.fx_variance! > 0 ? '+' : '' }}₦{{ order()!.fx_variance | number: '1.0-0' }}/{{ order()!.currency }}
+              </p>
+            </div>
+          }
+
           <!-- Move Status — full-width row at bottom of metadata card, hidden while editing -->
           @if (!editing() && nextStatuses(order()!.status).length > 0) {
             <div class="col-span-2 border-t border-gray-100 pt-4 sm:col-span-3 lg:col-span-4">

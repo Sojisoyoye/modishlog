@@ -169,6 +169,10 @@ class OrderRead(BaseModel):
 
 class OrderDetailRead(OrderRead):
     payment_summary: PaymentSummary | None = None
+    # Purely informational (task 182) — booked landed-cost rate vs. the
+    # payment-amount-weighted average of what was actually paid. Never feeds
+    # back into InventoryBatch.landed_cost_per_unit or Sale.fifo_cogs.
+    fx_variance: Decimal | None = None
 
 
 class OrderListResponse(BaseModel):

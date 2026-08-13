@@ -1799,6 +1799,89 @@ class TestUpdatePayment:
         assert update.amount == Decimal("100")
 
 
+class TestComputeFxVariance:
+    """Purely informational (task 182) — booked landed-cost rate vs. the
+    payment-amount-weighted average of what was actually paid. Must never
+    feed back into InventoryBatch.landed_cost_per_unit or Sale.fifo_cogs —
+    only ever surfaced as a read-only figure."""
+
+    def _payment(self, **overrides):
+        defaults = dict(
+            order_id=uuid.uuid4(),
+            amount=Decimal("1000"),
+            currency="USD",
+            fx_rate=None,
+            payment_date=date(2026, 3, 15),
+            payment_method=PaymentMethod.BANK_TRANSFER,
+            status=PaymentStatus.COMPLETED,
+            recorded_by=uuid.uuid4(),
+            created_at=datetime.now(timezone.utc),
+        )
+        defaults.update(overrides)
+        payment = OrderPayment(**defaults)
+        payment.id = uuid.uuid4()
+        return payment
+
+    def test_no_booked_rate_returns_none(self):
+        from src.orders.service import compute_fx_variance
+
+        order = _make_order(fx_rate_at_creation=None, fx_rate_at_delivery=None)
+        order.payments = [self._payment(fx_rate=Decimal("1600"))]
+        assert compute_fx_variance(order) is None
+
+    def test_no_rated_payments_returns_none(self):
+        """Payments in the order's own currency have fx_rate=None (no
+        conversion happened) — nothing to compare the booked rate against."""
+        from src.orders.service import compute_fx_variance
+
+        order = _make_order(fx_rate_at_delivery=Decimal("1600"))
+        order.payments = [self._payment(fx_rate=None)]
+        assert compute_fx_variance(order) is None
+
+    def test_prefers_delivery_rate_over_creation_rate(self):
+        from src.orders.service import compute_fx_variance
+
+        order = _make_order(
+            fx_rate_at_creation=Decimal("1500"), fx_rate_at_delivery=Decimal("1600")
+        )
+        order.payments = [self._payment(fx_rate=Decimal("1650"))]
+        # booked = 1600 (delivery, not creation); paid at 1650 -> +50 variance
+        assert compute_fx_variance(order) == Decimal("50")
+
+    def test_falls_back_to_creation_rate_when_no_delivery_rate(self):
+        from src.orders.service import compute_fx_variance
+
+        order = _make_order(
+            fx_rate_at_creation=Decimal("1500"), fx_rate_at_delivery=None
+        )
+        order.payments = [self._payment(fx_rate=Decimal("1450"))]
+        # booked = 1500 (creation, fallback); paid at 1450 -> -50 variance
+        assert compute_fx_variance(order) == Decimal("-50")
+
+    def test_weights_by_payment_amount(self):
+        from src.orders.service import compute_fx_variance
+
+        order = _make_order(fx_rate_at_delivery=Decimal("1500"))
+        order.payments = [
+            self._payment(amount=Decimal("3000"), fx_rate=Decimal("1600")),
+            self._payment(amount=Decimal("1000"), fx_rate=Decimal("1400")),
+        ]
+        # weighted avg = (3000*1600 + 1000*1400) / 4000 = 1550; variance = +50
+        assert compute_fx_variance(order) == Decimal("50")
+
+    def test_excludes_voided_payments(self):
+        from src.orders.service import compute_fx_variance
+
+        order = _make_order(fx_rate_at_delivery=Decimal("1500"))
+        order.payments = [
+            self._payment(amount=Decimal("1000"), fx_rate=Decimal("2000"), status=PaymentStatus.VOIDED),
+            self._payment(amount=Decimal("1000"), fx_rate=Decimal("1500")),
+        ]
+        # Voided payment's wildly-off rate must not pull the average —
+        # only the COMPLETED one counts, so variance is 0.
+        assert compute_fx_variance(order) == Decimal("0")
+
+
 class TestPaymentBalanceTolerance:
     """Multi-currency payments are converted via amount/fx_rate division
     (see _convert_to_order_currency), which leaves a sub-cent residue once
@@ -3166,6 +3249,44 @@ class TestOrdersOwnershipChecks:
                 json={"new_status": "CANCELLED"},
             )
         assert resp.status_code != 403
+
+    def test_get_order_returns_fx_variance(self):
+        """GET /{id} surfaces the computed fx_variance field (task 182)."""
+        from src.auth.models import UserRole
+        owner = _make_user(role=UserRole.SALES_MANAGER)
+        order = _make_order(
+            created_by=owner.id,
+            fx_rate_at_delivery=Decimal("1600"),
+            # GET /{id} serializes the full OrderDetailRead — _make_order()
+            # doesn't set these (no other existing test previously hit this
+            # endpoint via TestClient), so supply the model's own defaults.
+            is_purchase_order=True,
+            shipping_cost=Decimal("0"),
+            clearing_cost=Decimal("0"),
+            discount_amount=Decimal("0"),
+            tax_amount=Decimal("0"),
+        )
+        payment = OrderPayment(
+            order_id=order.id,
+            amount=Decimal("1000"),
+            currency="USD",
+            fx_rate=Decimal("1650"),
+            payment_date=date(2026, 3, 15),
+            payment_method=PaymentMethod.BANK_TRANSFER,
+            status=PaymentStatus.COMPLETED,
+            recorded_by=uuid.uuid4(),
+            created_at=datetime.now(timezone.utc),
+        )
+        payment.id = uuid.uuid4()
+        order.payments = [payment]
+        db = _mock_db_with_execute(scalar_result=order)
+        self._override_db(db)
+        self._override_auth_as(owner)
+
+        with TestClient(self.app, raise_server_exceptions=False) as client:
+            resp = client.get(f"/api/v1/orders/{order.id}")
+        assert resp.status_code == 200
+        assert Decimal(resp.json()["fx_variance"]) == Decimal("50")
 
     def test_user_cannot_record_payment_on_other_users_order(self):
         """Non-admin cannot POST /{id}/payments on an order they don't own."""
