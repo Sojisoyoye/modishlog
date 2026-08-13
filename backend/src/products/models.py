@@ -9,10 +9,10 @@ from sqlalchemy import Boolean, Date, ForeignKey, Numeric, String, Text, UniqueC
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.core.database import Base, TimestampMixin, UUIDMixin
+from src.core.database import Base, MigrationTaggedMixin, TimestampMixin, UUIDMixin
 
 
-class ProductCategory(UUIDMixin, TimestampMixin, Base):
+class ProductCategory(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     """Category grouping for products."""
 
     __tablename__ = "product_categories"
@@ -33,7 +33,6 @@ class ProductCategory(UUIDMixin, TimestampMixin, Base):
     default_margin_pct: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(5, 4), nullable=True, default=None
     )
-    migration_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     products: Mapped[list["Product"]] = relationship(back_populates="category")
     parent: Mapped[Optional["ProductCategory"]] = relationship(
@@ -54,7 +53,7 @@ class ProductCategory(UUIDMixin, TimestampMixin, Base):
         return f"<ProductCategory(id={self.id}, name={self.name})>"
 
 
-class Product(UUIDMixin, TimestampMixin, Base):
+class Product(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     """Product catalog entry."""
 
     __tablename__ = "products"
@@ -84,7 +83,6 @@ class Product(UUIDMixin, TimestampMixin, Base):
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
 
     has_variants: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    migration_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     category: Mapped["ProductCategory"] = relationship(back_populates="products")
     price_history: Mapped[list["PriceHistory"]] = relationship(back_populates="product")
@@ -96,7 +94,7 @@ class Product(UUIDMixin, TimestampMixin, Base):
         return f"<Product(id={self.id}, sku={self.sku})>"
 
 
-class ProductVariant(UUIDMixin, TimestampMixin, Base):
+class ProductVariant(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     """A variant of a product (e.g. size/colour combination)."""
 
     __tablename__ = "product_variants"
@@ -117,7 +115,6 @@ class ProductVariant(UUIDMixin, TimestampMixin, Base):
     price_override: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
     cost_price_override: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    migration_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     product: Mapped["Product"] = relationship(back_populates="variants", lazy="raise")
 
@@ -125,7 +122,7 @@ class ProductVariant(UUIDMixin, TimestampMixin, Base):
         return f"<ProductVariant(id={self.id}, product_id={self.product_id}, name={self.name})>"
 
 
-class PriceHistory(UUIDMixin, Base):
+class PriceHistory(UUIDMixin, MigrationTaggedMixin, Base):
     """Audit trail for product price changes."""
 
     __tablename__ = "price_history"
@@ -138,7 +135,6 @@ class PriceHistory(UUIDMixin, Base):
     reason: Mapped[str | None] = mapped_column(String(500), default=None)
     effective_date: Mapped[date] = mapped_column(Date)
     changed_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    migration_id: Mapped[Optional[uuid.UUID]] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
 
     product: Mapped["Product"] = relationship(back_populates="price_history")
 

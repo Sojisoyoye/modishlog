@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.core.database import Base, TimestampMixin, UUIDMixin
+from src.core.database import Base, MigrationTaggedMixin, TimestampMixin, UUIDMixin
 
 
 class UserRole(str, enum.Enum):
@@ -42,7 +42,7 @@ class Business(UUIDMixin, TimestampMixin, Base):
     users: Mapped[list["User"]] = relationship(back_populates="business", lazy="select")
 
 
-class User(UUIDMixin, TimestampMixin, Base):
+class User(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     """User account for authentication and authorization."""
 
     __tablename__ = "users"
@@ -63,7 +63,6 @@ class User(UUIDMixin, TimestampMixin, Base):
     business_id: Mapped[_uuid.UUID | None] = mapped_column(
         ForeignKey("businesses.id"), nullable=True, index=True
     )
-    migration_id: Mapped[_uuid.UUID | None] = mapped_column(ForeignKey("migration_jobs.id"), nullable=True, index=True, default=None)
     business: Mapped["Business | None"] = relationship(back_populates="users", lazy="selectin")
 
     def __repr__(self) -> str:
