@@ -584,12 +584,19 @@ async def transition_status(
 
     # Handle delivery
     if new_status == OrderStatus.DELIVERED:
-        # fx_rate_at_delivery is required for interactive (non-migration)
-        # transitions — FIFO landed cost otherwise silently falls back to
+        # A locally-sourced order (order.currency == "NGN") has nothing to
+        # convert -- item.unit_cost is already in NGN, so there's no FX rate
+        # to supply and none should be required. Every other currency needs
+        # one: interactive (non-migration) transitions must supply
+        # fx_rate_at_delivery, or FIFO landed cost silently falls back to
         # the less-accurate creation-time rate (task 181). data_import's
         # bulk backfill (migration_id set) is exempt: it has no per-record
         # delivery-date rate to supply and must not be blocked by this.
-        if migration_id is None and transition.fx_rate_at_delivery is None:
+        if (
+            order.currency != "NGN"
+            and migration_id is None
+            and transition.fx_rate_at_delivery is None
+        ):
             raise MissingDeliveryFxRateError(order_id)
 
         order.actual_delivery_date = transition.actual_delivery_date or date.today()
@@ -598,12 +605,18 @@ async def transition_status(
         if transition.fx_rate_at_delivery is not None:
             order.fx_rate_at_delivery = transition.fx_rate_at_delivery
 
-        # Restock inventory and create FIFO batches for each line item
-        # Prefer delivery FX rate over creation rate for FIFO cost calculations
+        # Restock inventory and create FIFO batches for each line item.
+        # A locally-sourced order needs no conversion at all (unit_cost is
+        # already NGN) -- prefer delivery FX rate over creation rate for
+        # everything else.
         fx_rate = (
-            transition.fx_rate_at_delivery
-            or order.fx_rate_at_creation
-            or Decimal("1500")
+            Decimal("1")
+            if order.currency == "NGN"
+            else (
+                transition.fx_rate_at_delivery
+                or order.fx_rate_at_creation
+                or Decimal("1500")
+            )
         )
         total_logistics = (order.shipping_cost or Decimal("0")) + (
             order.clearing_cost or Decimal("0")
@@ -955,37 +968,57 @@ def compute_fx_variance(order: PurchaseOrder) -> Decimal | None:
     """Purely informational (task 182) — booked landed-cost rate
     (fx_rate_at_delivery, falling back to fx_rate_at_creation, matching the
     same rate FIFO landed cost is computed from — task 181) vs. the
-    payment-amount-weighted average of what was actually paid. Never feeds
-    back into InventoryBatch.landed_cost_per_unit or Sale.fifo_cogs, which
-    must stay locked to the transaction-date rate (IAS 21/ASC 830: payment-
-    date FX differences are a realized gain/loss, not a cost-of-goods
-    adjustment) — this is visibility into that gain/loss exposure, nothing
-    more.
+    value-weighted average of what was actually paid. Never feeds back into
+    InventoryBatch.landed_cost_per_unit or Sale.fifo_cogs, which must stay
+    locked to the transaction-date rate (IAS 21/ASC 830: payment-date FX
+    differences are a realized gain/loss, not a cost-of-goods adjustment) —
+    this is visibility into that gain/loss exposure, nothing more.
+
+    A naive amount-weighted average of `p.fx_rate` (payment.amount is always
+    in order.currency) is only valid when the payment currency was NGN —
+    _convert_to_order_currency() DIVIDES by fx_rate in that direction, so
+    amount*fx_rate recovers the NGN value paid. When order.currency is NGN
+    and the payment was foreign-denominated, that direction MULTIPLIES by
+    fx_rate instead, and amount*fx_rate is meaningless (rate-squared, not
+    value). Both directions are real, supported code paths in this
+    codebase, so this reconstructs the NGN/foreign value pair explicitly per
+    payment from amount + original_amount rather than assuming one direction.
 
     Requires order.payments to already be loaded (get_order() selectinloads
     it). Returns None when there's no booked rate to compare against, or no
-    FX-converted payments recorded (a payment made in the order's own
-    currency has fx_rate=None — no conversion happened, nothing to compare).
+    NGN-anchored FX-converted payments recorded (a payment made in the
+    order's own currency has fx_rate=None — no conversion happened, nothing
+    to compare; a payment between two non-NGN currencies isn't NGN-anchored
+    the way fx_rate_at_creation/_at_delivery are, so isn't comparable either).
     """
     booked_rate = order.fx_rate_at_delivery or order.fx_rate_at_creation
     if booked_rate is None:
         return None
 
-    rated_payments = [
-        p
-        for p in order.payments
-        if p.fx_rate is not None and p.status == PaymentStatus.COMPLETED
-    ]
-    if not rated_payments:
+    total_ngn = Decimal("0")
+    total_foreign = Decimal("0")
+    for p in order.payments:
+        if p.fx_rate is None or p.status != PaymentStatus.COMPLETED:
+            continue
+        # fx_rate is always NGN per unit of whichever side isn't NGN
+        # (matches fx_rate_at_creation/_at_delivery's own convention).
+        # p.amount is always in order.currency; p.original_amount (set only
+        # when a conversion happened) is in the payer's actual currency.
+        if order.currency == "NGN":
+            ngn_amount, foreign_amount = p.amount, p.original_amount
+        elif p.original_currency == "NGN":
+            ngn_amount, foreign_amount = p.original_amount, p.amount
+        else:
+            continue  # neither leg NGN — rate isn't comparable to the booked one
+        if not foreign_amount:
+            continue
+        total_ngn += ngn_amount
+        total_foreign += foreign_amount
+
+    if total_foreign == 0:
         return None
 
-    total_amount = sum(p.amount for p in rated_payments)
-    if total_amount == 0:
-        return None
-
-    weighted_rate = (
-        sum(p.amount * p.fx_rate for p in rated_payments) / total_amount
-    )
+    weighted_rate = total_ngn / total_foreign
     return weighted_rate - booked_rate
 
 
@@ -1244,11 +1277,16 @@ async def correct_delivered_order_costs(
         if clearing_cost is not None:
             order.clearing_cost = clearing_cost
 
-        # Same fallback/formula as transition_status()'s DELIVERED handling.
+        # Same fallback/formula as transition_status()'s DELIVERED handling
+        # (including the NGN no-conversion-needed case).
         new_fx_rate = (
-            order.fx_rate_at_delivery
-            or order.fx_rate_at_creation
-            or Decimal("1500")
+            Decimal("1")
+            if order.currency == "NGN"
+            else (
+                order.fx_rate_at_delivery
+                or order.fx_rate_at_creation
+                or Decimal("1500")
+            )
         )
         total_logistics = (order.shipping_cost or Decimal("0")) + (
             order.clearing_cost or Decimal("0")

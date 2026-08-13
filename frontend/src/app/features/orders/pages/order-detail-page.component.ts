@@ -314,7 +314,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
             <div>
               <p class="text-xs font-medium text-muted" title="Booked landed-cost rate vs. what was actually paid — informational only, doesn't affect COGS">FX Variance</p>
               <p class="mt-0.5 font-semibold" [class]="order()!.fx_variance! > 0 ? 'text-danger' : order()!.fx_variance! < 0 ? 'text-success' : 'text-text'">
-                {{ order()!.fx_variance! > 0 ? '+' : '' }}₦{{ order()!.fx_variance | number: '1.0-0' }}/{{ order()!.currency }}
+                {{ order()!.fx_variance! > 0 ? '+' : '' }}₦{{ order()!.fx_variance | number: '1.0-0' }}{{ order()!.currency !== 'NGN' ? '/' + order()!.currency : '' }}
               </p>
             </div>
           }
@@ -323,7 +323,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
           @if (!editing() && nextStatuses(order()!.status).length > 0) {
             <div class="col-span-2 border-t border-gray-100 pt-4 sm:col-span-3 lg:col-span-4">
               <p class="mb-2 text-xs font-bold uppercase tracking-wider text-muted">Move Status</p>
-              @if (nextStatuses(order()!.status).includes('DELIVERED')) {
+              @if (nextStatuses(order()!.status).includes('DELIVERED') && order()!.currency !== 'NGN') {
                 <div class="mb-3 max-w-xs">
                   <label for="order-detail-delivery-fx-rate" class="mb-1 block text-xs font-medium text-muted">FX Rate at Delivery <span class="text-danger">*</span></label>
                   <input
@@ -342,7 +342,7 @@ import { LocationsService, Location } from '../../../core/services/locations.ser
                 @for (ns of nextStatuses(order()!.status); track ns) {
                   <button
                     (click)="transitionStatus(ns)"
-                    [disabled]="ns === 'DELIVERED' && !deliveryFxRate"
+                    [disabled]="ns === 'DELIVERED' && order()!.currency !== 'NGN' && !deliveryFxRate"
                     class="flex items-center gap-1.5 rounded-lg border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-600 transition-all hover:bg-emerald-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-emerald-600 min-h-[44px]"
                   >
                     <i class="pi pi-arrow-right text-xs"></i> {{ ns }}

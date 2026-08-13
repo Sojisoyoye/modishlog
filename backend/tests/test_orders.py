@@ -1264,6 +1264,90 @@ class TestTransitionStatus:
         result = await transition_status(db, order.id, transition, uuid.uuid4())
         assert result.fx_rate_at_delivery == Decimal("1650.000000")
 
+    @pytest.mark.asyncio
+    async def test_ngn_order_delivery_does_not_require_fx_rate(self):
+        """A locally-sourced order (currency='NGN') has nothing to convert —
+        unlike every other currency, it must not be blocked by task 181's
+        fx_rate_at_delivery requirement."""
+        product_id = uuid.uuid4()
+        line_item = _make_line_item(product_id=product_id, quantity=5)
+        inventory = _make_inventory(product_id=product_id, quantity_on_hand=20)
+        order = _make_order(
+            status=OrderStatus.CLEARED,
+            currency="NGN",
+            line_items=[line_item],
+        )
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count in (2, 3):
+                result.scalar_one_or_none.return_value = inventory
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        transition = StatusTransition(
+            new_status="DELIVERED", actual_delivery_date=date(2026, 4, 10)
+        )
+        result = await transition_status(db, order.id, transition, uuid.uuid4())
+        assert result.status == OrderStatus.DELIVERED
+
+    @pytest.mark.asyncio
+    async def test_ngn_order_delivery_uses_fx_rate_of_one_for_landed_cost(self):
+        """A locally-sourced order's unit_cost is already in NGN — the
+        landed-cost batch must not multiply it by anything (fx_rate=1), not
+        the Decimal("1500") fallback that applies to every other currency."""
+        product_id = uuid.uuid4()
+        line_item = _make_line_item(product_id=product_id, quantity=10, unit_cost=Decimal("2000"))
+        inventory = _make_inventory(product_id=product_id, quantity_on_hand=50)
+        order = _make_order(
+            status=OrderStatus.CLEARED,
+            currency="NGN",
+            line_items=[line_item],
+        )
+
+        db = _mock_db()
+        call_count = 0
+        batch_args = {}
+
+        original_add = db.add
+
+        def tracking_add(obj):
+            if hasattr(obj, "fx_rate_at_arrival"):
+                batch_args["fx_rate_at_arrival"] = obj.fx_rate_at_arrival
+            return original_add(obj)
+
+        db.add = tracking_add
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count in (2, 3):
+                result.scalar_one_or_none.return_value = inventory
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        transition = StatusTransition(
+            new_status="DELIVERED", actual_delivery_date=date(2026, 4, 10)
+        )
+        await transition_status(db, order.id, transition, uuid.uuid4())
+        assert batch_args["fx_rate_at_arrival"] == Decimal("1")
+
 
 # ---------------------------------------------------------------------------
 # Service tests - payments
@@ -1835,11 +1919,22 @@ class TestComputeFxVariance:
     only ever surfaced as a read-only figure."""
 
     def _payment(self, **overrides):
+        """Default represents the common direction: a USD-denominated order
+        (matches _make_order()'s default currency) paid in NGN — amount is
+        the USD (order-currency) value, original_amount/original_currency
+        reconstruct what _convert_to_order_currency() would have derived
+        from a real NGN payment at the given fx_rate. Pass an explicit
+        original_currency='NGN' override with order.currency='NGN' + a
+        foreign fx_rate to exercise the other direction."""
+        amount = overrides.get("amount", Decimal("1000"))
+        fx_rate = overrides.get("fx_rate")
         defaults = dict(
             order_id=uuid.uuid4(),
-            amount=Decimal("1000"),
+            amount=amount,
             currency="USD",
-            fx_rate=None,
+            fx_rate=fx_rate,
+            original_amount=(amount * fx_rate) if fx_rate is not None else None,
+            original_currency="NGN" if fx_rate is not None else None,
             payment_date=date(2026, 3, 15),
             payment_method=PaymentMethod.BANK_TRANSFER,
             status=PaymentStatus.COMPLETED,
@@ -1909,6 +2004,67 @@ class TestComputeFxVariance:
         # Voided payment's wildly-off rate must not pull the average —
         # only the COMPLETED one counts, so variance is 0.
         assert compute_fx_variance(order) == Decimal("0")
+
+    def test_excludes_unrated_payment_from_weighted_average(self):
+        """A COMPLETED payment made in the order's own currency (fx_rate=None)
+        sitting alongside a rated one must be excluded from BOTH the
+        numerator and denominator, not just dropped from the list and
+        accidentally still influencing the total."""
+        from src.orders.service import compute_fx_variance
+
+        order = _make_order(fx_rate_at_delivery=Decimal("1500"))
+        order.payments = [
+            self._payment(amount=Decimal("500"), fx_rate=None, original_amount=None, original_currency=None),
+            self._payment(amount=Decimal("1000"), fx_rate=Decimal("1600")),
+        ]
+        # If the unrated payment leaked into the denominator (1500 instead
+        # of 1000) or numerator, this would not equal exactly +100.
+        assert compute_fx_variance(order) == Decimal("100")
+
+    def test_ngn_order_paid_in_foreign_currency_weights_by_value_not_amount(self):
+        """order.currency == 'NGN': _convert_to_order_currency() MULTIPLIES
+        by fx_rate for a foreign-currency payment (the opposite direction
+        from the default USD-order/NGN-payment fixture above) — amount is
+        already the NGN value, original_amount is the foreign principal.
+        A naive amount*fx_rate weighting (amount already being the NGN
+        value) would produce a rate-squared-weighted, economically
+        meaningless result here."""
+        from src.orders.service import compute_fx_variance
+
+        order = _make_order(currency="NGN", fx_rate_at_delivery=Decimal("2000"))
+        order.payments = [
+            # $1000 paid at rate 1000 -> amount (NGN) = 1,000,000
+            self._payment(
+                amount=Decimal("1000000"), fx_rate=Decimal("1000"),
+                original_amount=Decimal("1000"), original_currency="USD",
+            ),
+            # $1000 paid at rate 3000 -> amount (NGN) = 3,000,000
+            self._payment(
+                amount=Decimal("3000000"), fx_rate=Decimal("3000"),
+                original_amount=Decimal("1000"), original_currency="USD",
+            ),
+        ]
+        # Equal $1000 USD principal each -> true weighted rate is the simple
+        # average of the two rates: (1000+3000)/2 = 2000, variance = 0.
+        # A buggy amount*fx_rate/amount weighting instead produces 2500
+        # (variance +500) — see task 182 PR review.
+        assert compute_fx_variance(order) == Decimal("0")
+
+    def test_excludes_payment_between_two_non_ngn_currencies(self):
+        """A payment where neither leg is NGN (e.g. EUR paid against a USD
+        order) has an fx_rate that's a direct EUR->USD multiplier, not
+        NGN-anchored like fx_rate_at_creation/_at_delivery — not comparable
+        to the booked rate at all, so it must be excluded entirely."""
+        from src.orders.service import compute_fx_variance
+
+        order = _make_order(currency="USD", fx_rate_at_delivery=Decimal("1500"))
+        order.payments = [
+            self._payment(
+                amount=Decimal("1100"), fx_rate=Decimal("1.1"),
+                original_amount=Decimal("1000"), original_currency="EUR",
+            ),
+        ]
+        assert compute_fx_variance(order) is None
 
 
 class TestPaymentBalanceTolerance:
@@ -2266,6 +2422,68 @@ class TestCorrectDeliveredOrderCosts:
 
         assert sale.fifo_cogs == 10 * batch_a.landed_cost_per_unit
         assert sale.fifo_gross_profit == sale.total_amount - sale.fifo_cogs
+
+    @pytest.mark.asyncio
+    async def test_ngn_order_shipping_correction_uses_fx_rate_of_one(self):
+        """A locally-sourced order's batches must not get their landed cost
+        multiplied by any fallback FX rate when correcting shipping_cost —
+        unit_cost is already NGN, so the recompute must use fx_rate=1, not
+        the Decimal("1500") fallback that applies to every other currency."""
+        from src.orders.service import correct_delivered_order_costs
+
+        item = _make_line_item(
+            product_id=uuid.uuid4(), unit_cost=Decimal("2000"), quantity=10
+        )
+        order = _make_order(
+            status=OrderStatus.DELIVERED,
+            currency="NGN",
+            line_items=[item],
+            fx_rate_at_creation=None,
+            fx_rate_at_delivery=None,
+            shipping_cost=Decimal("0"),
+            clearing_cost=Decimal("0"),
+        )
+        batch = InventoryBatch(
+            product_id=item.product_id,
+            order_id=order.id,
+            variant_id=None,
+            quantity_received=10,
+            quantity_remaining=10,
+            unit_cost_usd=Decimal("2000"),
+            fx_rate_at_arrival=Decimal("1"),
+            logistics_allocation_per_unit=Decimal("0"),
+            landed_cost_per_unit=Decimal("2000.000000"),
+            received_at=date(2026, 1, 14),
+            created_at=datetime.now(timezone.utc),
+        )
+        batch.id = uuid.uuid4()
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count == 2:
+                result.scalars.return_value.all.return_value = [batch]
+            elif call_count == 3:
+                result.all.return_value = []  # no sales consumed from this batch
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        await correct_delivered_order_costs(
+            db, order.id, [], shipping_cost=Decimal("100")
+        )
+
+        assert batch.fx_rate_at_arrival == Decimal("1")
+        # logistics_per_unit = (100 + 0) / 10 = 10; landed = 2000*1 + 10 = 2010
+        assert batch.landed_cost_per_unit == Decimal("2010.000000")
 
     @pytest.mark.asyncio
     async def test_fx_rate_at_delivery_correction_takes_priority_over_creation_rate(self):
@@ -3344,6 +3562,8 @@ class TestOrdersOwnershipChecks:
             amount=Decimal("1000"),
             currency="USD",
             fx_rate=Decimal("1650"),
+            original_amount=Decimal("1650000"),
+            original_currency="NGN",
             payment_date=date(2026, 3, 15),
             payment_method=PaymentMethod.BANK_TRANSFER,
             status=PaymentStatus.COMPLETED,
