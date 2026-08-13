@@ -70,8 +70,14 @@ async def get_current_active_user(
 async def require_admin(
     current_user: User = Depends(get_current_active_user),
 ) -> User:
-    """Ensure the authenticated user has the ADMIN role."""
-    if current_user.role != UserRole.ADMIN:
+    """Ensure the authenticated user has admin-equivalent access.
+
+    OWNER (assigned to every self-serve business owner by /auth/onboard) is
+    treated as admin-equivalent within their own business — every endpoint
+    gated on this dependency scopes its data access by business_id, so this
+    never grants cross-tenant reach (task 177).
+    """
+    if current_user.role not in (UserRole.ADMIN, UserRole.OWNER):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin role required",

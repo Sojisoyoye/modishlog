@@ -5054,7 +5054,7 @@
         "description": "require_admin() in auth/dependencies.py checks current_user.role != UserRole.ADMIN only — UserRole.OWNER (the role /auth/onboard assigns to every self-serve-created business owner) is rejected. This means the owner of a business can never call any admin-gated endpoint (POST /auth/register to invite staff, PATCH /auth/admin/unlock, and likely the rest of the admin user-management router) within their own business.",
         "details": "Found while fixing the E2E test bootstrap (2026-07-23) — frontend/e2e/auth.spec.ts's \"Account lockout\" describe block's afterAll unlock call (PATCH /auth/admin/unlock) 403s with the E2E owner account's token for this exact reason. Worked around that one call by not depending on it in the E2E fix, but the underlying gap is a real product question, not just a test issue: right now the ONLY way any business gets an admin-capable user is the hardcoded prod/staging admin@modishlog.com account (see reference_production_infra memory) — a self-serve business created via onboarding has no path to ever using admin-gated endpoints for its own business (inviting staff via /register, unlocking a locked-out staff account, etc.).\n\nNeeds a product/security decision, not a unilateral code change:\n- Should require_admin() also accept OWNER (i.e., owners are admin-equivalent within their own business)?\n- Or should there be a separate require_admin_or_owner dependency, keeping ADMIN's semantics narrower (e.g. platform-level admin) distinct from OWNER (business-level admin)?\n- Either way, every admin-gated endpoint should be scoped to the actor's own business_id, not global — verify this is already true before loosening who can call them.\n\nOnce decided, backend/src/auth/dependencies.py's require_admin() (or a new dependency) needs updating, and frontend/e2e/auth.spec.ts's lockout afterAll can then use the E2E owner's own token again instead of whatever workaround is in place.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": []
@@ -5080,19 +5080,30 @@
         "dependencies": [],
         "priority": "medium",
         "subtasks": []
+      },
+      {
+        "id": 185,
+        "title": "user-management.spec.ts: hardcoded wrong email assertion + Invite dialog labels not associated with inputs",
+        "description": "Found 2026-08-13 while verifying task 177's fix end-to-end against the isolated E2E stack. Two independent, pre-existing bugs surfaced now that /admin/users/* endpoints actually work for the E2E OWNER account (previously masked by the 403 task 177 fixed): (1) 'Users page shows current admin user in list' asserts getByText('soji.soyoye@gmail.com') — the real prod admin's email, not the E2E suite's own E2E_EMAIL ('e2e-suite@modishlogtest.com') — so it can never pass against the E2E business's own user list. (2) 'Invite User dialog opens on button click' asserts getByLabel(/email/i) and getByLabel(/full name/i), but users-page.component.ts's invite dialog (~line 199-215) uses plain <label> tags with no for attribute and inputs with no id — Playwright's getByLabel can't associate them.",
+        "details": "Confirmed both are pre-existing via git blame (last touched by PR #229/#244/#206, well before this session) — not introduced by task 177's business_id/OWNER changes. Fix: (1) update the test to import E2E_EMAIL from ./helpers/auth and assert that instead of the hardcoded prod email. (2) add matching id/for attributes (or wrap inputs in the <label>) to the invite and edit dialogs' full_name/email/role/password fields in users-page.component.ts, matching the accessible-label pattern already used elsewhere in the codebase.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-13T10:17:51.947Z",
-      "taskCount": 179,
-      "completedCount": 174,
+      "lastModified": "2026-08-13T11:15:00.000Z",
+      "taskCount": 180,
+      "completedCount": 175,
       "tags": [
         "master"
       ],
       "created": "2026-07-23T16:07:30.039Z",
       "description": "Tasks for master context",
-      "updated": "2026-08-13T10:17:51.947Z"
+      "updated": "2026-08-13T11:15:00.000Z"
     }
   }
 }
