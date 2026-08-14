@@ -331,4 +331,14 @@ test.describe('Plain-language explanations (Task 195)', () => {
       page.getByText(/see what would happen to your cash position/i)
     ).toBeVisible();
   });
+
+  test('FX Shock and Demand Drop inputs each have an explanatory tooltip icon (Task 196)', async ({
+    page,
+  }) => {
+    const fxLabel = page.locator('label[for="cf-fx-shock"]');
+    await expect(fxLabel.locator('.pi-info-circle')).toBeVisible();
+
+    const demandLabel = page.locator('label[for="cf-demand-drop"]');
+    await expect(demandLabel.locator('.pi-info-circle')).toBeVisible();
+  });
 });
