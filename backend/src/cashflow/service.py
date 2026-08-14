@@ -113,6 +113,10 @@ async def create_loan(
     )
     db.add(loan)
     await db.flush()
+    # New loan payments change the projection's outflows (task 194) — bust
+    # today's cache so the next read reflects it instead of waiting until
+    # tomorrow's daily regeneration.
+    await invalidate_todays_projection(db, user_id, business_id)
     return loan
 
 
@@ -171,6 +175,9 @@ async def create_operating_cost(
     )
     db.add(cost)
     await db.flush()
+    # See create_loan's comment — a new operating cost changes the
+    # projection's outflows, so bust today's cache (task 194).
+    await invalidate_todays_projection(db, user_id, business_id)
     return cost
 
 
@@ -493,6 +500,30 @@ async def _get_or_regenerate_projection(
     if proj.projection_date < today:
         return await generate_cashflow_projection(db, user_id, business_id)
     return proj
+
+
+async def invalidate_todays_projection(
+    db: AsyncSession, user_id: uuid.UUID, business_id: uuid.UUID
+) -> None:
+    """Regenerate today's cashflow projection immediately so the next
+    /cashflow/projection or /cash-runway request reflects current data
+    instead of a stale same-day snapshot (task 194).
+
+    `_get_or_regenerate_projection` only regenerates when the cached
+    projection's date is in the *past* — a loan, operating cost, or
+    delivered order added mid-day wouldn't otherwise show up in the
+    projection until the next calendar day. Call this after any change to
+    an input the projection depends on.
+
+    Inserts a fresh row rather than deleting the stale one: a saved
+    StressScenario references a projection by id via base_projection_id,
+    and deleting a projection that already has a scenario saved against it
+    violates that FK. get_latest_projection() orders by created_at desc, so
+    the new row simply supersedes the old one for future reads -- the same
+    insert-only pattern _get_or_regenerate_projection already uses for its
+    daily rollover.
+    """
+    await generate_cashflow_projection(db, user_id, business_id)
 
 
 # ---------------------------------------------------------------------------

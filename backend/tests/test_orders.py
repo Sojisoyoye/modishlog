@@ -1108,7 +1108,11 @@ class TestTransitionStatus:
             actual_delivery_date=date(2026, 3, 30),
             fx_rate_at_delivery=Decimal("1500.000000"),
         )
-        result = await transition_status(db, order.id, transition, uuid.uuid4())
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ):
+            result = await transition_status(db, order.id, transition, uuid.uuid4())
         assert result.status == OrderStatus.DELIVERED
         assert result.actual_delivery_date == date(2026, 3, 30)
         # Inventory should be restocked: 50 + 10 = 60
@@ -1148,9 +1152,75 @@ class TestTransitionStatus:
             actual_delivery_date=date(2026, 4, 10),
             fx_rate_at_delivery=Decimal("1620.500000"),
         )
-        result = await transition_status(db, order.id, transition, uuid.uuid4())
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ):
+            result = await transition_status(db, order.id, transition, uuid.uuid4())
         assert result.status == OrderStatus.DELIVERED
         assert result.fx_rate_at_delivery == Decimal("1620.500000")
+
+    @pytest.mark.asyncio
+    async def test_delivery_invalidates_todays_cashflow_projection(self):
+        """A delivered order changes FX obligations/loan payments the
+        projection depends on (task 194) — its cached same-day projection
+        must be busted so the next read regenerates instead of showing
+        stale pre-delivery data until tomorrow."""
+        business_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        line_item = _make_line_item(product_id=product_id, quantity=4)
+        inventory = _make_inventory(product_id=product_id, quantity_on_hand=10)
+        order = _make_order(
+            status=OrderStatus.CLEARED,
+            line_items=[line_item],
+            business_id=business_id,
+        )
+
+        db = _mock_db()
+        call_count = 0
+
+        async def mock_execute(stmt):
+            nonlocal call_count
+            call_count += 1
+            result = MagicMock()
+            if call_count == 1:
+                result.scalar_one_or_none.return_value = order
+            elif call_count in (2, 3):
+                result.scalar_one_or_none.return_value = inventory
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db.execute = mock_execute
+
+        transition = StatusTransition(
+            new_status="DELIVERED",
+            actual_delivery_date=date(2026, 4, 10),
+            fx_rate_at_delivery=Decimal("1500.000000"),
+        )
+        user_id = uuid.uuid4()
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ) as mock_invalidate:
+            await transition_status(db, order.id, transition, user_id)
+        mock_invalidate.assert_called_once_with(db, user_id, business_id)
+
+    @pytest.mark.asyncio
+    async def test_non_delivery_transition_does_not_invalidate_projection(self):
+        """Only DELIVERED changes cashflow-relevant data — other
+        transitions (e.g. PENDING -> IN_PRODUCTION) must not bust the
+        cache."""
+        order = _make_order(status=OrderStatus.PENDING, business_id=uuid.uuid4())
+        db = _mock_db_with_execute(scalar_result=order)
+
+        transition = StatusTransition(new_status="IN_PRODUCTION")
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ) as mock_invalidate:
+            await transition_status(db, order.id, transition, uuid.uuid4())
+        mock_invalidate.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_interactive_delivery_without_fx_rate_raises(self):
@@ -1210,9 +1280,13 @@ class TestTransitionStatus:
             new_status="DELIVERED",
             actual_delivery_date=date(2026, 4, 10),
         )
-        result = await transition_status(
-            db, order.id, transition, uuid.uuid4(), migration_id=uuid.uuid4()
-        )
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ):
+            result = await transition_status(
+                db, order.id, transition, uuid.uuid4(), migration_id=uuid.uuid4()
+            )
         assert result.status == OrderStatus.DELIVERED
         assert result.fx_rate_at_delivery is None
 
@@ -1261,7 +1335,11 @@ class TestTransitionStatus:
             actual_delivery_date=date(2026, 4, 10),
             fx_rate_at_delivery=Decimal("1650.000000"),
         )
-        result = await transition_status(db, order.id, transition, uuid.uuid4())
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ):
+            result = await transition_status(db, order.id, transition, uuid.uuid4())
         assert result.fx_rate_at_delivery == Decimal("1650.000000")
 
     @pytest.mark.asyncio
@@ -1298,7 +1376,11 @@ class TestTransitionStatus:
         transition = StatusTransition(
             new_status="DELIVERED", actual_delivery_date=date(2026, 4, 10)
         )
-        result = await transition_status(db, order.id, transition, uuid.uuid4())
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ):
+            result = await transition_status(db, order.id, transition, uuid.uuid4())
         assert result.status == OrderStatus.DELIVERED
 
     @pytest.mark.asyncio
@@ -1345,7 +1427,11 @@ class TestTransitionStatus:
         transition = StatusTransition(
             new_status="DELIVERED", actual_delivery_date=date(2026, 4, 10)
         )
-        await transition_status(db, order.id, transition, uuid.uuid4())
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ):
+            await transition_status(db, order.id, transition, uuid.uuid4())
         assert batch_args["fx_rate_at_arrival"] == Decimal("1")
 
 

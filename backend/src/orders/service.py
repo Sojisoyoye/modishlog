@@ -664,6 +664,16 @@ async def transition_status(
                 received_at=order.actual_delivery_date,
             )
 
+        # A delivered order changes the cashflow projection's FX obligations
+        # and loan payment schedule (task 194) — bust today's cached
+        # projection so the next read reflects it. Local import to avoid a
+        # circular import (cashflow.service -> pricing.service -> this
+        # module), matching the deferred-import pattern already used
+        # elsewhere in this codebase for the same reason (ai_engine/service.py).
+        from src.cashflow.service import invalidate_todays_projection
+
+        await invalidate_todays_projection(db, user_id, order.business_id)
+
     await db.flush()
 
     history = OrderStatusHistory(
