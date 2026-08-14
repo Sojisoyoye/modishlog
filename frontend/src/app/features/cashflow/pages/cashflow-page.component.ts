@@ -2,6 +2,7 @@ import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } 
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe, CurrencyPipe, DatePipe } from '@angular/common';
 import { UIChart } from 'primeng/chart';
+import { Tooltip } from 'primeng/tooltip';
 import {
   CashflowService,
   CashflowMonth,
@@ -13,7 +14,7 @@ import {
 @Component({
   selector: 'app-cashflow-page',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, CurrencyPipe, DatePipe, UIChart],
+  imports: [FormsModule, DecimalPipe, CurrencyPipe, DatePipe, UIChart, Tooltip],
   template: `
     <div>
       <div class="mb-6">
@@ -44,6 +45,11 @@ import {
                 <i class="pi pi-clock text-sm text-blue-700"></i>
               </div>
               <p class="text-sm font-medium text-muted">Cash Runway</p>
+              <i
+                class="pi pi-info-circle cursor-help text-[10px] text-muted"
+                pTooltip="How many months your money would last if it kept going out at the current rate and nothing new came in."
+                tooltipPosition="top"
+              ></i>
             </div>
             <p class="text-3xl font-bold text-text">
               {{ liquidity().runway_is_finite ? runwayMonths() + ' months' : 'No burn' }}
@@ -61,7 +67,12 @@ import {
               <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
                 <i class="pi pi-chart-line text-sm text-emerald-700"></i>
               </div>
-              <p class="text-sm font-medium text-muted">DSCR</p>
+              <p class="text-sm font-medium text-muted">Loan Repayment Health <span class="text-muted">(DSCR)</span></p>
+              <i
+                class="pi pi-info-circle cursor-help text-[10px] text-muted"
+                pTooltip="Compares the money coming into your business to your loan payments. Above 1.5 is healthy. Below 1.0 means your income can't fully cover what you owe this month."
+                tooltipPosition="top"
+              ></i>
             </div>
             <p class="text-3xl font-bold" [class]="dscrColor()">
               {{ liquidity().dscr_is_finite ? (liquidity().dscr | number: '1.2-2') : 'No debt' }}
@@ -126,12 +137,15 @@ import {
 
         <!-- Projection Chart -->
         <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm lg:col-span-2">
-          <div class="mb-5 flex items-center gap-2">
+          <div class="mb-1 flex items-center gap-2">
             <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
               <i class="pi pi-chart-bar text-sm text-emerald-700"></i>
             </div>
             <h3 class="text-base font-semibold text-text">6-Month Projection</h3>
           </div>
+          <p class="mb-4 ml-10 text-xs text-muted">
+            An estimate of how much cash you'll have on hand each month for the next 6 months, based on your typical sales, costs, and loan payments.
+          </p>
           @if (projectionChart()) {
             <p-chart
               type="bar"
@@ -149,12 +163,16 @@ import {
 
       <!-- Projection Table -->
       <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
-        <div class="mb-5 flex items-center gap-2">
+        <div class="mb-1 flex items-center gap-2">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
             <i class="pi pi-table text-sm text-emerald-700"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Month-by-Month</h3>
         </div>
+        <p class="mb-4 ml-10 text-xs text-muted">
+          The detail behind the chart above — see exactly what's expected to come in and go out
+          each month, so you can spot a shortfall before it happens.
+        </p>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-gray-200 text-sm">
             <caption class="sr-only">Monthly cashflow projection</caption>
@@ -179,7 +197,11 @@ import {
                 <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
                   Cumulative
                 </th>
-                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                <th
+                  class="cursor-help px-4 py-3 text-right text-xs font-semibold uppercase text-muted"
+                  pTooltip="Debt Service Coverage Ratio — can that month's income cover that month's loan payments? Above 1.5 is healthy, below 1.0 is a warning."
+                  tooltipPosition="top"
+                >
                   DSCR
                 </th>
               </tr>
@@ -230,12 +252,21 @@ import {
 
       <!-- Scenario Simulator -->
       <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
-        <div class="mb-5 flex items-center gap-2">
+        <div class="mb-1 flex items-center gap-2">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
             <i class="pi pi-sliders-h text-sm text-emerald-700"></i>
           </div>
           <h3 class="text-base font-semibold text-text">Scenario Simulator</h3>
+          <i
+            class="pi pi-info-circle cursor-help text-[10px] text-muted"
+            pTooltip="Test how your cash flow would hold up under bad news — a weaker exchange rate or a drop in sales — before it actually happens, so you can prepare."
+            tooltipPosition="top"
+          ></i>
         </div>
+        <p class="mb-4 ml-10 text-xs text-muted">
+          See what would happen to your cash position if the exchange rate got worse or sales
+          dropped — before it actually happens.
+        </p>
         <div class="flex flex-wrap items-end gap-4">
           <div>
             <label for="cf-fx-shock" class="mb-1.5 block text-xs font-medium text-muted">FX Shock (%)</label>
