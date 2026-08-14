@@ -5287,18 +5287,18 @@
         "description": "Found 2026-08-14 while shipping task 194 (cashflow projection cache invalidation). e2e/dashboard.spec.ts:215 'risk badge shows Caution, not At Risk, for a medium-risk (amber) DSCR' passes in isolation but intermittently fails (badge text neither 'Caution' nor 'At Risk' is found) when dashboard.spec.ts runs after cashflow.spec.ts + cashflow-error-states.spec.ts in the same Playwright run (shared DB, workers:1, no reset between files).",
         "details": "Confirmed pre-existing and unrelated to task 194's fix: reproduces identically with task 194's cashflow.service.py/orders.service.py changes present or reverted (git stash), so it is not a regression from that change. Root cause not yet diagnosed — likely the same class of cross-file E2E pollution documented repeatedly this session (workers:1 sharing one DB across all spec files with no reset between files). Needs direct investigation: capture the actual DSCR/risk_rating value the dashboard receives when this fails, and check whether MEDIUM-risk data seeded by an earlier test file is being overwritten/diluted by additional loans/costs/orders created by later-running files before this test's assertion.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-08-14T13:20:00.000Z"
+        "updatedAt": "2026-08-14T14:05:00.000Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-14T13:45:00.000Z",
+      "lastModified": "2026-08-14T14:05:00.000Z",
       "taskCount": 197,
-      "completedCount": 196,
+      "completedCount": 197,
       "tags": [
         "master"
       ]
