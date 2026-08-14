@@ -86,7 +86,10 @@ test.describe('KPI accordion structure', () => {
 
   test('Returns section expands and reveals KPI cards', async ({ page }) => {
     await expect(page.getByText('Customer Returns')).not.toBeVisible();
-    await page.getByText('Returns').click();
+    // Task 192 — the sidebar also has a "Returns" nav link, so a plain
+    // getByText('Returns') is ambiguous (strict-mode violation). Scope to
+    // the accordion toggle button specifically.
+    await page.getByRole('button', { name: /Returns/ }).click();
     await expect(page.getByText('Customer Returns').first()).toBeVisible();
     await expect(page.getByText('Supplier Refunds').first()).toBeVisible();
   });
