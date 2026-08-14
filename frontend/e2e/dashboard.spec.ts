@@ -217,16 +217,29 @@ test.describe('Cash Health card — 999 sentinel and risk-color parity (Task 189
     // color-codes that band as amber, and the old dashboard.service.ts
     // mapping (`=== 'yellow'`) never matched it, silently inflating a
     // medium-risk account to the HIGH/"At Risk" badge.
-    //
-    // Seed a large, deterministic sale first so net_operating_income is
-    // guaranteed positive regardless of what other spec files sharing this
-    // CI run's DB have already done.
-    const product = await ensureProduct('E2E Amber DSCR Product');
-    await addStock(product.id, 100);
-    await createSale(product.id, { quantity: 10, unitPrice: '300000.00' });
-
     const token = await getAPIToken();
     const ctx = await request.newContext();
+
+    // Other spec files sharing this CI run's DB (e.g. cashflow.spec.ts's
+    // loan-creating tests) may have already created active loans for this
+    // business -- total_debt_service reflects their combined monthly
+    // payment before this test adds its own. Check it first so the sale
+    // seeded below can be sized with enough headroom over it.
+    const preResp = await ctx.get(`${API}/cashflow/dscr`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const existingDebtService = parseFloat((await preResp.json()).total_debt_service);
+
+    // Seed a sale large enough that net_operating_income comfortably clears
+    // existingDebtService * 1.25 (see the newLoanPayment math below) even
+    // before this test's own loan is added -- guarantees a positive
+    // newLoanPayment regardless of how much debt other spec files already
+    // created for this shared business.
+    const product = await ensureProduct('E2E Amber DSCR Product');
+    await addStock(product.id, 100);
+    const saleTotal = Math.max(3_000_000, existingDebtService * 7.5);
+    await createSale(product.id, { quantity: 10, unitPrice: (saleTotal / 10).toFixed(2) });
+
     const dscrResp = await ctx.get(`${API}/cashflow/dscr`, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -234,9 +247,15 @@ test.describe('Cash Health card — 999 sentinel and risk-color parity (Task 189
     await ctx.dispose();
     const noi = parseFloat(net_operating_income);
     expect(noi).toBeGreaterThan(0);
-    const monthlyPayment = (noi / 1.25).toFixed(2);
 
-    await createLoan('E2E Amber DSCR Bank', '1000000.00', monthlyPayment);
+    // Size this loan so the *combined* debt service (existing + new) lands
+    // DSCR at ~1.25 (mid amber band) -- sizing it off noi/1.25 alone ignores
+    // existing debt and can drag actual DSCR well below the intended band
+    // once summed.
+    const newLoanPayment = noi / 1.25 - existingDebtService;
+    expect(newLoanPayment).toBeGreaterThan(0);
+
+    await createLoan('E2E Amber DSCR Bank', '1000000.00', newLoanPayment.toFixed(2));
     await page.reload();
     await page.waitForLoadState('domcontentloaded');
     await page.getByText('Pulse Metrics').click();
