@@ -53,18 +53,22 @@ test.describe('Cashflow page layout', () => {
 
   test('displays Month-by-Month table', async ({ page }) => {
     await expect(page.getByRole('heading', { name: 'Month-by-Month' })).toBeVisible();
-    // Table headers
+    // Table headers — task 188 (ST-701 criterion 2): outflows are broken
+    // out into Loan/Opex/FX line items instead of one collapsed "Outflows"
+    // column.
     await expect(page.getByRole('columnheader', { name: /Month/i })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: /Inflows/i })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: /Outflows/i })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /^Loan$/i })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /^Opex$/i })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: /^FX$/i })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: /Net/i })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: /Cumulative/i })).toBeVisible();
   });
 
-  test('6-Month Projection table has at least one row with non-zero outflows', async ({
+  test('6-Month Projection table has at least one row with a non-zero Opex figure', async ({
     page,
   }) => {
-    // With E2E Monthly Rent seeded, outflows > 0 for each month
+    // With E2E Monthly Rent seeded, the Opex breakdown column > 0 for each month.
     const tableBody = page.locator('table').filter({ hasText: /Month/i }).locator('tbody');
     await expect(tableBody.locator('tr').first()).toBeVisible({ timeout: 10_000 });
 
@@ -73,10 +77,10 @@ test.describe('Cashflow page layout', () => {
     const monthText = await firstRowCells.first().textContent();
     expect((monthText ?? '').trim().length).toBeGreaterThan(0);
 
-    // Outflows cell (3rd column) should show a non-zero currency value
-    const outflowsText = await firstRowCells.nth(2).textContent();
-    const outflowsNum = parseFloat((outflowsText ?? '').replace(/[^0-9.]/g, ''));
-    expect(outflowsNum).toBeGreaterThan(0);
+    // Columns: Month(0) Inflows(1) Loan(2) Opex(3) FX(4) Net(5) Cumulative(6) DSCR(7)
+    const opexText = await firstRowCells.nth(3).textContent();
+    const opexNum = parseFloat((opexText ?? '').replace(/[^0-9.]/g, ''));
+    expect(opexNum).toBeGreaterThan(0);
   });
 });
 
@@ -200,5 +204,81 @@ test.describe('Undefined DSCR/Runway shown as friendly text, not raw 999', () =>
     const dscrValue = page.locator('p.text-3xl.font-bold').nth(1);
     await expect(dscrValue).toBeVisible({ timeout: 10_000 });
     await expect(dscrValue).toHaveText(/\d+\.\d{2}/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 188 — stress scenario Portfolio Margin is a real computed figure,
+// and saved scenarios are listed with a side-by-side compare view.
+// ---------------------------------------------------------------------------
+
+test.describe('Scenario Portfolio Margin', () => {
+  test('shows a real computed margin percentage, not placeholder text', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto('/cashflow');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'Simulate' }).click();
+    await expect(page.getByText('Portfolio Margin')).toBeVisible({ timeout: 15_000 });
+
+    await expect(page.getByText('Likely impacted')).not.toBeVisible();
+    // Margin value renders as "XX.X%" next to the "Portfolio Margin" label.
+    const marginCard = page.locator('p').filter({ hasText: 'Portfolio Margin' }).locator('..');
+    await expect(marginCard.getByText(/\d+\.\d%/)).toBeVisible();
+  });
+});
+
+test.describe('Saved Scenarios', () => {
+  test('displays the Saved Scenarios section', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto('/cashflow');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
+
+    await expect(page.getByRole('heading', { name: 'Saved Scenarios' })).toBeVisible();
+  });
+
+  test('running a simulation adds it to the Saved Scenarios table', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto('/cashflow');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: 'FX +10%' }).click();
+    await expect(page.getByText('Worst DSCR')).toBeVisible({ timeout: 30_000 });
+
+    const scenariosTable = page
+      .locator('table')
+      .filter({ has: page.getByRole('columnheader', { name: 'FX Shock' }) });
+    await expect(scenariosTable.locator('tbody tr').first()).toBeVisible({ timeout: 10_000 });
+    await expect(scenariosTable).toContainText('FX_SHOCK_10');
+  });
+
+  test('selecting two saved scenarios shows a side-by-side comparison', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto('/cashflow');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
+
+    // Seed at least two distinct saved scenarios.
+    await page.getByRole('button', { name: 'FX +10%' }).click();
+    await expect(page.getByText('Worst DSCR')).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'FX +20%' }).click();
+    await expect(page.getByText('Worst DSCR')).toBeVisible({ timeout: 30_000 });
+
+    const scenariosTable = page
+      .locator('table')
+      .filter({ has: page.getByRole('columnheader', { name: 'FX Shock' }) });
+    const checkboxes = scenariosTable.locator('tbody input[type="checkbox"]');
+    await expect(checkboxes.nth(1)).toBeVisible({ timeout: 10_000 });
+
+    await checkboxes.nth(0).check();
+    await checkboxes.nth(1).check();
+
+    // Two comparison cards render, each showing DSCR/Runway/FX Shock/Revenue Shock.
+    await expect(page.getByText('Select two scenarios to compare')).not.toBeVisible();
+    const compareCards = page.locator('dl').filter({ hasText: 'FX Shock' });
+    await expect(compareCards).toHaveCount(2);
   });
 });

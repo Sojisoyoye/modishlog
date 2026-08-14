@@ -23,6 +23,7 @@ from src.cashflow.models import (
 )
 from src.fx.service import get_latest_rate_value, get_previous_rate_value
 from src.orders.models import OrderPayment, OrderStatus, PaymentStatus, PurchaseOrder
+from src.pricing.service import calculate_portfolio_margin
 from src.sales.models import Sale, SaleStatus
 
 logger = structlog.get_logger()
@@ -578,7 +579,19 @@ def _avg_runway_from_buckets(buckets: list[dict]) -> int:
     return int(sum(finite) / len(finite))
 
 
-def _summarize_projection(proj: CashflowProjection) -> dict:
+async def _summarize_projection(
+    db: AsyncSession, proj: CashflowProjection, business_id: uuid.UUID
+) -> dict:
+    """Summarize a projection for the stress-scenario comparison view,
+    including the portfolio margin impact (task 188, ST-703 criterion 3).
+
+    Margin impact: an FX shock increases landed cost proportionally
+    (assuming selling prices don't react — the standard "no action taken"
+    stress-test assumption), so the cost-to-price ratio rises and margin_pct
+    erodes. A pure demand-drop scenario doesn't change that ratio at all —
+    margin_pct is revenue/volume-independent — only cashflow/revenue figures
+    move, so margin_pct is correctly left unchanged in that case.
+    """
     buckets = proj.monthly_buckets or []
     avg_dscr = _avg_dscr_from_buckets(buckets)
     last_runway = (
@@ -586,8 +599,28 @@ def _summarize_projection(proj: CashflowProjection) -> dict:
     )
     last_risk = buckets[-1]["risk_rating"] if buckets else "HIGH"
 
-    cash_runway_float = float(last_runway)  # financial-float-ok — display summary, not a stored amount
-    avg_dscr_float = float(avg_dscr)  # financial-float-ok — display summary, not a stored amount
+    cash_runway_float = float(
+        last_runway
+    )  # financial-float-ok — display summary, not a stored amount
+    avg_dscr_float = float(
+        avg_dscr
+    )  # financial-float-ok — display summary, not a stored amount
+
+    portfolio = await calculate_portfolio_margin(db, business_id=business_id)
+    current_margin_pct = portfolio["blended_margin"]
+    scenario_type = (proj.assumptions or {}).get("scenario_type", "BASE")
+    fx_shock_pct = _get_scenario_params(scenario_type)["fx_shock_pct"]
+
+    if fx_shock_pct:
+        cogs_ratio = Decimal("1") - (current_margin_pct / Decimal("100"))
+        stressed_cogs_ratio = cogs_ratio * (
+            Decimal("1") + fx_shock_pct / Decimal("100")
+        )
+        margin_pct = ((Decimal("1") - stressed_cogs_ratio) * Decimal("100")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+    else:
+        margin_pct = current_margin_pct
 
     return {
         "cash_runway": cash_runway_float,
@@ -596,6 +629,9 @@ def _summarize_projection(proj: CashflowProjection) -> dict:
         "avg_dscr_is_finite": _dscr_is_finite(avg_dscr),
         "risk_rating": last_risk,
         "net_cashflow": str(proj.net_cashflow),
+        "margin_pct": float(
+            margin_pct
+        ),  # financial-float-ok — display summary, not a stored amount
     }
 
 
@@ -631,21 +667,40 @@ async def run_stress_scenario(
     await db.flush()
 
     return {
-        "base": _summarize_projection(base_proj),
-        "stressed": _summarize_projection(stressed_proj),
+        "base": await _summarize_projection(db, base_proj, business_id),
+        "stressed": await _summarize_projection(db, stressed_proj, business_id),
     }
 
 
-async def get_scenarios(
-    db: AsyncSession, business_id: uuid.UUID
-) -> list[StressScenario]:
-    """List saved stress scenarios scoped to the given business."""
+async def get_scenarios(db: AsyncSession, business_id: uuid.UUID) -> list[dict]:
+    """List saved stress scenarios scoped to the given business.
+
+    Pairs stressed_dscr/stressed_runway_months with *_is_finite flags so
+    callers never render the raw 999 "undefined" sentinel directly.
+    """
     result = await db.execute(
         select(StressScenario)
         .where(StressScenario.business_id == business_id)
         .order_by(StressScenario.created_at.desc())
     )
-    return list(result.scalars().all())
+    scenarios = list(result.scalars().all())
+    return [
+        {
+            "id": s.id,
+            "name": s.name,
+            "revenue_shock_pct": s.revenue_shock_pct,
+            "fx_shock_pct": s.fx_shock_pct,
+            "cost_shock_pct": s.cost_shock_pct,
+            "stressed_dscr": s.stressed_dscr,
+            "stressed_dscr_is_finite": _dscr_is_finite(s.stressed_dscr),
+            "stressed_runway_months": s.stressed_runway_months,
+            "stressed_runway_is_finite": _runway_is_finite(
+                Decimal(s.stressed_runway_months)
+            ),
+            "created_at": s.created_at,
+        }
+        for s in scenarios
+    ]
 
 
 # ---------------------------------------------------------------------------

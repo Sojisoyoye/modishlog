@@ -145,7 +145,9 @@ class ScenarioRead(BaseModel):
     fx_shock_pct: Decimal
     cost_shock_pct: Decimal
     stressed_dscr: Decimal
+    stressed_dscr_is_finite: bool
     stressed_runway_months: int
+    stressed_runway_is_finite: bool
     created_at: datetime
 
 
