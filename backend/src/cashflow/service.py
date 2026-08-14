@@ -599,12 +599,8 @@ async def _summarize_projection(
     )
     last_risk = buckets[-1]["risk_rating"] if buckets else "HIGH"
 
-    cash_runway_float = float(
-        last_runway
-    )  # financial-float-ok — display summary, not a stored amount
-    avg_dscr_float = float(
-        avg_dscr
-    )  # financial-float-ok — display summary, not a stored amount
+    cash_runway_float = float(last_runway)  # financial-float-ok
+    avg_dscr_float = float(avg_dscr)  # financial-float-ok
 
     portfolio = await calculate_portfolio_margin(db, business_id=business_id)
     current_margin_pct = portfolio["blended_margin"]
@@ -629,9 +625,7 @@ async def _summarize_projection(
         "avg_dscr_is_finite": _dscr_is_finite(avg_dscr),
         "risk_rating": last_risk,
         "net_cashflow": str(proj.net_cashflow),
-        "margin_pct": float(
-            margin_pct
-        ),  # financial-float-ok — display summary, not a stored amount
+        "margin_pct": float(margin_pct),  # financial-float-ok
     }
 
 
