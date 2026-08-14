@@ -5292,12 +5292,60 @@
         "priority": "low",
         "subtasks": [],
         "updatedAt": "2026-08-14T14:05:00.000Z"
+      },
+      {
+        "id": "198",
+        "title": "Fix cross-tenant data leak in AI Pricing Recommendations generation",
+        "description": "Found 2026-08-14 during a Pricing & Margins page audit. generate_all_recommendations() in backend/src/ai_engine/service.py calls _generate_price_recommendations(db, now) without business_id; that function in turn calls calculate_portfolio_margin(db) (backend/src/pricing/service.py) also without business_id. calculate_portfolio_margin only applies its tenant filters when business_id is not None (service.py ~lines 382-384, 404-405), so the category/product buckets used to build the \"Pricing Recommendations\" panel are computed across every business in the system, not just the current tenant's. The resulting AIRecommendation row is stamped with the correct business_id before saving, but its content (gap %, revenue-impact estimate, category grouping) is derived from other tenants' data.",
+        "details": "Thread business_id through generate_all_recommendations() -> _generate_price_recommendations() -> calculate_portfolio_margin() so the pricing-recommendation generation path is tenant-scoped like every other domain call in this codebase. Check whether generate_all_recommendations() already receives business_id from its caller (the /ai/recommendations/generate endpoint) or needs it threaded in from the router. Add a regression test proving recommendations generated for business A never reference business B's products/categories (mirrors the existing cross-tenant isolation test suite pattern already used elsewhere in this codebase).",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-08-14T15:20:00.000Z"
+      },
+      {
+        "id": "199",
+        "title": "Clarify Pricing Recommendations \"Mark Reviewed\" vs Optimizer \"Apply\" distinction",
+        "description": "Found 2026-08-14 during a Pricing & Margins page audit. The Recommendations tab has two separate, unexplained systems: (1) \"Pricing Recommendations\" (AI-engine-generated, category-grouped) whose \"Mark Reviewed\" button is styled identically to an apply action (green, checkmark icon) but backend's apply_recommendation() (ai_engine/service.py ~line 841-855) explicitly does nothing to product prices for this payload shape -- it only flips status to APPLIED; and (2) \"Optimizer Recommendations\" (pricing-service SciPy optimizer) whose Apply button is the one that actually changes a product's price. Nothing in the UI tells the user these are different systems or that clicking the first one will not change any price.",
+        "details": "Either restyle the \"Mark Reviewed\" button so it is visually distinct from a true apply action (different color/icon, label like \"Reviewed\" without a checkmark), and/or add a short explanatory line above each panel clarifying what it does (e.g. \"These are category-level suggestions to review -- to actually change a price, use the recommendations below\" / \"Applying here updates the product's price immediately\"). Frontend-only change in frontend/src/app/features/pricing/pages/pricing-page.component.ts (Recommendations tab, both panels).",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-08-14T15:20:00.000Z"
+      },
+      {
+        "id": "200",
+        "title": "Wire Cross-Subsidisation tab to the real GET /pricing/cross-subsidy backend endpoint",
+        "description": "Found 2026-08-14 during a Pricing & Margins page audit. The Cross-Subsidisation tab in frontend/src/app/features/pricing/pages/pricing-page.component.ts computes its subsidy pairs and margin-target breakdown entirely client-side (buildCrossSubsidy(), lines ~1663-1698) from the same portfolio-margin data fetched for the Overview tab. The backend already has a dedicated, PRD-matching endpoint for this: GET /pricing/cross-subsidy (router.py lines ~342-351), backed by analyze_cross_subsidization() (service.py lines ~850-898), which persists a CrossSubsidyAnalysis row -- but PricingService (frontend) does not even expose a method for it, so it is never called.",
+        "details": "Add a PricingService method for GET /pricing/cross-subsidy, call it when the Cross-Subsidisation tab is opened, and replace (or reconcile) the client-side buildCrossSubsidy() computation with the backend response. Preserve the existing dynamic \"insight\" text (subsidyInsight(), lines ~1460-1493) which is good UX and not redundant with this change. Verify the backend's high_margin (>40%) / low_margin (<34%) bucket thresholds match what the frontend currently shows, and reconcile if they differ -- this could change visible behavior on this tab, so check before merging.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": [],
+        "updatedAt": "2026-08-14T15:20:00.000Z"
+      },
+      {
+        "id": "201",
+        "title": "Pricing & Margins page: plain-language tooltips and descriptions across all tabs",
+        "description": "Found 2026-08-14 during a Pricing & Margins page audit, following the same pattern already applied to the Cashflow page (tasks 195/196). Only the Demand Elasticity panel (Demand & Mix tab) has any tooltips today, added narrowly for PRD ST-802 by task 186. Every other panel across the 6 Pricing & Margins tabs has zero explanatory text for non-technical users: Overview (Blended Portfolio Margin card, Margin Distribution chart), Product Margins (table columns: Cost, Selling, Margin, Target, Gap), Recommendations (both the AI \"Pricing Recommendations\" and \"Optimizer Recommendations\" panels -- what a recommendation means, what \"confidence\" means), Cross-Subsidisation (what cross-subsidisation itself means, beyond the existing dynamic insight text), Tools (Price-FX Sensitivity Calculator fields, Selling Price Suggestion fields, Saved Scenarios), and 2 of 3 Demand & Mix panels (Product Mix Status target/variance meaning, Demand Forecast \"Horizon (days)\" and confidence-band legend).",
+        "details": "Add pi-info-circle + pTooltip (or short inline description text where a tooltip does not fit, e.g. section headers) matching the existing pattern from the Demand Elasticity panel and the Cashflow page tasks. Keep language simple/plain -- avoid jargon like \"blended margin\", \"FIFO landed cost\", \"elasticity coefficient\" without a one-sentence explanation in everyday terms. All in frontend/src/app/features/pricing/pages/pricing-page.component.ts. This is the largest of the four Pricing audit follow-ups (198, 199, 200, 201) -- consider splitting into per-tab PRs if it grows too large for one review pass.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": [],
+        "updatedAt": "2026-08-14T15:20:00.000Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-14T14:05:00.000Z",
-      "taskCount": 197,
+      "lastModified": "2026-08-14T15:20:00.000Z",
+      "taskCount": 201,
       "completedCount": 197,
       "tags": [
         "master"
