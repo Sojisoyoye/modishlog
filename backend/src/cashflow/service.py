@@ -7,6 +7,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.cashflow.exceptions import LoanNotFoundError, ProjectionNotFoundError
@@ -578,27 +579,6 @@ async def get_current_dscr(db: AsyncSession, business_id: uuid.UUID) -> dict:
 TREND_LOOKBACK_DAYS = 7
 
 
-async def _get_or_create_snapshot(
-    db: AsyncSession, business_id: uuid.UUID, snapshot_date: date
-) -> LiquiditySnapshot:
-    result = await db.execute(
-        select(LiquiditySnapshot).where(
-            LiquiditySnapshot.business_id == business_id,
-            LiquiditySnapshot.snapshot_date == snapshot_date,
-        )
-    )
-    snap = result.scalar_one_or_none()
-    if snap is None:
-        snap = LiquiditySnapshot(
-            business_id=business_id,
-            snapshot_date=snapshot_date,
-            created_at=datetime.now(timezone.utc),
-        )
-        db.add(snap)
-        await db.flush()
-    return snap
-
-
 async def record_runway_snapshot(
     db: AsyncSession,
     business_id: uuid.UUID,
@@ -607,24 +587,54 @@ async def record_runway_snapshot(
 ) -> None:
     """Upsert today's runway value into the daily snapshot row.
 
-    Idempotent and safe to call on every `/cash-runway` request — a request
-    later in the same day just overwrites today's row with the latest value.
+    Uses INSERT ... ON CONFLICT DO UPDATE (not SELECT-then-INSERT) because
+    the frontend fetches /cash-runway and /dscr concurrently — two racing
+    requests for a business with no snapshot row yet would otherwise both
+    try to INSERT and one would hit the unique constraint. The conflict
+    update only touches the runway columns, preserving whatever /dscr
+    already wrote for today (and vice versa).
     """
     today = datetime.now(timezone.utc).date()
-    snap = await _get_or_create_snapshot(db, business_id, today)
-    snap.cash_runway_months = runway_months
-    snap.cash_runway_is_finite = runway_is_finite
+    stmt = pg_insert(LiquiditySnapshot).values(
+        business_id=business_id,
+        snapshot_date=today,
+        cash_runway_months=runway_months,
+        cash_runway_is_finite=runway_is_finite,
+        created_at=datetime.now(timezone.utc),
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["business_id", "snapshot_date"],
+        set_={
+            "cash_runway_months": stmt.excluded.cash_runway_months,
+            "cash_runway_is_finite": stmt.excluded.cash_runway_is_finite,
+        },
+    )
+    await db.execute(stmt)
     await db.flush()
 
 
 async def record_dscr_snapshot(
     db: AsyncSession, business_id: uuid.UUID, dscr: Decimal, dscr_is_finite: bool
 ) -> None:
-    """Upsert today's DSCR value into the daily snapshot row."""
+    """Upsert today's DSCR value into the daily snapshot row (see
+    `record_runway_snapshot` for why this is an atomic upsert, not
+    SELECT-then-INSERT)."""
     today = datetime.now(timezone.utc).date()
-    snap = await _get_or_create_snapshot(db, business_id, today)
-    snap.dscr = dscr
-    snap.dscr_is_finite = dscr_is_finite
+    stmt = pg_insert(LiquiditySnapshot).values(
+        business_id=business_id,
+        snapshot_date=today,
+        dscr=dscr,
+        dscr_is_finite=dscr_is_finite,
+        created_at=datetime.now(timezone.utc),
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["business_id", "snapshot_date"],
+        set_={
+            "dscr": stmt.excluded.dscr,
+            "dscr_is_finite": stmt.excluded.dscr_is_finite,
+        },
+    )
+    await db.execute(stmt)
     await db.flush()
 
 

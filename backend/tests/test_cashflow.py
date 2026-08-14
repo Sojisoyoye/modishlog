@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import postgresql
 
 from src.auth.service import build_token
 from src.cashflow.exceptions import LoanNotFoundError, ProjectionNotFoundError
@@ -669,35 +670,54 @@ class TestGetDscrTrend:
 
 
 class TestRecordSnapshots:
+    """record_runway_snapshot/record_dscr_snapshot use an atomic pg_insert
+    ON CONFLICT DO UPDATE (single execute, no db.add) rather than
+    SELECT-then-INSERT, because /cash-runway and /dscr are fetched
+    concurrently by the frontend (forkJoin) — two racing requests for a
+    business with no snapshot row yet would otherwise both try to INSERT
+    and one would hit the unique constraint. Same pattern already
+    established in src/settings/service.py's update_app_setting()."""
+
     @pytest.mark.asyncio
-    async def test_record_runway_snapshot_creates_new_row_when_none_exists(self):
+    async def test_record_runway_snapshot_upserts_via_single_execute(self):
         from src.cashflow.service import record_runway_snapshot
 
-        db = _mock_db_with_execute(scalar_result=None)
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=MagicMock())
         await record_runway_snapshot(db, uuid.uuid4(), Decimal("4.0"), True)
-        db.add.assert_called_once()
-        added = db.add.call_args[0][0]
-        assert added.cash_runway_months == Decimal("4.0")
-        assert added.cash_runway_is_finite is True
+        db.execute.assert_called_once()
+        db.add.assert_not_called()
+        db.flush.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_record_dscr_snapshot_updates_existing_same_day_row(self):
-        """A /cash-runway call earlier today already created the row —
-        /dscr must update it in place, not create a second one."""
+    async def test_record_dscr_snapshot_upserts_via_single_execute(self):
         from src.cashflow.service import record_dscr_snapshot
 
-        existing = _make_snapshot(
-            snapshot_date=date.today(),
-            cash_runway_months=Decimal("4.0"),
-            cash_runway_is_finite=True,
-        )
-        db = _mock_db_with_execute(scalar_result=existing)
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=MagicMock())
         await record_dscr_snapshot(db, uuid.uuid4(), Decimal("1.8"), True)
+        db.execute.assert_called_once()
         db.add.assert_not_called()
-        assert existing.dscr == Decimal("1.8")
-        assert existing.dscr_is_finite is True
-        # The runway fields set by the earlier /cash-runway call survive.
-        assert existing.cash_runway_months == Decimal("4.0")
+        db.flush.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_record_runway_snapshot_conflict_update_only_touches_runway_columns(
+        self,
+    ):
+        """The ON CONFLICT SET clause must not overwrite dscr/dscr_is_finite
+        — otherwise a /cash-runway call later in the day would clobber
+        whatever /dscr already wrote for today."""
+        from src.cashflow.service import record_runway_snapshot
+
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=MagicMock())
+        await record_runway_snapshot(db, uuid.uuid4(), Decimal("4.0"), True)
+        stmt = db.execute.call_args[0][0]
+        compiled = stmt.compile(dialect=postgresql.dialect())
+        set_clause = str(compiled).split("DO UPDATE SET")[1]
+        assert "cash_runway_months" in set_clause
+        assert "cash_runway_is_finite" in set_clause
+        assert "dscr" not in set_clause
 
 
 # ---------------------------------------------------------------------------
