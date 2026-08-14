@@ -5203,10 +5203,11 @@
         "description": "Found and partially fixed while verifying task #186's E2E coverage. Several pre-existing bugs in frontend/e2e/pricing.spec.ts were blocking the whole serial suite from running at all via cascading skips — fixed the ones needed to get CI green for task #186; one remains.",
         "details": "Fixed already (as part of task #186's PR, since they blocked verifying that PR's own new tests):\n1. The Pricing page was reorganized into tabs (Overview/Product Margins/Recommendations/\n   Cross-Subsidisation/Tools/Demand & Mix) at some point, but most of pricing.spec.ts's\n   tests never switched tabs before asserting on section content — added a\n   switchToTab() helper and applied it to every test that needed a non-default tab.\n2. The standalone 'demand forecast shows insufficient data...' test (outside the main\n   describe.configure({mode:'serial'}) block) never called loginViaAPI()/loginViaUI() at\n   all, so it silently redirected to /login and failed on the heading assertion.\n3. 'sensitivity calc scenario is saved...' used an over-anchored regex\n   `/^calculate$/i` for the Calculate button that never matched (the button's\n   accessible name has a leading space before \"Calculate\" from the icon+text\n   layout) — changed to the same `/calculate/i` pattern already used successfully\n   elsewhere in the file.\n\nSTILL BROKEN — needs its own investigation:\n'Blended Portfolio Margin card shows a numeric % value' (line ~59) consistently\nreturns 0.0% right after beforeAll seeds a delivered order + a sale for\n'E2E Pricing Product', even on a freshly-reset E2E DB. Confirmed via direct API\nprobing that GET /pricing/portfolio-margin correctly filters\nSale.status == COMPLETED (backend logic is correct, not a bug in\ncalculate_portfolio_margin) — the actual issue is almost certainly a timing race\ninside beforeAll itself: the sale POST returns success but something (transaction\ncommit visibility? a downstream async recompute?) isn't settled by the time the\nfirst test's page load queries the margin. This blocks the ENTIRE rest of the\nserial describe block via cascading skips whenever it fires, which is why it was\nnever caught before — earlier tests in the file were also broken (see above), so\nthis one was masked until those got fixed.\n\nNext step: add a short retry/poll (or an explicit wait on order+sale creation\ncompletion) in the test itself, or investigate whether calculate_portfolio_margin's\n30-day revenue query has a genuine consistency issue right after a sale is created\nin the same request cycle.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-08-14T06:41:52.903Z"
       },
       {
         "id": "191",
@@ -5233,7 +5234,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-14T06:41:29.991Z",
+      "lastModified": "2026-08-14T06:41:52.905Z",
       "taskCount": 192,
       "completedCount": 189,
       "tags": [

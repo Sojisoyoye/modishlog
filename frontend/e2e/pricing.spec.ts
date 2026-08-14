@@ -57,21 +57,31 @@ test.describe('Pricing & Margins page', () => {
   });
 
   test('Blended Portfolio Margin card shows a numeric % value', async ({ page }) => {
+    const marginResponse = page.waitForResponse((r) => r.url().includes('/pricing/portfolio-margin'));
     await page.goto('/pricing');
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
       timeout: 10_000,
     });
 
+    // Wait for the GET /pricing/portfolio-margin response itself, not just DOM
+    // visibility — the margin signal defaults to 0 and the card is visible
+    // (rendering "0.0%") from first paint, so racing textContent() against the
+    // async fetch reads the placeholder instead of the real seeded value.
+    await marginResponse;
+
     // Locate the blended margin value by its sibling label text to avoid matching other large numbers
     const marginCard = page.locator('p').filter({ hasText: /\d+\.\d+%/ }).first();
     await expect(marginCard).toBeVisible({ timeout: 10_000 });
 
-    const marginText = await marginCard.textContent();
-    expect(marginText).toMatch(/\d+\.\d+%/);
-
-    // Confirm it's not 0.0% — requires the seeded sale data
-    const marginValue = parseFloat((marginText ?? '').replace('%', '').trim());
-    expect(marginValue).toBeGreaterThan(0);
+    // Confirm it's not 0.0% — requires the seeded sale data. Poll rather than
+    // reading textContent() once, since Angular still needs a render tick
+    // after the response lands before the DOM reflects it.
+    await expect(async () => {
+      const marginText = await marginCard.textContent();
+      expect(marginText).toMatch(/\d+\.\d+%/);
+      const marginValue = parseFloat((marginText ?? '').replace('%', '').trim());
+      expect(marginValue).toBeGreaterThan(0);
+    }).toPass({ timeout: 10_000 });
   });
 
   test('per-product margin table has at least one row with a product name', async ({ page }) => {
@@ -348,14 +358,16 @@ test('demand forecast shows insufficient data empty state when product has < 10 
     timeout: 10_000,
   });
 
-  // Navigate to Demand & Mix tab
+  // Navigate to Demand & Mix tab — products for this dropdown are lazy-loaded
+  // only once the tab is first opened, so the option list is empty for a
+  // moment after the click; poll rather than reading count() once.
   await page.getByRole('button', { name: /demand/i }).click();
 
-  // Select any product from the forecast dropdown
   const productSelect = page.locator('#forecast-product');
-  const optionCount = await productSelect.locator('option').count();
-  // Fail explicitly if no products exist — a silent skip would give false confidence
-  expect(optionCount).toBeGreaterThan(1);
+  // Fail explicitly if no products ever show up — a silent skip would give false confidence
+  await expect(async () => {
+    expect(await productSelect.locator('option').count()).toBeGreaterThan(1);
+  }).toPass({ timeout: 10_000 });
 
   await productSelect.selectOption({ index: 1 });
   await page.getByRole('button', { name: /run forecast/i }).click();
