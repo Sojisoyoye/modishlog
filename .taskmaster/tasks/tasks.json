@@ -5227,18 +5227,18 @@
         "description": "getByText('Returns').click() in the 'KPI accordion structure' describe block matches both the sidebar nav link and the accordion button, throwing a Playwright strict-mode violation. Found while verifying task 189's Cash Health fix — deterministic failure, unrelated to that change. Fix: scope the locator (e.g. to the accordion container or getByRole('button', { name: /Returns/ })) in frontend/e2e/dashboard.spec.ts:89.",
         "details": "",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-08-14T09:49:06.242Z"
+        "updatedAt": "2026-08-14T10:10:05.692Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-14T09:49:06.246Z",
+      "lastModified": "2026-08-14T10:10:05.699Z",
       "taskCount": 192,
-      "completedCount": 191,
+      "completedCount": 192,
       "tags": [
         "master"
       ]
