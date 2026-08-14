@@ -5239,18 +5239,18 @@
         "description": "Discovered 2026-08-14 while verifying task #191: when GET /cashflow/cash-runway or /cashflow/dscr fail (e.g. a 500 from a missing migration), the Cashflow page's Cash Health cards silently stay on the component's initial signal defaults (Cash Runway '0.0 months', DSCR '0.00', Risk Rating 'UNKNOWN') instead of showing any visible error/retry state. This makes a clear backend failure look like plausible-but-wrong data, which is misleading and delayed diagnosis of a real bug (the migration-not-applied issue) since the UI gave no signal anything was wrong.",
         "details": "frontend/src/app/features/cashflow/pages/cashflow-page.component.ts: getLiquidity() subscribe has no error handler; the default liquidity signal ({cash_runway_days:0, runway_is_finite:true, dscr:0, dscr_is_finite:true, risk_rating:'UNKNOWN', ...}) is designed as a safe pre-load placeholder, not an error state, but the two look identical to a user. Fix: add an error handler to the getLiquidity() subscription (and any other cashflow API calls with the same pattern) that sets a distinct 'failed to load' UI state — e.g. an inline error banner or a visible fallback on the affected cards — instead of leaving the placeholder in place indefinitely. Check other pages for the same silent-swallow pattern (dashboard.service.ts's loadDashboard() already has catchError fallbacks per-field, which is a reasonable model to follow, though even those could look like real zero-data to a user rather than an error).",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-08-14T10:28:34.783Z"
+        "updatedAt": "2026-08-14T11:07:01.739Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-14T10:28:34.787Z",
+      "lastModified": "2026-08-14T11:07:01.742Z",
       "taskCount": 193,
-      "completedCount": 192,
+      "completedCount": 193,
       "tags": [
         "master"
       ]
