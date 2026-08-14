@@ -300,3 +300,35 @@ test.describe('Liquidity trend arrows (Task 191)', () => {
     await expect(page.locator('[aria-label^="7-day trend"]')).toHaveCount(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 195 — plain-language labels, tooltips, and section descriptions so a
+// non-technical trader understands what each card/section is for, without
+// needing to know finance jargon like "DSCR" up front.
+// ---------------------------------------------------------------------------
+
+test.describe('Plain-language explanations (Task 195)', () => {
+  test('DSCR card shows a plain-language label alongside the technical term', async ({ page }) => {
+    await expect(page.getByText('Loan Repayment Health', { exact: false })).toBeVisible();
+    await expect(page.getByText('(DSCR)', { exact: false })).toBeVisible();
+  });
+
+  test('6-Month Projection and Month-by-Month sections explain what they show', async ({ page }) => {
+    await expect(
+      page.getByText(/estimate of how much cash you'll have on hand/i)
+    ).toBeVisible();
+    await expect(
+      page.getByText(/spot a shortfall before it happens/i)
+    ).toBeVisible();
+  });
+
+  test('Scenario Simulator has an info icon and a description of its purpose', async ({ page }) => {
+    const simulatorHeading = page.getByRole('heading', { name: 'Scenario Simulator' });
+    await expect(simulatorHeading).toBeVisible();
+    const headerRow = simulatorHeading.locator('..');
+    await expect(headerRow.locator('.pi-info-circle')).toBeVisible();
+    await expect(
+      page.getByText(/see what would happen to your cash position/i)
+    ).toBeVisible();
+  });
+});
