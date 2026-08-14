@@ -5,7 +5,9 @@ import { ApiService } from './api.service';
 
 export interface LiquiditySnapshot {
   runway_months: number;
+  runway_is_finite: boolean;
   dscr: number;
+  dscr_is_finite: boolean;
   risk_rating: string;
 }
 
@@ -51,15 +53,29 @@ export class DashboardService {
   loadDashboard(): Observable<DashboardData> {
     return forkJoin({
       liquidity: forkJoin({
-        runway: this.api.get<{ runway_months: string }>('/cashflow/cash-runway'),
-        dscr: this.api.get<{ dscr: string; color: string }>('/cashflow/dscr'),
+        runway: this.api.get<{ runway_months: string; runway_months_is_finite: boolean }>(
+          '/cashflow/cash-runway',
+        ),
+        dscr: this.api.get<{ dscr: string; dscr_is_finite: boolean; color: string }>(
+          '/cashflow/dscr',
+        ),
       }).pipe(
         map(({ runway, dscr }) => ({
           runway_months: Number(runway.runway_months),
+          runway_is_finite: runway.runway_months_is_finite,
           dscr: Number(dscr.dscr),
-          risk_rating: dscr.color === 'green' ? 'LOW' : dscr.color === 'yellow' ? 'MEDIUM' : 'HIGH',
+          dscr_is_finite: dscr.dscr_is_finite,
+          risk_rating: this.colorToRiskRating(dscr.color),
         })),
-        catchError(() => of({ runway_months: 0, dscr: 0, risk_rating: 'UNKNOWN' })),
+        catchError(() =>
+          of({
+            runway_months: 0,
+            runway_is_finite: true,
+            dscr: 0,
+            dscr_is_finite: true,
+            risk_rating: 'UNKNOWN',
+          }),
+        ),
       ),
       ordersSummary: this.api
         .get<{ total_orders: number; total_value: string; by_status: Record<string, number> }>(
@@ -97,5 +113,16 @@ export class DashboardService {
           catchError(() => of([])),
         ),
     });
+  }
+
+  private colorToRiskRating(color: string): string {
+    if (color === 'green') return 'LOW';
+    // Backend returns 'amber' for the 1.0-1.49 DSCR band (cashflow/service.py) —
+    // this used to check 'yellow', which never matched, so a medium-risk DSCR
+    // silently fell through to 'HIGH' instead of 'MEDIUM' (task 189, same bug
+    // class as cashflow.service.ts's colorToRiskRating, fixed there in task 187).
+    if (color === 'amber') return 'MEDIUM';
+    if (color === 'red') return 'HIGH';
+    return 'UNKNOWN';
   }
 }

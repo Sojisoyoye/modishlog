@@ -1,6 +1,8 @@
-import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
-import { ensureProduct, createOrder, deleteOrder } from './helpers/data';
+import { test, expect, request } from '@playwright/test';
+import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureProduct, createOrder, deleteOrder, createLoan, addStock, createSale } from './helpers/data';
+
+const API = 'http://localhost:8000/api/v1';
 
 // ---------------------------------------------------------------------------
 // Dashboard E2E Tests
@@ -178,6 +180,70 @@ test.describe('Pulse Metrics cards', () => {
     const hasExposure = await page.getByText('No FX exposure tracked yet').isVisible().catch(() => false);
     const hasRows = await page.locator('.rounded-xl.border.border-gray-100').first().isVisible().catch(() => false);
     expect(hasExposure || hasRows).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 189 — Cash Health card had the same 999-sentinel leak and
+// yellow/amber DSCR-color bug as the Cashflow page (fixed there in task 187).
+// ---------------------------------------------------------------------------
+
+test.describe('Cash Health card — 999 sentinel and risk-color parity (Task 189)', () => {
+  test.beforeAll(async () => {
+    // Seed revenue and trigger the lazily-generated cashflow projection so
+    // Cash Runway reflects a genuinely burn-free, debt-free account instead
+    // of the "no projection generated yet" 0-months default — that default
+    // is also finite, so it would mask the 999-sentinel bug this test exists
+    // to catch.
+    const product = await ensureProduct('E2E Cash Health Product');
+    await addStock(product.id, 100);
+    await createSale(product.id, { quantity: 10, unitPrice: '300000.00' });
+    const token = await getAPIToken();
+    const ctx = await request.newContext();
+    await ctx.get(`${API}/cashflow/projection`, { headers: { Authorization: `Bearer ${token}` } });
+    await ctx.dispose();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await page.getByText('Pulse Metrics').click();
+    await expect(page.getByText('Cash Health').first()).toBeVisible();
+  });
+
+  test('Cash Runway never shows the raw 999 sentinel for a debt-free account', async ({ page }) => {
+    await expect(page.getByText(/999\.0/, { exact: false })).not.toBeVisible();
+    await expect(page.getByText('Profitable', { exact: false })).toBeVisible();
+  });
+
+  test('Profit Score (DSCR) never shows the raw 999 sentinel for a debt-free account', async ({ page }) => {
+    await expect(page.getByText('999.0', { exact: true })).not.toBeVisible();
+    await expect(page.getByText('Excellent', { exact: false })).toBeVisible();
+  });
+
+  test('risk badge shows Caution, not At Risk, for a medium-risk (amber) DSCR', async ({ page }) => {
+    // Size a loan so DSCR lands in the 1.0-1.49 "amber" band: the backend
+    // color-codes that band as amber, and the old dashboard.service.ts
+    // mapping (`=== 'yellow'`) never matched it, silently inflating a
+    // medium-risk account to the HIGH/"At Risk" badge. The describe's
+    // beforeAll already seeded revenue, so net_operating_income is positive.
+    const token = await getAPIToken();
+    const ctx = await request.newContext();
+    const dscrResp = await ctx.get(`${API}/cashflow/dscr`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const { net_operating_income } = await dscrResp.json();
+    await ctx.dispose();
+    const noi = parseFloat(net_operating_income);
+    expect(noi).toBeGreaterThan(0);
+    const monthlyPayment = (noi / 1.25).toFixed(2);
+
+    await createLoan('E2E Amber DSCR Bank', '1000000.00', monthlyPayment);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await page.getByText('Pulse Metrics').click();
+    await expect(page.getByText('Cash Health').first()).toBeVisible();
+
+    await expect(page.getByText('Caution', { exact: true })).toBeVisible();
+    await expect(page.getByText('At Risk', { exact: true })).not.toBeVisible();
   });
 });
 

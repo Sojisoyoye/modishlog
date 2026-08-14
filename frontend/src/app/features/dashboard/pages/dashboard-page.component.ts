@@ -433,7 +433,7 @@ import { AuthService } from '../../../core/services/auth.service';
                   <div class="flex items-center justify-between">
                     <span class="text-sm text-slate-500">Cash Runway</span>
                     <span class="text-sm font-bold text-slate-800">
-                      @if (data().liquidity.runway_months > 0) {
+                      @if (data().liquidity.runway_is_finite) {
                         {{ data().liquidity.runway_months | number: '1.1-1' }} mo
                       } @else { Profitable ✓ }
                     </span>
@@ -441,7 +441,7 @@ import { AuthService } from '../../../core/services/auth.service';
                   <div class="flex items-center justify-between">
                     <span class="text-sm text-slate-500">Profit Score (DSCR)</span>
                     <span class="text-sm font-bold" [class]="dscrColor()">
-                      @if (data().liquidity.dscr >= 99) { Excellent }
+                      @if (!data().liquidity.dscr_is_finite) { Excellent }
                       @else if (data().liquidity.dscr > 0) { {{ data().liquidity.dscr | number: '1.1-1' }} }
                       @else { — }
                     </span>
@@ -660,7 +660,13 @@ export class DashboardPageComponent implements OnInit {
   // Dashboard data (loaded in parallel)
   loading = signal(true);
   data = signal<DashboardData>({
-    liquidity: { runway_months: 0, dscr: 0, risk_rating: 'UNKNOWN' },
+    liquidity: {
+      runway_months: 0,
+      runway_is_finite: true,
+      dscr: 0,
+      dscr_is_finite: true,
+      risk_rating: 'UNKNOWN',
+    },
     ordersSummary: { total_orders: 0, total_value: '0', by_status: {}, active_orders: 0 },
     profitMargin: { blended_margin: 0, target_margin: 35, margin_gap: -35 },
     lowStockCount: 0,
@@ -735,8 +741,9 @@ export class DashboardPageComponent implements OnInit {
   // ---- Cash Health helpers -----------------------------------------------
 
   dscrColor(): string {
-    const d = this.data().liquidity.dscr;
-    return d >= 1.5 ? 'text-green-600' : d >= 1.0 ? 'text-amber-600' : 'text-red-600';
+    const l = this.data().liquidity;
+    if (!l.dscr_is_finite) return 'text-green-600';
+    return l.dscr >= 1.5 ? 'text-green-600' : l.dscr >= 1.0 ? 'text-amber-600' : 'text-red-600';
   }
 
   riskBadgeClass(): string {
