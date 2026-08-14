@@ -1,6 +1,8 @@
-import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { test, expect, request } from '@playwright/test';
+import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
 import { createOperatingCost, createLoan } from './helpers/data';
+
+const API = 'http://localhost:8000/api/v1';
 
 // ---------------------------------------------------------------------------
 // Cashflow Page E2E Tests
@@ -340,5 +342,55 @@ test.describe('Plain-language explanations (Task 195)', () => {
 
     const demandLabel = page.locator('label[for="cf-demand-drop"]');
     await expect(demandLabel.locator('.pi-info-circle')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 194 — a loan added mid-day must show up in the projection right
+// away, not wait until the daily cache regenerates tomorrow.
+// ---------------------------------------------------------------------------
+
+test.describe('Same-day projection updates when a loan is added (Task 194)', () => {
+  test('creating a loan immediately increases this month\'s Loan figure in the table', async ({
+    page,
+  }) => {
+    const token = await getAPIToken();
+    const ctx = await request.newContext();
+
+    // Prime today's cached projection (whatever the current month's Loan
+    // figure already is, from any earlier test's loans in this shared DB).
+    const before = await ctx.get(`${API}/cashflow/projection`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const beforeBody = await before.json();
+    const loanBefore = parseFloat(beforeBody.monthly_buckets[0].projected_loan_payment);
+
+    // A distinctive, large monthly payment so the increase is unmistakable
+    // even if other tests already created smaller loans in this shared DB.
+    await createLoan('E2E Task194 Same-Day Bank', '10000000.00', '750000.00');
+
+    const after = await ctx.get(`${API}/cashflow/projection`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const afterBody = await after.json();
+    const loanAfter = parseFloat(afterBody.monthly_buckets[0].projected_loan_payment);
+    await ctx.dispose();
+
+    expect(loanAfter).toBeGreaterThanOrEqual(loanBefore + 750000);
+
+    // Also verify via the real UI, not just the raw API.
+    await page.goto('/cashflow');
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
+    const firstRowLoanCell = page
+      .locator('table')
+      .filter({ hasText: /Month/i })
+      .locator('tbody tr')
+      .first()
+      .locator('td')
+      .nth(2);
+    const loanText = await firstRowLoanCell.textContent();
+    const loanNum = parseFloat((loanText ?? '').replace(/[^0-9.]/g, ''));
+    expect(loanNum).toBeGreaterThanOrEqual(loanBefore + 750000);
   });
 });

@@ -5251,10 +5251,11 @@
         "description": "Root-caused 2026-08-14 while investigating a flaky E2E test (cashflow.spec.ts 'has at least one row with a non-zero Opex figure'). Task #191's _get_or_regenerate_projection (backend/src/cashflow/service.py) regenerates a cashflow projection once per calendar day, reusing the cached one for any same-day request. In practice, ANY page visit to /dashboard triggers a real /cashflow/cash-runway call (dashboard.service.ts's Cash Health card), which internally calls calculate_cash_runway -> _get_or_regenerate_projection -> generates and caches a projection for 'today'. If this happens before a business's loans/operating costs/orders are set up (e.g. a user logs in on day 1 before configuring anything, or in E2E CI, auth.spec.ts's login test visits /dashboard before cashflow.spec.ts's beforeAll seeds an operating cost), the cached projection reflects the empty state and won't be regenerated until the NEXT calendar day — even though the underlying cost/loan data changed hours later the same day.",
         "details": "This is a real UX gap, not just a test-infra issue: a user who adds a loan or operating cost mid-day would see their Cashflow projection still reflect the old (pre-change) state until midnight, contradicting the ST-701 PRD intent of a projection that reflects current data. Confirmed via CI logs (PR #357, e2e-shard 1): auth.spec.ts's 'logs in successfully and redirects to dashboard' test (real login, no mocking) generates an empty projection at DB-reset time, then cashflow.spec.ts's own tests inherit that stale cached projection all shard run, failing the Opex-figure assertion nondeterministically depending on file run order.\\n\\nFix options:\\n1. Invalidate/regenerate the cached projection when the underlying inputs change — e.g. bust the cache (or just regenerate unconditionally) inside create_loan/create_operating_cost/order-status-transition-to-DELIVERED, not just on a daily timer. This is the most correct fix for the real UX gap.\\n2. At minimum for E2E stability, some tests may need to seed their fixture data (operating costs, loans) BEFORE any test in the suite ever visits /dashboard or /cashflow — fragile and order-dependent, not a real fix, only worth doing if option 1 is deferred.\\n\\nRecommend option 1: add an explicit cache-bust call (delete or mark stale any CashflowProjection row for today) inside create_loan, create_operating_cost, and the order DELIVERED transition, so the next /cashflow/projection or /cash-runway request regenerates rather than reusing stale same-day data.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-08-14T12:52:06.564Z"
       },
       {
         "id": "195",
@@ -5279,12 +5280,24 @@
         "priority": "low",
         "subtasks": [],
         "updatedAt": "2026-08-14T12:47:07.683Z"
+      },
+      {
+        "id": "197",
+        "title": "Dashboard Cash Health risk badge sometimes fails to show 'Caution' for a medium-risk (amber) DSCR under E2E cross-file load",
+        "description": "Found 2026-08-14 while shipping task 194 (cashflow projection cache invalidation). e2e/dashboard.spec.ts:215 'risk badge shows Caution, not At Risk, for a medium-risk (amber) DSCR' passes in isolation but intermittently fails (badge text neither 'Caution' nor 'At Risk' is found) when dashboard.spec.ts runs after cashflow.spec.ts + cashflow-error-states.spec.ts in the same Playwright run (shared DB, workers:1, no reset between files).",
+        "details": "Confirmed pre-existing and unrelated to task 194's fix: reproduces identically with task 194's cashflow.service.py/orders.service.py changes present or reverted (git stash), so it is not a regression from that change. Root cause not yet diagnosed — likely the same class of cross-file E2E pollution documented repeatedly this session (workers:1 sharing one DB across all spec files with no reset between files). Needs direct investigation: capture the actual DSCR/risk_rating value the dashboard receives when this fails, and check whether MEDIUM-risk data seeded by an earlier test file is being overwritten/diluted by additional loans/costs/orders created by later-running files before this test's assertion.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": [],
+        "updatedAt": "2026-08-14T13:20:00.000Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-14T12:47:07.688Z",
-      "taskCount": 196,
+      "lastModified": "2026-08-14T13:20:00.000Z",
+      "taskCount": 197,
       "completedCount": 195,
       "tags": [
         "master"

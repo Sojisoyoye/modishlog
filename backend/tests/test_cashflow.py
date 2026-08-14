@@ -208,7 +208,11 @@ class TestLoanCRUD:
             notes = None
 
         biz_id = uuid.uuid4()
-        result = await create_loan(db, LoanData(), uuid.uuid4(), biz_id)
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ):
+            result = await create_loan(db, LoanData(), uuid.uuid4(), biz_id)
         assert result.lender_name == "Access Bank"
         assert result.outstanding_balance == Decimal("500000")
         assert db.add.called
@@ -260,7 +264,11 @@ class TestOperatingCostCRUD:
             category = CostCategory.UTILITIES
 
         biz_id = uuid.uuid4()
-        result = await create_operating_cost(db, CostData(), uuid.uuid4(), biz_id)
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ):
+            result = await create_operating_cost(db, CostData(), uuid.uuid4(), biz_id)
         assert result.cost_name == "Internet"
         assert result.monthly_equivalent == Decimal("15000.00")
         assert db.add.called
@@ -279,7 +287,11 @@ class TestOperatingCostCRUD:
             category = CostCategory.TRANSPORT
 
         biz_id = uuid.uuid4()
-        result = await create_operating_cost(db, CostData(), uuid.uuid4(), biz_id)
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ):
+            result = await create_operating_cost(db, CostData(), uuid.uuid4(), biz_id)
         assert result.monthly_equivalent == Decimal("21650.00")
 
     @pytest.mark.asyncio
@@ -290,6 +302,91 @@ class TestOperatingCostCRUD:
         db = _mock_db_with_execute(scalars_result=costs)
         result = await get_operating_costs(db, uuid.uuid4())
         assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Projection cache invalidation (task 194)
+# ---------------------------------------------------------------------------
+
+
+class TestInvalidateTodaysProjection:
+    """_get_or_regenerate_projection (task 191) only regenerates when the
+    cached projection's date is in the past — so a loan/operating cost/order
+    delivery added mid-day would otherwise not show up in the projection
+    until the next calendar day. invalidate_todays_projection regenerates
+    (inserts a fresh row) rather than deleting the stale one, since a saved
+    StressScenario can reference a projection by id and deleting it would
+    violate that FK."""
+
+    @pytest.mark.asyncio
+    async def test_regenerates_a_fresh_projection_for_the_given_business(self):
+        from src.cashflow.service import invalidate_todays_projection
+
+        db = _mock_db()
+        business_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        with patch(
+            "src.cashflow.service.generate_cashflow_projection",
+            new_callable=AsyncMock,
+        ) as mock_generate:
+            await invalidate_todays_projection(db, user_id, business_id)
+
+        mock_generate.assert_called_once_with(db, user_id, business_id)
+
+
+class TestProjectionInvalidationHooks:
+    """create_loan and create_operating_cost must invalidate today's cached
+    projection so it's regenerated on next read, reflecting the new data."""
+
+    @pytest.mark.asyncio
+    async def test_create_loan_invalidates_todays_projection(self):
+        from src.cashflow.service import create_loan
+
+        db = _mock_db()
+        db.execute = AsyncMock()
+
+        class LoanData:
+            lender_name = "Access Bank"
+            principal_amount = Decimal("500000")
+            interest_rate = Decimal("15.00")
+            term_months = 12
+            start_date = date.today()
+            payment_frequency = PaymentFrequency.MONTHLY
+            monthly_payment = Decimal("45000")
+            currency = "NGN"
+            notes = None
+
+        business_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ) as mock_invalidate:
+            await create_loan(db, LoanData(), user_id, business_id)
+        mock_invalidate.assert_called_once_with(db, user_id, business_id)
+
+    @pytest.mark.asyncio
+    async def test_create_operating_cost_invalidates_todays_projection(self):
+        from src.cashflow.service import create_operating_cost
+
+        db = _mock_db()
+        db.execute = AsyncMock()
+
+        class CostData:
+            cost_name = "Internet"
+            cost_amount = Decimal("15000")
+            frequency = CostFrequency.MONTHLY
+            category = CostCategory.UTILITIES
+
+        business_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        with patch(
+            "src.cashflow.service.invalidate_todays_projection",
+            new_callable=AsyncMock,
+        ) as mock_invalidate:
+            await create_operating_cost(db, CostData(), user_id, business_id)
+        mock_invalidate.assert_called_once_with(db, user_id, business_id)
 
 
 # ---------------------------------------------------------------------------
