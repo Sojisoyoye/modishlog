@@ -5215,10 +5215,11 @@
         "description": "Split off task #188 — these 2 gaps need new infrastructure (a scheduler, historical metric snapshots), unlike #188's 4 contained changes.",
         "details": "Two gaps from the original Cashflow page PRD audit (2026-08-13), deferred from task #188 because both need new infrastructure rather than being contained changes to existing code:\n\n1. ST-701 criterion 5 (daily recalculation). No scheduler/cron exists anywhere in this codebase (confirmed via repo-wide grep of backend/src/ for cron/scheduler/celery/apscheduler — none found in ANY domain, not just cashflow). GET /projection (backend/src/cashflow/router.py, get_projection_endpoint) returns the cached latest projection and only regenerates if none has ever existed — no staleness check against CashflowProjection.projection_date. A projection can go stale indefinitely until a scenario run happens to regenerate one.\n\n   Two possible approaches:\n   a) Lazy staleness check: in get_projection_endpoint, if the latest projection's projection_date < today, regenerate before returning. Simple, no new infra, matches \"daily\" as \"at most once per day, computed lazily on next access\" rather than a true background job.\n   b) Real scheduler: introduce APScheduler (or similar) as a new dependency, run a daily job regenerating projections for all businesses. Bigger lift — needs to decide where the scheduler runs (in the FastAPI process vs a separate worker), a design decision the user should weigh in on given it's a new architectural pattern for the whole app, not just cashflow.\n\n   Recommend starting with (a) unless the user wants proactive (not just next-page-load) recalculation.\n\n2. ST-702 criterion 4 (7-day trend arrows). PRD requires trend arrows showing whether Cash Runway and DSCR improved or deteriorated over the past 7 days. There is currently no point-in-time snapshot storage for these metrics — CashflowProjection stores the latest computed values but nothing historical to diff against.\n\n   Needs: a new table (e.g. LiquiditySnapshot: business_id, snapshot_date, cash_runway_months, dscr) populated once per day (natural pairing with gap 1's daily recalc — could write a snapshot row in the same code path that regenerates the projection), plus a query in get_current_dscr/calculate_cash_runway (or a new endpoint) comparing today's value to the snapshot from ~7 days ago, plus arrow-up/arrow-down UI on the Cashflow page's Cash Runway/DSCR cards.\n\nBoth gaps are naturally solved together if approach (a) above is chosen for gap 1, since the daily-regeneration code path is also the natural place to write gap 2's snapshot row.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-08-14T07:06:51.662Z"
       },
       {
         "id": "192",
@@ -5234,7 +5235,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-14T07:06:21.720Z",
+      "lastModified": "2026-08-14T07:06:51.663Z",
       "taskCount": 192,
       "completedCount": 190,
       "tags": [

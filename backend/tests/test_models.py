@@ -26,6 +26,7 @@ from src.auth.models import User
 from src.cashflow.models import (
     CashflowProjection,
     DSCRRecord,
+    LiquiditySnapshot,
     LoanObligation,
     LoanPaymentSchedule,
     LoanStatus,
@@ -65,7 +66,13 @@ from src.pricing.models import (
     RecommendationStatus as PricingRecStatus,
 )
 from src.products.models import PriceHistory, Product, ProductCategory
-from src.sales.models import Sale, SaleAuditEntry, SaleBulkUploadJob, SaleChannel, SaleStatus
+from src.sales.models import (
+    Sale,
+    SaleAuditEntry,
+    SaleBulkUploadJob,
+    SaleChannel,
+    SaleStatus,
+)
 
 
 _NOW = datetime.now(timezone.utc)
@@ -412,6 +419,18 @@ class TestCashflowModels:
     def test_payment_frequency_enum(self):
         assert PaymentFrequency.MONTHLY.value == "monthly"
         assert PaymentFrequency.QUARTERLY.value == "quarterly"
+
+    def test_liquidity_snapshot(self):
+        snap = LiquiditySnapshot(
+            snapshot_date=_TODAY,
+            cash_runway_months=Decimal("4.5"),
+            cash_runway_is_finite=True,
+            dscr=Decimal("1.750"),
+            dscr_is_finite=True,
+            created_at=_NOW,
+        )
+        assert snap.cash_runway_months == Decimal("4.5")
+        assert snap.dscr_is_finite is True
 
 
 # ---------- Pricing ----------

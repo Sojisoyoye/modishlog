@@ -18,8 +18,10 @@ export interface CashflowMonth {
 export interface LiquidityInfo {
   cash_runway_days: number;
   runway_is_finite: boolean;
+  runway_trend: 'up' | 'down' | 'flat' | null;
   dscr: number;
   dscr_is_finite: boolean;
+  dscr_trend: 'up' | 'down' | 'flat' | null;
   risk_rating: string;
   alerts: LiquidityAlert[];
 }
@@ -123,6 +125,7 @@ interface RunwayResponse {
   runway_months: number;
   runway_months_is_finite: boolean;
   avg_monthly_burn: number;
+  runway_trend: 'up' | 'down' | 'flat' | null;
 }
 
 interface DSCRResponse {
@@ -131,6 +134,7 @@ interface DSCRResponse {
   net_operating_income: number;
   total_debt_service: number;
   color: string;
+  dscr_trend: 'up' | 'down' | 'flat' | null;
 }
 
 interface AlertResponse {
@@ -185,8 +189,10 @@ export class CashflowService {
       map(({ runway, dscr, alerts }) => ({
         cash_runway_days: Math.round(Number(runway.runway_months) * 30),
         runway_is_finite: runway.runway_months_is_finite,
+        runway_trend: runway.runway_trend,
         dscr: Number(dscr.dscr),
         dscr_is_finite: dscr.dscr_is_finite,
+        dscr_trend: dscr.dscr_trend,
         risk_rating: this.colorToRiskRating(dscr.color),
         alerts: alerts.map((a) => ({ severity: a.severity, message: a.message })),
       }))

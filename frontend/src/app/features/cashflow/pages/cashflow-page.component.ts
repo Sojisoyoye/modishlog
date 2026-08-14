@@ -33,6 +33,13 @@ import {
             </div>
             <p class="text-3xl font-bold text-text">
               {{ liquidity().runway_is_finite ? runwayMonths() + ' months' : 'No burn' }}
+              @if (trendIcon(liquidity().runway_trend); as icon) {
+                <i
+                  [class]="icon.icon + ' ml-1 align-middle text-base ' + icon.colorClass"
+                  [attr.aria-label]="'7-day trend: ' + liquidity().runway_trend"
+                  [title]="'vs. 7 days ago'"
+                ></i>
+              }
             </p>
           </div>
           <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -44,6 +51,13 @@ import {
             </div>
             <p class="text-3xl font-bold" [class]="dscrColor()">
               {{ liquidity().dscr_is_finite ? (liquidity().dscr | number: '1.2-2') : 'No debt' }}
+              @if (trendIcon(liquidity().dscr_trend); as icon) {
+                <i
+                  [class]="icon.icon + ' ml-1 align-middle text-base ' + icon.colorClass"
+                  [attr.aria-label]="'7-day trend: ' + liquidity().dscr_trend"
+                  [title]="'vs. 7 days ago'"
+                ></i>
+              }
             </p>
           </div>
           <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
@@ -423,8 +437,10 @@ export class CashflowPageComponent implements OnInit {
   liquidity = signal<LiquidityInfo>({
     cash_runway_days: 0,
     runway_is_finite: true,
+    runway_trend: null,
     dscr: 0,
     dscr_is_finite: true,
+    dscr_trend: null,
     risk_rating: 'UNKNOWN',
     alerts: [],
   });
@@ -509,6 +525,16 @@ export class CashflowPageComponent implements OnInit {
     if (d >= 1.5) return 'text-success';
     if (d >= 1.0) return 'text-warning';
     return 'text-danger';
+  }
+
+  // Task 191 (ST-702 criterion 4) — 7-day trend arrows on Cash Runway/DSCR.
+  // Null means no snapshot from ~7 days ago exists yet (e.g. a business
+  // less than a week old) — show nothing rather than a misleading flat icon.
+  trendIcon(trend: 'up' | 'down' | 'flat' | null): { icon: string; colorClass: string } | null {
+    if (trend === 'up') return { icon: 'pi pi-arrow-up', colorClass: 'text-success' };
+    if (trend === 'down') return { icon: 'pi pi-arrow-down', colorClass: 'text-danger' };
+    if (trend === 'flat') return { icon: 'pi pi-minus', colorClass: 'text-muted' };
+    return null;
   }
 
   riskStatus(): 'success' | 'warning' | 'danger' | 'neutral' {

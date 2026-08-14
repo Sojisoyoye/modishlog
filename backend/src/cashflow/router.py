@@ -10,7 +10,6 @@ from src.auth.models import User
 from src.cashflow.exceptions import (
     InvalidScenarioTypeError,
     LoanNotFoundError,
-    ProjectionNotFoundError,
 )
 from src.cashflow.schemas import (
     AlertResponse,
@@ -43,12 +42,18 @@ from src.cashflow.service import (
     generate_triage_recommendations,
     get_active_triage,
     get_current_dscr,
-    get_latest_projection,
+    get_dscr_trend,
     get_loan,
     get_loans,
     get_operating_costs,
+    get_runway_trend,
     get_scenarios,
+    record_dscr_snapshot,
+    record_runway_snapshot,
     run_stress_scenario,
+)
+from src.cashflow.service import (
+    _get_or_regenerate_projection as get_or_regenerate_projection,
 )
 from src.core.database import get_db
 
@@ -133,11 +138,12 @@ async def get_projection_endpoint(
     current_user: User = Depends(get_current_active_user),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """Get the latest 6-month cashflow projection (generates if none exists)."""
-    try:
-        return await get_latest_projection(db, business_id)
-    except ProjectionNotFoundError:
-        return await generate_cashflow_projection(db, current_user.id, business_id)
+    """Get the latest 6-month cashflow projection.
+
+    Generates a new one if none exists, or if the latest is stale (task 191
+    — daily recalculation, refreshed lazily on next access).
+    """
+    return await get_or_regenerate_projection(db, current_user.id, business_id)
 
 
 @router.get("/projection/{scenario}", response_model=ProjectionRead)
@@ -199,16 +205,18 @@ async def list_scenarios_endpoint(
 @router.get("/cash-runway", response_model=RunwayResponse)
 async def cash_runway_endpoint(
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """Get current cash runway in months."""
-    try:
-        data = await calculate_cash_runway(db, business_id)
-        return RunwayResponse(**data)
-    except ProjectionNotFoundError:
-        return RunwayResponse(
-            runway_months=0, runway_months_is_finite=True, avg_monthly_burn=0
-        )
+    """Get current cash runway in months, with a 7-day trend arrow."""
+    data = await calculate_cash_runway(db, current_user.id, business_id)
+    await record_runway_snapshot(
+        db, business_id, data["runway_months"], data["runway_months_is_finite"]
+    )
+    trend = await get_runway_trend(
+        db, business_id, data["runway_months"], data["runway_months_is_finite"]
+    )
+    return RunwayResponse(**data, runway_trend=trend)
 
 
 # ---------------------------------------------------------------------------
@@ -221,9 +229,11 @@ async def dscr_endpoint(
     db: AsyncSession = Depends(get_db),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """Get current Debt Service Coverage Ratio."""
+    """Get current Debt Service Coverage Ratio, with a 7-day trend arrow."""
     data = await get_current_dscr(db, business_id)
-    return DSCRResponse(**data)
+    await record_dscr_snapshot(db, business_id, data["dscr"], data["dscr_is_finite"])
+    trend = await get_dscr_trend(db, business_id, data["dscr"], data["dscr_is_finite"])
+    return DSCRResponse(**data, dscr_trend=trend)
 
 
 # ---------------------------------------------------------------------------

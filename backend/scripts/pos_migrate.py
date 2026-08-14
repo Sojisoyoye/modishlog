@@ -52,6 +52,7 @@ from src.auth.models import PasswordResetToken, RefreshToken, User, UserRole
 from src.cashflow.models import (
     CashflowProjection,
     DSCRRecord,
+    LiquiditySnapshot,
     LoanObligation,
     LoanPaymentSchedule,
     OperatingCost,
@@ -596,6 +597,7 @@ WIPE_ORDER = [
     MarginTarget,           # → products, product_categories, users
     ProductMixTarget,       # → product_categories
     # ── Cashflow ─────────────────────────────────────────────────────────────
+    LiquiditySnapshot,      # → businesses
     StressScenario,         # → cashflow_projections, users
     TriageRecord,
     DSCRRecord,

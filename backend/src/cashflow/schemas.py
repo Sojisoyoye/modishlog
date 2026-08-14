@@ -114,6 +114,7 @@ class DSCRResponse(BaseModel):
     net_operating_income: Decimal
     total_debt_service: Decimal
     color: str
+    dscr_trend: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +126,7 @@ class RunwayResponse(BaseModel):
     runway_months: Decimal
     runway_months_is_finite: bool
     avg_monthly_burn: Decimal
+    runway_trend: str | None = None
 
 
 # ---------------------------------------------------------------------------
