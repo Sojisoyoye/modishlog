@@ -5262,18 +5262,18 @@
         "description": "User feedback 2026-08-14: the Cashflow page's Month-by-Month table, 6-Month Projection chart, DSCR card, and Scenario Simulator had no explanation of what they show or why, and used unexplained finance jargon (DSCR) that an ordinary trader wouldn't understand.",
         "details": "Implemented: (1) Cash Runway and DSCR cards now have an info-icon tooltip explaining the metric in plain language; DSCR card's visible label changed to 'Loan Repayment Health (DSCR)' so the jargon isn't the only thing shown. (2) 6-Month Projection chart and Month-by-Month table each got a one-line description under their heading explaining what the numbers mean and why they matter (spotting a cash shortfall before it happens). (3) Scenario Simulator got an info-icon tooltip plus a description below its title explaining its purpose. (4) Month-by-Month table's DSCR column header got a tooltip too. Matches the existing pi-info-circle + pTooltip pattern already used on the Pricing page (elasticity/FX sensitivity fields).",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-08-14T11:29:22.224Z"
+        "updatedAt": "2026-08-14T11:50:20.292Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-14T11:29:22.230Z",
+      "lastModified": "2026-08-14T11:50:20.298Z",
       "taskCount": 195,
-      "completedCount": 193,
+      "completedCount": 194,
       "tags": [
         "master"
       ]
