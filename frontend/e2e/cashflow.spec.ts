@@ -282,3 +282,21 @@ test.describe('Saved Scenarios', () => {
     await expect(compareCards).toHaveCount(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 191 (ST-702 criterion 4) — 7-day trend arrows on Cash Runway/DSCR.
+// A trend only appears once a snapshot from ~7 days ago exists; a business
+// less than a week old (as every E2E run's fresh test business is) has none
+// yet, so the day-one state — no arrow rendered — is what's verifiable here.
+// The trend *direction* logic itself is covered by backend unit tests
+// (TestTrendDirection, TestGetRunwayTrend, TestGetDscrTrend).
+// ---------------------------------------------------------------------------
+
+test.describe('Liquidity trend arrows (Task 191)', () => {
+  test('no trend arrow shows for a business with no 7-day-old snapshot yet', async ({ page }) => {
+    await expect(page.getByText('Cash Runway').first()).toBeVisible();
+    await expect(page.getByText('DSCR').first()).toBeVisible();
+
+    await expect(page.locator('[aria-label^="7-day trend"]')).toHaveCount(0);
+  });
+});

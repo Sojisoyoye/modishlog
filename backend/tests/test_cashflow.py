@@ -431,22 +431,85 @@ class TestScenarioParams:
 # ---------------------------------------------------------------------------
 
 
-class TestCashRunway:
+class TestGetOrRegenerateProjection:
+    """Task 191 (ST-701 criterion 5) — daily recalculation, computed lazily
+    on next access rather than via a background scheduler."""
+
     @pytest.mark.asyncio
-    async def test_runway_no_projection(self):
-        from src.cashflow.service import calculate_cash_runway
+    async def test_reuses_projection_generated_today(self):
+        from src.cashflow.service import _get_or_regenerate_projection
 
-        db = _mock_db_with_execute(scalar_result=None)
-        with pytest.raises(ProjectionNotFoundError):
-            await calculate_cash_runway(db, uuid.uuid4())
+        proj = _make_projection(projection_date=date.today())
+        with (
+            patch(
+                "src.cashflow.service.get_latest_projection",
+                new_callable=AsyncMock,
+                return_value=proj,
+            ),
+            patch(
+                "src.cashflow.service.generate_cashflow_projection",
+                new_callable=AsyncMock,
+            ) as mock_generate,
+        ):
+            db = _mock_db()
+            result = await _get_or_regenerate_projection(db, uuid.uuid4(), uuid.uuid4())
+        assert result is proj
+        mock_generate.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_regenerates_when_projection_is_stale(self):
+        from src.cashflow.service import _get_or_regenerate_projection
+
+        stale_proj = _make_projection(projection_date=date.today() - timedelta(days=1))
+        fresh_proj = _make_projection(projection_date=date.today())
+        with (
+            patch(
+                "src.cashflow.service.get_latest_projection",
+                new_callable=AsyncMock,
+                return_value=stale_proj,
+            ),
+            patch(
+                "src.cashflow.service.generate_cashflow_projection",
+                new_callable=AsyncMock,
+                return_value=fresh_proj,
+            ) as mock_generate,
+        ):
+            db = _mock_db()
+            result = await _get_or_regenerate_projection(db, uuid.uuid4(), uuid.uuid4())
+        assert result is fresh_proj
+        mock_generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generates_when_none_exists(self):
+        from src.cashflow.service import _get_or_regenerate_projection
+
+        fresh_proj = _make_projection()
+        with (
+            patch(
+                "src.cashflow.service.get_latest_projection",
+                new_callable=AsyncMock,
+                side_effect=ProjectionNotFoundError(),
+            ),
+            patch(
+                "src.cashflow.service.generate_cashflow_projection",
+                new_callable=AsyncMock,
+                return_value=fresh_proj,
+            ) as mock_generate,
+        ):
+            db = _mock_db()
+            result = await _get_or_regenerate_projection(db, uuid.uuid4(), uuid.uuid4())
+        assert result is fresh_proj
+        mock_generate.assert_called_once()
+
+
+class TestCashRunway:
     @pytest.mark.asyncio
     async def test_runway_all_positive(self):
         from src.cashflow.service import calculate_cash_runway
 
         proj = _make_projection()
         db = _mock_db_with_execute(scalar_result=proj)
-        result = await calculate_cash_runway(db, uuid.uuid4())
+        result = await calculate_cash_runway(db, uuid.uuid4(), uuid.uuid4())
         assert result["runway_months"] == Decimal("999.0")
         assert result["avg_monthly_burn"] == Decimal("0")
         # Task 187 — cash-flow-positive with no burn means runway is
@@ -488,11 +551,153 @@ class TestCashRunway:
             ],
         )
         db = _mock_db_with_execute(scalar_result=proj)
-        result = await calculate_cash_runway(db, uuid.uuid4())
+        result = await calculate_cash_runway(db, uuid.uuid4(), uuid.uuid4())
         assert result["runway_months"] == Decimal("3.0")
         assert result["avg_monthly_burn"] == Decimal("-100000.00")
         # A real burn rate exists — runway is a meaningful, finite number.
         assert result["runway_months_is_finite"] is True
+
+
+# ---------------------------------------------------------------------------
+# Liquidity Trend (task 191, ST-702 criterion 4 — 7-day trend arrows)
+# ---------------------------------------------------------------------------
+
+
+def _make_snapshot(**overrides):
+    from src.cashflow.models import LiquiditySnapshot
+
+    defaults = dict(
+        business_id=uuid.uuid4(),
+        snapshot_date=date.today() - timedelta(days=7),
+        cash_runway_months=None,
+        cash_runway_is_finite=None,
+        dscr=None,
+        dscr_is_finite=None,
+        created_at=datetime.now(timezone.utc),
+    )
+    defaults.update(overrides)
+    snap = LiquiditySnapshot(**defaults)
+    snap.id = overrides.get("id", uuid.uuid4())
+    return snap
+
+
+class TestTrendDirection:
+    def test_higher_current_is_up(self):
+        from src.cashflow.service import _trend_direction
+
+        assert _trend_direction(Decimal("5.0"), True, Decimal("3.0"), True) == "up"
+
+    def test_lower_current_is_down(self):
+        from src.cashflow.service import _trend_direction
+
+        assert _trend_direction(Decimal("3.0"), True, Decimal("5.0"), True) == "down"
+
+    def test_equal_is_flat(self):
+        from src.cashflow.service import _trend_direction
+
+        assert _trend_direction(Decimal("5.0"), True, Decimal("5.0"), True) == "flat"
+
+    def test_became_infinite_is_up(self):
+        """Went from a real burn rate to no burn at all — an improvement."""
+        from src.cashflow.service import _trend_direction
+
+        assert _trend_direction(Decimal("999.0"), False, Decimal("3.0"), True) == "up"
+
+    def test_was_infinite_now_finite_is_down(self):
+        """Went from no burn to a real burn rate — a deterioration."""
+        from src.cashflow.service import _trend_direction
+
+        assert _trend_direction(Decimal("3.0"), True, Decimal("999.0"), False) == "down"
+
+    def test_both_infinite_is_flat(self):
+        from src.cashflow.service import _trend_direction
+
+        assert (
+            _trend_direction(Decimal("999.0"), False, Decimal("999.0"), False) == "flat"
+        )
+
+
+class TestGetRunwayTrend:
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_old_snapshot(self):
+        from src.cashflow.service import get_runway_trend
+
+        db = _mock_db_with_execute(scalar_result=None)
+        result = await get_runway_trend(db, uuid.uuid4(), Decimal("5.0"), True)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_old_snapshot_has_no_runway_value(self):
+        """A snapshot may exist for that day from a /dscr call that ran
+        before /cash-runway ever did — its runway field is still null."""
+        from src.cashflow.service import get_runway_trend
+
+        old = _make_snapshot(cash_runway_months=None)
+        db = _mock_db_with_execute(scalar_result=old)
+        result = await get_runway_trend(db, uuid.uuid4(), Decimal("5.0"), True)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_up_when_runway_improved(self):
+        from src.cashflow.service import get_runway_trend
+
+        old = _make_snapshot(
+            cash_runway_months=Decimal("3.0"), cash_runway_is_finite=True
+        )
+        db = _mock_db_with_execute(scalar_result=old)
+        result = await get_runway_trend(db, uuid.uuid4(), Decimal("5.0"), True)
+        assert result == "up"
+
+
+class TestGetDscrTrend:
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_old_snapshot(self):
+        from src.cashflow.service import get_dscr_trend
+
+        db = _mock_db_with_execute(scalar_result=None)
+        result = await get_dscr_trend(db, uuid.uuid4(), Decimal("1.5"), True)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_down_when_dscr_worsened(self):
+        from src.cashflow.service import get_dscr_trend
+
+        old = _make_snapshot(dscr=Decimal("2.0"), dscr_is_finite=True)
+        db = _mock_db_with_execute(scalar_result=old)
+        result = await get_dscr_trend(db, uuid.uuid4(), Decimal("1.2"), True)
+        assert result == "down"
+
+
+class TestRecordSnapshots:
+    @pytest.mark.asyncio
+    async def test_record_runway_snapshot_creates_new_row_when_none_exists(self):
+        from src.cashflow.service import record_runway_snapshot
+
+        db = _mock_db_with_execute(scalar_result=None)
+        await record_runway_snapshot(db, uuid.uuid4(), Decimal("4.0"), True)
+        db.add.assert_called_once()
+        added = db.add.call_args[0][0]
+        assert added.cash_runway_months == Decimal("4.0")
+        assert added.cash_runway_is_finite is True
+
+    @pytest.mark.asyncio
+    async def test_record_dscr_snapshot_updates_existing_same_day_row(self):
+        """A /cash-runway call earlier today already created the row —
+        /dscr must update it in place, not create a second one."""
+        from src.cashflow.service import record_dscr_snapshot
+
+        existing = _make_snapshot(
+            snapshot_date=date.today(),
+            cash_runway_months=Decimal("4.0"),
+            cash_runway_is_finite=True,
+        )
+        db = _mock_db_with_execute(scalar_result=existing)
+        await record_dscr_snapshot(db, uuid.uuid4(), Decimal("1.8"), True)
+        db.add.assert_not_called()
+        assert existing.dscr == Decimal("1.8")
+        assert existing.dscr_is_finite is True
+        # The runway fields set by the earlier /cash-runway call survive.
+        assert existing.cash_runway_months == Decimal("4.0")
 
 
 # ---------------------------------------------------------------------------
@@ -831,11 +1036,13 @@ class TestCashflowEndpoints:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    def test_cash_runway_no_projection_fallback_is_finite(self):
-        """Task 187 — the ProjectionNotFoundError fallback returns
-        runway_months=0 (no data yet), which is a real finite number, not
-        the 'infinite runway' sentinel — must not trigger the friendly
-        'No burn' display."""
+    def test_cash_runway_generates_projection_when_none_exists(self):
+        """Task 191 — GET /cashflow/cash-runway now always resolves a real
+        projection (generating one via `_get_or_regenerate_projection` if
+        none exists yet), instead of the old hardcoded runway_months=0
+        placeholder. A brand-new business with no revenue/cost data has no
+        burn months in its generated projection, so runway is genuinely
+        infinite (is_finite=False) — not a fake finite zero."""
         self._override_auth()
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
@@ -843,8 +1050,10 @@ class TestCashflowEndpoints:
             resp = client.get("/api/v1/cashflow/cash-runway")
         assert resp.status_code == 200
         body = resp.json()
-        assert Decimal(body["runway_months"]) == Decimal("0")
-        assert body["runway_months_is_finite"] is True
+        assert Decimal(body["runway_months"]) == Decimal("999.0")
+        assert body["runway_months_is_finite"] is False
+        # No 7-day-old snapshot exists yet -> no trend to show.
+        assert body["runway_trend"] is None
 
     def test_dscr_endpoint_returns_dscr_is_finite(self):
         """Task 187 — GET /cashflow/dscr must surface dscr_is_finite so the
@@ -857,7 +1066,22 @@ class TestCashflowEndpoints:
         opex_result.scalar.return_value = Decimal("300000")
         loan_result = MagicMock()
         loan_result.scalar.return_value = Decimal("0")
-        db.execute = AsyncMock(side_effect=[rev_result, opex_result, loan_result])
+        # Task 191 — dscr_endpoint also upserts today's snapshot (SELECT,
+        # not found -> INSERT via db.add/db.flush, no extra execute) and
+        # looks up a 7-day-old snapshot for the trend (SELECT, none yet).
+        snapshot_lookup = MagicMock()
+        snapshot_lookup.scalar_one_or_none.return_value = None
+        trend_lookup = MagicMock()
+        trend_lookup.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(
+            side_effect=[
+                rev_result,
+                opex_result,
+                loan_result,
+                snapshot_lookup,
+                trend_lookup,
+            ]
+        )
         self._override_db(db)
         with TestClient(self.app) as client:
             resp = client.get("/api/v1/cashflow/dscr")
@@ -865,6 +1089,8 @@ class TestCashflowEndpoints:
         body = resp.json()
         assert Decimal(body["dscr"]) == Decimal("999.000")
         assert body["dscr_is_finite"] is False
+        # No 7-day-old snapshot exists yet -> no trend to show.
+        assert body["dscr_trend"] is None
 
     def test_triage_status_none(self):
         self._override_auth()

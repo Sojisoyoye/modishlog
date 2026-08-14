@@ -13,6 +13,7 @@ from src.cashflow.exceptions import LoanNotFoundError, ProjectionNotFoundError
 from src.cashflow.models import (
     CashflowProjection,
     CostFrequency,
+    LiquiditySnapshot,
     LoanObligation,
     LoanPaymentSchedule,
     LoanStatus,
@@ -472,14 +473,42 @@ async def get_latest_projection(
     return proj
 
 
+async def _get_or_regenerate_projection(
+    db: AsyncSession, user_id: uuid.UUID, business_id: uuid.UUID
+) -> CashflowProjection:
+    """Get the latest projection, regenerating it if none exists or it's
+    stale (task 191, ST-701 criterion 5 — daily recalculation).
+
+    Computed lazily on next access rather than via a background scheduler:
+    no scheduler infrastructure exists anywhere in this codebase, and "at
+    most once per day, refreshed on next read" satisfies the "daily"
+    requirement without introducing one.
+    """
+    today = datetime.now(timezone.utc).date()
+    try:
+        proj = await get_latest_projection(db, business_id)
+    except ProjectionNotFoundError:
+        return await generate_cashflow_projection(db, user_id, business_id)
+    if proj.projection_date < today:
+        return await generate_cashflow_projection(db, user_id, business_id)
+    return proj
+
+
 # ---------------------------------------------------------------------------
 # Cash Runway
 # ---------------------------------------------------------------------------
 
 
-async def calculate_cash_runway(db: AsyncSession, business_id: uuid.UUID) -> dict:
-    """Calculate current cash runway from latest projection."""
-    projection = await get_latest_projection(db, business_id)
+async def calculate_cash_runway(
+    db: AsyncSession, user_id: uuid.UUID, business_id: uuid.UUID
+) -> dict:
+    """Calculate current cash runway from latest projection.
+
+    Always resolves a projection (generating one if none exists or the
+    latest is stale — see `_get_or_regenerate_projection`), so callers no
+    longer need to handle `ProjectionNotFoundError` themselves.
+    """
+    projection = await _get_or_regenerate_projection(db, user_id, business_id)
     buckets = projection.monthly_buckets or []
 
     if not buckets:
@@ -540,6 +569,131 @@ async def get_current_dscr(db: AsyncSession, business_id: uuid.UUID) -> dict:
         "total_debt_service": monthly_loan,
         "color": color,
     }
+
+
+# ---------------------------------------------------------------------------
+# Liquidity Trend (task 191, ST-702 criterion 4 — 7-day trend arrows)
+# ---------------------------------------------------------------------------
+
+TREND_LOOKBACK_DAYS = 7
+
+
+async def _get_or_create_snapshot(
+    db: AsyncSession, business_id: uuid.UUID, snapshot_date: date
+) -> LiquiditySnapshot:
+    result = await db.execute(
+        select(LiquiditySnapshot).where(
+            LiquiditySnapshot.business_id == business_id,
+            LiquiditySnapshot.snapshot_date == snapshot_date,
+        )
+    )
+    snap = result.scalar_one_or_none()
+    if snap is None:
+        snap = LiquiditySnapshot(
+            business_id=business_id,
+            snapshot_date=snapshot_date,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(snap)
+        await db.flush()
+    return snap
+
+
+async def record_runway_snapshot(
+    db: AsyncSession,
+    business_id: uuid.UUID,
+    runway_months: Decimal,
+    runway_is_finite: bool,
+) -> None:
+    """Upsert today's runway value into the daily snapshot row.
+
+    Idempotent and safe to call on every `/cash-runway` request — a request
+    later in the same day just overwrites today's row with the latest value.
+    """
+    today = datetime.now(timezone.utc).date()
+    snap = await _get_or_create_snapshot(db, business_id, today)
+    snap.cash_runway_months = runway_months
+    snap.cash_runway_is_finite = runway_is_finite
+    await db.flush()
+
+
+async def record_dscr_snapshot(
+    db: AsyncSession, business_id: uuid.UUID, dscr: Decimal, dscr_is_finite: bool
+) -> None:
+    """Upsert today's DSCR value into the daily snapshot row."""
+    today = datetime.now(timezone.utc).date()
+    snap = await _get_or_create_snapshot(db, business_id, today)
+    snap.dscr = dscr
+    snap.dscr_is_finite = dscr_is_finite
+    await db.flush()
+
+
+async def _get_snapshot_from_7_days_ago(
+    db: AsyncSession, business_id: uuid.UUID
+) -> LiquiditySnapshot | None:
+    """Closest snapshot at least 7 days old (there may be gaps if a day's
+    endpoints were never called)."""
+    cutoff = datetime.now(timezone.utc).date() - timedelta(days=TREND_LOOKBACK_DAYS)
+    result = await db.execute(
+        select(LiquiditySnapshot)
+        .where(
+            LiquiditySnapshot.business_id == business_id,
+            LiquiditySnapshot.snapshot_date <= cutoff,
+        )
+        .order_by(LiquiditySnapshot.snapshot_date.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+def _trend_direction(
+    current: Decimal, current_is_finite: bool, old: Decimal, old_is_finite: bool
+) -> str:
+    """Higher is always better for both runway and DSCR."""
+    if not current_is_finite and not old_is_finite:
+        return "flat"
+    if not current_is_finite:
+        return "up"
+    if not old_is_finite:
+        return "down"
+    if current > old:
+        return "up"
+    if current < old:
+        return "down"
+    return "flat"
+
+
+async def get_runway_trend(
+    db: AsyncSession,
+    business_id: uuid.UUID,
+    current_runway: Decimal,
+    current_is_finite: bool,
+) -> str | None:
+    """Trend vs. ~7 days ago, or None if no snapshot from that far back exists yet."""
+    old = await _get_snapshot_from_7_days_ago(db, business_id)
+    if old is None or old.cash_runway_months is None:
+        return None
+    return _trend_direction(
+        current_runway,
+        current_is_finite,
+        old.cash_runway_months,
+        bool(old.cash_runway_is_finite),
+    )
+
+
+async def get_dscr_trend(
+    db: AsyncSession,
+    business_id: uuid.UUID,
+    current_dscr: Decimal,
+    current_is_finite: bool,
+) -> str | None:
+    """Trend vs. ~7 days ago, or None if no snapshot from that far back exists yet."""
+    old = await _get_snapshot_from_7_days_ago(db, business_id)
+    if old is None or old.dscr is None:
+        return None
+    return _trend_direction(
+        current_dscr, current_is_finite, old.dscr, bool(old.dscr_is_finite)
+    )
 
 
 # ---------------------------------------------------------------------------

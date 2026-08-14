@@ -16,6 +16,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -242,3 +243,29 @@ class StressScenario(UUIDMixin, Base):
 
     def __repr__(self) -> str:
         return f"<StressScenario(id={self.id}, name={self.name})>"
+
+
+class LiquiditySnapshot(UUIDMixin, Base):
+    """Daily point-in-time snapshot of cash runway/DSCR, for 7-day trend arrows."""
+
+    __tablename__ = "liquidity_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "business_id", "snapshot_date", name="uq_liquidity_snapshot_business_date"
+        ),
+    )
+
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
+    snapshot_date: Mapped[date] = mapped_column(Date)
+    cash_runway_months: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 1), default=None
+    )
+    cash_runway_is_finite: Mapped[bool | None] = mapped_column(Boolean, default=None)
+    dscr: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), default=None)
+    dscr_is_finite: Mapped[bool | None] = mapped_column(Boolean, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    def __repr__(self) -> str:
+        return f"<LiquiditySnapshot(business_id={self.business_id}, date={self.snapshot_date})>"
