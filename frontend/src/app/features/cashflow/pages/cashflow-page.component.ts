@@ -24,6 +24,20 @@ import {
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <!-- Liquidity Metrics -->
         <div class="space-y-4">
+          @if (liquidityLoadFailed()) {
+            <div class="rounded-xl border border-red-200 bg-red-50 p-5 shadow-sm">
+              <div class="mb-2 flex items-center gap-2">
+                <i class="pi pi-exclamation-triangle text-sm text-red-600"></i>
+                <p class="text-sm font-medium text-red-800">Failed to load Cash Runway/DSCR data</p>
+              </div>
+              <button
+                (click)="loadLiquidity()"
+                class="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-100"
+              >
+                <i class="pi pi-refresh mr-1 text-xs"></i> Retry
+              </button>
+            </div>
+          } @else {
           <div class="rounded-xl border bg-white p-5 shadow-sm" [class]="liquidityBorder()">
             <div class="mb-2 flex items-center gap-2">
               <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50">
@@ -106,6 +120,7 @@ import {
                 </div>
               }
             </div>
+          }
           }
         </div>
 
@@ -444,6 +459,11 @@ export class CashflowPageComponent implements OnInit {
     risk_rating: 'UNKNOWN',
     alerts: [],
   });
+  // Task 193 — distinguishes "no data loaded yet" from "load failed", so a
+  // /cash-runway or /dscr failure shows a visible error instead of silently
+  // leaving the placeholder liquidity signal (which looks like real
+  // debt-free/zero data) on screen indefinitely.
+  liquidityLoadFailed = signal(false);
   scenarioResult = signal<ScenarioResult | null>(null);
   fxShock = 0;
   demandDrop = 0;
@@ -485,9 +505,7 @@ export class CashflowPageComponent implements OnInit {
         this.buildChart(months);
       },
     });
-    this.cashflowService.getLiquidity().subscribe({
-      next: (l) => this.liquidity.set(l),
-    });
+    this.loadLiquidity();
     this.loadSavedScenarios();
   }
 
@@ -572,6 +590,14 @@ export class CashflowPageComponent implements OnInit {
   loadSavedScenarios(): void {
     this.cashflowService.getScenarios().subscribe({
       next: (scenarios) => this.savedScenarios.set(scenarios),
+    });
+  }
+
+  loadLiquidity(): void {
+    this.liquidityLoadFailed.set(false);
+    this.cashflowService.getLiquidity().subscribe({
+      next: (l) => this.liquidity.set(l),
+      error: () => this.liquidityLoadFailed.set(true),
     });
   }
 
