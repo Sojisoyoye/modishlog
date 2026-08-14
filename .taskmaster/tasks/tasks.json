@@ -5267,12 +5267,24 @@
         "priority": "medium",
         "subtasks": [],
         "updatedAt": "2026-08-14T11:50:20.292Z"
+      },
+      {
+        "id": "196",
+        "title": "Cashflow Scenario Simulator: add tooltips to FX Shock and Demand Drop input labels",
+        "description": "Follow-up to task 195 (user feedback 2026-08-14): FX Shock (%) and Demand Drop (%) input fields on the Scenario Simulator still had no explanation of what they mean.",
+        "details": "Added pi-info-circle + pTooltip to both labels, matching the pattern already used elsewhere on the Cashflow page. FX Shock: 'How much worse the exchange rate could get...'. Demand Drop: 'How much your sales could fall...'.",
+        "testStrategy": "",
+        "status": "in-progress",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": [],
+        "updatedAt": "2026-08-14T11:55:15.669Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-14T11:50:20.298Z",
-      "taskCount": 195,
+      "lastModified": "2026-08-14T11:55:15.672Z",
+      "taskCount": 196,
       "completedCount": 194,
       "tags": [
         "master"

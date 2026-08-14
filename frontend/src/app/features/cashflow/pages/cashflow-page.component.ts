@@ -269,7 +269,14 @@ import {
         </p>
         <div class="flex flex-wrap items-end gap-4">
           <div>
-            <label for="cf-fx-shock" class="mb-1.5 block text-xs font-medium text-muted">FX Shock (%)</label>
+            <label for="cf-fx-shock" class="mb-1.5 flex items-center gap-1 text-xs font-medium text-muted">
+              FX Shock (%)
+              <i
+                class="pi pi-info-circle cursor-help text-[10px]"
+                pTooltip="How much worse the exchange rate could get. 10 means 'what if the Naira weakens by 10%?' — your import costs would rise by that much in Naira terms."
+                tooltipPosition="top"
+              ></i>
+            </label>
             <input
               id="cf-fx-shock"
               type="number"
@@ -279,7 +286,14 @@ import {
             />
           </div>
           <div>
-            <label for="cf-demand-drop" class="mb-1.5 block text-xs font-medium text-muted">Demand Drop (%)</label>
+            <label for="cf-demand-drop" class="mb-1.5 flex items-center gap-1 text-xs font-medium text-muted">
+              Demand Drop (%)
+              <i
+                class="pi pi-info-circle cursor-help text-[10px]"
+                pTooltip="How much your sales could fall. 20 means 'what if customers buy 20% less than usual?'"
+                tooltipPosition="top"
+              ></i>
+            </label>
             <input
               id="cf-demand-drop"
               type="number"
