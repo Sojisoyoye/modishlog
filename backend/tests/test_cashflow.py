@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -619,11 +619,18 @@ class TestProjectionHelpers:
         buckets = [{"cash_runway_months": "999.0"}, {"cash_runway_months": "999.0"}]
         assert _avg_runway_from_buckets(buckets) == 999
 
-    def test_summarize_projection(self):
+    @pytest.mark.asyncio
+    async def test_summarize_projection(self):
         from src.cashflow.service import _summarize_projection
 
-        proj = _make_projection()
-        summary = _summarize_projection(proj)
+        proj = _make_projection()  # assumptions={"scenario_type": "BASE"}
+        db = _mock_db()
+        with patch(
+            "src.cashflow.service.calculate_portfolio_margin",
+            new_callable=AsyncMock,
+            return_value={"blended_margin": Decimal("40.00")},
+        ):
+            summary = await _summarize_projection(db, proj, uuid.uuid4())
         assert summary["risk_rating"] == "LOW"
         assert summary["avg_dscr"] == 8.0
         assert "net_cashflow" in summary
@@ -631,6 +638,44 @@ class TestProjectionHelpers:
         # cash_runway_months=999.0 (infinite sentinel).
         assert summary["avg_dscr_is_finite"] is True
         assert summary["cash_runway_is_finite"] is False
+        # Task 188 — BASE scenario has no FX shock, so margin is unchanged
+        # from the actual current blended margin.
+        assert summary["margin_pct"] == 40.0
+
+    @pytest.mark.asyncio
+    async def test_summarize_projection_fx_shock_reduces_margin(self):
+        """Task 188 (ST-703 criterion 3) — an FX shock increases landed
+        cost proportionally (assuming selling prices don't react), so
+        margin_pct must erode, not stay fixed."""
+        from src.cashflow.service import _summarize_projection
+
+        proj = _make_projection(assumptions={"scenario_type": "FX_SHOCK_20"})
+        db = _mock_db()
+        with patch(
+            "src.cashflow.service.calculate_portfolio_margin",
+            new_callable=AsyncMock,
+            return_value={"blended_margin": Decimal("40.00")},
+        ):
+            summary = await _summarize_projection(db, proj, uuid.uuid4())
+        # cogs_ratio = 0.60; stressed = 0.60 * 1.20 = 0.72; margin = 28.00
+        assert summary["margin_pct"] == 28.0
+
+    @pytest.mark.asyncio
+    async def test_summarize_projection_demand_drop_leaves_margin_unchanged(self):
+        """Task 188 — a pure demand-drop scenario (no FX shock) doesn't
+        change the cost-to-price ratio, so margin_pct is unaffected — only
+        cashflow/revenue figures move. Margin % is volume-independent."""
+        from src.cashflow.service import _summarize_projection
+
+        proj = _make_projection(assumptions={"scenario_type": "DEMAND_DROP_20"})
+        db = _mock_db()
+        with patch(
+            "src.cashflow.service.calculate_portfolio_margin",
+            new_callable=AsyncMock,
+            return_value={"blended_margin": Decimal("40.00")},
+        ):
+            summary = await _summarize_projection(db, proj, uuid.uuid4())
+        assert summary["margin_pct"] == 40.0
 
 
 # ---------------------------------------------------------------------------
@@ -1411,3 +1456,53 @@ async def test_get_scenarios_accepts_business_id():
 
     scenarios = await get_scenarios(db, business_id)
     assert scenarios == []
+
+
+@pytest.mark.asyncio
+async def test_get_scenarios_flags_undefined_dscr_and_runway_as_not_finite():
+    """A debt-free/no-burn saved scenario must report *_is_finite=False so the
+    UI never renders the raw 999 sentinel (mirrors the live-projection fix)."""
+    from src.cashflow.models import StressScenario
+    from src.cashflow.service import get_scenarios
+
+    business_id = uuid.uuid4()
+    debt_free = StressScenario(
+        id=uuid.uuid4(),
+        business_id=business_id,
+        name="FX_SHOCK_10",
+        revenue_shock_pct=Decimal("0.00"),
+        fx_shock_pct=Decimal("10.00"),
+        cost_shock_pct=Decimal("0.00"),
+        base_projection_id=uuid.uuid4(),
+        stressed_dscr=Decimal("999.000"),
+        stressed_runway_months=999,
+        created_by=uuid.uuid4(),
+        created_at=datetime.now(timezone.utc),
+    )
+    with_debt = StressScenario(
+        id=uuid.uuid4(),
+        business_id=business_id,
+        name="BASE",
+        revenue_shock_pct=Decimal("0.00"),
+        fx_shock_pct=Decimal("0.00"),
+        cost_shock_pct=Decimal("0.00"),
+        base_projection_id=uuid.uuid4(),
+        stressed_dscr=Decimal("2.500"),
+        stressed_runway_months=6,
+        created_by=uuid.uuid4(),
+        created_at=datetime.now(timezone.utc),
+    )
+
+    db = AsyncMock()
+    result_mock = MagicMock()
+    scalars_mock = MagicMock()
+    scalars_mock.all.return_value = [debt_free, with_debt]
+    result_mock.scalars.return_value = scalars_mock
+    db.execute = AsyncMock(return_value=result_mock)
+
+    scenarios = await get_scenarios(db, business_id)
+
+    assert scenarios[0]["stressed_dscr_is_finite"] is False
+    assert scenarios[0]["stressed_runway_is_finite"] is False
+    assert scenarios[1]["stressed_dscr_is_finite"] is True
+    assert scenarios[1]["stressed_runway_is_finite"] is True

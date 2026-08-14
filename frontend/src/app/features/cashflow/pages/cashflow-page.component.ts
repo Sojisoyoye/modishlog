@@ -1,18 +1,19 @@
 import { Component, ChangeDetectionStrategy, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DecimalPipe, CurrencyPipe } from '@angular/common';
+import { DecimalPipe, CurrencyPipe, DatePipe } from '@angular/common';
 import { UIChart } from 'primeng/chart';
 import {
   CashflowService,
   CashflowMonth,
   LiquidityInfo,
   ScenarioResult,
+  SavedScenario,
 } from '../../../core/services/cashflow.service';
 
 @Component({
   selector: 'app-cashflow-page',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, CurrencyPipe, UIChart],
+  imports: [FormsModule, DecimalPipe, CurrencyPipe, DatePipe, UIChart],
   template: `
     <div>
       <div class="mb-6">
@@ -137,7 +138,13 @@ import {
                   Inflows
                 </th>
                 <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
-                  Outflows
+                  Loan
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  Opex
+                </th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
+                  FX
                 </th>
                 <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">Net</th>
                 <th class="px-4 py-3 text-right text-xs font-semibold uppercase text-muted">
@@ -156,7 +163,13 @@ import {
                     {{ m.inflows | currency: 'NGN' : 'symbol' : '1.0-0' }}
                   </td>
                   <td class="px-4 py-3 text-right font-medium text-danger">
-                    {{ m.outflows | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                    {{ m.loan_payment | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                  </td>
+                  <td class="px-4 py-3 text-right font-medium text-danger">
+                    {{ m.operating_costs | currency: 'NGN' : 'symbol' : '1.0-0' }}
+                  </td>
+                  <td class="px-4 py-3 text-right font-medium text-danger">
+                    {{ m.fx_obligations | currency: 'NGN' : 'symbol' : '1.0-0' }}
                   </td>
                   <td
                     class="px-4 py-3 text-right font-bold"
@@ -285,21 +298,117 @@ import {
                   }}
                 </p>
               </div>
-              @if (scenarioResult()!.risk_rating) {
-                <div>
-                  <p class="text-xs font-medium text-muted">Portfolio Margin</p>
-                  <p class="mt-1 text-lg font-semibold"
-                    [class]="scenarioResult()!.risk_rating === 'HIGH' ? 'text-danger' : scenarioResult()!.risk_rating === 'MEDIUM' ? 'text-warning' : 'text-success'"
-                  >
-                    Likely impacted
+              <div>
+                <p class="text-xs font-medium text-muted">Portfolio Margin</p>
+                <p class="mt-1 text-lg font-semibold"
+                  [class]="scenarioResult()!.margin_pct >= 35 ? 'text-success' : scenarioResult()!.margin_pct >= 25 ? 'text-warning' : 'text-danger'"
+                >
+                  {{ scenarioResult()!.margin_pct | number: '1.1-1' }}%
+                  @if (scenarioResult()!.risk_rating) {
                     <span class="ml-1 rounded-full px-2 py-0.5 text-xs font-medium"
                       [class]="scenarioResult()!.risk_rating === 'HIGH' ? 'bg-red-100 text-red-700' : scenarioResult()!.risk_rating === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'"
                     >{{ scenarioResult()!.risk_rating }}</span>
-                  </p>
+                  }
+                </p>
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+
+      <!-- Saved Scenarios — task 188 (ST-703 criterion 4): the backend has
+           always persisted every scenario run, but there was no frontend
+           surface to view or compare them. -->
+      <div class="mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+        <div class="mb-5 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50">
+              <i class="pi pi-bookmark text-sm text-amber-600"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Saved Scenarios</h3>
+          </div>
+          <button
+            (click)="loadSavedScenarios()"
+            class="flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
+          >
+            <i class="pi pi-refresh text-xs"></i> Refresh
+          </button>
+        </div>
+
+        @if (savedScenarios().length > 0) {
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <caption class="sr-only">Saved stress scenarios</caption>
+              <thead>
+                <tr class="bg-gray-50/80">
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted"></th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Name</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">FX Shock</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Revenue Shock</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">DSCR</th>
+                  <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase text-muted">Runway (mo)</th>
+                  <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted">Saved</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                @for (s of savedScenarios(); track s.id) {
+                  <tr class="transition-colors hover:bg-gray-50/50">
+                    <td class="px-3 py-2.5">
+                      <input
+                        type="checkbox"
+                        [attr.data-testid]="'compare-checkbox-' + s.id"
+                        [checked]="isSelectedForCompare(s.id)"
+                        [disabled]="!isSelectedForCompare(s.id) && compareSelection().length >= 2"
+                        (change)="toggleCompareSelection(s.id)"
+                      />
+                    </td>
+                    <td class="px-3 py-2.5 font-medium text-text">{{ s.name }}</td>
+                    <td class="px-3 py-2.5 text-right">{{ s.fx_shock_pct }}%</td>
+                    <td class="px-3 py-2.5 text-right">{{ s.revenue_shock_pct }}%</td>
+                    <td class="px-3 py-2.5 text-right font-semibold">{{ s.stressed_dscr_is_finite ? (s.stressed_dscr | number: '1.2-2') : 'No debt' }}</td>
+                    <td class="px-3 py-2.5 text-right">{{ s.stressed_runway_is_finite ? s.stressed_runway_months : 'No burn' }}</td>
+                    <td class="px-3 py-2.5 text-muted">{{ s.created_at | date: 'short' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+
+          @if (compareSelection().length === 2) {
+            <div class="mt-5 grid grid-cols-2 gap-4">
+              @for (s of comparedScenarios(); track s.id) {
+                <div class="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                  <p class="text-sm font-bold text-text">{{ s.name }}</p>
+                  <dl class="mt-2 space-y-1 text-sm">
+                    <div class="flex justify-between">
+                      <dt class="text-muted">DSCR</dt>
+                      <dd class="font-semibold">{{ s.stressed_dscr_is_finite ? (s.stressed_dscr | number: '1.2-2') : 'No debt' }}</dd>
+                    </div>
+                    <div class="flex justify-between">
+                      <dt class="text-muted">Cash Runway</dt>
+                      <dd class="font-semibold">{{ s.stressed_runway_is_finite ? (s.stressed_runway_months + ' months') : 'No burn' }}</dd>
+                    </div>
+                    <div class="flex justify-between">
+                      <dt class="text-muted">FX Shock</dt>
+                      <dd class="font-semibold">{{ s.fx_shock_pct }}%</dd>
+                    </div>
+                    <div class="flex justify-between">
+                      <dt class="text-muted">Revenue Shock</dt>
+                      <dd class="font-semibold">{{ s.revenue_shock_pct }}%</dd>
+                    </div>
+                  </dl>
                 </div>
               }
             </div>
-          </div>
+          } @else {
+            <p class="mt-3 text-xs text-muted">
+              <i class="pi pi-info-circle mr-1"></i> Select two scenarios to compare them side-by-side.
+            </p>
+          }
+        } @else {
+          <p class="py-4 text-center text-sm text-muted">
+            <i class="pi pi-info-circle mr-1"></i> No saved scenarios yet. Run a simulation above to save one.
+          </p>
         }
       </div>
     </div>
@@ -322,6 +431,15 @@ export class CashflowPageComponent implements OnInit {
   scenarioResult = signal<ScenarioResult | null>(null);
   fxShock = 0;
   demandDrop = 0;
+
+  // Task 188 (ST-703 criterion 4) — saved-scenario list + side-by-side compare.
+  savedScenarios = signal<SavedScenario[]>([]);
+  compareSelection = signal<string[]>([]);
+
+  comparedScenarios = computed(() => {
+    const ids = this.compareSelection();
+    return this.savedScenarios().filter((s) => ids.includes(s.id));
+  });
 
   runwayMonths = computed(() => {
     const days = this.liquidity().cash_runway_days;
@@ -354,22 +472,20 @@ export class CashflowPageComponent implements OnInit {
     this.cashflowService.getLiquidity().subscribe({
       next: (l) => this.liquidity.set(l),
     });
+    this.loadSavedScenarios();
   }
 
   private buildChart(months: CashflowMonth[]): void {
+    // Task 188 (ST-701 criterion 4, PRD 8.2.5): one bar per month for net
+    // cashflow, colored by sign — not separate always-green/always-red
+    // inflow/outflow bars.
     this.projectionChart.set({
       labels: months.map((m) => m.month),
       datasets: [
         {
-          label: 'Inflows',
-          data: months.map((m) => m.inflows),
-          backgroundColor: '#1A7A4A',
-          borderRadius: 4,
-        },
-        {
-          label: 'Outflows',
-          data: months.map((m) => -Math.abs(m.outflows)),
-          backgroundColor: '#C0392B',
+          label: 'Net Cashflow',
+          data: months.map((m) => m.net_cashflow),
+          backgroundColor: months.map((m) => (m.net_cashflow >= 0 ? '#1A7A4A' : '#C0392B')),
           borderRadius: 4,
         },
         {
@@ -418,7 +534,30 @@ export class CashflowPageComponent implements OnInit {
     this.cashflowService
       .simulateScenario({ fx_shock_pct: this.fxShock, demand_drop_pct: this.demandDrop })
       .subscribe({
-        next: (r) => this.scenarioResult.set(r),
+        next: (r) => {
+          this.scenarioResult.set(r);
+          // Backend auto-saves every scenario run — refresh the list so it
+          // shows up without a manual click.
+          this.loadSavedScenarios();
+        },
       });
+  }
+
+  loadSavedScenarios(): void {
+    this.cashflowService.getScenarios().subscribe({
+      next: (scenarios) => this.savedScenarios.set(scenarios),
+    });
+  }
+
+  isSelectedForCompare(id: string): boolean {
+    return this.compareSelection().includes(id);
+  }
+
+  toggleCompareSelection(id: string): void {
+    this.compareSelection.update((ids) => {
+      if (ids.includes(id)) return ids.filter((x) => x !== id);
+      if (ids.length >= 2) return ids;
+      return [...ids, id];
+    });
   }
 }

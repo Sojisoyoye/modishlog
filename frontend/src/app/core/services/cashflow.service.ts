@@ -6,7 +6,9 @@ import { ApiService } from './api.service';
 export interface CashflowMonth {
   month: string;
   inflows: number;
-  outflows: number;
+  loan_payment: number;
+  operating_costs: number;
+  fx_obligations: number;
   net_cashflow: number;
   cumulative: number;
   dscr: number;
@@ -40,6 +42,20 @@ export interface ScenarioResult {
   cash_runway_days: number;
   cash_runway_is_finite: boolean;
   risk_rating: string;
+  margin_pct: number;
+}
+
+export interface SavedScenario {
+  id: string;
+  name: string;
+  revenue_shock_pct: number;
+  fx_shock_pct: number;
+  cost_shock_pct: number;
+  stressed_dscr: number;
+  stressed_dscr_is_finite: boolean;
+  stressed_runway_months: number;
+  stressed_runway_is_finite: boolean;
+  created_at: string;
 }
 
 export interface GlobalExposure {
@@ -130,6 +146,7 @@ interface ScenarioSummary {
   avg_dscr: number;
   avg_dscr_is_finite: boolean;
   risk_rating: string;
+  margin_pct: number;
 }
 
 interface ScenarioComparisonResponse {
@@ -147,10 +164,9 @@ export class CashflowService {
         (proj.monthly_buckets ?? []).map((b) => ({
           month: b.month,
           inflows: Number(b.projected_revenue),
-          outflows:
-            Number(b.projected_loan_payment) +
-            Number(b.projected_operating_costs) +
-            Number(b.projected_fx_obligations),
+          loan_payment: Number(b.projected_loan_payment),
+          operating_costs: Number(b.projected_operating_costs),
+          fx_obligations: Number(b.projected_fx_obligations),
           net_cashflow: Number(b.net_cashflow),
           cumulative: Number(b.cumulative_cashflow),
           dscr: Number(b.dscr),
@@ -190,8 +206,28 @@ export class CashflowService {
           cash_runway_days: Math.round(Number(res.stressed.cash_runway) * 30),
           cash_runway_is_finite: res.stressed.cash_runway_is_finite,
           risk_rating: res.stressed.risk_rating,
+          margin_pct: Number(res.stressed.margin_pct),
         }))
       );
+  }
+
+  getScenarios(): Observable<SavedScenario[]> {
+    return this.api.get<SavedScenario[]>('/cashflow/scenarios').pipe(
+      map((scenarios) =>
+        scenarios.map((s) => ({
+          id: s.id,
+          name: s.name,
+          revenue_shock_pct: Number(s.revenue_shock_pct),
+          fx_shock_pct: Number(s.fx_shock_pct),
+          cost_shock_pct: Number(s.cost_shock_pct),
+          stressed_dscr: Number(s.stressed_dscr),
+          stressed_dscr_is_finite: s.stressed_dscr_is_finite,
+          stressed_runway_months: Number(s.stressed_runway_months),
+          stressed_runway_is_finite: s.stressed_runway_is_finite,
+          created_at: s.created_at,
+        }))
+      )
+    );
   }
 
   getGlobalExposure(): Observable<GlobalExposure> {
