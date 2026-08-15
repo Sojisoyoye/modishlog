@@ -309,6 +309,39 @@ class TestProfitLossReport:
         assert result.gross_profit == Decimal("50000.000000")
         assert result.net_profit == Decimal("-150000.00")  # 50000 - 200000
 
+    @pytest.mark.asyncio
+    async def test_stock_value_query_scoped_to_business_when_provided(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 208): the stock
+        valuation query summed InventoryBatch across every business with no
+        join to Product and no business_id filter at all -- every
+        business's opening/closing stock value was actually the total
+        landed-cost inventory value of every product from every tenant."""
+        from src.reports.service import get_profit_loss_report
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar.return_value = Decimal("0")
+            result.scalars.return_value.all.return_value = []
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        await get_profit_loss_report(db, business_id=business_id)
+
+        stock_queries = [
+            q for q in captured_queries
+            if "inventory_batches" in q.lower() and "sum" in q.lower()
+        ]
+        assert len(stock_queries) == 1
+        compiled = stock_queries[0].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
 
 # ---------------------------------------------------------------------------
 # Stock Report Tests
@@ -437,6 +470,37 @@ class TestStockReport:
         assert report.total_stock_value == Decimal("20000.000000")
         assert report.total_potential_profit == Decimal("10000.000000")
         assert report.total_sold == 8
+
+    @pytest.mark.asyncio
+    async def test_main_query_scoped_to_business_when_provided(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 208): the main
+        Product/ProductCategory query driving this report had no
+        Product.business_id filter (though the sold_subq sales aggregation
+        was already correctly scoped) -- returned every active product
+        from every business, including unit_cost/selling_price."""
+        from src.reports.service import get_stock_report
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.all.return_value = []
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        await get_stock_report(db, business_id=business_id)
+
+        # The main query joins inventory_levels/product_categories and
+        # outer-joins the sales subquery -- identify it by selecting sku.
+        main_queries = [q for q in captured_queries if "products.sku" in q.lower()]
+        assert len(main_queries) == 1
+        compiled = main_queries[0].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
 
 
 # ---------------------------------------------------------------------------

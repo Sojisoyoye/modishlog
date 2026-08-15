@@ -5419,11 +5419,11 @@
         "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/reports/service.py get_profit_loss_report() (lines ~161-168): the stock valuation query sums InventoryBatch.quantity_remaining * landed_cost_per_unit with NO join to Product and NO business_id filter at all, despite business_id being used correctly in every other query in the same function -- every business's opening/closing stock value on their P&L report is actually the total inventory value of every product from every tenant. get_stock_report() (lines ~305-320): the main Product/ProductCategory query driving GET /reports/stock and its CSV export has no Product.business_id filter (though the sold_subq sales aggregation IS correctly scoped) -- returns every active product from every business including unit_cost, selling_price, and quantities.",
         "details": "Join InventoryBatch to Product and filter by Product.business_id == business_id in the P&L stock valuation query. Add Product.business_id == business_id to the main query in get_stock_report(). Both are hit on ordinary, frequently-used report endpoints (not background jobs) -- write regression tests proving both reports only reflect the caller's own business inventory/products.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-08-15T13:00:00.000Z"
+        "updatedAt": "2026-08-15T16:47:09.354Z"
       },
       {
         "id": "209",
@@ -5452,7 +5452,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T20:00:00.000Z",
+      "lastModified": "2026-08-15T16:47:09.364Z",
       "taskCount": 210,
       "completedCount": 207,
       "tags": [

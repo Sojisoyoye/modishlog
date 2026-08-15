@@ -159,11 +159,19 @@ async def get_profit_loss_report(
     )
 
     # -- Current stock value (opening and closing use same query: current state) --
+    # InventoryBatch has no business_id column of its own -- scoped through
+    # a join to Product. Without this, every business's opening/closing
+    # stock value is actually the total landed-cost inventory value of
+    # every product from every tenant in the database (task 208).
     stock_query = select(
         func.sum(
             InventoryBatch.quantity_remaining * InventoryBatch.landed_cost_per_unit
         )
     )
+    if business_id:
+        stock_query = stock_query.join(
+            Product, Product.id == InventoryBatch.product_id
+        ).where(Product.business_id == business_id)
     stock_result = await db.execute(stock_query)
     stock_value = stock_result.scalar() or Decimal("0")
 
@@ -321,6 +329,12 @@ async def get_stock_report(
 
     if category_id:
         query = query.where(Product.category_id == uuid.UUID(category_id))
+    if business_id:
+        # Without this, the main product query returns every active
+        # product from every business, including unit_cost/selling_price
+        # -- total_sold stays correctly scoped via sold_subq_base above,
+        # but the product rows themselves were not (task 208).
+        query = query.where(Product.business_id == business_id)
 
     result = await db.execute(query)
     rows = result.all()
