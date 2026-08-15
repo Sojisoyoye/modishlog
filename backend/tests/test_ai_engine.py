@@ -265,7 +265,7 @@ class TestUSDAccumulationSchedule:
     async def test_schedule_order_not_found(self):
         db = _mock_db_with_execute(return_val=None)
         with pytest.raises(Exception):
-            await generate_usd_accumulation_schedule(db, uuid.uuid4())
+            await generate_usd_accumulation_schedule(db, uuid.uuid4(), uuid.uuid4())
 
     @pytest.mark.anyio
     async def test_schedule_generation(self):
@@ -297,13 +297,40 @@ class TestUSDAccumulationSchedule:
         db.execute = AsyncMock(side_effect=mock_execute)
 
         with patch("src.fx.forecast_service.get_forecast_for_date", side_effect=Exception("no forecast")):
-            result = await generate_usd_accumulation_schedule(db, order_id)
+            result = await generate_usd_accumulation_schedule(db, order_id, uuid.uuid4())
 
         assert result["order_id"] == str(order_id)
         # (10000 - 3000) * 0.70 = 4900
         assert result["total_usd_needed"] == str(Decimal("4900.00"))
         assert result["weeks"] == 8  # 56 // 7
         assert len(result["schedule"]) == 8
+
+    @pytest.mark.anyio
+    async def test_order_lookup_scoped_to_business(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 206): the order
+        lookup had no business_id filter, and the router endpoint didn't
+        inject get_current_business_id -- any authenticated user of any
+        business could fetch another business's real order balance and
+        USD purchase schedule by order_id alone."""
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = AsyncMock()
+        db.execute = capture_execute
+
+        with pytest.raises(Exception):
+            await generate_usd_accumulation_schedule(db, uuid.uuid4(), business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "purchase_orders.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
 
 
 # ---------------------------------------------------------------------------
@@ -1050,3 +1077,48 @@ class TestBusinessIsolation:
         assert mock_price.call_args[0][2] == business_id
         assert mock_usd.call_args[0][0] is db
         assert mock_usd.call_args[0][2] == business_id
+
+    @pytest.mark.anyio
+    async def test_liquidity_recommendations_scopes_order_and_loan_counts(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 206):
+        _generate_liquidity_recommendations()'s far-orders count and
+        active-loans count queries had no business_id filter, inflating
+        the recommendation text ("Consider delaying N orders...",
+        "Negotiate deferral on N loans...") with every business's data."""
+        from src.ai_engine.service import _generate_liquidity_recommendations
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            r = MagicMock()
+            r.scalar.return_value = 1
+            return r
+
+        db = AsyncMock()
+        db.execute = capture_execute
+
+        with patch(
+            "src.cashflow.service._calculate_monthly_revenue",
+            new_callable=AsyncMock,
+            return_value=Decimal("100000"),
+        ), patch(
+            "src.cashflow.service._calculate_monthly_operating_costs",
+            new_callable=AsyncMock,
+            return_value=Decimal("90000"),
+        ), patch(
+            "src.cashflow.service._calculate_monthly_loan_payment",
+            new_callable=AsyncMock,
+            return_value=Decimal("50000"),
+        ):
+            await _generate_liquidity_recommendations(db, NOW, business_id)
+
+        order_queries = [q for q in captured_queries if "purchase_orders" in q.lower()]
+        loan_queries = [q for q in captured_queries if "loan_obligations" in q.lower()]
+        assert len(order_queries) == 1
+        assert len(loan_queries) == 1
+        assert "purchase_orders.business_id" in order_queries[0].lower()
+        assert business_id.hex in order_queries[0].replace("-", "").lower()
+        assert "loan_obligations.business_id" in loan_queries[0].lower()
+        assert business_id.hex in loan_queries[0].replace("-", "").lower()
