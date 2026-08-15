@@ -5347,11 +5347,11 @@
         "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit (following task 198). backend/src/sales/service.py: create_sale() looks up Product (line ~154) and Customer (lines ~213-219) by id with no business_id filter despite business_id being a required parameter -- a sale can reference another business's product/customer. Because unit_price/currency can default from the foreign product and the sale flows into adjust_stock()/fifo_deduct() unscoped, this is not just a read leak: it actually depletes the OTHER business's real InventoryLevel and consumes their FIFO InventoryBatch stock. backend/src/sales/router.py daily_entry_endpoint() (line ~125) has the same unscoped Product lookup. quick_quote() (service.py ~798-873, router.py ~212-219) and get_sell_return() (service.py ~1128-1137, router.py ~414-424) have no business_id scoping/dependency at all -- any authenticated user can fetch another business's FIFO cost data or SellReturn record by id.",
         "details": "Add business_id filters to the Product/Customer lookups in create_sale() and daily_entry_endpoint(); thread business_id through quick_quote() and get_sell_return() and inject get_current_business_id in their router endpoints. Write regression tests proving a sale/quote/return referencing another business's id is rejected (404/not found), not silently processed. This is the highest-severity finding of the audit -- data corruption, not just a leak.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-08-15T13:00:00.000Z"
+        "updatedAt": "2026-08-15T15:00:44.321Z"
       },
       {
         "id": "203",
@@ -5452,7 +5452,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T13:00:00.000Z",
+      "lastModified": "2026-08-15T15:00:44.325Z",
       "taskCount": 210,
       "completedCount": 201,
       "tags": [

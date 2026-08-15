@@ -150,8 +150,16 @@ async def create_sale(
     business_id: uuid.UUID,
 ) -> Sale:
     """Record a sale and deplete inventory atomically."""
-    # Validate product exists and is active
-    result = await db.execute(select(Product).where(Product.id == data.product_id))
+    # Validate product exists and is active. Scoped to business_id -- without
+    # it a sale could reference another business's product, and since
+    # unit_price/currency below can default from it and it later flows into
+    # adjust_stock()/fifo_deduct() unscoped, that other business's real
+    # inventory would be depleted (task 202).
+    result = await db.execute(
+        select(Product).where(
+            Product.id == data.product_id, Product.business_id == business_id
+        )
+    )
     product = result.scalar_one_or_none()
     if not product:
         from src.products.exceptions import ProductNotFoundError
@@ -211,7 +219,9 @@ async def create_sale(
         from src.customers.models import Customer
 
         customer_result = await db.execute(
-            select(Customer).where(Customer.id == data.customer_id)
+            select(Customer).where(
+                Customer.id == data.customer_id, Customer.business_id == business_id
+            )
         )
         customer_obj = customer_result.scalar_one_or_none()
         if customer_obj:
@@ -799,6 +809,7 @@ async def quick_quote(
     db: AsyncSession,
     product_id: uuid.UUID,
     quantity: int,
+    business_id: uuid.UUID,
     floor_margin_pct: Decimal = DEFAULT_FLOOR_MARGIN_PCT,
 ) -> QuickQuoteResponse:
     """Calculate minimum sell price using FIFO weighted-average landed cost.
@@ -807,10 +818,16 @@ async def quick_quote(
     computes a weighted average landed cost for the requested quantity,
     then applies the floor margin to derive the minimum sell price.
     """
+    # InventoryBatch has no business_id column of its own -- scope through
+    # Product (task 202: without this, any authenticated user of any
+    # business could fetch another business's real FIFO landed cost by
+    # product_id alone, a confidential pricing/cost-data leak).
+    scoped_product_ids = select(Product.id).where(Product.business_id == business_id)
     result = await db.execute(
         select(InventoryBatch)
         .where(
             InventoryBatch.product_id == product_id,
+            InventoryBatch.product_id.in_(scoped_product_ids),
             InventoryBatch.quantity_remaining > 0,
         )
         .order_by(InventoryBatch.received_at.asc())
@@ -1128,9 +1145,14 @@ async def list_sell_returns(
 async def get_sell_return(
     db: AsyncSession,
     return_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> SellReturn:
-    """Fetch a single sell return by ID."""
-    result = await db.execute(select(SellReturn).where(SellReturn.id == return_id))
+    """Fetch a single sell return by ID, scoped to the caller's business."""
+    result = await db.execute(
+        select(SellReturn).where(
+            SellReturn.id == return_id, SellReturn.business_id == business_id
+        )
+    )
     sr = result.scalar_one_or_none()
     if sr is None:
         raise SellReturnNotFoundError(return_id)
