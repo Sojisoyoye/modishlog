@@ -5407,11 +5407,11 @@
         "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/customers/service.py get_customer_sales() (lines ~155-178), wired from router.py (~138-156), takes no business_id parameter and never verifies the customer belongs to the caller's business before querying Sale.where(Sale.customer_id == customer_id). Every sibling endpoint on this same router (get_customer, get_customer_ledger, get_customer_activities) correctly gates on business_id via get_customer() first -- this one was simply missed. Any authenticated user of Business A can call GET /customers/{customer_id}/sales with a Business B customer_id and get their full sales history back.",
         "details": "Thread business_id through get_customer_sales() and either call get_customer() first (matching the sibling endpoints' pattern) or add a business-scoped join. Write a regression test proving a cross-tenant customer_id is rejected, matching the existing tests for get_customer_ledger/get_customer_activities.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-08-15T16:39:39.271Z"
+        "updatedAt": "2026-08-15T20:00:00.000Z"
       },
       {
         "id": "208",
@@ -5452,9 +5452,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T16:39:39.276Z",
+      "lastModified": "2026-08-15T20:00:00.000Z",
       "taskCount": 210,
-      "completedCount": 206,
+      "completedCount": 207,
       "tags": [
         "master"
       ]
