@@ -5335,18 +5335,18 @@
         "description": "Found 2026-08-14 during a Pricing & Margins page audit, following the same pattern already applied to the Cashflow page (tasks 195/196). Only the Demand Elasticity panel (Demand & Mix tab) has any tooltips today, added narrowly for PRD ST-802 by task 186. Every other panel across the 6 Pricing & Margins tabs has zero explanatory text for non-technical users: Overview (Blended Portfolio Margin card, Margin Distribution chart), Product Margins (table columns: Cost, Selling, Margin, Target, Gap), Recommendations (both the AI \"Pricing Recommendations\" and \"Optimizer Recommendations\" panels -- what a recommendation means, what \"confidence\" means), Cross-Subsidisation (what cross-subsidisation itself means, beyond the existing dynamic insight text), Tools (Price-FX Sensitivity Calculator fields, Selling Price Suggestion fields, Saved Scenarios), and 2 of 3 Demand & Mix panels (Product Mix Status target/variance meaning, Demand Forecast \"Horizon (days)\" and confidence-band legend).",
         "details": "Add pi-info-circle + pTooltip (or short inline description text where a tooltip does not fit, e.g. section headers) matching the existing pattern from the Demand Elasticity panel and the Cashflow page tasks. Keep language simple/plain -- avoid jargon like \"blended margin\", \"FIFO landed cost\", \"elasticity coefficient\" without a one-sentence explanation in everyday terms. All in frontend/src/app/features/pricing/pages/pricing-page.component.ts. This is the largest of the four Pricing audit follow-ups (198, 199, 200, 201) -- consider splitting into per-tab PRs if it grows too large for one review pass.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-08-15T10:33:23.220Z"
+        "updatedAt": "2026-08-15T12:00:00.000Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T10:33:23.228Z",
+      "lastModified": "2026-08-15T12:00:00.000Z",
       "taskCount": 201,
-      "completedCount": 200,
+      "completedCount": 201,
       "tags": [
         "master"
       ]
