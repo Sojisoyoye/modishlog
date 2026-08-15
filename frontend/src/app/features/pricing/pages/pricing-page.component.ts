@@ -85,7 +85,14 @@ interface ElasticityEntry {
               <i class="pi pi-percentage text-lg text-emerald-700"></i>
             </div>
           </div>
-          <p class="text-sm font-medium text-muted">Blended Portfolio Margin</p>
+          <p class="flex items-center gap-1 text-sm font-medium text-muted">
+            Blended Portfolio Margin
+            <i
+              class="pi pi-info-circle cursor-help text-[10px] text-muted"
+              [pTooltip]="'The average profit margin across everything you sell, weighted by how much of each product you actually sold in the last 30 days — not a simple average across products.'"
+              tooltipPosition="top"
+            ></i>
+          </p>
           <p class="mt-2 text-4xl font-bold text-gray-900">
             {{ marginData().blended_margin | number: '1.1-1' }}%
           </p>
@@ -113,6 +120,10 @@ interface ElasticityEntry {
             </div>
             <h3 class="text-base font-semibold text-text">Margin Distribution</h3>
           </div>
+          <p class="-mt-3 mb-4 text-xs text-muted">
+            How many of your products fall into each margin range — a tall bar on the left
+            (0-10%) means most products are earning thin margins.
+          </p>
           @if (distributionChart()) {
             <p-chart
               type="bar"
@@ -135,6 +146,11 @@ interface ElasticityEntry {
           </div>
           <h3 class="text-base font-semibold text-text">Per-Product Margins</h3>
         </div>
+        <p class="mb-4 text-xs text-muted">
+          Margin = (Selling price − Cost) ÷ Selling price. Gap is your margin minus the
+          {{ marginData().target_margin }}% target — a negative Gap (highlighted red) means
+          that product is selling below target.
+        </p>
 
         <!-- Toolbar: page-size + search -->
         <div class="mb-3 flex flex-wrap items-center gap-3">
@@ -384,6 +400,11 @@ interface ElasticityEntry {
           </div>
           <h3 class="text-base font-semibold text-text">Cross-Subsidisation</h3>
         </div>
+        <p class="mb-4 text-xs text-muted">
+          Some products earn well above target and effectively cover the ones that don't —
+          this pairs your strongest performers with your weakest so you can see exactly which
+          products are propping up your overall margin.
+        </p>
 
         <!-- Insight block -->
         @if (subsidyInsight(); as insight) {
@@ -619,6 +640,10 @@ interface ElasticityEntry {
           </div>
           <h3 class="text-base font-semibold text-text">Price-FX Sensitivity Calculator</h3>
         </div>
+        <p class="mb-4 text-xs text-muted">
+          See how a change in your selling price or the USD→NGN exchange rate would affect
+          your margin and profit, before you commit to it.
+        </p>
 
         <div class="mb-3">
           <label for="sens-product" class="mb-1.5 block text-xs font-medium text-muted">
@@ -704,7 +729,14 @@ interface ElasticityEntry {
         @if (sensResult()) {
           <div class="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div class="rounded-lg bg-gray-50 p-4">
-              <p class="text-xs font-medium text-muted">Landed Cost</p>
+              <p class="flex items-center gap-1 text-xs font-medium text-muted">
+                Landed Cost
+                <i
+                  class="pi pi-info-circle cursor-help text-[10px] text-muted"
+                  [pTooltip]="'What this product actually costs you in NGN once it arrives — unit cost converted at the FX rate above, per unit.'"
+                  tooltipPosition="top"
+                ></i>
+              </p>
               <p class="mt-1 text-lg font-bold text-text">
                 {{ sensResult()!.landed_cost_ngn | currency: 'NGN' : 'symbol' : '1.0-0' }}
               </p>
@@ -809,9 +841,14 @@ interface ElasticityEntry {
             </select>
           </div>
           <div>
-            <label for="sugg-fx" class="mb-1.5 block text-xs font-medium text-muted"
-              >FX Rate Override <span class="font-normal">(optional)</span></label
-            >
+            <label for="sugg-fx" class="mb-1.5 flex items-center gap-1 text-xs font-medium text-muted"
+              >FX Rate Override <span class="font-normal">(optional)</span>
+              <i
+                class="pi pi-info-circle cursor-help text-[10px] text-muted"
+                [pTooltip]="'Leave blank to use the current live exchange rate. Fill this in to see what the suggested price would be at a different rate — useful for planning ahead of an expected FX change.'"
+                tooltipPosition="top"
+              ></i>
+            </label>
             <input
               id="sugg-fx"
               type="number"
@@ -897,6 +934,11 @@ interface ElasticityEntry {
           <h3 class="text-base font-semibold text-text">Product Mix Status</h3>
           <span class="ml-1 text-xs text-muted">(last 90 days vs target)</span>
         </div>
+        <p class="mb-4 text-xs text-muted">
+          How much of your revenue actually comes from each product category, compared to
+          how much you planned for. Variance in green means you're within 5 percentage
+          points of target; red means a category is over- or under-selling by more than that.
+        </p>
         @if (mixStatus().length > 0) {
           <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 text-sm">
@@ -1064,9 +1106,14 @@ interface ElasticityEntry {
             </select>
           </div>
           <div>
-            <label for="forecast-horizon" class="mb-1.5 block text-xs font-medium text-muted"
-              >Horizon (days)</label
-            >
+            <label for="forecast-horizon" class="mb-1.5 flex items-center gap-1 text-xs font-medium text-muted"
+              >Horizon (days)
+              <i
+                class="pi pi-info-circle cursor-help text-[10px] text-muted"
+                [pTooltip]="'How far ahead to predict demand for. A shorter horizon (30 days) is usually more accurate than a longer one (90 days).'"
+                tooltipPosition="top"
+              ></i>
+            </label>
             <select
               id="forecast-horizon"
               [(ngModel)]="forecastHorizon"
@@ -1104,6 +1151,10 @@ interface ElasticityEntry {
               [options]="forecastChartOptions"
               height="220px"
             />
+            <p class="mt-2 text-xs text-muted">
+              The dashed Lower/Upper lines show the range actual demand could fall between —
+              treat the solid Demand line as the best estimate, not a guarantee.
+            </p>
           }
         } @else if (forecastInsufficientData()) {
           <div class="flex flex-col items-center gap-3 py-8 text-center">

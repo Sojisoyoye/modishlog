@@ -368,6 +368,45 @@ test.describe('Pricing & Margins page', () => {
     const coeffInput = page.locator('#pricing-elasticity-coeff');
     await expect(coeffInput).not.toHaveValue('');
   });
+
+  // Task 201 — every tab on this page had at least one panel with zero
+  // explanatory text for non-technical users (only Demand Elasticity had
+  // tooltips, from task 186's narrower PRD ST-802 requirement). Each tab
+  // must now say plainly, in the page's own language, what it shows.
+  test('every tab has plain-language explanatory text (Task 201)', async ({ page }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Overview (default tab)
+    await expect(page.getByText('Blended Portfolio Margin').locator('i.pi-info-circle')).toBeAttached();
+    await expect(page.getByText(/how many of your products fall into each margin range/i)).toBeVisible();
+
+    // Product Margins
+    await switchToTab(page, 'Product Margins');
+    await expect(page.getByText(/Margin = \(Selling price/i)).toBeVisible();
+
+    // Cross-Subsidisation
+    await switchToTab(page, 'Cross-Subsidisation');
+    await expect(page.getByText(/propping up your overall margin/i)).toBeVisible();
+
+    // Tools
+    await switchToTab(page, 'Tools');
+    await expect(page.getByText(/before you commit to it/i)).toBeVisible();
+    const fxOverrideTooltipIcon = page
+      .locator('label[for="sugg-fx"]')
+      .locator('i.pi-info-circle');
+    await expect(fxOverrideTooltipIcon).toBeAttached();
+
+    // Demand & Mix
+    await switchToTab(page, 'Demand & Mix');
+    await expect(page.getByText(/within 5 percentage/i)).toBeVisible();
+    const horizonTooltipIcon = page
+      .locator('label[for="forecast-horizon"]')
+      .locator('i.pi-info-circle');
+    await expect(horizonTooltipIcon).toBeAttached();
+  });
 });
 
 test('demand forecast shows insufficient data empty state when product has < 10 sales', async ({ page }) => {
