@@ -336,6 +336,12 @@ class TestGetCustomerSales:
         sale.created_at = datetime.now(timezone.utc)
         sale.updated_at = datetime.now(timezone.utc)
 
+        business_id = uuid.uuid4()
+        customer = _make_customer(business_id=business_id)
+
+        customer_mock = MagicMock()
+        customer_mock.scalar_one_or_none.return_value = customer
+
         count_mock = MagicMock()
         count_mock.scalar.return_value = 1
 
@@ -345,9 +351,9 @@ class TestGetCustomerSales:
         items_mock.scalars.return_value = scalars_mock
 
         db = _mock_db()
-        db.execute = AsyncMock(side_effect=[count_mock, items_mock])
+        db.execute = AsyncMock(side_effect=[customer_mock, count_mock, items_mock])
 
-        result, total = await get_customer_sales(db, uuid.uuid4())
+        result, total = await get_customer_sales(db, customer.id, business_id=business_id)
         assert total == 1
         assert len(result) == 1
 
@@ -355,6 +361,12 @@ class TestGetCustomerSales:
     async def test_customer_sales_empty_returns_zero(self):
         """get_customer_sales() returns empty list and 0 when no sales."""
         from src.customers.service import get_customer_sales
+
+        business_id = uuid.uuid4()
+        customer = _make_customer(business_id=business_id)
+
+        customer_mock = MagicMock()
+        customer_mock.scalar_one_or_none.return_value = customer
 
         count_mock = MagicMock()
         count_mock.scalar.return_value = 0
@@ -365,11 +377,35 @@ class TestGetCustomerSales:
         items_mock.scalars.return_value = scalars_mock
 
         db = _mock_db()
-        db.execute = AsyncMock(side_effect=[count_mock, items_mock])
+        db.execute = AsyncMock(side_effect=[customer_mock, count_mock, items_mock])
 
-        result, total = await get_customer_sales(db, uuid.uuid4())
+        result, total = await get_customer_sales(db, customer.id, business_id=business_id)
         assert total == 0
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_cross_tenant_customer_id_raises_not_found(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 207):
+        get_customer_sales() took no business_id and never verified the
+        customer belonged to the caller's business before querying Sale --
+        any authenticated user of any business could fetch another
+        business's full sales history for a customer_id from that
+        business."""
+        from src.customers.exceptions import CustomerNotFoundError
+        from src.customers.service import get_customer_sales
+
+        customer_mock = MagicMock()
+        customer_mock.scalar_one_or_none.return_value = None
+
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=customer_mock)
+
+        with pytest.raises(CustomerNotFoundError):
+            await get_customer_sales(db, uuid.uuid4(), business_id=uuid.uuid4())
+
+        # Only the ownership-check query should have run -- Sale must
+        # never be queried for a customer that isn't the caller's.
+        assert db.execute.call_count == 1
 
 
 # ---------------------------------------------------------------------------
