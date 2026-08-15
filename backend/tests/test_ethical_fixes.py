@@ -860,7 +860,7 @@ class TestE8BiasAuditLogging:
                 mock_result.all.return_value = []
                 db.execute = AsyncMock(return_value=mock_result)
                 from src.ai_engine.service import _generate_price_recommendations
-                await _generate_price_recommendations(db, NOW)
+                await _generate_price_recommendations(db, NOW, uuid.uuid4())
 
         # The function calls ainfo for "ai_recommendations_generated" type events
         # even with no recs. Verify the module-level constants are correct.

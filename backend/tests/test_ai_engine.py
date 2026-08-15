@@ -916,3 +916,137 @@ class TestBusinessIsolation:
         assert "business_id" in captured_queries[0].lower(), (
             f"business_id filter missing from get_recommendation_history query: {captured_queries[0]}"
         )
+
+    @pytest.mark.anyio
+    async def test_price_recommendations_scopes_portfolio_margin_to_business(self):
+        """_generate_price_recommendations called calculate_portfolio_margin(db)
+        with no business_id, so the category/product buckets used to build the
+        Pricing Recommendations panel were computed across every business in
+        the system, not just the caller's -- even though the resulting
+        AIRecommendation row is later stamped with the correct business_id."""
+        from src.ai_engine.service import _generate_price_recommendations
+
+        business_id = uuid.uuid4()
+        db = _mock_db()
+        cat_result = MagicMock()
+        cat_result.all.return_value = []
+        db.execute = AsyncMock(return_value=cat_result)
+
+        with patch(
+            "src.pricing.service.calculate_portfolio_margin",
+            new_callable=AsyncMock,
+            return_value={"target_margin": 35, "products": []},
+        ) as mock_portfolio:
+            await _generate_price_recommendations(db, NOW, business_id)
+
+        mock_portfolio.assert_called_once_with(db, business_id=business_id)
+
+    @pytest.mark.anyio
+    async def test_price_recommendations_category_query_scoped_to_business(self):
+        """The category-lookup query for below-target products must be scoped
+        to business_id -- without it, product categories from every business
+        are attributed to the caller's price recommendations."""
+        from src.ai_engine.service import _generate_price_recommendations
+
+        business_id = uuid.uuid4()
+        captured_queries: list[str] = []
+
+        async def capture_execute(query):
+            captured_queries.append(
+                str(query.compile(compile_kwargs={"literal_binds": True}))
+            )
+            r = MagicMock()
+            r.all.return_value = []
+            return r
+
+        db = AsyncMock()
+        db.execute = capture_execute
+
+        with patch(
+            "src.pricing.service.calculate_portfolio_margin",
+            new_callable=AsyncMock,
+            return_value={"target_margin": 35, "products": []},
+        ):
+            await _generate_price_recommendations(db, NOW, business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.anyio
+    async def test_usd_hedge_recommendations_scopes_purchase_orders_to_business(self):
+        """The upcoming-USD-payment lookup must be scoped to business_id --
+        without it, every business's purchase orders are pulled into the
+        caller's USD-accumulation recommendations."""
+        from src.ai_engine.service import _generate_usd_hedge_recommendations
+
+        business_id = uuid.uuid4()
+        captured_queries: list[str] = []
+
+        async def capture_execute(query):
+            captured_queries.append(
+                str(query.compile(compile_kwargs={"literal_binds": True}))
+            )
+            r = MagicMock()
+            r.scalars.return_value.all.return_value = []
+            return r
+
+        db = AsyncMock()
+        db.execute = capture_execute
+
+        await _generate_usd_hedge_recommendations(db, NOW, business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "purchase_orders.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.anyio
+    async def test_generate_all_recommendations_passes_business_id_to_price_and_usd_generators(
+        self,
+    ):
+        """generate_all_recommendations must thread business_id into every
+        sub-generator, not just the ones already fixed (order timing,
+        liquidity) -- price and USD-hedge recommendations were the last two
+        still silently querying every business's data."""
+        from src.ai_engine.service import generate_all_recommendations
+
+        business_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        db.flush = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(return_value=mock_result)
+
+        with (
+            patch(
+                "src.ai_engine.service._generate_price_recommendations",
+                new_callable=AsyncMock,
+                return_value=[],
+            ) as mock_price,
+            patch(
+                "src.ai_engine.service._generate_order_timing_recommendations",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "src.ai_engine.service._generate_usd_hedge_recommendations",
+                new_callable=AsyncMock,
+                return_value=[],
+            ) as mock_usd,
+            patch(
+                "src.ai_engine.service._generate_liquidity_recommendations",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+        ):
+            await generate_all_recommendations(db, user_id, business_id=business_id)
+
+        assert mock_price.call_args[0][0] is db
+        assert mock_price.call_args[0][2] == business_id
+        assert mock_usd.call_args[0][0] is db
+        assert mock_usd.call_args[0][2] == business_id
