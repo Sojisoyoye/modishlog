@@ -599,9 +599,12 @@ async def _generate_liquidity_recommendations(
 
     actions = []
 
-    # Suggest delaying non-critical orders
+    # Suggest delaying non-critical orders. Scoped to business_id -- without
+    # it this counts every business's pending orders, inflating the
+    # recommendation text with other tenants' order counts (task 206).
     far_orders_result = await db.execute(
         select(func.count(PurchaseOrder.id)).where(
+            PurchaseOrder.business_id == business_id,
             PurchaseOrder.status == OrderStatus.PENDING,
             PurchaseOrder.expected_delivery_date > now.date() + timedelta(days=90),
         )
@@ -612,10 +615,12 @@ async def _generate_liquidity_recommendations(
             f"Consider delaying {far_orders_count} non-critical orders (delivery >90 days)"
         )
 
-    # Suggest loan deferral
+    # Suggest loan deferral. Scoped to business_id -- without it this
+    # counts every business's active loans (task 206).
     loan_result = await db.execute(
         select(func.count(LoanObligation.id)).where(
-            LoanObligation.status == LoanStatus.ACTIVE
+            LoanObligation.business_id == business_id,
+            LoanObligation.status == LoanStatus.ACTIVE,
         )
     )
     active_loans = loan_result.scalar() or 0
@@ -1015,9 +1020,14 @@ async def _get_latest_fx_rate(db: AsyncSession) -> Decimal:
 async def generate_usd_accumulation_schedule(
     db: AsyncSession,
     order_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> dict:
     """Generate a weekly USD accumulation schedule for an order."""
-    result = await db.execute(select(PurchaseOrder).where(PurchaseOrder.id == order_id))
+    result = await db.execute(
+        select(PurchaseOrder).where(
+            PurchaseOrder.id == order_id, PurchaseOrder.business_id == business_id
+        )
+    )
     order = result.scalar_one_or_none()
     if order is None:
         from src.orders.exceptions import OrderNotFoundError

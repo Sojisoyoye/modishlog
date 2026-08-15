@@ -5395,11 +5395,11 @@
         "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit (following task 198, which fixed the price/USD-hedge recommendation generators in this same file). _generate_liquidity_recommendations() has two unscoped queries: a PurchaseOrder count (~line 603-609) and a LoanObligation count (~line 616-620), both feeding directly into recommendation text stored under the caller's business_id but reflecting every tenant's order/loan counts. generate_usd_accumulation_schedule() (lines ~1015-1082) takes no business_id and queries PurchaseOrder by order_id alone; its router endpoint (router.py ~198-212) doesn't inject get_current_business_id either, so any order_id from any business returns that business's real order balance and USD purchase schedule.",
         "details": "Add business_id filters to the two queries in _generate_liquidity_recommendations() (business_id is already a parameter of this function per the task-198 precedent). Thread business_id through generate_usd_accumulation_schedule() and inject get_current_business_id in its router endpoint, scoping the initial PurchaseOrder lookup by business_id. Write regression tests matching the pattern already established in task 198's tests.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-08-15T13:00:00.000Z"
+        "updatedAt": "2026-08-15T16:24:45.446Z"
       },
       {
         "id": "207",
@@ -5452,7 +5452,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T18:00:00.000Z",
+      "lastModified": "2026-08-15T16:24:45.451Z",
       "taskCount": 210,
       "completedCount": 205,
       "tags": [

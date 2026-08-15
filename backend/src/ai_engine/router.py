@@ -202,10 +202,11 @@ async def dismiss_recommendation_endpoint(
 async def usd_accumulation_schedule_endpoint(
     order_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get USD accumulation schedule for a specific order."""
     try:
-        data = await generate_usd_accumulation_schedule(db, order_id)
+        data = await generate_usd_accumulation_schedule(db, order_id, business_id=business_id)
         return USDAccumulationScheduleResponse(**data)
     except Exception:
         logger.exception("usd_accumulation_schedule_error", order_id=str(order_id))
