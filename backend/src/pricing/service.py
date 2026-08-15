@@ -58,19 +58,20 @@ DEFAULT_TARGET_MARGIN = Decimal("35.00")
 async def _fetch_sales_history(
     db: AsyncSession,
     product_id: uuid.UUID,
+    business_id: uuid.UUID | None = None,
     days: int = 180,
 ) -> pd.DataFrame:
     """Fetch daily aggregated sales for Prophet format."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    query = select(Sale.sale_date, func.sum(Sale.quantity)).where(
+        Sale.product_id == product_id,
+        Sale.status == SaleStatus.COMPLETED,
+        Sale.sale_date >= cutoff.date(),
+    )
+    if business_id is not None:
+        query = query.where(Sale.business_id == business_id)
     result = await db.execute(
-        select(Sale.sale_date, func.sum(Sale.quantity))
-        .where(
-            Sale.product_id == product_id,
-            Sale.status == SaleStatus.COMPLETED,
-            Sale.sale_date >= cutoff.date(),
-        )
-        .group_by(Sale.sale_date)
-        .order_by(Sale.sale_date.asc())
+        query.group_by(Sale.sale_date).order_by(Sale.sale_date.asc())
     )
     rows = result.all()
 
@@ -115,9 +116,10 @@ async def calculate_demand_forecast(
     product_id: uuid.UUID,
     horizon_days: int = 90,
     proposed_price: Decimal | None = None,
+    business_id: uuid.UUID | None = None,
 ) -> dict:
     """Generate demand forecast with optional price elasticity adjustment."""
-    df = await _fetch_sales_history(db, product_id)
+    df = await _fetch_sales_history(db, product_id, business_id=business_id)
 
     try:
         model = await asyncio.wait_for(
@@ -133,7 +135,7 @@ async def calculate_demand_forecast(
     # Apply price elasticity adjustment if proposed_price given
     multiplier = 1.0
     if proposed_price is not None:
-        product = await _get_product(db, product_id)
+        product = await _get_product(db, product_id, business_id=business_id)
         elasticity = await _get_elasticity_coefficient(db, product)
         price_change_pct = float(  # financial-float-ok
             (proposed_price - product.selling_price) / product.selling_price
@@ -172,16 +174,26 @@ async def calculate_demand_forecast(
 DEFAULT_FX_SENSITIVITY = Decimal("0.0000")
 
 
-async def _get_product(db: AsyncSession, product_id: uuid.UUID) -> Product:
+async def _get_product(
+    db: AsyncSession, product_id: uuid.UUID, business_id: uuid.UUID | None = None
+) -> Product:
     """Fetch product or raise. Eager-loads category (+ its parent) since
     every caller may need it to resolve a category-default elasticity/FX
     sensitivity coefficient — ProductCategory.parent is lazy="raise", so
-    this isn't optional (task 186)."""
-    result = await db.execute(
+    this isn't optional (task 186).
+
+    business_id, when provided, scopes the lookup to that tenant (task 204)
+    -- without it any caller-supplied product_id from any business would
+    resolve, regardless of who's asking.
+    """
+    query = (
         select(Product)
         .where(Product.id == product_id)
         .options(selectinload(Product.category).selectinload(ProductCategory.parent))
     )
+    if business_id is not None:
+        query = query.where(Product.business_id == business_id)
+    result = await db.execute(query)
     product = result.scalar_one_or_none()
     if product is None:
         from src.products.exceptions import ProductNotFoundError
@@ -240,14 +252,14 @@ async def _get_elasticity_coefficient(db: AsyncSession, product: Product) -> Dec
 
 
 async def get_resolved_elasticity_config(
-    db: AsyncSession, product_id: uuid.UUID
+    db: AsyncSession, product_id: uuid.UUID, business_id: uuid.UUID | None = None
 ) -> dict:
     """Resolved elasticity + FX sensitivity coefficients for the config UI —
     always returns a value (own override, else category default, else
     system default) so the editor never starts blank (task 186, ST-802
     criterion 3). *_is_custom tells the UI whether this is the product's
     own saved override or an inherited default."""
-    product = await _get_product(db, product_id)
+    product = await _get_product(db, product_id, business_id=business_id)
     result = await db.execute(
         select(DemandElasticity).where(DemandElasticity.product_id == product_id)
     )
@@ -271,9 +283,10 @@ async def calculate_price_elasticity_impact(
     db: AsyncSession,
     product_id: uuid.UUID,
     proposed_price: Decimal,
+    business_id: uuid.UUID | None = None,
 ) -> dict:
     """Calculate demand impact for a proposed price change."""
-    product = await _get_product(db, product_id)
+    product = await _get_product(db, product_id, business_id=business_id)
 
     # E5 — Pricing floor: reject any proposed price at or below unit cost.
     # This mirrors the floor in compute_suggestion so that any user-submitted
@@ -302,8 +315,16 @@ async def calculate_price_elasticity_impact(
     }
 
 
-async def get_elasticity(db: AsyncSession, product_id: uuid.UUID) -> DemandElasticity:
-    """Get elasticity record for a product."""
+async def get_elasticity(
+    db: AsyncSession, product_id: uuid.UUID, business_id: uuid.UUID | None = None
+) -> DemandElasticity:
+    """Get elasticity record for a product.
+
+    DemandElasticity has no business_id column of its own -- ownership is
+    verified via the product it belongs to before reading it (task 204).
+    """
+    if business_id is not None:
+        await _get_product(db, product_id, business_id=business_id)
     result = await db.execute(
         select(DemandElasticity).where(DemandElasticity.product_id == product_id)
     )
@@ -318,10 +339,19 @@ async def update_elasticity_config(
     product_id: uuid.UUID,
     coefficient: Decimal,
     fx_sensitivity_coefficient: Decimal | None = None,
+    business_id: uuid.UUID | None = None,
 ) -> DemandElasticity:
     """Create or update elasticity (+ optional FX sensitivity) coefficient
     for a product. fx_sensitivity_coefficient=None leaves an existing saved
-    value untouched rather than clobbering it (task 186)."""
+    value untouched rather than clobbering it (task 186).
+
+    This is a write -- without verifying the product belongs to business_id,
+    any authenticated user of any business could overwrite another
+    business's product's elasticity/FX-sensitivity coefficients by
+    product_id alone (task 204).
+    """
+    if business_id is not None:
+        await _get_product(db, product_id, business_id=business_id)
     result = await db.execute(
         select(DemandElasticity).where(DemandElasticity.product_id == product_id)
     )
@@ -1127,6 +1157,7 @@ async def sensitivity_calc(
     quantity: int,
     product_id: uuid.UUID | None = None,
     unit_cost_usd_override: Decimal | None = None,
+    business_id: uuid.UUID | None = None,
 ) -> dict:
     """Stateless price-FX sensitivity calculation.
 
@@ -1139,14 +1170,14 @@ async def sensitivity_calc(
 
     if product_id is not None:
         # Try to get FIFO batch cost from inventory
-        batches = await get_batches_for_product(db, product_id)
+        batches = await get_batches_for_product(db, product_id, business_id=business_id)
         active_batches = [b for b in batches if b.quantity_remaining > 0]
         if active_batches:
             # Use the weighted-average unit cost from active batches
             unit_cost_usd = active_batches[0].unit_cost_usd
         else:
             # Fall back to the product's unit_cost
-            product = await _get_product(db, product_id)
+            product = await _get_product(db, product_id, business_id=business_id)
             unit_cost_usd = product.unit_cost
 
     if unit_cost_usd_override is not None:
@@ -1271,6 +1302,7 @@ async def get_selling_price_suggestion(
     currency: str,
     fx_rate_override: Decimal | None,
     min_margin_pct: Decimal,
+    business_id: uuid.UUID | None = None,
 ) -> dict:
     """Compute the minimum recommended selling price in NGN.
 
@@ -1289,7 +1321,7 @@ async def get_selling_price_suggestion(
     resolved_currency: str
 
     if product_id is not None:
-        product = await _get_product(db, product_id)
+        product = await _get_product(db, product_id, business_id=business_id)
         unit_cost = product.unit_cost
         resolved_currency = product.currency
     else:
@@ -1724,6 +1756,7 @@ async def get_suggestion_history(
     product_id: uuid.UUID,
     limit: int = 30,
     variant_id: uuid.UUID | None = None,
+    business_id: uuid.UUID | None = None,
 ) -> list:
     """Return the last `limit` price suggestions for a product, newest
     first.
@@ -1734,6 +1767,10 @@ async def get_suggestion_history(
     Without this, a product's variants' suggestion histories interleave
     with no way to tell them apart (task 171).
 
+    PriceSuggestion has no business_id column of its own -- business_id,
+    when provided, verifies the product belongs to that tenant before
+    reading its suggestion history (task 204).
+
     Raises PricingSuggestionError if variant_id doesn't belong to
     product_id — a mismatched pair would otherwise just silently return
     an empty list, masking a client-side bug that passed the wrong pair.
@@ -1741,6 +1778,8 @@ async def get_suggestion_history(
     does: a deactivated variant's *past* suggestions should stay visible
     (this is a history read, not a request to compute a new suggestion
     against that variant's current, possibly-gone lot stock)."""
+    if business_id is not None:
+        await _get_product(db, product_id, business_id=business_id)
     if variant_id is not None:
         variant = await find_product_variant(
             db, variant_id, product_id, active_only=False

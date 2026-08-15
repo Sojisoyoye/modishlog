@@ -2696,6 +2696,224 @@ class TestCrossSubsidizationAnalysis:
 
 
 # ---------------------------------------------------------------------------
+# Cross-tenant scoping (task 204)
+# ---------------------------------------------------------------------------
+
+
+class TestPricingCrossTenantScoping:
+    """Found 2026-08-15 in a codebase-wide cross-tenant audit: _get_product()
+    and every function built on it (demand forecast, elasticity impact,
+    selling-price suggestion, sensitivity calc), plus get_elasticity(),
+    update_elasticity_config(), and get_suggestion_history(), took a
+    caller-supplied product_id with no business_id scoping at all. Their
+    router endpoints didn't inject get_current_business_id either --
+    configure_elasticity_endpoint in particular is a WRITE, so any
+    authenticated user of any business could overwrite another business's
+    product's elasticity/FX-sensitivity coefficients by product_id alone."""
+
+    @pytest.mark.asyncio
+    async def test_get_product_scopes_to_business_when_provided(self):
+        from src.pricing.service import _get_product
+        from src.products.exceptions import ProductNotFoundError
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        with pytest.raises(ProductNotFoundError):
+            await _get_product(db, uuid.uuid4(), business_id=business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.asyncio
+    async def test_fetch_sales_history_scopes_to_business_when_provided(self):
+        from src.pricing.service import _fetch_sales_history
+        from src.pricing.exceptions import InsufficientPriceDataError
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.all.return_value = []
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        with pytest.raises(InsufficientPriceDataError):
+            await _fetch_sales_history(db, uuid.uuid4(), business_id=business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "sales.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.asyncio
+    async def test_get_elasticity_requires_product_ownership_when_business_id_given(self):
+        from src.pricing.service import get_elasticity
+        from src.products.exceptions import ProductNotFoundError
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        with pytest.raises(ProductNotFoundError):
+            await get_elasticity(db, uuid.uuid4(), business_id=business_id)
+
+        # Only the ownership-check query should have run -- DemandElasticity
+        # must never be queried for a product that isn't the caller's.
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+
+    @pytest.mark.asyncio
+    async def test_update_elasticity_config_requires_product_ownership_when_business_id_given(self):
+        """The write path: without this check, any authenticated user of
+        any business could overwrite another business's product's
+        elasticity coefficient by product_id alone."""
+        from src.pricing.service import update_elasticity_config
+        from src.products.exceptions import ProductNotFoundError
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        with pytest.raises(ProductNotFoundError):
+            await update_elasticity_config(
+                db, uuid.uuid4(), Decimal("-1.5"), business_id=business_id
+            )
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+        db.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_suggestion_history_requires_product_ownership_when_business_id_given(self):
+        from src.pricing.service import get_suggestion_history
+        from src.products.exceptions import ProductNotFoundError
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        with pytest.raises(ProductNotFoundError):
+            await get_suggestion_history(db, uuid.uuid4(), business_id=business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+
+    @pytest.mark.asyncio
+    async def test_sensitivity_calc_scopes_batch_and_product_lookups(self):
+        from src.pricing.service import sensitivity_calc
+
+        business_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalars.return_value.all.return_value = []
+            result.scalar_one_or_none.return_value = _make_product(id=product_id)
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        await sensitivity_calc(
+            db,
+            selling_price=Decimal("5000"),
+            fx_rate=Decimal("1500"),
+            quantity=10,
+            product_id=product_id,
+            business_id=business_id,
+        )
+
+        # get_batches_for_product() itself does a business-scoped product
+        # ownership check before its InventoryBatch query, then (since no
+        # batches are returned) sensitivity_calc falls back to its own
+        # scoped _get_product() call -- both Product-touching queries must
+        # carry the business_id filter.
+        product_queries = [q for q in captured_queries if "products.business_id" in q.lower()]
+        assert len(product_queries) == 2
+        for q in product_queries:
+            assert business_id.hex in q.replace("-", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_selling_price_suggestion_scopes_product_lookup(self):
+        from src.pricing.service import get_selling_price_suggestion
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        from src.products.exceptions import ProductNotFoundError
+
+        with pytest.raises(ProductNotFoundError):
+            await get_selling_price_suggestion(
+                db,
+                product_id=uuid.uuid4(),
+                unit_cost_override=None,
+                currency="NGN",
+                fx_rate_override=None,
+                min_margin_pct=Decimal("35"),
+                business_id=business_id,
+            )
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+
+# ---------------------------------------------------------------------------
 # Sensitivity Calc API
 # ---------------------------------------------------------------------------
 
@@ -2711,14 +2929,18 @@ class TestSensitivityCalcEndpoint:
         app.dependency_overrides = self._original_overrides
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
 
         u = _make_user()
 
         async def _fake_auth():
             return u
 
+        async def _fake_business_id():
+            return BUSINESS_ID
+
         self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
 
     def test_sensitivity_calc_stateless(self):
         """Stateless calc with explicit unit_cost_usd returns expected margin."""
@@ -2800,12 +3022,16 @@ class TestSellingPriceSuggestionStaleFlag:
         app.dependency_overrides = self._orig
 
     def _override_auth(self):
-        from src.auth.dependencies import get_current_active_user
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
 
         async def _auth():
             return _make_user()
 
+        async def _business_id():
+            return BUSINESS_ID
+
         self.app.dependency_overrides[get_current_active_user] = _auth
+        self.app.dependency_overrides[get_current_business_id] = _business_id
 
     def test_ngn_currency_is_never_stale(self):
         """NGN product costs need no FX conversion — stale flag must be False."""

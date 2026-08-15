@@ -173,15 +173,20 @@ async def demand_forecast_endpoint(
     product_id: uuid.UUID,
     horizon_days: int = 90,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get demand forecast for a product."""
     try:
-        data = await calculate_demand_forecast(db, product_id, horizon_days)
+        data = await calculate_demand_forecast(
+            db, product_id, horizon_days, business_id=business_id
+        )
         return DemandForecastResponse(**data)
     except ForecastTimeoutError as e:
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(e))
     except InsufficientPriceDataError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except ProductNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -196,11 +201,12 @@ async def demand_forecast_endpoint(
 async def get_elasticity_endpoint(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get elasticity data for a product."""
     try:
-        return await get_elasticity(db, product_id)
-    except ElasticityNotFoundError as e:
+        return await get_elasticity(db, product_id, business_id=business_id)
+    except (ElasticityNotFoundError, ProductNotFoundError) as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
@@ -211,12 +217,13 @@ async def get_elasticity_endpoint(
 async def get_elasticity_config_endpoint(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get resolved elasticity/FX-sensitivity coefficients for the config
     UI -- always populated via category-default fallback, never 404s
     (task 186, ST-802 criterion 3)."""
     try:
-        return await get_resolved_elasticity_config(db, product_id)
+        return await get_resolved_elasticity_config(db, product_id, business_id=business_id)
     except ProductNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -230,14 +237,19 @@ async def configure_elasticity_endpoint(
     body: ElasticityConfigUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Update elasticity (+ optional FX sensitivity) coefficient for a product."""
-    return await update_elasticity_config(
-        db,
-        product_id,
-        body.elasticity_coefficient,
-        fx_sensitivity_coefficient=body.fx_sensitivity_coefficient,
-    )
+    try:
+        return await update_elasticity_config(
+            db,
+            product_id,
+            body.elasticity_coefficient,
+            fx_sensitivity_coefficient=body.fx_sensitivity_coefficient,
+            business_id=business_id,
+        )
+    except ProductNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get("/elasticity-impact/{product_id}")
@@ -245,13 +257,17 @@ async def elasticity_impact_endpoint(
     product_id: uuid.UUID,
     proposed_price: float,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Calculate demand impact for a proposed price change."""
     from decimal import Decimal
 
-    return await calculate_price_elasticity_impact(
-        db, product_id, Decimal(str(proposed_price))
-    )
+    try:
+        return await calculate_price_elasticity_impact(
+            db, product_id, Decimal(str(proposed_price)), business_id=business_id
+        )
+    except ProductNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +376,7 @@ async def cross_subsidy_endpoint(
 async def sensitivity_calc_endpoint(
     body: SensitivityCalcRequest,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Stateless price-FX sensitivity calculation."""
     try:
@@ -370,16 +387,20 @@ async def sensitivity_calc_endpoint(
             quantity=body.quantity,
             product_id=body.product_id,
             unit_cost_usd_override=body.unit_cost_usd,
+            business_id=business_id,
         )
         return SensitivityCalcResponse(**data)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except ProductNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.post("/selling-price-suggestion", response_model=SellingPriceSuggestionResponse)
 async def selling_price_suggestion_endpoint(
     body: SellingPriceSuggestionRequest,
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Return the FX-adjusted minimum selling price for a given cost and margin target."""
     try:
@@ -390,10 +411,13 @@ async def selling_price_suggestion_endpoint(
             currency=body.currency,
             fx_rate_override=body.fx_rate_override,
             min_margin_pct=body.min_margin_pct,
+            business_id=business_id,
         )
         return SellingPriceSuggestionResponse(**data)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except ProductNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except FXPairNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -475,13 +499,16 @@ async def suggestion_history_endpoint(
     variant_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Return the last N price suggestions for a product, newest first.
     Pass variant_id to scope to that variant's own suggestion history."""
     try:
         return await get_suggestion_history(
-            db, product_id, limit=limit, variant_id=variant_id
+            db, product_id, limit=limit, variant_id=variant_id, business_id=business_id
         )
+    except ProductNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except PricingSuggestionError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)

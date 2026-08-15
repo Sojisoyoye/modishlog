@@ -5371,11 +5371,11 @@
         "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/pricing/service.py: _get_product() (lines ~175-190) and everything built on it (calculate_demand_forecast, calculate_price_elasticity_impact, get_selling_price_suggestion, sensitivity_calc) take a caller-supplied product_id with no business_id scoping, and their router endpoints (router.py demand-forecast/{product_id}, elasticity-impact/{product_id}, selling-price-suggestion, sensitivity-calc) don't inject get_current_business_id at all. get_elasticity()/get_resolved_elasticity_config()/update_elasticity_config() (lines ~305-351) have the same gap -- configure_elasticity_endpoint is a WRITE, so any authenticated user of any business can overwrite another business's product's elasticity_coefficient/fx_sensitivity_coefficient by product_id alone. get_suggestion_history() (lines ~1722-1764, router.py ~471-488) leaks historical pricing-suggestion data (unit_cost_ngn, suggested_price_ngn, target_margin_pct) for another business's product.",
         "details": "Inject get_current_business_id into every affected router endpoint and thread business_id through the corresponding service functions, scoping the initial product lookup by business_id (404 if the product belongs to another business, matching the pattern already used correctly elsewhere in this file for margin-target/loan/scenario CRUD). Write regression tests proving cross-tenant product_id access is rejected on both the read and write (configure_elasticity) paths.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-08-15T13:00:00.000Z"
+        "updatedAt": "2026-08-15T15:38:13.037Z"
       },
       {
         "id": "205",
@@ -5452,7 +5452,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T16:00:00.000Z",
+      "lastModified": "2026-08-15T15:38:13.044Z",
       "taskCount": 210,
       "completedCount": 203,
       "tags": [
