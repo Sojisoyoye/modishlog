@@ -294,6 +294,11 @@ interface ElasticityEntry {
             {{ recsGenerating() ? 'Generating…' : 'Refresh' }}
           </button>
         </div>
+        <p class="-mt-3 mb-4 text-xs text-muted">
+          Category-level suggestions based on your sales data. Marking one reviewed
+          does not change any prices — to actually update a price, use Optimizer
+          Recommendations below.
+        </p>
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           @for (rec of pricingRecs(); track rec.id) {
             <div class="rounded-xl border border-gray-200 p-4 transition-shadow hover:shadow-md">
@@ -344,9 +349,9 @@ interface ElasticityEntry {
               <div class="mt-3 flex gap-2">
                 <button
                   (click)="applyRec(rec.id)"
-                  class="flex min-h-[44px] items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-emerald-700"
+                  class="flex min-h-[44px] items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:bg-gray-50 hover:text-text"
                 >
-                  <i class="pi pi-check text-[10px]"></i> Mark Reviewed
+                  <i class="pi pi-eye text-[10px]"></i> Mark Reviewed
                 </button>
                 <button
                   (click)="dismissRec(rec.id)"
@@ -980,6 +985,9 @@ interface ElasticityEntry {
             </button>
           </div>
         </div>
+        <p class="-mt-3 mb-4 text-xs text-muted">
+          Applying a recommendation here updates the product's price immediately.
+        </p>
 
         @if (optimizerRecs().length > 0) {
           <div class="space-y-3">

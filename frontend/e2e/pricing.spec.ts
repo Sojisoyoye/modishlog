@@ -193,6 +193,27 @@ test.describe('Pricing & Margins page', () => {
     await expect(targetInput).toHaveValue('35');
   });
 
+  // Task 199 — the "Pricing Recommendations" panel's "Mark Reviewed" button
+  // used to be styled identically to a real apply action (green, checkmark
+  // icon) even though it does not change any price; only "Optimizer
+  // Recommendations" below it actually updates a product's price. Each
+  // panel must now say plainly what it does.
+  test('Recommendations tab explains the difference between the two panels (Task 199)', async ({
+    page,
+  }) => {
+    await page.goto('/pricing');
+    await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await switchToTab(page, 'Recommendations');
+
+    await expect(page.getByRole('heading', { name: 'Pricing Recommendations' })).toBeVisible();
+    await expect(page.getByText(/does not change any prices/i)).toBeVisible();
+
+    await expect(page.getByRole('heading', { name: 'Optimizer Recommendations' })).toBeVisible();
+    await expect(page.getByText(/updates the product.s price/i)).toBeVisible();
+  });
+
   test('Demand Forecast section has product selector and Run Forecast button', async ({ page }) => {
     await page.goto('/pricing');
     await expect(page.getByRole('heading', { name: 'Pricing & Margins' })).toBeVisible({
