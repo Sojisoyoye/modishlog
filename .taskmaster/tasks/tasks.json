@@ -5311,11 +5311,11 @@
         "description": "Found 2026-08-14 during a Pricing & Margins page audit. The Recommendations tab has two separate, unexplained systems: (1) \"Pricing Recommendations\" (AI-engine-generated, category-grouped) whose \"Mark Reviewed\" button is styled identically to an apply action (green, checkmark icon) but backend's apply_recommendation() (ai_engine/service.py ~line 841-855) explicitly does nothing to product prices for this payload shape -- it only flips status to APPLIED; and (2) \"Optimizer Recommendations\" (pricing-service SciPy optimizer) whose Apply button is the one that actually changes a product's price. Nothing in the UI tells the user these are different systems or that clicking the first one will not change any price.",
         "details": "Either restyle the \"Mark Reviewed\" button so it is visually distinct from a true apply action (different color/icon, label like \"Reviewed\" without a checkmark), and/or add a short explanatory line above each panel clarifying what it does (e.g. \"These are category-level suggestions to review -- to actually change a price, use the recommendations below\" / \"Applying here updates the product's price immediately\"). Frontend-only change in frontend/src/app/features/pricing/pages/pricing-page.component.ts (Recommendations tab, both panels).",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-08-14T15:20:00.000Z"
+        "updatedAt": "2026-08-15T10:00:00.000Z"
       },
       {
         "id": "200",
@@ -5344,7 +5344,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T09:00:00.000Z",
+      "lastModified": "2026-08-15T10:00:00.000Z",
       "taskCount": 201,
       "completedCount": 198,
       "tags": [
