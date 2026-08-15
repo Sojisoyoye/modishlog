@@ -117,24 +117,29 @@ def _assign_priority_level(
 async def _generate_price_recommendations(
     db: AsyncSession,
     now: datetime,
+    business_id: uuid.UUID,
 ) -> list[AIRecommendation]:
     """Generate one price recommendation per product category with below-target products."""
     from src.pricing.service import calculate_portfolio_margin
     from src.products.models import Product, ProductCategory
 
     try:
-        portfolio = await calculate_portfolio_margin(db)
+        portfolio = await calculate_portfolio_margin(db, business_id=business_id)
     except Exception:
         logger.exception("price_recommendations_portfolio_failed")
         return []
 
     target_margin = Decimal(str(portfolio.get("target_margin", 35)))
 
-    # Fetch category name for every active product in one query
+    # Fetch category name for every active product in one query. Scoped to
+    # business_id -- without it every business's product categories are
+    # attributed to the caller's price recommendations (the resulting
+    # AIRecommendation row is stamped with the caller's business_id
+    # regardless, so its content would silently leak other tenants' data).
     cat_result = await db.execute(
         select(Product.id, ProductCategory.name)
         .join(ProductCategory, Product.category_id == ProductCategory.id)
-        .where(Product.is_active.is_(True))
+        .where(Product.is_active.is_(True), Product.business_id == business_id)
     )
     category_by_product: dict = {pid: cat_name for pid, cat_name in cat_result.all()}
 
@@ -410,14 +415,19 @@ async def _generate_order_timing_recommendations(
 async def _generate_usd_hedge_recommendations(
     db: AsyncSession,
     now: datetime,
+    business_id: uuid.UUID,
 ) -> list[AIRecommendation]:
     """Generate USD accumulation recommendations for upcoming FX obligations."""
     today = now.date()
     cutoff = today + timedelta(days=180)
 
-    # Find orders with upcoming USD payments
+    # Find orders with upcoming USD payments. Scoped to business_id --
+    # without it every business's purchase orders are pulled into the
+    # caller's USD-accumulation recommendations (same cross-tenant leak
+    # class as the sibling generators in this module).
     result = await db.execute(
         select(PurchaseOrder).where(
+            PurchaseOrder.business_id == business_id,
             PurchaseOrder.status.in_(
                 [
                     OrderStatus.PENDING,
@@ -712,13 +722,13 @@ async def generate_all_recommendations(
     # Generate from all sources
     all_recs: list[AIRecommendation] = []
 
-    price_recs = await _generate_price_recommendations(db, now)
+    price_recs = await _generate_price_recommendations(db, now, business_id)
     all_recs.extend(price_recs)
 
     order_recs = await _generate_order_timing_recommendations(db, now, business_id)
     all_recs.extend(order_recs)
 
-    usd_recs = await _generate_usd_hedge_recommendations(db, now)
+    usd_recs = await _generate_usd_hedge_recommendations(db, now, business_id)
     all_recs.extend(usd_recs)
 
     liquidity_recs = await _generate_liquidity_recommendations(db, now, business_id)
