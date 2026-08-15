@@ -254,6 +254,7 @@ async def _calculate_monthly_operating_costs(
 
 async def _calculate_fx_obligations(
     db: AsyncSession,
+    business_id: uuid.UUID,
     target_month_start: date,
     target_month_end: date,
     fx_rate: Decimal = DEFAULT_FX_RATE,
@@ -268,6 +269,7 @@ async def _calculate_fx_obligations(
             PurchaseOrder.id,
             PurchaseOrder.total_amount,
         ).where(
+            PurchaseOrder.business_id == business_id,
             PurchaseOrder.status.in_(
                 [
                     OrderStatus.PENDING,
@@ -395,7 +397,7 @@ async def generate_cashflow_projection(
             month_end = date(target_year, target_month + 1, 1) - timedelta(days=1)
 
         fx_obligations = await _calculate_fx_obligations(
-            db, month_start, month_end, fx_rate, scenario_type
+            db, business_id, month_start, month_end, fx_rate, scenario_type
         )
 
         total_expenses = monthly_loan + monthly_opex + fx_obligations
@@ -1272,6 +1274,7 @@ async def build_payment_calendar(
     fx_rate = await _get_latest_fx_rate(db)
     fx_result = await db.execute(
         select(PurchaseOrder).where(
+            PurchaseOrder.business_id == business_id,
             PurchaseOrder.status.in_(
                 [
                     OrderStatus.PENDING,
@@ -1461,7 +1464,9 @@ async def generate_triage_recommendations(
     from src.inventory.service import get_liquidation_candidates
 
     try:
-        candidates = await get_liquidation_candidates(db, shortfall)
+        candidates = await get_liquidation_candidates(
+            db, shortfall, business_id=business_id
+        )
         total_liquidation_value = sum(c["total_batch_value"] for c in candidates[:5])
         recommendations.append(
             {
