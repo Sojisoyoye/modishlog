@@ -155,11 +155,21 @@ async def deactivate_customer(
 async def get_customer_sales(
     db: AsyncSession,
     customer_id: uuid.UUID,
+    business_id: uuid.UUID,
     page: int = 1,
     page_size: int = 25,
 ) -> tuple[list["Sale"], int]:  # noqa: F821
-    """Paginated list of sales for a customer."""
+    """Paginated list of sales for a customer.
+
+    Verifies the customer belongs to business_id first (matching
+    get_customer_ledger()/get_customer_activities()'s pattern) -- without
+    it, any authenticated user of any business could fetch another
+    business's full sales history for a customer_id from that business
+    (task 207).
+    """
     from src.sales.models import Sale
+
+    await get_customer(db, customer_id, business_id=business_id)
 
     count_result = await db.execute(
         select(func.count()).select_from(Sale).where(Sale.customer_id == customer_id)

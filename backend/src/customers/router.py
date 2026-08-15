@@ -145,9 +145,12 @@ async def get_customer_sales_endpoint(
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Paginated list of sales for a customer."""
-    items, total = await get_customer_sales(
-        db, customer_id, page=page, page_size=page_size
-    )
+    try:
+        items, total = await get_customer_sales(
+            db, customer_id, business_id=business_id, page=page, page_size=page_size
+        )
+    except CustomerNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return SaleListResponse(
         items=[SaleRead.model_validate(s) for s in items],
         total=total,
