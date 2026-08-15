@@ -24,6 +24,7 @@ from src.cashflow.models import (
     TriageStatus,
 )
 from src.core.security import get_password_hash
+import src.suppliers.models  # noqa: F401 — registers Supplier mapper for PurchaseOrder
 
 VALID_PASSWORD = "Str0ng!Pass#99"
 
@@ -998,6 +999,106 @@ class TestProjectionHelpers:
         ):
             summary = await _summarize_projection(db, proj, uuid.uuid4())
         assert summary["margin_pct"] == 40.0
+
+
+# ---------------------------------------------------------------------------
+# Cross-tenant scoping (task 205)
+# ---------------------------------------------------------------------------
+
+
+class TestCashflowCrossTenantScoping:
+    """Found 2026-08-15 in a codebase-wide cross-tenant audit:
+    _calculate_fx_obligations() had no business_id filter at all and is
+    called for every month bucket of every projection -- hit on nearly
+    every /cashflow/projection, /cash-runway, /dscr request via the daily-
+    regen path. build_payment_calendar()'s FX section had the same gap
+    (its sibling loan-schedule and operating-costs sections were already
+    scoped). generate_triage_recommendations() received business_id but
+    never passed it to get_liquidation_candidates(), which already
+    supports it -- so LIQUIDATE recommendations pooled every business's
+    inventory batches."""
+
+    @pytest.mark.asyncio
+    async def test_calculate_fx_obligations_scopes_purchase_orders(self):
+        from src.cashflow.service import _calculate_fx_obligations
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.all.return_value = []
+            return result
+
+        db = AsyncMock()
+        db.execute = capture_execute
+
+        await _calculate_fx_obligations(
+            db, business_id, date(2026, 4, 1), date(2026, 4, 30)
+        )
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "purchase_orders.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.asyncio
+    async def test_build_payment_calendar_fx_section_scopes_purchase_orders(self):
+        from src.cashflow.service import build_payment_calendar
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.all.return_value = []
+            result.scalars.return_value.all.return_value = []
+            result.scalar.return_value = None
+            return result
+
+        db = AsyncMock()
+        db.execute = capture_execute
+
+        await build_payment_calendar(
+            db, business_id, horizon_days=30, starting_balance=Decimal("0")
+        )
+
+        fx_queries = [
+            q for q in captured_queries if "purchase_orders" in q.lower()
+        ]
+        assert len(fx_queries) == 1
+        compiled = fx_queries[0].lower()
+        assert "purchase_orders.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.asyncio
+    async def test_generate_triage_recommendations_scopes_liquidation_candidates(self):
+        from src.cashflow.service import generate_triage_recommendations
+
+        business_id = uuid.uuid4()
+        db = _mock_db()
+        default_result = MagicMock()
+        default_result.scalar_one_or_none.return_value = None
+        default_result.scalars.return_value.all.return_value = []
+        default_result.one.return_value = (0, Decimal("0"))
+        db.execute = AsyncMock(return_value=default_result)
+
+        with patch(
+            "src.cashflow.service.get_active_triage",
+            new_callable=AsyncMock,
+            return_value=None,
+        ), patch(
+            "src.inventory.service.get_liquidation_candidates",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as mock_candidates:
+            await generate_triage_recommendations(db, business_id)
+
+        mock_candidates.assert_called_once_with(
+            db, Decimal("0"), business_id=business_id
+        )
 
 
 # ---------------------------------------------------------------------------
