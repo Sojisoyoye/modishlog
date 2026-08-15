@@ -5321,13 +5321,13 @@
         "id": "200",
         "title": "Wire Cross-Subsidisation tab to the real GET /pricing/cross-subsidy backend endpoint",
         "description": "Found 2026-08-14 during a Pricing & Margins page audit. The Cross-Subsidisation tab in frontend/src/app/features/pricing/pages/pricing-page.component.ts computes its subsidy pairs and margin-target breakdown entirely client-side (buildCrossSubsidy(), lines ~1663-1698) from the same portfolio-margin data fetched for the Overview tab. The backend already has a dedicated, PRD-matching endpoint for this: GET /pricing/cross-subsidy (router.py lines ~342-351), backed by analyze_cross_subsidization() (service.py lines ~850-898), which persists a CrossSubsidyAnalysis row -- but PricingService (frontend) does not even expose a method for it, so it is never called.",
-        "details": "Add a PricingService method for GET /pricing/cross-subsidy, call it when the Cross-Subsidisation tab is opened, and replace (or reconcile) the client-side buildCrossSubsidy() computation with the backend response. Preserve the existing dynamic \"insight\" text (subsidyInsight(), lines ~1460-1493) which is good UX and not redundant with this change. Verify the backend's high_margin (>40%) / low_margin (<34%) bucket thresholds match what the frontend currently shows, and reconcile if they differ -- this could change visible behavior on this tab, so check before merging.",
+        "details": "REVISED 2026-08-15: investigation before implementing found the backend endpoint was actually the weaker implementation, not the frontend -- switching to it would have been a regression. The frontend's buildCrossSubsidy() explicitly pairs high-margin products against low-margin ones (\"X subsidises Y\"), matching PRD ST-801's exact wording (\"Product A margin offsets Product B margin\"); the backend only returned two separate flat lists with no pairing. The frontend also uses the actual configured target margin consistently, has search/pagination, and was already working. Left the frontend unchanged. Instead fixed two real backend bugs found in analyze_cross_subsidization() (backend/src/pricing/service.py) while investigating: (1) hardcoded high>40%/low<34% thresholds that only coincidentally matched the 35% module default, now relative to the business's actual target_margin; (2) the GET endpoint was inserting a new CrossSubsidyAnalysis row into the database on every call (a read causing a write, with no consumer of the resulting history) -- now computed fresh without persisting, still schema-compatible via a synthetic id.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-08-14T15:20:00.000Z"
+        "updatedAt": "2026-08-15T11:00:00.000Z"
       },
       {
         "id": "201",
@@ -5344,7 +5344,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T10:30:00.000Z",
+      "lastModified": "2026-08-15T11:00:00.000Z",
       "taskCount": 201,
       "completedCount": 199,
       "tags": [

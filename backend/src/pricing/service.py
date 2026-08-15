@@ -851,13 +851,29 @@ async def analyze_cross_subsidization(
     db: AsyncSession,
     business_id: uuid.UUID | None = None,
 ) -> CrossSubsidyAnalysis:
-    """Analyze portfolio cross-subsidization patterns."""
+    """Analyze portfolio cross-subsidization patterns.
+
+    A read, not a write: this is a GET endpoint, so the returned analysis is
+    computed fresh on every call and never persisted -- it previously
+    inserted a new CrossSubsidyAnalysis row on every request, which has no
+    consumer (nothing reads analysis history back) and would grow the table
+    unboundedly. `id`/`created_at` are still populated (not DB defaults) so
+    CrossSubsidyRead can serialize the result as if it were a stored row.
+    """
     portfolio = await calculate_portfolio_margin(db, business_id=business_id)
 
     if len(portfolio["products"]) < 2:
         from src.pricing.exceptions import CrossSubsidyAnalysisError
 
         raise CrossSubsidyAnalysisError("Need at least 2 products with sales")
+
+    # Bucketed relative to the business's actual target margin, not a
+    # hardcoded 40%/34% that only coincidentally matched the module default
+    # of 35% -- a product at 48% margin is "high" against a 35% target but
+    # below-target (and should offer no subsidy) against a 50% target.
+    target_margin = portfolio["target_margin"]
+    high_threshold = target_margin + 5
+    low_threshold = target_margin - 1
 
     high_margin = []
     low_margin = []
@@ -869,9 +885,9 @@ async def analyze_cross_subsidization(
             "margin_pct": p["margin_pct"],
             "revenue_30d": str(p["revenue_30d"]),
         }
-        if p["margin_pct"] > 40:
+        if p["margin_pct"] > high_threshold:
             high_margin.append(entry)
-        elif p["margin_pct"] < 34:
+        elif p["margin_pct"] < low_threshold:
             low_margin.append(entry)
 
     recs = []
@@ -880,12 +896,13 @@ async def analyze_cross_subsidization(
             {
                 "product_id": lm["product_id"],
                 "action": "consider_price_increase",
-                "reasoning": f"Margin {lm['margin_pct']}% below 35% target",
+                "reasoning": f"Margin {lm['margin_pct']}% below {target_margin}% target",
             }
         )
 
     now = datetime.now(timezone.utc)
-    analysis = CrossSubsidyAnalysis(
+    return CrossSubsidyAnalysis(
+        id=uuid.uuid4(),
         analysis_date=now.date(),
         portfolio_total_margin=portfolio["blended_margin"],
         high_margin_products={"products": high_margin},
@@ -893,9 +910,6 @@ async def analyze_cross_subsidization(
         recommendations={"items": recs},
         created_at=now,
     )
-    db.add(analysis)
-    await db.flush()
-    return analysis
 
 
 # ---------------------------------------------------------------------------
