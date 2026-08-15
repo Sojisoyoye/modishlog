@@ -5383,11 +5383,11 @@
         "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/cashflow/service.py: _calculate_fx_obligations() (lines ~255-303) takes no business_id parameter and its PurchaseOrder query is completely unscoped -- called from generate_cashflow_projection() for every month bucket, which runs on nearly every /cashflow/projection, /cash-runway, /dscr request via the daily-regen path, so every business's projected fx_obligations/net_cashflow/dscr/risk_rating is computed by pooling every tenant's pending USD purchase orders together. build_payment_calendar()'s FX section (lines ~1271-1307) has the same missing filter (its sibling loan-schedule and operating-costs sections are correctly scoped). generate_triage_recommendations() (line ~1464) receives business_id but never passes it to get_liquidation_candidates() (inventory/service.py), which explicitly supports business_id scoping for exactly this purpose -- so LIQUIDATE recommendations include every business's inventory batches.",
         "details": "Thread business_id into _calculate_fx_obligations() and apply it to the PurchaseOrder query; add the missing filter to build_payment_calendar()'s FX section; pass business_id through to get_liquidation_candidates() in generate_triage_recommendations(). This is the highest-traffic finding of the audit (hit on nearly every cashflow page load) -- write regression tests proving projections/calendars/triage recs only reflect the caller's own business data.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-08-15T16:12:01.837Z"
+        "updatedAt": "2026-08-15T18:00:00.000Z"
       },
       {
         "id": "206",
@@ -5452,9 +5452,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T16:12:01.841Z",
+      "lastModified": "2026-08-15T18:00:00.000Z",
       "taskCount": 210,
-      "completedCount": 204,
+      "completedCount": 205,
       "tags": [
         "master"
       ]
