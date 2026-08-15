@@ -250,6 +250,87 @@ class TestCreateSale:
         with pytest.raises(InvalidStockAdjustmentError):
             await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
 
+    @pytest.mark.asyncio
+    async def test_product_lookup_is_scoped_to_business(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 202): the product
+        existence check queried Product by id alone with no business_id
+        filter, despite business_id being a required parameter. A sale
+        referencing another business's product_id would deplete THAT
+        business's real inventory via adjust_stock()/fifo_deduct() -- not
+        just a read leak, actual cross-tenant stock corruption."""
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        data = SaleCreate(
+            product_id=uuid.uuid4(),
+            quantity=1,
+            unit_price=Decimal("10"),
+            sale_date=date(2026, 3, 15),
+            channel="retail",
+        )
+        from src.products.exceptions import ProductNotFoundError
+
+        with pytest.raises(ProductNotFoundError):
+            await create_sale(db, data, uuid.uuid4(), business_id=business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.asyncio
+    async def test_customer_lookup_is_scoped_to_business(self):
+        """The customer_id denormalization lookup had no business_id filter
+        -- a sale could pull another business's real customer name/contact
+        onto the record, a PII leak (task 202)."""
+        business_id = uuid.uuid4()
+        product = _make_product(id=uuid.uuid4())
+        inventory = _make_inventory(product_id=product.id, quantity_on_hand=100)
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            if len(captured_queries) == 1:
+                result.scalar_one_or_none.return_value = product
+            elif len(captured_queries) == 2:
+                # customer lookup — not found within this business
+                result.scalar_one_or_none.return_value = None
+            elif len(captured_queries) == 3:
+                result.scalar_one_or_none.return_value = inventory
+            else:
+                scalars_mock = MagicMock()
+                scalars_mock.all.return_value = []
+                result.scalars.return_value = scalars_mock
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        data = SaleCreate(
+            product_id=product.id,
+            quantity=1,
+            unit_price=Decimal("10"),
+            sale_date=date(2026, 3, 15),
+            channel="retail",
+            customer_id=uuid.uuid4(),
+        )
+        await create_sale(db, data, uuid.uuid4(), business_id=business_id)
+
+        customer_query = captured_queries[1].lower()
+        assert "customers.business_id" in customer_query
+        assert business_id.hex in customer_query.replace("-", "")
+
 
 # ---------------------------------------------------------------------------
 # Service tests - get/list sales
@@ -1014,7 +1095,7 @@ class TestQuickQuote:
         result_mock.scalars.return_value = scalars_mock
         db.execute = AsyncMock(return_value=result_mock)
 
-        quote = await quick_quote(db, product_id, 15)
+        quote = await quick_quote(db, product_id, 15, business_id=uuid.uuid4())
 
         # batch1: 10 units @ 15000, batch2: 5 units @ 19300
         # total cost = 150000 + 96500 = 246500
@@ -1045,13 +1126,148 @@ class TestQuickQuote:
         result_mock.scalars.return_value = scalars_mock
         db.execute = AsyncMock(return_value=result_mock)
 
-        quote = await quick_quote(db, product_id, 10)
+        quote = await quick_quote(db, product_id, 10, business_id=uuid.uuid4())
 
         assert quote.product_id == product_id
         assert quote.quantity == 10
         assert quote.fifo_landed_cost_per_unit == Decimal("0")
         assert quote.min_sell_price_per_unit == Decimal("0")
         assert quote.total_min_price == Decimal("0")
+
+    @pytest.mark.asyncio
+    async def test_batch_query_is_scoped_to_business(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 202): quick_quote
+        queried InventoryBatch by product_id alone with no business scoping
+        at all -- any authenticated user of any business could fetch
+        another business's real FIFO landed cost for any product_id, a
+        confidential pricing/cost-data leak."""
+        from src.sales.service import quick_quote
+
+        business_id = uuid.uuid4()
+        product_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalars.return_value.all.return_value = []
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        await quick_quote(db, product_id, 10, business_id=business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+
+# ---------------------------------------------------------------------------
+# Service tests - get_sell_return business scoping
+# ---------------------------------------------------------------------------
+
+
+class TestGetSellReturnScoping:
+    @pytest.mark.asyncio
+    async def test_lookup_is_scoped_to_business(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 202): get_sell_return
+        queried SellReturn by id alone with no business_id filter, and its
+        router endpoint didn't even inject get_current_business_id -- any
+        authenticated user of any business could fetch any other business's
+        SellReturn record by id."""
+        from src.sales.service import get_sell_return
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        from src.sales.exceptions import SellReturnNotFoundError
+
+        with pytest.raises(SellReturnNotFoundError):
+            await get_sell_return(db, return_id=uuid.uuid4(), business_id=business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "sell_returns.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+
+# ---------------------------------------------------------------------------
+# Service tests - daily_entry_endpoint business scoping
+# ---------------------------------------------------------------------------
+
+
+class TestDailyEntryEndpointScoping:
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def test_cross_tenant_product_id_returns_404(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 202): the
+        daily-entry endpoint's own Product lookup (used to prefill
+        unit_price) had no business_id filter, independent of create_sale()'s
+        own scoping."""
+        from src.core.database import get_db
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = MagicMock()
+        db.execute = capture_execute
+
+        async def _fake_db():
+            yield db
+
+        async def _fake_auth():
+            return _make_user()
+
+        async def _fake_business_id():
+            return business_id
+
+        self.app.dependency_overrides[get_db] = _fake_db
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/sales/daily-entry",
+                json={
+                    "entries": [
+                        {
+                            "product_id": str(uuid.uuid4()),
+                            "quantity": 1,
+                            "sale_date": "2026-03-15",
+                        }
+                    ]
+                },
+            )
+
+        assert resp.status_code == 404
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
 
 
 # ---------------------------------------------------------------------------

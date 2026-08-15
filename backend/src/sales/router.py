@@ -122,7 +122,11 @@ async def daily_entry_endpoint(
     transaction_id = uuid.uuid4()
     results = []
     for entry in body.entries:
-        result = await db.execute(select(Product).where(Product.id == entry.product_id))
+        result = await db.execute(
+            select(Product).where(
+                Product.id == entry.product_id, Product.business_id == business_id
+            )
+        )
         product = result.scalar_one_or_none()
         if not product:
             raise HTTPException(
@@ -214,9 +218,10 @@ async def quick_quote_endpoint(
     body: QuickQuoteRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Calculate minimum sell price using FIFO weighted-average landed cost."""
-    return await quick_quote(db, body.product_id, body.quantity)
+    return await quick_quote(db, body.product_id, body.quantity, business_id=business_id)
 
 
 @router.post("/upload", response_model=BulkUploadResponse)
@@ -416,10 +421,11 @@ async def get_sell_return_endpoint(
     return_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> SellReturnRead:
     """Get a single sell return by ID."""
     try:
-        return await get_sell_return(db, return_id=return_id)
+        return await get_sell_return(db, return_id=return_id, business_id=business_id)
     except SellReturnNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 

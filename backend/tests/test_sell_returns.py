@@ -258,7 +258,7 @@ class TestGetSellReturnService:
         sr = _make_sell_return()
         db = _mock_db_scalar(scalar_result=sr)
 
-        result = await get_sell_return(db, return_id=sr.id)
+        result = await get_sell_return(db, return_id=sr.id, business_id=uuid.uuid4())
 
         assert result.id == sr.id
 
@@ -270,7 +270,7 @@ class TestGetSellReturnService:
         db = _mock_db_scalar(scalar_result=None)
 
         with pytest.raises(SellReturnNotFoundError):
-            await get_sell_return(db, return_id=uuid.uuid4())
+            await get_sell_return(db, return_id=uuid.uuid4(), business_id=uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
