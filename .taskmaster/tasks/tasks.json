@@ -5299,11 +5299,11 @@
         "description": "Found 2026-08-14 during a Pricing & Margins page audit. generate_all_recommendations() in backend/src/ai_engine/service.py calls _generate_price_recommendations(db, now) without business_id; that function in turn calls calculate_portfolio_margin(db) (backend/src/pricing/service.py) also without business_id. calculate_portfolio_margin only applies its tenant filters when business_id is not None (service.py ~lines 382-384, 404-405), so the category/product buckets used to build the \"Pricing Recommendations\" panel are computed across every business in the system, not just the current tenant's. The resulting AIRecommendation row is stamped with the correct business_id before saving, but its content (gap %, revenue-impact estimate, category grouping) is derived from other tenants' data.",
         "details": "Thread business_id through generate_all_recommendations() -> _generate_price_recommendations() -> calculate_portfolio_margin() so the pricing-recommendation generation path is tenant-scoped like every other domain call in this codebase. Check whether generate_all_recommendations() already receives business_id from its caller (the /ai/recommendations/generate endpoint) or needs it threaded in from the router. Add a regression test proving recommendations generated for business A never reference business B's products/categories (mirrors the existing cross-tenant isolation test suite pattern already used elsewhere in this codebase).",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-08-14T14:20:06.906Z"
+        "updatedAt": "2026-08-15T09:00:00.000Z"
       },
       {
         "id": "199",
@@ -5344,9 +5344,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-14T14:20:06.910Z",
+      "lastModified": "2026-08-15T09:00:00.000Z",
       "taskCount": 201,
-      "completedCount": 197,
+      "completedCount": 198,
       "tags": [
         "master"
       ]
