@@ -148,10 +148,16 @@ async def create_order(
     business_id: uuid.UUID | None = None,
 ) -> PurchaseOrder:
     """Create a purchase order with line items."""
-    # Validate all products exist
+    # Validate all products exist. Scoped to business_id when provided --
+    # without it an order could reference another business's product, and
+    # on DELIVERED transition adjust_stock()/create_batch() run against that
+    # foreign product, corrupting the other tenant's real inventory (task 203).
     product_ids = [item.product_id for item in data.line_items]
     for pid in product_ids:
-        result = await db.execute(select(Product).where(Product.id == pid))
+        query = select(Product).where(Product.id == pid)
+        if business_id is not None:
+            query = query.where(Product.business_id == business_id)
+        result = await db.execute(query)
         if not result.scalar_one_or_none():
             raise OrderLineItemError(None, [pid])
 
@@ -463,11 +469,15 @@ async def update_order(
     if line_items_data is not None:
         if not line_items_data:
             raise OrderLineItemError(order_id, [])
-        # Validate products
+        # Validate products. Scoped to the order's business_id when set --
+        # order_id ownership is validated by the router before this runs,
+        # but the line-item payload's product_id is independent of that and
+        # must be checked separately (task 203).
         for item_data in line_items_data:
-            result = await db.execute(
-                select(Product).where(Product.id == item_data["product_id"])
-            )
+            query = select(Product).where(Product.id == item_data["product_id"])
+            if order.business_id is not None:
+                query = query.where(Product.business_id == order.business_id)
+            result = await db.execute(query)
             if not result.scalar_one_or_none():
                 raise OrderLineItemError(order_id, [item_data["product_id"]])
 
@@ -1956,8 +1966,15 @@ async def import_orders_from_file(
                 )
                 continue
 
-            # Resolve SKU → product_id
-            result = await db.execute(select(Product).where(Product.sku == sku))
+            # Resolve SKU → product_id. Scoped to business_id when provided
+            # -- SKU is only unique per-business (uq_products_sku_business),
+            # and the auto-SKU generator produces the same sequence
+            # (PRD-00001, PRD-00002, ...) independently per business, so
+            # cross-tenant collisions are likely, not theoretical (task 203).
+            query = select(Product).where(Product.sku == sku)
+            if business_id is not None:
+                query = query.where(Product.business_id == business_id)
+            result = await db.execute(query)
             product = result.scalar_one_or_none()
             if product is None:
                 errors.append(
@@ -2094,6 +2111,7 @@ async def parse_products_from_file(
     db: AsyncSession,
     file_bytes: bytes,
     filename: str,
+    business_id: uuid.UUID,
 ) -> ParseProductsResult:
     """Parse a CSV or XLSX file and resolve SKUs to product IDs.
 
@@ -2139,7 +2157,14 @@ async def parse_products_from_file(
             errors.append(ImportRowError(row=i, message="sku is required"))
             continue
 
-        result = await db.execute(select(Product).where(Product.sku == sku))
+        # Scoped to business_id -- without it this is a plain cross-tenant
+        # SKU search returning another business's product name/id to
+        # prefill the create-order form (task 203).
+        result = await db.execute(
+            select(Product).where(
+                Product.sku == sku, Product.business_id == business_id
+            )
+        )
         product = result.scalar_one_or_none()
         if product is None:
             errors.append(
