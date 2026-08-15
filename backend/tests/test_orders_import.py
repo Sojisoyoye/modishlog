@@ -308,3 +308,76 @@ class TestImportOrdersErrors:
         result = await import_orders_from_file(db, b"", "orders.csv", user_id)
         assert result.created == 0
         assert len(result.errors) > 0
+
+
+class TestImportOrdersBusinessScoping:
+    @pytest.mark.asyncio
+    async def test_sku_lookup_scoped_to_business_when_provided(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 203): SKU
+        resolution had no business_id filter. SKU is only unique
+        per-business (uq_products_sku_business) and the auto-SKU generator
+        produces the same sequence independently per business, so
+        cross-tenant collisions are likely, not theoretical."""
+        user_id = uuid.uuid4()
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        csv_bytes = _make_csv(
+            {
+                "supplier_name": "Acme",
+                "currency": "USD",
+                "line_item_sku": "SKU-001",
+                "line_item_quantity": "5",
+                "line_item_unit_cost": "100.00",
+            }
+        )
+        result = await import_orders_from_file(
+            db, csv_bytes, "orders.csv", user_id, business_id=business_id
+        )
+        assert result.created == 0
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+
+class TestParseProductsFromFileBusinessScoping:
+    @pytest.mark.asyncio
+    async def test_sku_lookup_scoped_to_business(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 203):
+        parse_products_from_file() took no business_id at all and its
+        router endpoint didn't inject get_current_business_id -- a plain
+        cross-tenant SKU search returning another business's product
+        name/id to prefill the create-order form."""
+        from src.orders.service import parse_products_from_file
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        csv_bytes = _make_csv({"sku": "SKU-001", "quantity": "5", "unit_cost": "100.00"})
+        result = await parse_products_from_file(
+            db, csv_bytes, "products.csv", business_id=business_id
+        )
+        assert len(result.errors) == 1
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")

@@ -5359,11 +5359,11 @@
         "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/orders/service.py: create_order() (line ~154) and update_order() (line ~469) validate line-item Product existence with no business_id filter -- a crafted order can reference another business's product, and on DELIVERED transition adjust_stock()/create_batch() run against that foreign product, corrupting the other tenant's real inventory. import_orders_from_file() (line ~1960) and parse_products_from_file() (line ~2142, no business_id param at all, router doesn't inject get_current_business_id) resolve products by SKU with no business_id filter -- SKU is only unique per-business (uq_products_sku_business) and the auto-SKU generator (PRD-00001, PRD-00002...) is independent per business, so collisions across tenants are likely, not theoretical.",
         "details": "Add Product.business_id filters to the existence checks in create_order()/update_order(); thread business_id through parse_products_from_file() and inject get_current_business_id in its router endpoint. Write regression tests proving a cross-tenant product_id/SKU is rejected. Same severity class as task 202 -- data corruption via a foreign product reference, not just a read leak.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-08-15T13:00:00.000Z"
+        "updatedAt": "2026-08-15T15:13:52.216Z"
       },
       {
         "id": "204",
@@ -5452,7 +5452,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T15:15:00.000Z",
+      "lastModified": "2026-08-15T15:13:52.222Z",
       "taskCount": 210,
       "completedCount": 202,
       "tags": [

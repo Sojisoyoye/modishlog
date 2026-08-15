@@ -239,6 +239,47 @@ class TestCreateOrder:
         assert order.status == OrderStatus.PENDING
 
     @pytest.mark.asyncio
+    async def test_product_validation_scoped_to_business_when_provided(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 203): the product
+        existence check queried Product by id alone with no business_id
+        filter -- a crafted order could reference another business's
+        product, and on DELIVERED transition adjust_stock()/create_batch()
+        run against that foreign product, corrupting the other tenant's
+        real inventory."""
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        data = OrderCreate(
+            supplier_name="Acme Corp",
+            currency="USD",
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=uuid.uuid4(),
+                    quantity=10,
+                    unit_cost=Decimal("500"),
+                )
+            ],
+        )
+        from src.orders.exceptions import OrderLineItemError
+
+        with pytest.raises(OrderLineItemError):
+            await create_order(db, data, uuid.uuid4(), business_id=business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.asyncio
     async def test_order_date_defaults_to_today_when_not_provided(self):
         """Confirmed live: create_order() never persisted order_date at all
         before this fix — it stayed NULL for every normally-created order,
@@ -606,6 +647,49 @@ class TestUpdateOrder:
         )
         assert new_item is not None
         assert new_item.unit_cost_ngn == Decimal("162000")
+
+    @pytest.mark.asyncio
+    async def test_update_order_line_item_product_check_scoped_to_order_business(self):
+        """Found 2026-08-15 in a cross-tenant audit (task 203): the
+        line-item replacement path's Product existence check had no
+        business_id filter -- a crafted line-item payload could reference
+        another business's product independent of order_id ownership
+        (which the router validates separately before calling this)."""
+        business_id = uuid.uuid4()
+        order = _make_order(status=OrderStatus.PENDING, business_id=business_id)
+        order.line_items = []
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            if len(captured_queries) == 1:
+                result.scalar_one_or_none.return_value = order
+            else:
+                result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        data = OrderUpdate(
+            line_items=[
+                OrderLineItemCreate(
+                    product_id=uuid.uuid4(),
+                    quantity=5,
+                    unit_cost=Decimal("100"),
+                )
+            ]
+        )
+        from src.orders.exceptions import OrderLineItemError
+
+        with pytest.raises(OrderLineItemError):
+            await update_order(db, order.id, data, uuid.uuid4())
+
+        assert len(captured_queries) == 2
+        compiled = captured_queries[1].lower()
+        assert "products.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
 
     @pytest.mark.asyncio
     async def test_update_order_line_item_unit_cost_ngn_optional(self):

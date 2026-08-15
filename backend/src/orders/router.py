@@ -180,13 +180,16 @@ async def parse_products_endpoint(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Parse a CSV or XLSX file and return resolved line items for the create-order form.
 
     Does NOT create any orders — use this to pre-fill the product table.
     """
     file_bytes = await file.read()
-    return await parse_products_from_file(db, file_bytes, file.filename or "upload.csv")
+    return await parse_products_from_file(
+        db, file_bytes, file.filename or "upload.csv", business_id=business_id
+    )
 
 
 @router.get("/import/template")
