@@ -5340,12 +5340,120 @@
         "priority": "medium",
         "subtasks": [],
         "updatedAt": "2026-08-15T12:00:00.000Z"
+      },
+      {
+        "id": "202",
+        "title": "Fix cross-tenant data corruption in sales domain (create_sale, daily_entry, quick_quote, get_sell_return)",
+        "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit (following task 198). backend/src/sales/service.py: create_sale() looks up Product (line ~154) and Customer (lines ~213-219) by id with no business_id filter despite business_id being a required parameter -- a sale can reference another business's product/customer. Because unit_price/currency can default from the foreign product and the sale flows into adjust_stock()/fifo_deduct() unscoped, this is not just a read leak: it actually depletes the OTHER business's real InventoryLevel and consumes their FIFO InventoryBatch stock. backend/src/sales/router.py daily_entry_endpoint() (line ~125) has the same unscoped Product lookup. quick_quote() (service.py ~798-873, router.py ~212-219) and get_sell_return() (service.py ~1128-1137, router.py ~414-424) have no business_id scoping/dependency at all -- any authenticated user can fetch another business's FIFO cost data or SellReturn record by id.",
+        "details": "Add business_id filters to the Product/Customer lookups in create_sale() and daily_entry_endpoint(); thread business_id through quick_quote() and get_sell_return() and inject get_current_business_id in their router endpoints. Write regression tests proving a sale/quote/return referencing another business's id is rejected (404/not found), not silently processed. This is the highest-severity finding of the audit -- data corruption, not just a leak.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-08-15T13:00:00.000Z"
+      },
+      {
+        "id": "203",
+        "title": "Fix cross-tenant data corruption in orders domain (create_order, update_order, import_orders_from_file, parse_products_from_file)",
+        "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/orders/service.py: create_order() (line ~154) and update_order() (line ~469) validate line-item Product existence with no business_id filter -- a crafted order can reference another business's product, and on DELIVERED transition adjust_stock()/create_batch() run against that foreign product, corrupting the other tenant's real inventory. import_orders_from_file() (line ~1960) and parse_products_from_file() (line ~2142, no business_id param at all, router doesn't inject get_current_business_id) resolve products by SKU with no business_id filter -- SKU is only unique per-business (uq_products_sku_business) and the auto-SKU generator (PRD-00001, PRD-00002...) is independent per business, so collisions across tenants are likely, not theoretical.",
+        "details": "Add Product.business_id filters to the existence checks in create_order()/update_order(); thread business_id through parse_products_from_file() and inject get_current_business_id in its router endpoint. Write regression tests proving a cross-tenant product_id/SKU is rejected. Same severity class as task 202 -- data corruption via a foreign product reference, not just a read leak.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-08-15T13:00:00.000Z"
+      },
+      {
+        "id": "204",
+        "title": "Fix cross-tenant leaks/auth gaps in pricing domain (elasticity config, product-scoped endpoints, suggestion history)",
+        "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/pricing/service.py: _get_product() (lines ~175-190) and everything built on it (calculate_demand_forecast, calculate_price_elasticity_impact, get_selling_price_suggestion, sensitivity_calc) take a caller-supplied product_id with no business_id scoping, and their router endpoints (router.py demand-forecast/{product_id}, elasticity-impact/{product_id}, selling-price-suggestion, sensitivity-calc) don't inject get_current_business_id at all. get_elasticity()/get_resolved_elasticity_config()/update_elasticity_config() (lines ~305-351) have the same gap -- configure_elasticity_endpoint is a WRITE, so any authenticated user of any business can overwrite another business's product's elasticity_coefficient/fx_sensitivity_coefficient by product_id alone. get_suggestion_history() (lines ~1722-1764, router.py ~471-488) leaks historical pricing-suggestion data (unit_cost_ngn, suggested_price_ngn, target_margin_pct) for another business's product.",
+        "details": "Inject get_current_business_id into every affected router endpoint and thread business_id through the corresponding service functions, scoping the initial product lookup by business_id (404 if the product belongs to another business, matching the pattern already used correctly elsewhere in this file for margin-target/loan/scenario CRUD). Write regression tests proving cross-tenant product_id access is rejected on both the read and write (configure_elasticity) paths.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-08-15T13:00:00.000Z"
+      },
+      {
+        "id": "205",
+        "title": "Fix cross-tenant leaks in cashflow domain (FX obligations, payment calendar, triage recommendations)",
+        "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/cashflow/service.py: _calculate_fx_obligations() (lines ~255-303) takes no business_id parameter and its PurchaseOrder query is completely unscoped -- called from generate_cashflow_projection() for every month bucket, which runs on nearly every /cashflow/projection, /cash-runway, /dscr request via the daily-regen path, so every business's projected fx_obligations/net_cashflow/dscr/risk_rating is computed by pooling every tenant's pending USD purchase orders together. build_payment_calendar()'s FX section (lines ~1271-1307) has the same missing filter (its sibling loan-schedule and operating-costs sections are correctly scoped). generate_triage_recommendations() (line ~1464) receives business_id but never passes it to get_liquidation_candidates() (inventory/service.py), which explicitly supports business_id scoping for exactly this purpose -- so LIQUIDATE recommendations include every business's inventory batches.",
+        "details": "Thread business_id into _calculate_fx_obligations() and apply it to the PurchaseOrder query; add the missing filter to build_payment_calendar()'s FX section; pass business_id through to get_liquidation_candidates() in generate_triage_recommendations(). This is the highest-traffic finding of the audit (hit on nearly every cashflow page load) -- write regression tests proving projections/calendars/triage recs only reflect the caller's own business data.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-08-15T13:00:00.000Z"
+      },
+      {
+        "id": "206",
+        "title": "Fix cross-tenant leaks in ai_engine domain (liquidity recommendations, USD accumulation schedule)",
+        "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit (following task 198, which fixed the price/USD-hedge recommendation generators in this same file). _generate_liquidity_recommendations() has two unscoped queries: a PurchaseOrder count (~line 603-609) and a LoanObligation count (~line 616-620), both feeding directly into recommendation text stored under the caller's business_id but reflecting every tenant's order/loan counts. generate_usd_accumulation_schedule() (lines ~1015-1082) takes no business_id and queries PurchaseOrder by order_id alone; its router endpoint (router.py ~198-212) doesn't inject get_current_business_id either, so any order_id from any business returns that business's real order balance and USD purchase schedule.",
+        "details": "Add business_id filters to the two queries in _generate_liquidity_recommendations() (business_id is already a parameter of this function per the task-198 precedent). Thread business_id through generate_usd_accumulation_schedule() and inject get_current_business_id in its router endpoint, scoping the initial PurchaseOrder lookup by business_id. Write regression tests matching the pattern already established in task 198's tests.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-08-15T13:00:00.000Z"
+      },
+      {
+        "id": "207",
+        "title": "Fix cross-tenant leak in customers domain (get_customer_sales)",
+        "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/customers/service.py get_customer_sales() (lines ~155-178), wired from router.py (~138-156), takes no business_id parameter and never verifies the customer belongs to the caller's business before querying Sale.where(Sale.customer_id == customer_id). Every sibling endpoint on this same router (get_customer, get_customer_ledger, get_customer_activities) correctly gates on business_id via get_customer() first -- this one was simply missed. Any authenticated user of Business A can call GET /customers/{customer_id}/sales with a Business B customer_id and get their full sales history back.",
+        "details": "Thread business_id through get_customer_sales() and either call get_customer() first (matching the sibling endpoints' pattern) or add a business-scoped join. Write a regression test proving a cross-tenant customer_id is rejected, matching the existing tests for get_customer_ledger/get_customer_activities.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-08-15T13:00:00.000Z"
+      },
+      {
+        "id": "208",
+        "title": "Fix cross-tenant leaks in reports domain (P&L stock valuation, stock report)",
+        "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/reports/service.py get_profit_loss_report() (lines ~161-168): the stock valuation query sums InventoryBatch.quantity_remaining * landed_cost_per_unit with NO join to Product and NO business_id filter at all, despite business_id being used correctly in every other query in the same function -- every business's opening/closing stock value on their P&L report is actually the total inventory value of every product from every tenant. get_stock_report() (lines ~305-320): the main Product/ProductCategory query driving GET /reports/stock and its CSV export has no Product.business_id filter (though the sold_subq sales aggregation IS correctly scoped) -- returns every active product from every business including unit_cost, selling_price, and quantities.",
+        "details": "Join InventoryBatch to Product and filter by Product.business_id == business_id in the P&L stock valuation query. Add Product.business_id == business_id to the main query in get_stock_report(). Both are hit on ordinary, frequently-used report endpoints (not background jobs) -- write regression tests proving both reports only reflect the caller's own business inventory/products.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-08-15T13:00:00.000Z"
+      },
+      {
+        "id": "209",
+        "title": "Add business_id to FXExposure table and scope exposure endpoints (needs migration)",
+        "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. FXExposure (backend/src/fx/models.py:54-68 -- currency hedge position tracking) has NO business_id column at all, unlike its sibling tables FXExposureConfig and FXAlert in the same file which are correctly business-scoped. get_exposure_summary()/get_exposure_detail() (fx/service.py ~577-650) take no business_id and aggregate across every business; lock_exposure() (~653-694) validates total_exposure - already_locked against every business's locked amounts for the same currency pair (line ~664 has zero business filter), so locking exposure for Business A is validated against unrelated businesses' existing locks. fx/router.py (~268-296) GET /fx/exposure, GET /fx/exposure/detail, POST /fx/exposure/lock don't declare a business_id dependency at all -- there is no query-level fix possible without the schema change.",
+        "details": "Deferred from the initial audit remediation (tasks 202-208) because it requires an Alembic migration, not just a query fix. Add a business_id column to fx_exposures (NOT NULL, FK to businesses, backfill strategy needed for any existing rows), update the FXExposure model, thread business_id through get_exposure_summary/get_exposure_detail/lock_exposure, and inject get_current_business_id into the three router endpoints. This is the most severe finding of the audit (real financial hedge-position data, plus a write path with a validation check that's meaningless without tenant scoping) -- treat as high priority despite being deferred for migration planning.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-08-15T13:00:00.000Z"
+      },
+      {
+        "id": "210",
+        "title": "Remove dead code: list_categories() in expenses/service.py",
+        "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/expenses/service.py list_categories(db) (lines ~29-33) queries ExpenseCategory with no business_id filter and no business_id parameter -- but has zero callers anywhere in src/, scripts/, or tests/. The router's GET /expense-categories endpoint correctly calls the separate, properly-scoped list_expense_categories(db, business_id=business_id) instead. Not currently exploitable, but it is a live landmine sitting next to the correctly-scoped function with a near-identical name -- a future caller grabbing the wrong one by autocomplete would silently leak every business's expense categories.",
+        "details": "Delete list_categories() from expenses/service.py. Confirm via grep it has no callers before removing (already confirmed once during the audit, re-verify at implementation time in case anything changed).",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": [],
+        "updatedAt": "2026-08-15T13:00:00.000Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T12:00:00.000Z",
-      "taskCount": 201,
+      "lastModified": "2026-08-15T13:00:00.000Z",
+      "taskCount": 210,
       "completedCount": 201,
       "tags": [
         "master"
