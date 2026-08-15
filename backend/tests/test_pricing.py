@@ -2573,6 +2573,129 @@ class TestCalculatePortfolioMarginAllProducts:
 
 
 # ---------------------------------------------------------------------------
+# Cross-Subsidization Analysis
+# ---------------------------------------------------------------------------
+
+
+def _fake_portfolio(target_margin, products):
+    return {
+        "blended_margin": Decimal("30.00"),
+        "target_margin": target_margin,
+        "products": products,
+    }
+
+
+class TestCrossSubsidizationAnalysis:
+    """analyze_cross_subsidization() (GET /pricing/cross-subsidy) is not
+    currently called by the frontend (it reimplements equivalent pairing
+    client-side), but it must still compute correctly and behave as a
+    read -- not silently insert a row into the database on every request."""
+
+    @pytest.mark.asyncio
+    async def test_thresholds_are_relative_to_the_actual_target_margin(self):
+        """The old implementation hardcoded high>40%/low<34%, which only
+        happened to line up with the module's DEFAULT_TARGET_MARGIN (35%).
+        A product at 48% margin is comfortably "high" when the target is
+        35%, but should be "low" (below target) when the business's actual
+        target is 50% -- the buckets must move with the real target, not a
+        baked-in constant."""
+        from src.pricing.service import analyze_cross_subsidization
+
+        pid_high = uuid.uuid4()
+        pid_borderline = uuid.uuid4()
+        products = [
+            {
+                "product_id": pid_high,
+                "product_name": "Comfortably Above",
+                "margin_pct": 70.0,
+                "revenue_30d": Decimal("1000"),
+            },
+            {
+                "product_id": pid_borderline,
+                "product_name": "Below A 50pct Target",
+                "margin_pct": 48.0,
+                "revenue_30d": Decimal("500"),
+            },
+        ]
+        db = _mock_db()
+
+        with patch(
+            "src.pricing.service.calculate_portfolio_margin",
+            new=AsyncMock(return_value=_fake_portfolio(Decimal("50"), products)),
+        ):
+            result = await analyze_cross_subsidization(db)
+
+        low_ids = {p["product_id"] for p in result.low_margin_products["products"]}
+        high_ids = {p["product_id"] for p in result.high_margin_products["products"]}
+        assert str(pid_borderline) in low_ids
+        assert str(pid_high) in high_ids
+
+    @pytest.mark.asyncio
+    async def test_low_margin_reasoning_cites_the_actual_target_margin(self):
+        """The recommendation text hardcoded '35% target' regardless of the
+        business's actual configured target -- must reflect the real value."""
+        from src.pricing.service import analyze_cross_subsidization
+
+        products = [
+            {
+                "product_id": uuid.uuid4(),
+                "product_name": "High",
+                "margin_pct": 90.0,
+                "revenue_30d": Decimal("1000"),
+            },
+            {
+                "product_id": uuid.uuid4(),
+                "product_name": "Low",
+                "margin_pct": 10.0,
+                "revenue_30d": Decimal("500"),
+            },
+        ]
+        db = _mock_db()
+
+        with patch(
+            "src.pricing.service.calculate_portfolio_margin",
+            new=AsyncMock(return_value=_fake_portfolio(Decimal("60"), products)),
+        ):
+            result = await analyze_cross_subsidization(db)
+
+        reasoning = result.recommendations["items"][0]["reasoning"]
+        assert "60" in reasoning
+
+    @pytest.mark.asyncio
+    async def test_does_not_write_to_the_database(self):
+        """GET /pricing/cross-subsidy is a read -- it must not insert a new
+        CrossSubsidyAnalysis row on every call, but the returned object
+        still needs a valid id for CrossSubsidyRead to serialize it."""
+        from src.pricing.service import analyze_cross_subsidization
+
+        products = [
+            {
+                "product_id": uuid.uuid4(),
+                "product_name": "High",
+                "margin_pct": 90.0,
+                "revenue_30d": Decimal("1000"),
+            },
+            {
+                "product_id": uuid.uuid4(),
+                "product_name": "Low",
+                "margin_pct": 10.0,
+                "revenue_30d": Decimal("500"),
+            },
+        ]
+        db = _mock_db()
+
+        with patch(
+            "src.pricing.service.calculate_portfolio_margin",
+            new=AsyncMock(return_value=_fake_portfolio(Decimal("35"), products)),
+        ):
+            result = await analyze_cross_subsidization(db)
+
+        db.add.assert_not_called()
+        db.flush.assert_not_called()
+        assert isinstance(result.id, uuid.UUID)
+
+
+# ---------------------------------------------------------------------------
 # Sensitivity Calc API
 # ---------------------------------------------------------------------------
 
