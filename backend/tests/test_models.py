@@ -298,6 +298,7 @@ class TestFXModels:
 
     def test_fx_exposure(self):
         exp = FXExposure(
+            business_id=_UUID,
             pair="USDNGN",
             total_exposure_amount=Decimal("100000.000000"),
             locked_amount=Decimal("30000.000000"),
