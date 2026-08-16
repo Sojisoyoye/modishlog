@@ -5443,18 +5443,18 @@
         "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. backend/src/expenses/service.py list_categories(db) (lines ~29-33) queries ExpenseCategory with no business_id filter and no business_id parameter -- but has zero callers anywhere in src/, scripts/, or tests/. The router's GET /expense-categories endpoint correctly calls the separate, properly-scoped list_expense_categories(db, business_id=business_id) instead. Not currently exploitable, but it is a live landmine sitting next to the correctly-scoped function with a near-identical name -- a future caller grabbing the wrong one by autocomplete would silently leak every business's expense categories.",
         "details": "Delete list_categories() from expenses/service.py. Confirm via grep it has no callers before removing (already confirmed once during the audit, re-verify at implementation time in case anything changed).",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-08-15T13:00:00.000Z"
+        "updatedAt": "2026-08-16T10:37:52.012Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-16T10:00:00.000Z",
+      "lastModified": "2026-08-16T10:37:52.015Z",
       "taskCount": 210,
-      "completedCount": 209,
+      "completedCount": 210,
       "tags": [
         "master"
       ]
