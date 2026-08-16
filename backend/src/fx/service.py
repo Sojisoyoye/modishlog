@@ -576,6 +576,7 @@ async def calculate_volatility(
 
 async def get_exposure_summary(
     db: AsyncSession,
+    business_id: uuid.UUID,
 ) -> list[dict]:
     """Aggregate all exposure records by pair with P&L calculation."""
     result = await db.execute(
@@ -584,7 +585,9 @@ async def get_exposure_summary(
             func.sum(FXExposure.total_exposure_amount).label("total_exposure"),
             func.sum(FXExposure.locked_amount).label("locked"),
             func.sum(FXExposure.floating_amount).label("floating"),
-        ).group_by(FXExposure.pair)
+        )
+        .where(FXExposure.business_id == business_id)
+        .group_by(FXExposure.pair)
     )
     rows = result.all()
 
@@ -600,7 +603,11 @@ async def get_exposure_summary(
             select(
                 func.sum(FXExposure.locked_amount * FXExposure.locked_rate),
                 func.sum(FXExposure.locked_amount),
-            ).where(FXExposure.pair == pair, FXExposure.locked_amount > 0)
+            ).where(
+                FXExposure.business_id == business_id,
+                FXExposure.pair == pair,
+                FXExposure.locked_amount > 0,
+            )
         )
         rate_row = rate_result.one()
         weighted_locked_rate = (
@@ -644,9 +651,14 @@ async def get_exposure_summary(
 
 async def get_exposure_detail(
     db: AsyncSession,
+    business_id: uuid.UUID,
 ) -> list[FXExposure]:
     """Return all individual exposure records."""
-    result = await db.execute(select(FXExposure).order_by(FXExposure.pair))
+    result = await db.execute(
+        select(FXExposure)
+        .where(FXExposure.business_id == business_id)
+        .order_by(FXExposure.pair)
+    )
     return list(result.scalars().all())
 
 
@@ -654,14 +666,20 @@ async def lock_exposure(
     db: AsyncSession,
     data: ExposureLockRequest,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> FXExposure:
     """Create an exposure record to lock a portion at a given rate."""
-    # Check total existing exposure for the pair
+    # Check total existing exposure for the pair, scoped to business_id --
+    # without it, locking exposure for one business is validated against
+    # every other business's existing locks for the same currency pair
+    # (task 209).
     result = await db.execute(
         select(
             func.coalesce(func.sum(FXExposure.total_exposure_amount), 0),
             func.coalesce(func.sum(FXExposure.locked_amount), 0),
-        ).where(FXExposure.pair == data.pair)
+        ).where(
+            FXExposure.business_id == business_id, FXExposure.pair == data.pair
+        )
     )
     row = result.one()
     total_exposure = row[0]
@@ -674,6 +692,7 @@ async def lock_exposure(
         )
 
     exposure = FXExposure(
+        business_id=business_id,
         pair=data.pair,
         total_exposure_amount=data.amount_to_lock,
         locked_amount=data.amount_to_lock,

@@ -5431,11 +5431,11 @@
         "description": "Found 2026-08-15 during a codebase-wide cross-tenant audit. FXExposure (backend/src/fx/models.py:54-68 -- currency hedge position tracking) has NO business_id column at all, unlike its sibling tables FXExposureConfig and FXAlert in the same file which are correctly business-scoped. get_exposure_summary()/get_exposure_detail() (fx/service.py ~577-650) take no business_id and aggregate across every business; lock_exposure() (~653-694) validates total_exposure - already_locked against every business's locked amounts for the same currency pair (line ~664 has zero business filter), so locking exposure for Business A is validated against unrelated businesses' existing locks. fx/router.py (~268-296) GET /fx/exposure, GET /fx/exposure/detail, POST /fx/exposure/lock don't declare a business_id dependency at all -- there is no query-level fix possible without the schema change.",
         "details": "Deferred from the initial audit remediation (tasks 202-208) because it requires an Alembic migration, not just a query fix. Add a business_id column to fx_exposures (NOT NULL, FK to businesses, backfill strategy needed for any existing rows), update the FXExposure model, thread business_id through get_exposure_summary/get_exposure_detail/lock_exposure, and inject get_current_business_id into the three router endpoints. This is the most severe finding of the audit (real financial hedge-position data, plus a write path with a validation check that's meaningless without tenant scoping) -- treat as high priority despite being deferred for migration planning.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-08-15T13:00:00.000Z"
+        "updatedAt": "2026-08-16T08:21:26.502Z"
       },
       {
         "id": "210",
@@ -5452,7 +5452,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-15T21:00:00.000Z",
+      "lastModified": "2026-08-16T08:21:26.506Z",
       "taskCount": 210,
       "completedCount": 208,
       "tags": [

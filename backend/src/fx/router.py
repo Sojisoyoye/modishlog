@@ -266,16 +266,22 @@ async def volatility_endpoint(
 
 
 @router.get("/exposure", response_model=list[ExposureSummary])
-async def exposure_summary_endpoint(db: AsyncSession = Depends(get_db)):
+async def exposure_summary_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get current FX exposure summary."""
-    data = await get_exposure_summary(db)
+    data = await get_exposure_summary(db, business_id=business_id)
     return [ExposureSummary(**d) for d in data]
 
 
 @router.get("/exposure/detail", response_model=list[ExposureDetailRead])
-async def exposure_detail_endpoint(db: AsyncSession = Depends(get_db)):
+async def exposure_detail_endpoint(
+    db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
     """Get detailed exposure records."""
-    return await get_exposure_detail(db)
+    return await get_exposure_detail(db, business_id=business_id)
 
 
 @router.post(
@@ -287,10 +293,11 @@ async def lock_exposure_endpoint(
     body: ExposureLockRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Lock a portion of exposure at a specific rate."""
     try:
-        return await lock_exposure(db, body, current_user.id)
+        return await lock_exposure(db, body, current_user.id, business_id=business_id)
     except ExposureLockExceededError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 

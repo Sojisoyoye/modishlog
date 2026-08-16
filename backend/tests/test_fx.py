@@ -110,6 +110,7 @@ def _make_alert(pair="USDNGN", **overrides):
 
 def _make_exposure(pair="USDNGN", **overrides):
     defaults = dict(
+        business_id=uuid.uuid4(),
         pair=pair,
         total_exposure_amount=Decimal("100000.000000"),
         locked_amount=Decimal("30000.000000"),
@@ -366,7 +367,7 @@ class TestExposure:
             amount_to_lock=Decimal("20000"),
             lock_rate=Decimal("1650"),
         )
-        exp = await lock_exposure(db, data, uuid.uuid4())
+        exp = await lock_exposure(db, data, uuid.uuid4(), business_id=uuid.uuid4())
         assert exp.locked_amount == Decimal("20000")
         assert exp.locked_rate == Decimal("1650")
 
@@ -385,7 +386,84 @@ class TestExposure:
             lock_rate=Decimal("1650"),
         )
         with pytest.raises(ExposureLockExceededError):
-            await lock_exposure(db, data, uuid.uuid4())
+            await lock_exposure(db, data, uuid.uuid4(), business_id=uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_lock_exposure_scopes_existing_exposure_query(self):
+        """Found 2026-08-15 in a codebase-wide cross-tenant audit (task
+        209): FXExposure had no business_id column at all -- the
+        total_exposure/already_locked check summed every business's
+        existing locks for the same currency pair, so locking exposure for
+        one business was validated against unrelated businesses' amounts."""
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.one.return_value = (Decimal("0"), Decimal("0"))
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        data = ExposureLockRequest(
+            pair="USDNGN",
+            amount_to_lock=Decimal("20000"),
+            lock_rate=Decimal("1650"),
+        )
+        await lock_exposure(db, data, uuid.uuid4(), business_id=business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "fx_exposures.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.asyncio
+    async def test_get_exposure_summary_scopes_to_business(self):
+        from src.fx.service import get_exposure_summary
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.all.return_value = []
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        await get_exposure_summary(db, business_id=business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "fx_exposures.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.asyncio
+    async def test_get_exposure_detail_scopes_to_business(self):
+        from src.fx.service import get_exposure_detail
+
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalars.return_value.all.return_value = []
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        await get_exposure_detail(db, business_id=business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "fx_exposures.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
 
     @pytest.mark.asyncio
     async def test_update_exposure_config(self):

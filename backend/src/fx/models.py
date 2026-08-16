@@ -56,6 +56,9 @@ class FXExposure(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "fx_exposures"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     pair: Mapped[str] = mapped_column(String(6))
     total_exposure_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     locked_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))
