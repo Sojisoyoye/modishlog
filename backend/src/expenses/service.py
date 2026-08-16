@@ -26,13 +26,6 @@ async def create_category(
     return cat
 
 
-async def list_categories(db: AsyncSession) -> list[ExpenseCategory]:
-    result = await db.execute(
-        select(ExpenseCategory).order_by(ExpenseCategory.name)
-    )
-    return result.scalars().all()
-
-
 async def list_expense_categories(
     db: AsyncSession, *, business_id: uuid.UUID
 ) -> list[ExpenseCategory]:
