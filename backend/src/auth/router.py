@@ -115,8 +115,8 @@ async def onboard_business(
     except UserAlreadyExistsError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
+    token = await generate_email_verification_token(db, user)
     try:
-        token = await generate_email_verification_token(db, user)
         subject, html_content = render_verification_email(user.email, token)
         send_email(email_to=user.email, subject=subject, html_content=html_content)
     except Exception:
