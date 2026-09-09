@@ -111,6 +111,47 @@ describe('AuthService', () => {
     expect(service.isAuthenticated()).toBe(false);
   });
 
+  it('register does not store any tokens (onboarding no longer auto-logs-in)', () => {
+    service
+      .register({
+        full_name: 'Owner',
+        email: 'owner@example.com',
+        password: 'Str0ng!Pass#99',
+        business_name: 'Test Corp',
+        currency: 'NGN',
+        timezone: 'Africa/Lagos',
+        fiscal_year_start_month: 1,
+        ndpr_consent: true,
+      })
+      .subscribe();
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/onboard'));
+    req.flush({
+      message: 'Check your email to verify your account before logging in.',
+      user_id: 'u1',
+      business_id: 'b1',
+    });
+    expect(localStorage.getItem('modishlog_token')).toBeNull();
+    expect(service.isAuthenticated()).toBe(false);
+  });
+
+  it('verifyEmail posts the token to /auth/verify-email', () => {
+    let result: { message: string } | null = null;
+    service.verifyEmail('tok123').subscribe((r) => (result = r));
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/verify-email'));
+    expect(req.request.body).toEqual({ token: 'tok123' });
+    req.flush({ message: 'Email verified successfully.' });
+    expect(result).toEqual({ message: 'Email verified successfully.' });
+  });
+
+  it('resendVerification posts the email to /auth/resend-verification', () => {
+    let result: { message: string } | null = null;
+    service.resendVerification('user@example.com').subscribe((r) => (result = r));
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/resend-verification'));
+    expect(req.request.body).toEqual({ email: 'user@example.com' });
+    req.flush({ message: 'If that email is registered and unverified, a link has been sent.' });
+    expect(result).toBeTruthy();
+  });
+
   it('refreshToken calls /auth/refresh and stores new access token', () => {
     localStorage.setItem('modishlog_refresh_token', 'existing-rt');
     let result: { access_token: string; refresh_token: string; token_type: string } | null = null;

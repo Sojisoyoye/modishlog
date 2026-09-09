@@ -38,9 +38,7 @@ export interface RegisterRequest {
 }
 
 export interface RegisterResponse {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
+  message: string;
   user_id: string;
   business_id: string;
 }
@@ -78,16 +76,9 @@ export class AuthService {
   }
 
   register(data: RegisterRequest): Observable<RegisterResponse> {
-    return this.api.post<RegisterResponse>('/auth/onboard', data).pipe(
-      tap((res) => {
-        this._accessToken = res.access_token;
-        this._refreshToken = res.refresh_token;
-        if (this._refreshToken) {
-          sessionStorage.setItem(AuthService.REFRESH_KEY, this._refreshToken);
-        }
-        this._isAuthenticated.set(true);
-      }),
-    );
+    // Onboarding no longer establishes a session — the new owner must
+    // verify their email before their first login.
+    return this.api.post<RegisterResponse>('/auth/onboard', data);
   }
 
   logout(): void {
@@ -157,5 +148,13 @@ export class AuthService {
       token,
       new_password: newPassword,
     });
+  }
+
+  verifyEmail(token: string): Observable<{ message: string }> {
+    return this.api.post<{ message: string }>('/auth/verify-email', { token });
+  }
+
+  resendVerification(email: string): Observable<{ message: string }> {
+    return this.api.post<{ message: string }>('/auth/resend-verification', { email });
   }
 }

@@ -19,14 +19,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.exceptions import (
     AccountLockedError,
     CannotModifySelfError,
+    EmailNotVerifiedError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     InvalidResetTokenError,
+    InvalidVerificationTokenError,
     UserAlreadyExistsError,
     UserNotFoundError,
     WeakPasswordError,
 )
-from src.auth.models import Business, PasswordResetToken, RefreshToken, User, UserRole
+from src.auth.models import (
+    Business,
+    EmailVerificationToken,
+    PasswordResetToken,
+    RefreshToken,
+    User,
+    UserRole,
+)
 from src.core.config import settings
 from src.core.database import async_session_factory
 from src.core.security import create_access_token, get_password_hash, verify_password
@@ -57,8 +66,15 @@ async def create_user(
     full_name: str,
     role: UserRole = UserRole.SALES_MANAGER,
     business_id: uuid.UUID | None = None,
+    email_verified: bool = True,
 ) -> User:
-    """Register a new user account, optionally scoped to a business."""
+    """Register a new user account, optionally scoped to a business.
+
+    email_verified defaults to True since the majority caller is an
+    admin-gated path (admin /register, /admin/users/invite) -- an admin
+    already vouches for the email. Self-service signup
+    (create_business_and_owner) passes email_verified=False explicitly.
+    """
     validate_password(password)
 
     existing = await db.execute(select(User).where(User.email == email))
@@ -73,6 +89,7 @@ async def create_user(
         role=role,
         business_id=business_id,
         failed_login_attempts=0,
+        email_verified=email_verified,
     )
     db.add(user)
     await db.flush()
@@ -82,8 +99,13 @@ async def create_user(
 
 async def create_business_and_owner(
     db: AsyncSession, data: "OnboardRequest"
-) -> tuple["Business", User, str, str]:
-    """Create a Business + owner User atomically."""
+) -> tuple["Business", User]:
+    """Create a Business + owner User atomically.
+
+    Does NOT establish a session (no refresh/access token) -- self-service
+    signup requires the owner to verify their email before their first
+    login. The router is responsible for sending the verification email.
+    """
     business = Business(
         name=data.business_name,
         currency=data.currency,
@@ -99,19 +121,24 @@ async def create_business_and_owner(
     await db.flush()  # materialise business.id
 
     # create_user() validates password + checks email uniqueness
-    user = await create_user(db, data.email, data.password, data.full_name, role=UserRole.OWNER)
+    user = await create_user(
+        db,
+        data.email,
+        data.password,
+        data.full_name,
+        role=UserRole.OWNER,
+        email_verified=settings.E2E_AUTO_VERIFY_EMAIL,
+    )
     user.business_id = business.id
     user.ndpr_consent_given = True
     user.ndpr_consent_at = datetime.now(timezone.utc)
     await db.flush()
 
-    raw_refresh = await create_refresh_token(db, user)
-    access_token = build_token(user)
     # Do NOT call db.commit() here — get_db handles the final commit after the handler
     # returns successfully. Logging here is pre-commit; on a commit failure the event
     # is emitted but no data persists. This is acceptable (extremely rare, idempotent retry).
     await logger.ainfo("business_onboarding_pending", business_id=str(business.id), user_id=str(user.id))
-    return business, user, access_token, raw_refresh
+    return business, user
 
 
 async def authenticate_user(
@@ -153,6 +180,10 @@ async def authenticate_user(
             )
             await lockout_db.commit()
         raise InvalidCredentialsError()
+
+    if not user.email_verified:
+        await logger.awarn("login_blocked_unverified_email", email=email)
+        raise EmailNotVerifiedError()
 
     # Successful login — reset counters
     user.failed_login_attempts = 0
@@ -234,6 +265,82 @@ async def reset_password(
     token_obj.used = True
     await db.flush()
     await logger.ainfo("password_reset_success", user_id=str(user.id))
+
+
+# ---------------------------------------------------------------------------
+# Email verification
+# ---------------------------------------------------------------------------
+
+VERIFICATION_TOKEN_EXPIRE_HOURS = 24
+
+
+async def generate_email_verification_token(db: AsyncSession, user: User) -> str:
+    """Create an email-verification token for the given user.
+
+    Returns the raw token string; only its hash is persisted.
+    """
+    raw_token = secrets.token_urlsafe(32)
+    verification_token = EmailVerificationToken(
+        user_id=user.id,
+        token=_hash_token(raw_token),
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(hours=VERIFICATION_TOKEN_EXPIRE_HOURS),
+        used=False,
+    )
+    db.add(verification_token)
+    await db.flush()
+    await logger.ainfo("email_verification_token_created", user_id=str(user.id))
+    return raw_token
+
+
+async def verify_email(db: AsyncSession, token: str) -> User:
+    """Validate an email-verification token and mark the user verified.
+
+    Raises ``InvalidVerificationTokenError`` if the token is missing,
+    expired, or already used.
+    """
+    result = await db.execute(
+        select(EmailVerificationToken).where(
+            EmailVerificationToken.token == _hash_token(token)
+        )
+    )
+    token_obj = result.scalar_one_or_none()
+
+    if token_obj is None:
+        raise InvalidVerificationTokenError("Invalid or expired verification token.")
+
+    now = datetime.now(timezone.utc)
+    if token_obj.used or token_obj.expires_at < now:
+        raise InvalidVerificationTokenError("Invalid or expired verification token.")
+
+    user = await db.get(User, token_obj.user_id)
+    user.email_verified = True
+
+    token_obj.used = True
+    await db.flush()
+    await logger.ainfo("email_verified", user_id=str(user.id))
+    return user
+
+
+async def resend_verification_email(db: AsyncSession, email: str) -> str | None:
+    """Create a fresh verification token for an unverified user.
+
+    Returns the raw token string, or *None* if the email is not found or
+    already verified -- silently, so the caller never reveals account
+    existence or verification state.
+    """
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        await logger.ainfo("verification_resend_requested_unknown_email", email=email)
+        return None
+
+    if user.email_verified:
+        await logger.ainfo("verification_resend_requested_already_verified", email=email)
+        return None
+
+    return await generate_email_verification_token(db, user)
 
 
 # ---------------------------------------------------------------------------

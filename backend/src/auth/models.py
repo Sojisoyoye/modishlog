@@ -58,6 +58,9 @@ class User(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     )
     failed_login_attempts: Mapped[int] = mapped_column(default=0)
     locked_until: Mapped[datetime | None] = mapped_column(default=None)
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     ndpr_consent_given: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     ndpr_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     business_id: Mapped[_uuid.UUID | None] = mapped_column(
@@ -73,6 +76,21 @@ class PasswordResetToken(UUIDMixin, TimestampMixin, Base):
     """Token issued for password-reset requests."""
 
     __tablename__ = "password_reset_tokens"
+
+    user_id: Mapped[_uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+    )
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    user: Mapped["User"] = relationship(lazy="joined")
+
+
+class EmailVerificationToken(UUIDMixin, TimestampMixin, Base):
+    """Token issued to verify a user's email address after self-service signup."""
+
+    __tablename__ = "email_verification_tokens"
 
     user_id: Mapped[_uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),

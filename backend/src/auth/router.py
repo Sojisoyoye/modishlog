@@ -2,6 +2,7 @@
 
 import uuid
 
+import structlog
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,9 +14,11 @@ from src.auth.dependencies import get_current_active_user, require_admin
 from src.auth.exceptions import (
     AccountLockedError,
     CannotModifySelfError,
+    EmailNotVerifiedError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     InvalidResetTokenError,
+    InvalidVerificationTokenError,
     UserAlreadyExistsError,
     UserNotFoundError,
     WeakPasswordError,
@@ -29,6 +32,7 @@ from src.auth.schemas import (
     OnboardRequest,
     OnboardResponse,
     RefreshRequest,
+    ResendVerificationRequest,
     ResetPasswordRequest,
     TokenResponse,
     UnlockUserRequest,
@@ -38,6 +42,7 @@ from src.auth.schemas import (
     UserProfile,
     UserRegister,
     UserUpdate,
+    VerifyEmailRequest,
 )
 from src.auth.service import (
     activate_user,
@@ -48,16 +53,22 @@ from src.auth.service import (
     create_refresh_token,
     create_user,
     deactivate_user,
+    generate_email_verification_token,
     generate_password_reset_token,
     get_user_by_id,
     list_users,
     refresh_access_token,
+    resend_verification_email,
     reset_password,
     revoke_refresh_token,
     unlock_user,
     update_user,
+    verify_email,
 )
 from src.core.database import get_db
+from src.core.email import render_reset_password_email, render_verification_email, send_email
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 
@@ -92,36 +103,27 @@ def _login_rate_limit() -> str:
 async def onboard_business(
     request: Request, data: OnboardRequest, response: Response, db: AsyncSession = Depends(get_db)
 ):
-    """Public endpoint — creates a Business and its owner User atomically."""
+    """Public endpoint — creates a Business and its owner User atomically.
+
+    Does not log the new owner in: they must verify their email (see
+    /auth/verify-email) before their first /auth/login.
+    """
     try:
-        business, user, access_token, refresh_token = await create_business_and_owner(db, data)
+        business, user = await create_business_and_owner(db, data)
     except WeakPasswordError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except UserAlreadyExistsError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-    _secure = settings.ENVIRONMENT != "development"
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        samesite="lax",
-        secure=_secure,
-        path="/",
-        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-    )
-    # S2: Refresh token moved to HttpOnly cookie to prevent XSS theft from JSON body.
-    response.set_cookie(
-        key="refresh_token",
-        value=refresh_token,
-        httponly=True,
-        samesite="strict",
-        secure=_secure,
-        path="/api/v1/auth/refresh",
-        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-    )
+
+    try:
+        token = await generate_email_verification_token(db, user)
+        subject, html_content = render_verification_email(user.email, token)
+        send_email(email_to=user.email, subject=subject, html_content=html_content)
+    except Exception:
+        await logger.aexception("verification_email_send_failed", user_id=str(user.id))
+
     return OnboardResponse(
-        access_token=access_token,
-        # S2: refresh_token is not returned in JSON body; it is set as HttpOnly cookie above.
+        message="Check your email to verify your account before logging in.",
         user_id=str(user.id),
         business_id=str(business.id),
     )
@@ -163,6 +165,11 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
+        )
+    except EmailNotVerifiedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please verify your email before logging in.",
         )
     except AccountLockedError as e:
         return JSONResponse(
@@ -276,9 +283,50 @@ async def forgot_password(
     Always returns 200 regardless of whether the email exists --
     we never reveal account existence.
     """
-    await generate_password_reset_token(db, body.email)
+    raw_token = await generate_password_reset_token(db, body.email)
+    if raw_token is not None:
+        try:
+            subject, html_content = render_reset_password_email(body.email, raw_token)
+            send_email(email_to=body.email, subject=subject, html_content=html_content)
+        except Exception:
+            await logger.aexception("reset_password_email_send_failed", email=body.email)
     return MessageResponse(
         message="If an account with that email exists, a reset link has been sent."
+    )
+
+
+@router.post("/verify-email", response_model=MessageResponse)
+@limiter.limit("10/minute")
+async def do_verify_email(
+    request: Request, body: VerifyEmailRequest, db: AsyncSession = Depends(get_db)
+):
+    """Verify a user's email address using a verification token."""
+    try:
+        await verify_email(db, body.token)
+    except InvalidVerificationTokenError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return MessageResponse(message="Email verified successfully.")
+
+
+@router.post("/resend-verification", response_model=MessageResponse)
+@limiter.limit("5/minute")
+async def do_resend_verification(
+    request: Request, body: ResendVerificationRequest, db: AsyncSession = Depends(get_db)
+):
+    """Resend the email-verification link.
+
+    Always returns 200 regardless of whether the email exists or is
+    already verified -- we never reveal account existence or state.
+    """
+    raw_token = await resend_verification_email(db, body.email)
+    if raw_token is not None:
+        try:
+            subject, html_content = render_verification_email(body.email, raw_token)
+            send_email(email_to=body.email, subject=subject, html_content=html_content)
+        except Exception:
+            await logger.aexception("verification_email_send_failed", email=body.email)
+    return MessageResponse(
+        message="If that email is registered and unverified, a verification link has been sent."
     )
 
 

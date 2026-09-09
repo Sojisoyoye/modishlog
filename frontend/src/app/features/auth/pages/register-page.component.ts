@@ -425,9 +425,9 @@ export class RegisterPageComponent {
     this.authService.register(payload).subscribe({
       next: () => {
         this.isLoading.set(false);
-        // Full reload clears all in-memory Angular state so the new business
-        // starts with empty signals rather than the previous user's cached data.
-        window.location.href = '/dashboard';
+        // Onboarding no longer establishes a session -- the new owner must
+        // verify their email before their first login.
+        this.router.navigate(['/check-email'], { queryParams: { email: this.email } });
       },
       error: (err: { error?: { detail?: string | Array<{ msg: string }> } }) => {
         this.isLoading.set(false);

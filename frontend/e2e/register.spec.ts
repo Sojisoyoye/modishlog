@@ -91,7 +91,9 @@ test.describe('Register page — step navigation', () => {
 });
 
 test.describe('Register page — full happy path', () => {
-  test('submitting both steps with valid data redirects to /dashboard', async ({ page }) => {
+  test('submitting both steps with valid data redirects to /check-email (not auto-logged-in)', async ({
+    page,
+  }) => {
     // Use a unique email to avoid duplicate conflicts
     const uniqueEmail = `e2e-happy-${Date.now()}@modishlogtest.com`;
 
@@ -111,9 +113,11 @@ test.describe('Register page — full happy path', () => {
 
     await page.getByRole('button', { name: /create account/i }).click();
 
-    // Should redirect to dashboard after successful registration
-    await page.waitForURL('**/dashboard', { timeout: 20_000 });
-    await expect(page).toHaveURL(/\/dashboard/);
+    // Onboarding no longer auto-logs-in -- the new owner must verify their
+    // email first, so they land on a check-your-email screen, not the dashboard.
+    await page.waitForURL('**/check-email**', { timeout: 20_000 });
+    await expect(page).toHaveURL(/\/check-email/);
+    await expect(page.getByText(uniqueEmail)).toBeVisible();
   });
 });
 

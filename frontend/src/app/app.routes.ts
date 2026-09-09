@@ -244,6 +244,20 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'check-email',
+    loadComponent: () =>
+      import('./features/auth/pages/check-email-page.component').then(
+        (m) => m.CheckEmailPageComponent,
+      ),
+  },
+  {
+    path: 'verify-email',
+    loadComponent: () =>
+      import('./features/auth/pages/verify-email-page.component').then(
+        (m) => m.VerifyEmailPageComponent,
+      ),
+  },
+  {
     path: 'register',
     loadComponent: () =>
       import('./features/auth/pages/register-page.component').then(
