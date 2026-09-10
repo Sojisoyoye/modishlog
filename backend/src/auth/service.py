@@ -263,6 +263,13 @@ async def reset_password(
 
     # Mark token as consumed
     token_obj.used = True
+
+    # Revoke every existing refresh token -- without this, an attacker who
+    # already holds a valid refresh token for the account keeps minting new
+    # access tokens for the full REFRESH_TOKEN_EXPIRE_DAYS window even after
+    # the legitimate user "secures" the account via password reset.
+    await db.execute(delete(RefreshToken).where(RefreshToken.user_id == user.id))
+
     await db.flush()
     await logger.ainfo("password_reset_success", user_id=str(user.id))
 
@@ -579,7 +586,10 @@ async def admin_reset_user_password(
     """Generate a password-reset token for a user (admin-initiated).
 
     Returns the raw reset token string, or None on unexpected lookup failure.
-    S4: lookup is scoped to business_id.
+    S4: lookup is scoped to business_id. This function never touches
+    hashed_password itself -- the returned token is later consumed via the
+    same reset_password() the self-service flow uses, so the refresh-token
+    revocation there (task 214) covers this admin-initiated path too.
     """
     result = await db.execute(
         select(User).where(User.id == user_id, User.business_id == business_id)
