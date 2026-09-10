@@ -23,6 +23,16 @@ async function ensureApiKeyFormVisible(page: import('@playwright/test').Page): P
   await expect(passwordInput).toBeVisible({ timeout: 5_000 });
 }
 
+test.describe('Settings — Anthropic key section is honest about scope (task 216)', () => {
+  test('disclaims that no feature consumes the key yet', async ({ page }) => {
+    await loginViaUI(page);
+    await page.goto('/settings');
+
+    await expect(page.getByTestId('anthropic-key-disclaimer')).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByRole('heading', { name: 'Anthropic API Key (optional)' })).toBeVisible();
+  });
+});
+
 test.describe('Settings — API key stored in backend, not localStorage', () => {
   test('after saving API key, localStorage does not contain the key', async ({ page }) => {
     await loginViaUI(page);
