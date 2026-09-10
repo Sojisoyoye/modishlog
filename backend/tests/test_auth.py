@@ -874,8 +874,8 @@ class TestResetPasswordEndpoint:
         token_obj.updated_at = datetime.now(timezone.utc)
         token_obj.user = user  # eager-loaded relationship
 
-        # First execute returns the token, second returns the user
-        db = _mock_db_multi([token_obj])
+        # First execute returns the token, second (RefreshToken revocation) is a no-op
+        db = _mock_db_multi([token_obj, None])
         # mock db.get to return user when fetching by id
         db.get = AsyncMock(return_value=user)
         self._override_db(db)
@@ -1011,13 +1011,62 @@ class TestResetPasswordService:
         token_obj.created_at = datetime.now(timezone.utc)
         token_obj.updated_at = datetime.now(timezone.utc)
 
-        db = _mock_db_multi([token_obj])
+        db = _mock_db_multi([token_obj, None])
         db.get = AsyncMock(return_value=user)
 
         await reset_password(db, "service-valid-token", VALID_PASSWORD)
 
         assert token_obj.used is True
         assert user.hashed_password != old_hash
+
+    @pytest.mark.asyncio
+    async def test_resets_password_revokes_existing_refresh_tokens(self):
+        """Found 2026-09-10 in a pre-launch audit (task 214): reset_password()
+        updated hashed_password and marked the reset token used, but never
+        touched the RefreshToken table. If an attacker already held a valid
+        refresh token for the account, the legitimate user "securing" their
+        account via password reset did nothing to stop the attacker -- they
+        kept minting new access tokens for the full 30-day refresh window.
+        Contrast with deactivate_user(), which already revokes correctly."""
+        from src.auth.models import PasswordResetToken
+        from src.auth.models import RefreshToken
+        from src.auth.service import reset_password
+
+        user = _make_user(email="hijacked@example.com")
+
+        token_obj = PasswordResetToken(
+            user_id=user.id,
+            token="revoke-check-token",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            used=False,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+
+        captured_statements = []
+
+        async def capture_execute(stmt):
+            captured_statements.append(stmt)
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = token_obj
+            return result
+
+        db = AsyncMock()
+        db.execute = capture_execute
+        db.flush = AsyncMock()
+        db.get = AsyncMock(return_value=user)
+
+        await reset_password(db, "revoke-check-token", VALID_PASSWORD)
+
+        assert len(captured_statements) == 2, (
+            "expected a token lookup then a RefreshToken revocation query"
+        )
+        revoke_stmt = captured_statements[1]
+        compiled = str(revoke_stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+        assert revoke_stmt.is_delete
+        assert "refresh_tokens" in compiled
+        assert user.id.hex in compiled.replace("-", "")
 
     @pytest.mark.asyncio
     async def test_raises_on_invalid_token(self):
@@ -1070,6 +1119,46 @@ class TestResetPasswordService:
         db.get = AsyncMock(return_value=user)
         with pytest.raises(WeakPasswordError):
             await reset_password(db, "weak-pw-svc-token", "weak")
+
+    @pytest.mark.asyncio
+    async def test_admin_initiated_token_also_revokes_refresh_tokens(self):
+        """admin_reset_user_password() (task 214) never touches
+        hashed_password itself -- it only mints a token. The actual
+        password change, and therefore the refresh-token revocation, always
+        happens through reset_password() once that token is consumed. This
+        proves the admin-initiated path is covered by the same fix, not
+        just the self-service forgot-password path."""
+        from src.auth.models import PasswordResetToken
+        from src.auth.service import reset_password
+
+        user = _make_user(email="admin-reset-target@example.com")
+        token_obj = PasswordResetToken(
+            user_id=user.id,
+            token="admin-issued-token",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            used=False,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+
+        captured_statements = []
+
+        async def capture_execute(stmt):
+            captured_statements.append(stmt)
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = token_obj
+            return result
+
+        db = AsyncMock()
+        db.execute = capture_execute
+        db.flush = AsyncMock()
+        db.get = AsyncMock(return_value=user)
+
+        await reset_password(db, "admin-issued-token", VALID_PASSWORD)
+
+        assert len(captured_statements) == 2
+        assert captured_statements[1].is_delete
 
 
 # ---------------------------------------------------------------------------
