@@ -1,6 +1,6 @@
 """add email verification
 
-Revision ID: b4c5d6e7f8a9
+Revision ID: db06ca99f1fa
 Revises: 1a76f66ca128
 Create Date: 2026-09-09 10:00:00.000000
 
@@ -21,7 +21,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = "b4c5d6e7f8a9"
+revision: str = "db06ca99f1fa"
 down_revision: Union[str, None] = "1a76f66ca128"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
