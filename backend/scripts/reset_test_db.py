@@ -92,6 +92,11 @@ async def _wipe_and_seed() -> None:
             is_active=True,
             role=UserRole.ADMIN,
             business_id=business.id,
+            # This user is seeded directly (not via /auth/onboard), so it
+            # never picks up E2E_AUTO_VERIFY_EMAIL -- the whole E2E suite
+            # depends on this shared user being able to log in immediately,
+            # with no real inbox to click a verification link from.
+            email_verified=True,
         )
         session.add(user)
         await session.commit()
