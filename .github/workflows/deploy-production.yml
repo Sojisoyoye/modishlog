@@ -163,6 +163,26 @@ jobs:
           strip_components: 2
           overwrite: true
 
+      # This file's own header comment implied CI/CD kept the server in sync
+      # -- it never did. The server's actual docker-compose.yml had drifted
+      # from this repo's docker-compose.prod.yml (wrong container names,
+      # missing the shared Caddy network, wrong volume names, and
+      # postgres:16-alpine here vs the real 15-alpine already running against
+      # a pg15-formatted data volume). Fixed in task 254 -- this repo's file
+      # now matches the real server exactly, verified via `docker compose
+      # config` against the real project name and by SSH-inspecting the
+      # live containers/volumes. Copied under its own name (scp-action can't
+      # rename on the fly) -- see the -f flag added to every command below.
+      - name: Copy docker-compose.prod.yml to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: root
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          source: "docker-compose.prod.yml"
+          target: ${{ env.DEPLOY_DIR }}
+          overwrite: true
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -176,16 +196,20 @@ jobs:
 
             cd ${{ env.DEPLOY_DIR }}
 
+            # -f docker-compose.prod.yml: use the repo-tracked file just
+            # copied above, not the old docker-compose.yml already here.
+            COMPOSE="docker compose -f docker-compose.prod.yml --env-file .env.production"
+
             # Pull the new production image
-            docker compose --env-file .env.production pull backend
+            $COMPOSE pull backend
 
             # Ensure db and redis are running (idempotent — no-op if already healthy)
-            docker compose --env-file .env.production up -d db redis
-            docker compose --env-file .env.production exec -T db sh -c \
+            $COMPOSE up -d db redis
+            $COMPOSE exec -T db sh -c \
               'until pg_isready -U ${POSTGRES_USER:-modishlog}; do sleep 1; done'
 
             # Run migrations
-            docker compose --env-file .env.production run --rm --no-deps backend alembic upgrade head
+            $COMPOSE run --rm --no-deps backend alembic upgrade head
 
             # Ensure uploads volume has correct permissions for non-root app user
             docker run --rm \
@@ -193,7 +217,7 @@ jobs:
               alpine sh -c "mkdir -p /app/uploads/products /app/uploads/logos && chmod -R 777 /app/uploads"
 
             # Rolling restart — backend only, zero-downtime via health check
-            docker compose --env-file .env.production up -d --no-deps backend
+            $COMPOSE up -d --no-deps backend
 
             # Reload the shared Caddy proxy so it picks up our snippet above.
             # Only our own file (/opt/modish/sites/modishlog.caddy) was touched —

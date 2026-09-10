@@ -1,59 +1,70 @@
-# Production deployment — Hetzner VPS, modishlog.com
-# On the VPS, run:  docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+# Production deployment — shared Hetzner box (178.104.122.53), see DEPLOYMENT.md.
 #
-# TLS/routing is handled by the shared Caddy reverse proxy on this box (see
-# deploy/caddy/modishlog.caddy in this repo, and modish-infra's HETZNER-INFRA.md
-# for the shared stack) — this file only ever brings up `redis`, `db`, and
-# `backend` (see .github/workflows/deploy-production.yml). The `nginx`/`certbot` services
-# and scripts/init-letsencrypt.sh that used to live here were from an earlier,
-# standalone-server architecture, before this box's shared Caddy existed —
-# removed 2026-07-12 since they'd conflict with Caddy's port 80/443 binding if
-# ever brought up, and the deploy pipeline never actually started them anyway.
+# CI/CD: .github/workflows/deploy-production.yml scp's this file to
+# /root/modishlog-prod/docker-compose.yml and deploys with
+# `docker compose -f docker-compose.yml --env-file .env.production`. Before
+# 2026-09-10 (task 254) this never actually happened -- the deploy script had
+# no -f flag and no scp step, so it silently used whatever docker-compose.yml
+# already existed on the server (which this repo's copy had drifted from:
+# wrong container names, missing the shared modish_modish Caddy network,
+# wrong volume names, and postgres:16-alpine here vs the real 15-alpine
+# already running against a pg15-formatted data volume). Fixed to match the
+# real server exactly -- see git history on this file for what "real" meant
+# before this fix if any of the above needs re-verifying.
+#
+# container_name, networks, and the volume names below are load-bearing:
+# - modishlog_db / modishlog-prod-backend: the shared Caddy reverse proxy on
+#   this box (owned by modish-infra) reaches the backend by container name on
+#   the modish_modish network, not by host port.
+# - modishlog_postgres_data / modishlog_uploads: these must exactly match the
+#   existing Docker volume names (Docker Compose auto-prefixes them with the
+#   project name derived from the deploy directory, modishlog-prod) or the
+#   backend will mount a brand-new EMPTY volume instead of the real database/
+#   uploads on next deploy.
 #
 # Prerequisites:
-#   - .env.production file present (see .env.production.example)
+#   - .env.production file present on the server (see .env.production.example)
 
 services:
   # ─── Redis (shared rate-limit state across gunicorn workers) ─────────────
   redis:
     image: redis:7-alpine
+    container_name: modishlog-prod-redis
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-    mem_limit: 128m
-    cpus: 0.25
+    networks:
+      - modishlog_prod
 
   # ─── PostgreSQL ──────────────────────────────────────────────────────────
   db:
-    image: postgres:16-alpine
+    image: postgres:15-alpine
+    container_name: modishlog_db
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-modishlog}
       POSTGRES_USER: ${POSTGRES_USER:-modishlog}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    command: >
-      postgres
-        -c max_connections=100
-        -c shared_buffers=256MB
-        -c effective_cache_size=768MB
-        -c log_min_duration_statement=1000
+      - modishlog_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-modishlog}"]
       interval: 10s
       timeout: 5s
       retries: 5
-    mem_limit: 512m
-    cpus: 0.5
+    networks:
+      - modishlog_prod
 
   # ─── Backend (gunicorn + uvicorn workers) ────────────────────────────────
   backend:
     image: ${BACKEND_IMAGE:-ghcr.io/sojisoyoye/modishlog/backend:production}
+    container_name: modishlog-prod-backend
     restart: unless-stopped
+    ports:
+      - "8003:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-modishlog}:${POSTGRES_PASSWORD}@db/${POSTGRES_DB:-modishlog}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
@@ -86,7 +97,7 @@ services:
         --access-logfile -
         --error-logfile -
     volumes:
-      - uploads_data:/app/uploads
+      - modishlog_uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -98,9 +109,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
-    mem_limit: 1g
-    cpus: 1.0
+    networks:
+      - modishlog_prod
+      - modish_modish
 
 volumes:
-  postgres_data:
-  uploads_data:
+  modishlog_postgres_data:
+  modishlog_uploads:
+
+networks:
+  modishlog_prod:
+    name: modishlog_prod
+  modish_modish:
+    external: true

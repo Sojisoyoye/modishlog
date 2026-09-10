@@ -1,35 +1,50 @@
-# Staging deployment — Azure Container Apps
+# Staging deployment — shared Hetzner box (178.104.122.53), see DEPLOYMENT.md.
 # Database: Neon PostgreSQL (external, configured via DATABASE_URL secret)
 # Frontend: Vercel (separate deployment)
 #
-# Initial setup:  bash infra/azure/setup-staging.sh
-# CI/CD updates:  .github/workflows/deploy-staging.yml
+# CI/CD: .github/workflows/deploy-staging.yml scp's this file to
+# /root/modishlog/docker-compose.staging.yml and deploys with
+# `docker-compose -f docker-compose.staging.yml`, replacing what used to be
+# a separate, manually-maintained docker-compose.yml + docker-compose.override.yml
+# on the server that this repo's copy never actually matched (see task 218/#380).
+#
+# container_name + the modish_modish network are load-bearing: the shared
+# Caddy reverse proxy on this box (owned by modish-infra) reaches this
+# container by name (modishlog-backend:8000), not by host port -- see
+# DEPLOYMENT.md's "Caddy routing ownership" section.
 
 services:
   # ─── Redis (shared rate-limit state across gunicorn workers) ─────────────
   redis:
     image: redis:7-alpine
+    container_name: modishlog-redis-staging
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - modishlog
 
   backend:
     image: ghcr.io/sojisoyoye/modishlog/backend:${IMAGE_TAG:-staging}
+    container_name: modishlog-backend
+    restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8002:8000"
     environment:
-      DATABASE_URL: ${STAGING_DATABASE_URL}
+      # Server .env uses these exact (unprefixed) names -- see .env.staging.example.
+      DATABASE_URL: ${DATABASE_URL}
+      SECRET_KEY: ${SECRET_KEY}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-      SECRET_KEY: ${STAGING_SECRET_KEY}
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: "1440"
-      CORS_ORIGINS: ${STAGING_CORS_ORIGINS:-https://staging.modishlog.com}
+      CORS_ORIGINS: ${CORS_ORIGINS}
       ENVIRONMENT: staging
       LOG_LEVEL: info
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       FX_API_KEY: ${FX_API_KEY:-}
       FX_API_URL: ${FX_API_URL:-https://api.example.com/fx}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -44,4 +59,13 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 20s
+    networks:
+      - modishlog
+      - modish_modish
+
+networks:
+  modishlog:
+    name: modishlog
+  modish_modish:
+    external: true
