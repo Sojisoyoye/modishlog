@@ -108,15 +108,22 @@ class TestOnboardEndpoint(OnboardTestBase):
     """Integration-style tests for POST /api/v1/auth/onboard."""
 
     def test_onboard_happy_path(self):
-        """POST /auth/onboard with valid payload → 201 + access_token + business_id."""
+        """POST /auth/onboard with valid payload → 201 + check-your-email
+        message + business_id. No session is established -- the new owner
+        must verify their email before their first login."""
         business = _make_business()
-        user = _make_user()
-        fake_access = "fake_access_token"
-        fake_refresh = "fake_refresh_token"
+        user = _make_user(email_verified=False)
 
-        with patch(
-            "src.auth.router.create_business_and_owner",
-            new=AsyncMock(return_value=(business, user, fake_access, fake_refresh)),
+        with (
+            patch(
+                "src.auth.router.create_business_and_owner",
+                new=AsyncMock(return_value=(business, user)),
+            ),
+            patch(
+                "src.auth.router.generate_email_verification_token",
+                new=AsyncMock(return_value="fake-verification-token"),
+            ),
+            patch("src.auth.router.send_email"),
         ):
             db_mock = AsyncMock()
             self._override_db(db_mock)
@@ -125,10 +132,39 @@ class TestOnboardEndpoint(OnboardTestBase):
 
         assert resp.status_code == 201
         data = resp.json()
-        assert "access_token" in data
-        assert data["access_token"] == fake_access
+        assert "access_token" not in data
+        assert "refresh_token" not in data
+        assert "message" in data
         assert "business_id" in data
         assert data["business_id"] == str(business.id)
+        # No session cookies -- onboarding no longer auto-logs-in.
+        assert "access_token" not in resp.cookies
+        assert "refresh_token" not in resp.cookies
+
+    def test_onboard_sends_verification_email(self):
+        """POST /auth/onboard must generate a verification token and send it."""
+        business = _make_business()
+        user = _make_user(email_verified=False)
+
+        with (
+            patch(
+                "src.auth.router.create_business_and_owner",
+                new=AsyncMock(return_value=(business, user)),
+            ),
+            patch(
+                "src.auth.router.generate_email_verification_token",
+                new=AsyncMock(return_value="fake-verification-token"),
+            ) as mock_gen_token,
+            patch("src.auth.router.send_email") as mock_send,
+        ):
+            db_mock = AsyncMock()
+            self._override_db(db_mock)
+            with TestClient(self.app) as client:
+                resp = client.post("/api/v1/auth/onboard", json=VALID_ONBOARD)
+
+        assert resp.status_code == 201
+        mock_gen_token.assert_called_once()
+        mock_send.assert_called_once()
 
     def test_onboard_duplicate_email(self):
         """POST /auth/onboard with already-used email → 409."""
@@ -178,12 +214,17 @@ class TestOnboardEndpoint(OnboardTestBase):
         from src.auth.models import UserRole
 
         business = _make_business()
-        owner_user = _make_user(role=UserRole.OWNER)
-        fake_access = "fake_access_token"
-        fake_refresh = "fake_refresh_token"
+        owner_user = _make_user(role=UserRole.OWNER, email_verified=False)
 
-        mock_fn = AsyncMock(return_value=(business, owner_user, fake_access, fake_refresh))
-        with patch("src.auth.router.create_business_and_owner", new=mock_fn):
+        mock_fn = AsyncMock(return_value=(business, owner_user))
+        with (
+            patch("src.auth.router.create_business_and_owner", new=mock_fn),
+            patch(
+                "src.auth.router.generate_email_verification_token",
+                new=AsyncMock(return_value="fake-verification-token"),
+            ),
+            patch("src.auth.router.send_email"),
+        ):
             db_mock = AsyncMock()
             self._override_db(db_mock)
             with TestClient(self.app) as client:
@@ -208,7 +249,7 @@ class TestCreateBusinessAndOwnerService:
 
         data = OnboardRequest(**VALID_ONBOARD)
         business = _make_business()
-        owner_user = _make_user(role=UserRole.OWNER)
+        owner_user = _make_user(role=UserRole.OWNER, email_verified=False)
         owner_user.business_id = business.id
 
         db = AsyncMock()
@@ -220,8 +261,6 @@ class TestCreateBusinessAndOwnerService:
                 "src.auth.service.create_user",
                 new=AsyncMock(return_value=owner_user),
             ) as mock_create_user,
-            patch("src.auth.service.create_refresh_token", new=AsyncMock(return_value="raw_refresh")),
-            patch("src.auth.service.build_token", return_value="access_token"),
         ):
             result = asyncio.run(create_business_and_owner(db, data))
 
@@ -230,11 +269,12 @@ class TestCreateBusinessAndOwnerService:
         assert _call_kwargs.kwargs.get("role") == UserRole.OWNER or (
             len(_call_kwargs.args) >= 5 and _call_kwargs.args[4] == UserRole.OWNER
         ), f"Expected role=OWNER, got call: {_call_kwargs}"
+        # Self-service signup must not be pre-verified.
+        assert _call_kwargs.kwargs.get("email_verified") is False
 
-        returned_business, returned_user, access_token, raw_refresh = result
+        returned_business, returned_user = result
         assert returned_user.role == UserRole.OWNER
-        assert access_token == "access_token"
-        assert raw_refresh == "raw_refresh"
+        assert returned_business is business
 
 
 # ---------------------------------------------------------------------------
@@ -284,10 +324,76 @@ class TestNDPRConsent(OnboardTestBase):
                 "src.auth.service.create_user",
                 new=AsyncMock(return_value=store_user),
             ),
-            patch("src.auth.service.create_refresh_token", new=AsyncMock(return_value="raw")),
-            patch("src.auth.service.build_token", return_value="access"),
         ):
             asyncio.run(create_business_and_owner(db, onboard_data))
 
         assert store_user.ndpr_consent_given is True
         assert store_user.ndpr_consent_at is not None
+
+
+# ---------------------------------------------------------------------------
+# E2E auto-verify flag — set only by docker-compose.e2e.yml
+# ---------------------------------------------------------------------------
+
+
+class TestE2EAutoVerifyEmail:
+    """The E2E suite has no real inbox to read a verification link from, so
+    its shared test user must be auto-verified. Gated on a dedicated flag
+    (not ENVIRONMENT=test), matching the E2E_RELAXED_LOGIN_RATE_LIMIT
+    precedent — the plain pytest CI job also sets ENVIRONMENT=test."""
+
+    def test_onboard_respects_e2e_auto_verify_flag(self, monkeypatch):
+        import asyncio
+        from src.auth.models import UserRole
+        from src.auth.service import create_business_and_owner
+        from src.auth.schemas import OnboardRequest
+        from src.core.config import settings
+
+        monkeypatch.setattr(settings, "E2E_AUTO_VERIFY_EMAIL", True)
+
+        data = OnboardRequest(**VALID_ONBOARD)
+        business = _make_business()
+        owner_user = _make_user(role=UserRole.OWNER)
+        owner_user.business_id = business.id
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+
+        with (
+            patch("src.auth.service.Business", return_value=business),
+            patch(
+                "src.auth.service.create_user",
+                new=AsyncMock(return_value=owner_user),
+            ) as mock_create_user,
+        ):
+            asyncio.run(create_business_and_owner(db, data))
+
+        assert mock_create_user.call_args.kwargs.get("email_verified") is True
+
+    def test_onboard_stays_unverified_by_default(self, monkeypatch):
+        import asyncio
+        from src.auth.models import UserRole
+        from src.auth.service import create_business_and_owner
+        from src.auth.schemas import OnboardRequest
+        from src.core.config import settings
+
+        monkeypatch.setattr(settings, "E2E_AUTO_VERIFY_EMAIL", False)
+
+        data = OnboardRequest(**VALID_ONBOARD)
+        business = _make_business()
+        owner_user = _make_user(role=UserRole.OWNER)
+        owner_user.business_id = business.id
+
+        db = AsyncMock()
+        db.flush = AsyncMock()
+
+        with (
+            patch("src.auth.service.Business", return_value=business),
+            patch(
+                "src.auth.service.create_user",
+                new=AsyncMock(return_value=owner_user),
+            ) as mock_create_user,
+        ):
+            asyncio.run(create_business_and_owner(db, data))
+
+        assert mock_create_user.call_args.kwargs.get("email_verified") is False

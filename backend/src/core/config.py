@@ -175,6 +175,16 @@ class Settings(BaseSettings):
     # the strict limit IS enforced — conflating the two flags broke them.
     E2E_RELAXED_LOGIN_RATE_LIMIT: bool = False
 
+    # Set only by docker-compose.e2e.yml — self-service /auth/onboard normally
+    # requires clicking an emailed verification link before the first login,
+    # but the E2E suite has no real inbox to read that link from and its
+    # single shared E2E_EMAIL test user must be able to log in immediately
+    # across the whole run. Deliberately a dedicated flag, not ENVIRONMENT=test,
+    # for the same reason as E2E_RELAXED_LOGIN_RATE_LIMIT above: the plain
+    # pytest CI job also sets ENVIRONMENT=test and has its own regression
+    # tests that verify the real blocking behaviour.
+    E2E_AUTO_VERIFY_EMAIL: bool = False
+
     # External APIs
     FX_API_KEY: str = ""
     FX_API_URL: str = "https://api.example.com/fx"
@@ -194,6 +204,19 @@ class Settings(BaseSettings):
 
     # Error tracking
     SENTRY_DSN: str = ""
+
+    # Transactional email (Resend) — empty key means "not configured":
+    # send_email() logs instead of sending, keeping local/dev/CI working
+    # with zero setup.
+    RESEND_API_KEY: str = ""
+    EMAILS_FROM_EMAIL: str = "noreply@modishlog.com"
+    EMAILS_FROM_NAME: str = "ModishLog"
+    # Base URL used to build verification/reset links in outgoing emails.
+    FRONTEND_URL: str = "http://localhost:4200"
+
+    @property
+    def emails_enabled(self) -> bool:
+        return bool(self.RESEND_API_KEY)
 
 
 settings = Settings()

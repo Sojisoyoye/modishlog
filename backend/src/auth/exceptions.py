@@ -25,6 +25,14 @@ class InvalidResetTokenError(Exception):
     """Raised when a password-reset token is invalid, expired, or already used."""
 
 
+class InvalidVerificationTokenError(Exception):
+    """Raised when an email-verification token is invalid, expired, or already used."""
+
+
+class EmailNotVerifiedError(Exception):
+    """Raised when a user with valid credentials has not yet verified their email."""
+
+
 class InvalidRefreshTokenError(Exception):
     """Raised when a refresh token is invalid, expired, or revoked."""
 

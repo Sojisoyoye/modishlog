@@ -5448,13 +5448,25 @@
         "priority": "low",
         "subtasks": [],
         "updatedAt": "2026-08-16T10:37:52.012Z"
+      },
+      {
+        "id": "211",
+        "title": "Email verification and working forgot-password emails",
+        "description": "Wire up real email delivery for the existing forgot-password flow (currently generates a token but never sends it) and add a new blocking email-verification flow for self-service onboarding, per approved plan.",
+        "details": "See full plan at /Users/sojisoyoye/.claude/plans/snuggly-juggling-fairy.md. Backend: EmailVerificationToken model + migration (backfill existing users to email_verified=true), auth/service.py verify_email/generate_email_verification_token/resend_verification_email, authenticate_user blocks unverified login, create_business_and_owner no longer auto-logs-in (returns check-your-email message instead), new core/email.py using Resend (falls back to structlog logging when RESEND_API_KEY unset), new /auth/verify-email and /auth/resend-verification endpoints, /auth/forgot-password now actually sends the reset email. Frontend: check-email page, verify-email page, login page handles 403 unverified distinctly from 401, onboarding wizard navigates to check-email instead of dashboard. Full TDD backend pytest + Playwright E2E coverage per CLAUDE.md.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [],
+        "updatedAt": "2026-09-09T21:09:48.815Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-08-16T10:37:52.015Z",
-      "taskCount": 210,
-      "completedCount": 210,
+      "lastModified": "2026-09-09T21:09:48.816Z",
+      "taskCount": 211,
+      "completedCount": 211,
       "tags": [
         "master"
       ]

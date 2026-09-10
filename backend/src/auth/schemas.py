@@ -72,6 +72,18 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 
+class VerifyEmailRequest(BaseModel):
+    """Email-verification request -- just the token."""
+
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    """Resend-verification-email request -- just an email."""
+
+    email: EmailStr
+
+
 class MessageResponse(BaseModel):
     """Generic message response."""
 
@@ -161,13 +173,12 @@ class OnboardRequest(BaseModel):
 
 
 class OnboardResponse(BaseModel):
-    """Response after successful business onboarding."""
+    """Response after successful business onboarding.
 
-    access_token: str
-    # S2: refresh_token is no longer returned in the JSON body; it is set as an
-    # HttpOnly cookie only. Field kept as Optional for backwards-compat with
-    # any existing clients but will always be None/absent.
-    refresh_token: str | None = None
-    token_type: str = "bearer"
+    No session is established here -- self-service signup must verify
+    their email (see /auth/verify-email) before their first /auth/login.
+    """
+
+    message: str
     user_id: str
     business_id: str

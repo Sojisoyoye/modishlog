@@ -54,6 +54,10 @@ def _make_user(**overrides) -> User:
         role=UserRole.ADMIN,
         failed_login_attempts=0,
         locked_until=None,
+        # Fixture users represent already-onboarded accounts (pre-existing
+        # rows are backfilled true by the email-verification migration) —
+        # tests exercising the unverified path override this explicitly.
+        email_verified=True,
     )
     defaults.update(overrides)
     user = User(**defaults)
@@ -1734,3 +1738,418 @@ class TestLoginRateLimit:
 
         monkeypatch.setattr(settings, "ENVIRONMENT", "production")
         assert _login_rate_limit() == "10/minute"
+
+
+# ---------------------------------------------------------------------------
+# Email verification — create_user defaults
+# ---------------------------------------------------------------------------
+
+
+class TestCreateUserEmailVerifiedDefault:
+    @pytest.mark.asyncio
+    async def test_defaults_to_verified(self):
+        """Admin-created/invited users (the majority caller of create_user)
+        are pre-verified — an admin already vouches for the email."""
+        db = _mock_db(user=None)
+        user = await create_user(db, "admincreated@example.com", VALID_PASSWORD, "Admin Created")
+        assert user.email_verified is True
+
+    @pytest.mark.asyncio
+    async def test_explicit_unverified(self):
+        """Self-service onboarding passes email_verified=False explicitly."""
+        db = _mock_db(user=None)
+        user = await create_user(
+            db, "selfservice@example.com", VALID_PASSWORD, "Self Service", email_verified=False
+        )
+        assert user.email_verified is False
+
+
+# ---------------------------------------------------------------------------
+# Email verification — authenticate_user blocks unverified accounts
+# ---------------------------------------------------------------------------
+
+
+class TestAuthenticateUserEmailVerification:
+    @pytest.mark.asyncio
+    async def test_unverified_email_raises(self):
+        from src.auth.exceptions import EmailNotVerifiedError
+
+        user = _make_user(email_verified=False)
+        db = _mock_db(user=user)
+        with pytest.raises(EmailNotVerifiedError):
+            await authenticate_user(db, user.email, VALID_PASSWORD)
+
+    @pytest.mark.asyncio
+    async def test_verified_email_succeeds(self):
+        user = _make_user(email_verified=True)
+        db = _mock_db(user=user)
+        result = await authenticate_user(db, user.email, VALID_PASSWORD)
+        assert result.email == user.email
+
+    @pytest.mark.asyncio
+    async def test_wrong_password_takes_priority_over_unverified(self):
+        """A wrong password must still raise InvalidCredentialsError even for
+        an unverified account — never let the verification check leak
+        whether an unverified account's password was actually correct."""
+        user = _make_user(email_verified=False, failed_login_attempts=0)
+        db = _mock_db(user=user)
+        factory_mock, _ = _mock_lockout_factory()
+        with patch("src.auth.service.async_session_factory", factory_mock):
+            with pytest.raises(InvalidCredentialsError):
+                await authenticate_user(db, user.email, "WrongPassword!1")
+
+
+# ---------------------------------------------------------------------------
+# Email verification — token generation / consumption service
+# ---------------------------------------------------------------------------
+
+
+class TestEmailVerificationTokenService:
+    @pytest.mark.asyncio
+    async def test_generates_token_for_user(self):
+        from src.auth.service import generate_email_verification_token
+
+        user = _make_user(email_verified=False)
+        db = _mock_db()
+        token_str = await generate_email_verification_token(db, user)
+        assert token_str is not None
+        assert len(token_str) > 32
+        db.add.assert_called_once()
+        db.flush.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stores_hashed_token_not_raw(self):
+        import hashlib
+        from src.auth.service import generate_email_verification_token
+
+        user = _make_user(email_verified=False)
+        db = _mock_db()
+        raw_token = await generate_email_verification_token(db, user)
+
+        added_obj = db.add.call_args[0][0]
+        expected_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        assert added_obj.token == expected_hash
+        assert added_obj.token != raw_token
+
+    @pytest.mark.asyncio
+    async def test_verify_email_marks_user_verified(self):
+        from src.auth.models import EmailVerificationToken
+        from src.auth.service import verify_email
+
+        user = _make_user(email_verified=False)
+        token_obj = EmailVerificationToken(
+            user_id=user.id,
+            token="valid-verify-token",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            used=False,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+        token_obj.user = user
+
+        db = _mock_db_multi([token_obj])
+        db.get = AsyncMock(return_value=user)
+
+        result = await verify_email(db, "valid-verify-token")
+
+        assert result.email_verified is True
+        assert token_obj.used is True
+
+    @pytest.mark.asyncio
+    async def test_verify_email_invalid_token_raises(self):
+        from src.auth.exceptions import InvalidVerificationTokenError
+        from src.auth.service import verify_email
+
+        db = _mock_db(user=None)
+        with pytest.raises(InvalidVerificationTokenError):
+            await verify_email(db, "bad-token")
+
+    @pytest.mark.asyncio
+    async def test_verify_email_expired_token_raises(self):
+        from src.auth.models import EmailVerificationToken
+        from src.auth.exceptions import InvalidVerificationTokenError
+        from src.auth.service import verify_email
+
+        user = _make_user(email_verified=False)
+        token_obj = EmailVerificationToken(
+            user_id=user.id,
+            token="expired-verify-token",
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            used=False,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+
+        db = _mock_db_multi([token_obj])
+        with pytest.raises(InvalidVerificationTokenError):
+            await verify_email(db, "expired-verify-token")
+
+    @pytest.mark.asyncio
+    async def test_verify_email_already_used_token_raises(self):
+        from src.auth.models import EmailVerificationToken
+        from src.auth.exceptions import InvalidVerificationTokenError
+        from src.auth.service import verify_email
+
+        user = _make_user(email_verified=True)
+        token_obj = EmailVerificationToken(
+            user_id=user.id,
+            token="used-verify-token",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            used=True,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+
+        db = _mock_db_multi([token_obj])
+        with pytest.raises(InvalidVerificationTokenError):
+            await verify_email(db, "used-verify-token")
+
+
+class TestResendVerificationEmailService:
+    @pytest.mark.asyncio
+    async def test_generates_new_token_for_unverified_user(self):
+        from src.auth.service import resend_verification_email
+
+        user = _make_user(email_verified=False)
+        db = _mock_db(user=user)
+        token_str = await resend_verification_email(db, user.email)
+        assert token_str is not None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_unknown_email(self):
+        from src.auth.service import resend_verification_email
+
+        db = _mock_db(user=None)
+        token_str = await resend_verification_email(db, "ghost@example.com")
+        assert token_str is None
+        db.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_already_verified_user(self):
+        from src.auth.service import resend_verification_email
+
+        user = _make_user(email_verified=True)
+        db = _mock_db(user=user)
+        token_str = await resend_verification_email(db, user.email)
+        assert token_str is None
+        db.add.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# /auth/login — blocks unverified email
+# ---------------------------------------------------------------------------
+
+
+class TestLoginEmailVerification:
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_login_unverified_email_returns_403(self):
+        user = _make_user(email_verified=False)
+        db = _mock_db(user=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"email": user.email, "password": VALID_PASSWORD},
+            )
+        assert resp.status_code == 403
+        assert "verify" in resp.json()["detail"].lower()
+
+    def test_login_verified_email_succeeds(self):
+        user = _make_user(email_verified=True)
+        db = _mock_db(user=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"email": user.email, "password": VALID_PASSWORD},
+            )
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# /auth/verify-email endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyEmailEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_verify_email_valid_token_returns_200(self):
+        from src.auth.models import EmailVerificationToken
+
+        user = _make_user(email_verified=False)
+        token_obj = EmailVerificationToken(
+            user_id=user.id,
+            token="endpoint-valid-token",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            used=False,
+        )
+        token_obj.id = uuid.uuid4()
+        token_obj.created_at = datetime.now(timezone.utc)
+        token_obj.updated_at = datetime.now(timezone.utc)
+        token_obj.user = user
+
+        db = _mock_db_multi([token_obj])
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/verify-email",
+                json={"token": "endpoint-valid-token"},
+            )
+        assert resp.status_code == 200
+        assert user.email_verified is True
+
+    def test_verify_email_invalid_token_returns_400(self):
+        db = _mock_db(user=None)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/verify-email",
+                json={"token": "nonexistent-token"},
+            )
+        assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# /auth/resend-verification endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestResendVerificationEndpoint:
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_resend_verification_known_unverified_email_returns_200(self):
+        user = _make_user(email_verified=False)
+        db = _mock_db(user=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/resend-verification",
+                json={"email": user.email},
+            )
+        assert resp.status_code == 200
+        assert "message" in resp.json()
+
+    def test_resend_verification_unknown_email_still_returns_200(self):
+        """No email enumeration — same generic response for unknown emails."""
+        db = _mock_db(user=None)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/resend-verification",
+                json={"email": "ghost@example.com"},
+            )
+        assert resp.status_code == 200
+        assert "message" in resp.json()
+
+    def test_resend_verification_already_verified_still_returns_200(self):
+        """No enumeration of verification state either."""
+        user = _make_user(email_verified=True)
+        db = _mock_db(user=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.post(
+                "/api/v1/auth/resend-verification",
+                json={"email": user.email},
+            )
+        assert resp.status_code == 200
+        assert "message" in resp.json()
+
+
+# ---------------------------------------------------------------------------
+# /auth/forgot-password now actually sends the reset email
+# ---------------------------------------------------------------------------
+
+
+class TestForgotPasswordSendsEmail:
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_forgot_password_calls_send_email_for_known_user(self):
+        user = _make_user(email="sendme@example.com")
+        db = _mock_db(user=user)
+        self._override_db(db)
+        with patch("src.auth.router.send_email") as mock_send:
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/auth/forgot-password",
+                    json={"email": "sendme@example.com"},
+                )
+        assert resp.status_code == 200
+        mock_send.assert_called_once()
+
+    def test_forgot_password_does_not_call_send_email_for_unknown_user(self):
+        db = _mock_db(user=None)
+        self._override_db(db)
+        with patch("src.auth.router.send_email") as mock_send:
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/auth/forgot-password",
+                    json={"email": "ghost@example.com"},
+                )
+        assert resp.status_code == 200
+        mock_send.assert_not_called()

@@ -23,6 +23,7 @@ def _make_user(**overrides) -> User:
         role=UserRole.ADMIN,
         failed_login_attempts=0,
         locked_until=None,
+        email_verified=True,
     )
     defaults.update(overrides)
     user = User(**defaults)

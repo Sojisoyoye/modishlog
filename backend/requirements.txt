@@ -45,6 +45,9 @@ structlog==24.4.0
 # Error tracking
 sentry-sdk[fastapi]==2.8.0
 
+# Transactional email (verification / password reset)
+resend==2.43.0
+
 # Testing
 pytest==9.1.1
 pytest-asyncio==1.4.0

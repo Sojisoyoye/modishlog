@@ -62,6 +62,32 @@ import { AuthService } from '../../../core/services/auth.service';
                 <i class="pi pi-exclamation-circle"></i>
                 {{ errorMessage() }}
               </div>
+              @if (unverifiedEmail()) {
+                <div class="mb-4 text-center">
+                  <button
+                    type="button"
+                    [disabled]="resendLoading()"
+                    (click)="onResendVerification()"
+                    class="text-sm text-primary hover:underline disabled:opacity-50"
+                  >
+                    @if (resendLoading()) {
+                      Resending...
+                    } @else {
+                      Resend verification email
+                    }
+                  </button>
+                </div>
+              }
+              @if (resendMessage()) {
+                <div
+                  role="alert"
+                  aria-live="polite"
+                  class="mb-4 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700"
+                >
+                  <i class="pi pi-check-circle"></i>
+                  {{ resendMessage() }}
+                </div>
+              }
             }
 
             <form (ngSubmit)="onLogin()">
@@ -242,6 +268,11 @@ export class LoginPageComponent implements OnDestroy {
   errorMessage = signal('');
   showPassword = signal(false);
 
+  // Unverified-email state (403 from /auth/login)
+  unverifiedEmail = signal(false);
+  resendLoading = signal(false);
+  resendMessage = signal('');
+
   // Lockout countdown state
   lockoutSeconds = signal(0);
   lockoutDisplay = computed(() => {
@@ -305,12 +336,16 @@ export class LoginPageComponent implements OnDestroy {
     this.errorMessage.set('');
     this.forgotPasswordMessage.set('');
     this.forgotEmail = '';
+    this.unverifiedEmail.set(false);
+    this.resendMessage.set('');
   }
 
   onLogin(): void {
     if (!this.email || !this.password) return;
     this.loading.set(true);
     this.errorMessage.set('');
+    this.unverifiedEmail.set(false);
+    this.resendMessage.set('');
 
     this.authService.login({ email: this.email, password: this.password }).subscribe({
       next: () => {
@@ -323,11 +358,35 @@ export class LoginPageComponent implements OnDestroy {
           this.startLockoutCountdown(err.error.locked_until);
         } else if (err.status === 429) {
           this.errorMessage.set('Account locked due to failed login attempts. Try again later.');
+        } else if (err.status === 403) {
+          this.errorMessage.set(
+            err.error?.detail || 'Please verify your email before logging in.',
+          );
+          this.unverifiedEmail.set(true);
         } else if (err.status === 401) {
           this.errorMessage.set('Invalid email or password.');
         } else {
           this.errorMessage.set('An unexpected error occurred. Please try again.');
         }
+      },
+    });
+  }
+
+  onResendVerification(): void {
+    if (!this.email) return;
+    this.resendLoading.set(true);
+    this.resendMessage.set('');
+
+    this.authService.resendVerification(this.email).subscribe({
+      next: (res) => {
+        this.resendLoading.set(false);
+        this.resendMessage.set(res.message);
+      },
+      error: () => {
+        this.resendLoading.set(false);
+        this.resendMessage.set(
+          'If that email is registered and unverified, a verification link has been sent.',
+        );
       },
     });
   }
