@@ -219,10 +219,11 @@ async def usd_accumulation_schedule_endpoint(
 )
 async def get_usd_strategy_config_endpoint(
     db: AsyncSession = Depends(get_db),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get current USD strategy configuration."""
     try:
-        return await get_usd_strategy_config(db)
+        return await get_usd_strategy_config(db, business_id=business_id)
     except USDStrategyConfigNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -236,9 +237,12 @@ async def update_usd_strategy_config_endpoint(
     body: USDStrategyConfigCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Create or update USD strategy configuration."""
-    return await update_usd_strategy_config(db, body, current_user.id)
+    return await update_usd_strategy_config(
+        db, body, current_user.id, business_id=business_id
+    )
 
 
 # ---------------------------------------------------------------------------
