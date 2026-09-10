@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai_engine.models import ReorderSuggestion
 from src.core.config import settings
+from src.core.database import async_session_factory
 from src.data_import.etl.adapters.registry import API_ADAPTERS, CSV_ADAPTERS
 from src.data_import.etl.extractor import CSVExtractor
 from src.data_import.etl.loader import load as loader_load
@@ -409,6 +410,15 @@ async def build_confirmation_snapshot(
 async def confirm_job(
     db: AsyncSession, job: MigrationJob, *, approved: bool
 ) -> MigrationJob:
+    """Synchronous confirm -- runs the entire import inline and only
+    returns once it's fully done. Still used directly by callers that want
+    that (and by this module's own tests, unmodified). The router no
+    longer calls this for the approved path -- a realistically-sized
+    historical import here means thousands of sequential DB round trips,
+    which hangs past gunicorn's --timeout (task 215). See
+    start_confirmed_import() + run_confirmed_import_in_background() for
+    the request/background split the router actually uses.
+    """
     if job.status != MigrationJobStatus.AWAITING_CONFIRMATION:
         raise InvalidJobStateError(job.id, "awaiting_confirmation", job.status.value)
 
@@ -418,6 +428,75 @@ async def confirm_job(
         return job
 
     job.status = MigrationJobStatus.IMPORTING
+    return await _execute_import(db, job)
+
+
+async def start_confirmed_import(db: AsyncSession, job: MigrationJob) -> MigrationJob:
+    """Validate + flip to IMPORTING and commit durably, then return
+    immediately -- the caller (the router) hands the actual heavy work to
+    run_confirmed_import_in_background() rather than awaiting it here.
+    Committing (not just flushing) before returning matters: the job must
+    already be visible to a fresh session by the time the background task
+    looks it up by id.
+    """
+    if job.status != MigrationJobStatus.AWAITING_CONFIRMATION:
+        raise InvalidJobStateError(job.id, "awaiting_confirmation", job.status.value)
+
+    job.status = MigrationJobStatus.IMPORTING
+    await db.commit()
+    return job
+
+
+async def run_confirmed_import_in_background(job_id: uuid.UUID) -> None:
+    """FastAPI BackgroundTasks entry point -- runs after the response is
+    already sent, so it must use its own session rather than the (by then
+    closed) request-scoped one, matching the pattern already used for the
+    login-lockout write path in auth/service.py and sales' bulk upload.
+    """
+    async with async_session_factory() as db:
+        job = await db.get(MigrationJob, job_id)
+        if job is None:
+            await logger.aerror("data_import_job_vanished", job_id=str(job_id))
+            return
+        try:
+            await _execute_import(db, job)
+            await db.commit()
+        except (
+            PurchaseOrderImportError,
+            StockAdjustmentImportError,
+            SellReturnImportError,
+            PurchaseReturnImportError,
+            MissingExtractedDataError,
+        ) as e:
+            # Matches confirm_job()'s old synchronous contract: the whole
+            # import rolls back and the job reverts to awaiting_confirmation
+            # so the client can retry, instead of landing in a terminal
+            # FAILED state for what may be a transient/fixable issue (e.g. a
+            # since-deleted product).
+            await db.rollback()
+            await logger.aexception(
+                "data_import_background_import_failed", job_id=str(job_id)
+            )
+            job = await db.get(MigrationJob, job_id)
+            job.status = MigrationJobStatus.AWAITING_CONFIRMATION
+            job.import_error = str(e)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            await logger.aexception(
+                "data_import_background_unexpected_failure", job_id=str(job_id)
+            )
+            job = await db.get(MigrationJob, job_id)
+            job.status = MigrationJobStatus.FAILED
+            job.import_error = "Unexpected error while importing. Contact support."
+            await db.commit()
+
+
+async def _execute_import(db: AsyncSession, job: MigrationJob) -> MigrationJob:
+    """The actual extract/transform/load/recompute work, shared by
+    confirm_job()'s synchronous path and the background path above. Caller
+    owns setting job.status = IMPORTING beforehand.
+    """
     _mapped, transformed, transformer = await _extract_and_transform(db, job)
     row_counts = await loader_load(db, job.id, transformed, transformer.id_map)
     try:

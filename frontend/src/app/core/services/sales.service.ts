@@ -99,6 +99,19 @@ export interface BulkUploadResponse {
   message: string;
 }
 
+export interface BulkUploadStatus {
+  id: string;
+  filename: string;
+  status: string;
+  total_rows: number;
+  processed_rows: number;
+  successful_rows: number;
+  failed_rows: number;
+  error_details: { errors: { row?: number; error: string }[] } | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
 export interface SaleTransactionItem {
   id: string;
   product_id: string;
@@ -205,6 +218,10 @@ export class SalesService {
       `${environment.apiBaseUrl}/sales/upload`,
       formData,
     );
+  }
+
+  getUploadStatus(jobId: string): Observable<BulkUploadStatus> {
+    return this.api.get<BulkUploadStatus>(`/sales/upload/${jobId}/status`);
   }
 
   exportCsv(params?: Record<string, string>): Observable<Blob> {

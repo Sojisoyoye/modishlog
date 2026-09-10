@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
+import anyio
 import structlog
 
 logger = structlog.get_logger()
@@ -46,9 +47,14 @@ class CSVExtractor(BaseExtractor):
         self._files = files
 
     async def extract(self) -> ExtractedData:
+        """Parses each file's CSV in a worker thread -- _parse_csv_bytes is
+        pure CPU-bound string/CSV work with no I/O, and running it inline
+        on the event loop blocks every other request for the whole parse
+        (task 215), which matters for a 50,000-row historical import.
+        """
         result: ExtractedData = {}
         for entity, raw_bytes in self._files.items():
-            result[entity] = _parse_csv_bytes(raw_bytes)
+            result[entity] = await anyio.to_thread.run_sync(_parse_csv_bytes, raw_bytes)
         return result
 
 

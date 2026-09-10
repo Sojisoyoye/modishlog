@@ -88,6 +88,13 @@ class MigrationJob(UUIDMixin, TimestampMixin, Base):
         DateTime(timezone=True), nullable=True, default=None
     )
     recompute_errors: Mapped[list] = mapped_column(JSONB, default=list)
+    # Set only by run_confirmed_import_in_background() (task 215) when the
+    # background import fails -- a client-safe message, not the raw
+    # exception (same leak-prevention rationale as the PurchaseOrderImportError
+    # family below).
+    import_error: Mapped[str | None] = mapped_column(
+        String(1000), nullable=True, default=None
+    )
 
     def __repr__(self) -> str:
         return f"<MigrationJob(id={self.id}, status={self.status})>"

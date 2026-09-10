@@ -5,6 +5,7 @@ from io import BytesIO
 import structlog
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     File,
     Form,
@@ -25,12 +26,8 @@ from src.data_import.exceptions import (
     InvalidJobStateError,
     MigrationJobNotFoundError,
     MissingExtractedDataError,
-    PurchaseOrderImportError,
     PurchaseOrderRollbackBlockedError,
-    PurchaseReturnImportError,
-    SellReturnImportError,
     SellReturnRollbackBlockedError,
-    StockAdjustmentImportError,
     UnsupportedSourceSystemError,
 )
 from src.data_import.models import ExtractionMode, SourceSystem
@@ -267,41 +264,39 @@ async def confirmation_snapshot(
 async def confirm_job(
     job_id: uuid.UUID,
     data: ConfirmRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
+    """Decline cancels synchronously (cheap). Approve only validates and
+    flips the job to IMPORTING here -- the actual extract/transform/load
+    work (thousands of sequential DB round trips for a realistically-sized
+    historical import) runs in the background and gets polled via
+    GET /jobs/{job_id}, matching the same request-timeout fix applied to
+    sales' bulk upload (task 215). Import-time failures (a since-deleted
+    product, etc.) are no longer synchronous HTTP responses -- they surface
+    as job.import_error once the background task reverts the job to
+    awaiting_confirmation or FAILED; see
+    service.run_confirmed_import_in_background().
+    """
     try:
         job = await service.get_job(db, job_id, business_id=business_id)
     except MigrationJobNotFoundError:
         raise HTTPException(status_code=404, detail="Migration job not found")
+
+    if not data.approved:
+        try:
+            return await service.confirm_job(db, job, approved=False)
+        except InvalidJobStateError as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
     try:
-        return await service.confirm_job(db, job, approved=data.approved)
+        job = await service.start_confirmed_import(db, job)
     except InvalidJobStateError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-    except MissingExtractedDataError as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
-        )
-    except PurchaseOrderImportError as e:
-        # service.confirm_job() translates every orders/inventory-domain
-        # exception load_purchase_orders() can raise (a referenced product
-        # deleted or a resolved reference otherwise gone stale between
-        # validation and confirm, etc.) into this one data_import-owned
-        # exception, so the router doesn't need to know about those
-        # unrelated domains' exception types. The whole import rolls back
-        # (one request-scoped transaction) — the job reverts to
-        # awaiting_confirmation and the client can retry.
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except StockAdjustmentImportError as e:
-        # Same rationale as PurchaseOrderImportError above — a referenced
-        # product/variant may have gone stale between validation and
-        # confirm, or an adjustment would take stock negative.
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except (SellReturnImportError, PurchaseReturnImportError) as e:
-        # Same rationale as PurchaseOrderImportError above — the resolved
-        # sale/purchase order may have gone stale between validation and
-        # confirm.
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    background_tasks.add_task(service.run_confirmed_import_in_background, job.id)
+    return job
 
 
 @router.post("/jobs/{job_id}/recompute", response_model=MigrationJobRead)

@@ -197,6 +197,34 @@ test.describe('CSV Upload tab', () => {
     await expect(page.locator('[data-testid="tab-all-sales"]')).toBeVisible();
     await expect(page.locator('[data-testid="tab-upload-csv"]')).toBeVisible();
   });
+
+  // Task 215: bulk upload processes rows in the background instead of
+  // inline in the request, so the UI must poll for completion instead of
+  // treating the upload response as final.
+  test('uploading a CSV shows live progress then a completed result', async ({ page }) => {
+    const product = await ensureProduct('E2E Bulk Upload Product');
+    await addStock(product.id, 50);
+
+    await page.locator('[data-testid="tab-upload-csv"]').click();
+
+    const csvContent = [
+      'product_id,quantity,unit_price,sale_date,channel',
+      `${product.id},1,100.00,2026-01-01,retail`,
+    ].join('\n');
+    await page.locator('[data-testid="csv-file-input"]').setInputFiles({
+      name: 'bulk-upload.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from(csvContent),
+    });
+
+    await page.locator('[data-testid="upload-csv-btn"]').click();
+
+    // Terminal state must show up within a couple of poll intervals -- a
+    // 1-row CSV finishes almost instantly server-side.
+    const results = page.locator('[data-testid="upload-results"]');
+    await expect(results).toBeVisible({ timeout: 15_000 });
+    await expect(results).toContainText(/1 successful/);
+  });
 });
 
 test.describe('Sales edit/delete/audit buttons', () => {

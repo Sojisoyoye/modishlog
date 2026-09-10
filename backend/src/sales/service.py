@@ -1,5 +1,6 @@
 """Sales domain business logic."""
 
+import asyncio
 import csv
 import io
 import uuid
@@ -11,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
+from src.core.database import async_session_factory
 from src.core.query_helpers import variant_or_untagged_filter
 from src.inventory.models import MovementType
 from src.inventory.service import adjust_stock, fifo_deduct, reverse_fifo_consumption
@@ -595,30 +597,16 @@ async def void_sale(
 # ---------------------------------------------------------------------------
 
 
-async def process_bulk_upload(
-    db: AsyncSession,
-    file_content: bytes,
-    filename: str,
-    user_id: uuid.UUID,
-    business_id: uuid.UUID,
-) -> SaleBulkUploadJob:
-    """Parse and process a CSV file of sales records."""
-    # Create job record
-    job = SaleBulkUploadJob(
-        filename=filename,
-        status=UploadJobStatus.PROCESSING,
-        total_rows=0,
-        processed_rows=0,
-        successful_rows=0,
-        failed_rows=0,
-        uploaded_by=user_id,
-        business_id=business_id,
-        created_at=datetime.now(timezone.utc),
-    )
-    db.add(job)
-    await db.flush()
+# Every N rows, the background job commits progress so a polling client
+# (a separate request/session) can actually observe it moving — flush()
+# alone only pushes changes within this session's own transaction.
+_PROGRESS_COMMIT_INTERVAL = 25
 
-    # Parse CSV
+
+def _parse_bulk_upload_csv(file_content: bytes, filename: str) -> list[dict]:
+    """Decode + validate a bulk-upload CSV. CPU-bound, no I/O -- callers
+    should run this in a worker thread (see create_bulk_upload_job) so a
+    large file doesn't block the event loop for the whole parse."""
     try:
         text = file_content.decode("utf-8")
         reader = csv.DictReader(io.StringIO(text))
@@ -639,10 +627,60 @@ async def process_bulk_upload(
                 f"CSV exceeds the maximum of {settings.MAX_CSV_ROWS:,} rows. "
                 f"Split the file and upload in batches.",
             )
+        return rows
     except UnicodeDecodeError:
         raise InvalidCSVFormatError(filename, "File is not valid UTF-8")
 
-    job.total_rows = len(rows)
+
+async def create_bulk_upload_job(
+    db: AsyncSession,
+    file_content: bytes,
+    filename: str,
+    user_id: uuid.UUID,
+    business_id: uuid.UUID,
+) -> tuple[SaleBulkUploadJob, list[dict]]:
+    """Validate the CSV and create a PENDING job row -- the cheap, fast part
+    of a bulk upload that's safe to run synchronously inside the request.
+    The actual per-row processing (thousands of sequential DB round trips
+    for a realistically-sized historical import) is the caller's job to
+    hand off to run_bulk_upload_job_in_background(); doing it inline here
+    is what used to hang the request past gunicorn's --timeout (task 215).
+
+    Commits (not just flushes) before returning -- the job must be durably
+    visible to a fresh session before the caller schedules the background
+    task that will look it up by id.
+    """
+    rows = await asyncio.to_thread(_parse_bulk_upload_csv, file_content, filename)
+
+    job = SaleBulkUploadJob(
+        filename=filename,
+        status=UploadJobStatus.PENDING,
+        total_rows=len(rows),
+        processed_rows=0,
+        successful_rows=0,
+        failed_rows=0,
+        uploaded_by=user_id,
+        business_id=business_id,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(job)
+    await db.commit()
+    return job, rows
+
+
+async def process_bulk_upload_rows(
+    db: AsyncSession,
+    job: SaleBulkUploadJob,
+    rows: list[dict],
+    user_id: uuid.UUID,
+    business_id: uuid.UUID,
+) -> SaleBulkUploadJob:
+    """Process every row of an already-created bulk upload job, updating
+    progress as it goes. Only ever called from within
+    run_bulk_upload_job_in_background()'s own session -- commits
+    periodically so a polling client can see live progress.
+    """
+    job.status = UploadJobStatus.PROCESSING
     errors: list[dict] = []
 
     for i, row in enumerate(rows, start=1):
@@ -664,6 +702,9 @@ async def process_bulk_upload(
         except Exception as e:
             job.failed_rows += 1
             errors.append({"row": i, "error": str(e)})
+
+        if i % _PROGRESS_COMMIT_INTERVAL == 0:
+            await db.commit()
 
     # Set final status
     if job.failed_rows == 0:
@@ -687,6 +728,37 @@ async def process_bulk_upload(
         failed=job.failed_rows,
     )
     return job
+
+
+async def run_bulk_upload_job_in_background(
+    job_id: uuid.UUID,
+    rows: list[dict],
+    user_id: uuid.UUID,
+    business_id: uuid.UUID,
+) -> None:
+    """FastAPI BackgroundTasks entry point -- runs after the response is
+    already sent, so it must use its own session rather than the (by then
+    closed) request-scoped one, matching the pattern already used for the
+    login-lockout write path in auth/service.py.
+    """
+    async with async_session_factory() as db:
+        job = await db.get(SaleBulkUploadJob, job_id)
+        if job is None:
+            await logger.aerror("bulk_upload_job_vanished", job_id=str(job_id))
+            return
+        try:
+            await process_bulk_upload_rows(db, job, rows, user_id, business_id)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            await logger.aexception("bulk_upload_background_failed", job_id=str(job_id))
+            job = await db.get(SaleBulkUploadJob, job_id)
+            job.status = UploadJobStatus.FAILED
+            job.error_details = {
+                "errors": [{"error": "Unexpected error while processing the upload."}]
+            }
+            job.completed_at = datetime.now(timezone.utc)
+            await db.commit()
 
 
 async def get_upload_status(

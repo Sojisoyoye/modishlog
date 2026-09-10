@@ -6,7 +6,7 @@ import uuid
 from datetime import date, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,6 +49,7 @@ from src.sales.schemas import (
     SellReturnRead,
 )
 from src.sales.service import (
+    create_bulk_upload_job,
     create_sale,
     create_sell_return,
     get_sale,
@@ -61,8 +62,8 @@ from src.sales.service import (
     list_sales,
     list_sell_returns,
     list_transactions,
-    process_bulk_upload,
     quick_quote,
+    run_bulk_upload_job_in_background,
     update_sale,
     update_transaction,
     void_sale,
@@ -224,14 +225,25 @@ async def quick_quote_endpoint(
     return await quick_quote(db, body.product_id, body.quantity, business_id=business_id)
 
 
-@router.post("/upload", response_model=BulkUploadResponse)
+@router.post(
+    "/upload", response_model=BulkUploadResponse, status_code=status.HTTP_202_ACCEPTED
+)
 async def upload_sales_csv_endpoint(
     file: UploadFile,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """Upload a CSV file of sales records."""
+    """Accept a CSV file of sales records and process it in the background.
+
+    Processing thousands of rows synchronously inside the request (a
+    realistic size for a new business importing its sales history) hangs
+    past gunicorn's --timeout and gets killed mid-transaction (task 215) --
+    so this only validates the file and creates the job here, then hands
+    the actual row-by-row processing to a background task. Poll
+    GET /upload/{job_id}/status for progress.
+    """
     if not file.filename or not file.filename.endswith(".csv"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -239,14 +251,23 @@ async def upload_sales_csv_endpoint(
         )
     try:
         content = await file.read()
-        job = await process_bulk_upload(db, content, file.filename, current_user.id, business_id=business_id)
-        return BulkUploadResponse(
-            job_id=job.id,
-            status=job.status.value,
-            message=f"Processed {job.total_rows} rows: {job.successful_rows} successful, {job.failed_rows} failed",
+        job, rows = await create_bulk_upload_job(
+            db, content, file.filename, current_user.id, business_id=business_id
         )
     except InvalidCSVFormatError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    background_tasks.add_task(
+        run_bulk_upload_job_in_background, job.id, rows, current_user.id, business_id
+    )
+    return BulkUploadResponse(
+        job_id=job.id,
+        status=job.status.value,
+        message=(
+            f"Upload accepted: {job.total_rows} rows queued for processing. "
+            f"Poll /upload/{job.id}/status for progress."
+        ),
+    )
 
 
 @router.get("/upload/{job_id}/status", response_model=BulkUploadStatus)
