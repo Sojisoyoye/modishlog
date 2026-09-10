@@ -382,15 +382,11 @@ class TestUSDStrategyConfig:
         assert business_id.hex in compiled.replace("-", "")
 
     @pytest.mark.anyio
-    async def test_update_config_cross_tenant_stamps_and_scopes_to_business(self):
-        """update_usd_strategy_config() must stamp new rows with the
-        caller's business_id and must only update an existing row that
-        belongs to that same business -- otherwise Business A could
-        overwrite Business B's strategy config."""
+    async def test_update_config_cross_tenant_stamps_new_row_with_business(self):
+        """update_usd_strategy_config() must stamp a newly-created row with
+        the caller's business_id -- otherwise the row it creates is
+        unscoped and immediately re-leaked to every other business."""
         business_id = uuid.uuid4()
-        other_business_config = MagicMock(spec=USDStrategyConfig)
-        other_business_config.business_id = uuid.uuid4()
-
         db = _mock_db_with_execute(return_val=None)
 
         data = MagicMock()
@@ -406,6 +402,45 @@ class TestUSDStrategyConfig:
 
         assert result.business_id == business_id
         db.add.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_update_config_cross_tenant_only_updates_own_business_row(self):
+        """update_usd_strategy_config() must scope its lookup of the
+        existing row to business_id -- otherwise Business A's update call
+        could find and overwrite Business B's row (the underlying bug this
+        task fixes: the old lookup fetched "the single latest row" across
+        every business)."""
+        business_id = uuid.uuid4()
+        existing_config = MagicMock(spec=USDStrategyConfig)
+        existing_config.business_id = business_id
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = existing_config
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        data = MagicMock()
+        data.target_usd_balance = Decimal("60000")
+        data.risk_tolerance = "aggressive"
+        data.max_single_purchase_pct = Decimal("15")
+        data.preferred_rate_percentile = Decimal("30")
+        data.lookback_days = 60
+
+        result = await update_usd_strategy_config(
+            db, data, uuid.uuid4(), business_id=business_id
+        )
+
+        assert result is existing_config
+        assert result.target_usd_balance == Decimal("60000")
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "usd_strategy_configs.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
 
 
 # ---------------------------------------------------------------------------
