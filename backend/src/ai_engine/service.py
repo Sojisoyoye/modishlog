@@ -1099,10 +1099,20 @@ async def generate_usd_accumulation_schedule(
 
 async def get_usd_strategy_config(
     db: AsyncSession,
+    business_id: uuid.UUID,
 ) -> USDStrategyConfig:
-    """Get the current USD strategy configuration."""
+    """Get the current USD strategy configuration for a business.
+
+    Scoped to business_id -- without it this returned "the single latest
+    row" globally, letting any authenticated user of any business read
+    another business's USD hedging/liquidity strategy configuration
+    (task 213).
+    """
     result = await db.execute(
-        select(USDStrategyConfig).order_by(USDStrategyConfig.updated_at.desc()).limit(1)
+        select(USDStrategyConfig)
+        .where(USDStrategyConfig.business_id == business_id)
+        .order_by(USDStrategyConfig.updated_at.desc())
+        .limit(1)
     )
     config = result.scalar_one_or_none()
     if config is None:
@@ -1114,12 +1124,17 @@ async def update_usd_strategy_config(
     db: AsyncSession,
     data,
     user_id: uuid.UUID,
+    business_id: uuid.UUID,
 ) -> USDStrategyConfig:
-    """Create or update USD strategy configuration."""
+    """Create or update USD strategy configuration for a business.
+
+    Scoped to business_id -- without it Business A could overwrite
+    Business B's strategy config (task 213).
+    """
     now = datetime.now(timezone.utc)
 
     try:
-        config = await get_usd_strategy_config(db)
+        config = await get_usd_strategy_config(db, business_id=business_id)
         config.target_usd_balance = data.target_usd_balance
         config.risk_tolerance = RiskTolerance(data.risk_tolerance)
         config.max_single_purchase_pct = data.max_single_purchase_pct
@@ -1129,6 +1144,7 @@ async def update_usd_strategy_config(
         config.updated_at = now
     except USDStrategyConfigNotFoundError:
         config = USDStrategyConfig(
+            business_id=business_id,
             target_usd_balance=data.target_usd_balance,
             current_usd_balance=Decimal("0"),
             risk_tolerance=RiskTolerance(data.risk_tolerance),

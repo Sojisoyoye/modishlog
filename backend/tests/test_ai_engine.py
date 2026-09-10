@@ -41,6 +41,7 @@ from src.ai_engine.service import (
     get_reorder_suggestion,
     get_reorder_suggestions,
     get_usd_strategy_config,
+    update_usd_strategy_config,
 )
 from src.main import app
 
@@ -343,7 +344,7 @@ class TestUSDStrategyConfig:
     async def test_get_config_not_found(self):
         db = _mock_db_with_execute(return_val=None)
         with pytest.raises(USDStrategyConfigNotFoundError):
-            await get_usd_strategy_config(db)
+            await get_usd_strategy_config(db, business_id=uuid.uuid4())
 
     @pytest.mark.anyio
     async def test_get_config_found(self):
@@ -351,8 +352,60 @@ class TestUSDStrategyConfig:
         config.id = uuid.uuid4()
         config.target_usd_balance = Decimal("50000")
         db = _mock_db_with_execute(return_val=config)
-        result = await get_usd_strategy_config(db)
+        result = await get_usd_strategy_config(db, business_id=uuid.uuid4())
         assert result.target_usd_balance == Decimal("50000")
+
+    @pytest.mark.anyio
+    async def test_get_config_cross_tenant_query_scoped_to_business(self):
+        """USDStrategyConfig (task 213) had no business_id column at all --
+        get_usd_strategy_config() fetched "the single latest row" globally,
+        so any authenticated user of any business could read another
+        business's USD hedging/liquidity strategy configuration."""
+        business_id = uuid.uuid4()
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = None
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        with pytest.raises(USDStrategyConfigNotFoundError):
+            await get_usd_strategy_config(db, business_id=business_id)
+
+        assert len(captured_queries) == 1
+        compiled = captured_queries[0].lower()
+        assert "usd_strategy_configs.business_id" in compiled
+        assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.anyio
+    async def test_update_config_cross_tenant_stamps_and_scopes_to_business(self):
+        """update_usd_strategy_config() must stamp new rows with the
+        caller's business_id and must only update an existing row that
+        belongs to that same business -- otherwise Business A could
+        overwrite Business B's strategy config."""
+        business_id = uuid.uuid4()
+        other_business_config = MagicMock(spec=USDStrategyConfig)
+        other_business_config.business_id = uuid.uuid4()
+
+        db = _mock_db_with_execute(return_val=None)
+
+        data = MagicMock()
+        data.target_usd_balance = Decimal("50000")
+        data.risk_tolerance = "moderate"
+        data.max_single_purchase_pct = Decimal("10")
+        data.preferred_rate_percentile = Decimal("25")
+        data.lookback_days = 90
+
+        result = await update_usd_strategy_config(
+            db, data, uuid.uuid4(), business_id=business_id
+        )
+
+        assert result.business_id == business_id
+        db.add.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

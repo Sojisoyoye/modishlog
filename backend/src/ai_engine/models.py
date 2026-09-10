@@ -130,6 +130,9 @@ class USDStrategyConfig(UUIDMixin, Base):
 
     __tablename__ = "usd_strategy_configs"
 
+    business_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("businesses.id"), nullable=False, index=True
+    )
     target_usd_balance: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     current_usd_balance: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     risk_tolerance: Mapped[RiskTolerance] = mapped_column(Enum(RiskTolerance))
