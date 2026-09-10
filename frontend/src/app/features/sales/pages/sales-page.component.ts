@@ -1882,14 +1882,17 @@ export class SalesPageComponent implements OnInit {
           const message = `Processed ${status.total_rows} rows: ${status.successful_rows} successful, ${status.failed_rows} failed`;
           this.uploadResult.set({ job_id: status.id, status: status.status, message });
 
+          // Refresh inventory/transactions in the background so All Sales is
+          // up to date whenever the user switches there themselves, but
+          // don't auto-switch tabs -- that would yank the Upload Results
+          // card (right below, on this same tab) out of view the instant it
+          // appears, so the user never actually sees it.
           if (status.status === 'completed') {
             this.messageService.add({ severity: 'success', summary: 'Upload Complete', detail: message });
-            this.activeTab.set('all');
             this.loadInventory();
             this.loadTransactions();
           } else if (status.status === 'partial') {
             this.messageService.add({ severity: 'warn', summary: 'Partial Upload', detail: message });
-            this.activeTab.set('all');
             this.loadInventory();
             this.loadTransactions();
           } else {
