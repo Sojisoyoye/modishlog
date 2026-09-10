@@ -7,7 +7,7 @@ import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
 import { Dialog } from 'primeng/dialog';
 import { DatePicker } from 'primeng/datepicker';
-import { Subject, debounceTime, forkJoin } from 'rxjs';
+import { Subject, debounceTime, forkJoin, switchMap, takeWhile, timer } from 'rxjs';
 import {
   SalesService,
   SaleRecord,
@@ -15,6 +15,7 @@ import {
   AuditEntry,
   SaleUpdatePayload,
   BulkUploadResponse,
+  BulkUploadStatus,
   QuickQuote,
 } from '../../../core/services/sales.service';
 import { ProductsService, Product, ProductVariant } from '../../../core/services/products.service';
@@ -795,7 +796,10 @@ interface TransactionMeta {
               data-testid="upload-csv-btn"
               class="flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-primary/90 hover:shadow-md disabled:opacity-50"
             >
-              @if (uploading()) {
+              @if (uploading() && uploadProgress()) {
+                <i class="pi pi-spinner pi-spin text-sm"></i>
+                Processing {{ uploadProgress()!.processed_rows }}/{{ uploadProgress()!.total_rows }}...
+              } @else if (uploading()) {
                 <i class="pi pi-spinner pi-spin text-sm"></i>
                 Uploading...
               } @else {
@@ -803,6 +807,20 @@ interface TransactionMeta {
                 Upload CSV
               }
             </button>
+
+            <!-- Upload Progress (still processing in the background) -->
+            @if (uploading() && uploadProgress(); as progress) {
+              <div class="mt-6" data-testid="upload-progress">
+                <div class="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                  <p class="text-sm font-medium text-blue-800">
+                    Processing rows in the background — {{ progress.processed_rows }} of
+                    {{ progress.total_rows }} done ({{ progress.successful_rows }} successful,
+                    {{ progress.failed_rows }} failed so far). Stay on this page to see live
+                    progress; the import will still finish even if you leave.
+                  </p>
+                </div>
+              </div>
+            }
 
             <!-- Upload Results -->
             @if (uploadResult()) {
@@ -1243,6 +1261,7 @@ export class SalesPageComponent implements OnInit {
   selectedFile = signal<File | null>(null);
   uploading = signal(false);
   uploadResult = signal<BulkUploadResponse | null>(null);
+  uploadProgress = signal<BulkUploadStatus | null>(null);
   uploadError = signal<string | null>(null);
 
   // Transaction state
@@ -1810,45 +1829,26 @@ export class SalesPageComponent implements OnInit {
     URL.revokeObjectURL(url);
   }
 
+  // A realistically-sized historical import is thousands of rows, processed
+  // in the background rather than inline in the upload request (task 215) --
+  // the upload response only confirms the job was accepted, so this polls
+  // GET /sales/upload/{job_id}/status until it reaches a terminal state.
+  private static readonly UPLOAD_TERMINAL_STATUSES = new Set(['completed', 'failed', 'partial']);
+  private static readonly UPLOAD_POLL_INTERVAL_MS = 2000;
+
   uploadCsv(): void {
     const file = this.selectedFile();
     if (!file) return;
 
     this.uploading.set(true);
     this.uploadResult.set(null);
+    this.uploadProgress.set(null);
     this.uploadError.set(null);
 
     this.salesService.uploadCsv(file).subscribe({
       next: (result) => {
-        this.uploading.set(false);
-        this.uploadResult.set(result);
         this.selectedFile.set(null);
-
-        if (result.status === 'completed') {
-          this.messageService.add({
-            severity: 'success',
-            summary: 'Upload Complete',
-            detail: result.message,
-          });
-          this.activeTab.set('all');
-          this.loadInventory();
-          this.loadTransactions();
-        } else if (result.status === 'partial') {
-          this.messageService.add({
-            severity: 'warn',
-            summary: 'Partial Upload',
-            detail: result.message,
-          });
-          this.activeTab.set('all');
-          this.loadInventory();
-          this.loadTransactions();
-        } else {
-          this.messageService.add({
-            severity: 'error',
-            summary: 'Upload Failed',
-            detail: result.message,
-          });
-        }
+        this.pollUploadStatus(result.job_id);
       },
       error: () => {
         this.uploading.set(false);
@@ -1861,6 +1861,48 @@ export class SalesPageComponent implements OnInit {
         });
       },
     });
+  }
+
+  private pollUploadStatus(jobId: string): void {
+    timer(0, SalesPageComponent.UPLOAD_POLL_INTERVAL_MS)
+      .pipe(
+        switchMap(() => this.salesService.getUploadStatus(jobId)),
+        takeWhile(
+          (status) => !SalesPageComponent.UPLOAD_TERMINAL_STATUSES.has(status.status),
+          true,
+        ),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (status) => {
+          this.uploadProgress.set(status);
+          if (!SalesPageComponent.UPLOAD_TERMINAL_STATUSES.has(status.status)) return;
+
+          this.uploading.set(false);
+          const message = `Processed ${status.total_rows} rows: ${status.successful_rows} successful, ${status.failed_rows} failed`;
+          this.uploadResult.set({ job_id: status.id, status: status.status, message });
+
+          if (status.status === 'completed') {
+            this.messageService.add({ severity: 'success', summary: 'Upload Complete', detail: message });
+            this.activeTab.set('all');
+            this.loadInventory();
+            this.loadTransactions();
+          } else if (status.status === 'partial') {
+            this.messageService.add({ severity: 'warn', summary: 'Partial Upload', detail: message });
+            this.activeTab.set('all');
+            this.loadInventory();
+            this.loadTransactions();
+          } else {
+            this.messageService.add({ severity: 'error', summary: 'Upload Failed', detail: message });
+          }
+        },
+        error: () => {
+          this.uploading.set(false);
+          const detail = 'Failed to check upload status';
+          this.uploadError.set(detail);
+          this.messageService.add({ severity: 'error', summary: 'Upload Error', detail });
+        },
+      });
   }
 
   exportSalesCsv(): void {

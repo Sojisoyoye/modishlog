@@ -31,6 +31,7 @@ class MigrationJobRead(BaseModel):
     recompute_started_at: datetime | None = None
     recompute_completed_at: datetime | None = None
     recompute_errors: list = []
+    import_error: str | None = None
 
 
 class MigrationJobListResponse(BaseModel):

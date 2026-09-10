@@ -21,12 +21,14 @@ from src.sales.exceptions import (
 from src.sales.models import Sale, SaleChannel, SaleStatus
 from src.sales.schemas import SaleCreate, SaleUpdate
 from src.sales.service import (
+    create_bulk_upload_job,
     create_sale,
     get_sale,
     get_sale_audit_trail,
     get_sales_summary,
     list_sales,
-    process_bulk_upload,
+    process_bulk_upload_rows,
+    run_bulk_upload_job_in_background,
     update_sale,
     void_sale,
 )
@@ -746,8 +748,11 @@ class TestBulkUpload:
             f"{product.id},3,150.00,2026-03-16,online\n"
         ).encode("utf-8")
 
-        job = await process_bulk_upload(db, csv_content, "test.csv", uuid.uuid4(), business_id=uuid.uuid4())
+        job, rows = await create_bulk_upload_job(
+            db, csv_content, "test.csv", uuid.uuid4(), business_id=uuid.uuid4()
+        )
         assert job.total_rows == 2
+        job = await process_bulk_upload_rows(db, job, rows, uuid.uuid4(), uuid.uuid4())
         assert job.successful_rows == 2
         assert job.failed_rows == 0
 
@@ -759,7 +764,9 @@ class TestBulkUpload:
 
         csv_content = b"product_id,quantity\n123,5\n"
         with pytest.raises(InvalidCSVFormatError):
-            await process_bulk_upload(db, csv_content, "bad.csv", uuid.uuid4(), business_id=uuid.uuid4())
+            await create_bulk_upload_job(
+                db, csv_content, "bad.csv", uuid.uuid4(), business_id=uuid.uuid4()
+            )
 
     @pytest.mark.asyncio
     async def test_bulk_upload_invalid_utf8(self):
@@ -767,7 +774,86 @@ class TestBulkUpload:
 
         db = _mock_db()
         with pytest.raises(InvalidCSVFormatError):
-            await process_bulk_upload(db, b"\xff\xfe", "bad.csv", uuid.uuid4(), business_id=uuid.uuid4())
+            await create_bulk_upload_job(
+                db, b"\xff\xfe", "bad.csv", uuid.uuid4(), business_id=uuid.uuid4()
+            )
+
+    @pytest.mark.asyncio
+    async def test_bulk_upload_background_wrapper_commits_on_success(self):
+        """run_bulk_upload_job_in_background() (task 215) must open its own
+        session (via async_session_factory, not the request-scoped one,
+        which is long closed by the time a background task runs) and
+        commit so a polling client actually sees the result."""
+        from src.sales.models import SaleBulkUploadJob, UploadJobStatus
+
+        job = SaleBulkUploadJob(
+            filename="bg.csv",
+            status=UploadJobStatus.PENDING,
+            total_rows=0,
+            processed_rows=0,
+            successful_rows=0,
+            failed_rows=0,
+            uploaded_by=uuid.uuid4(),
+            business_id=uuid.uuid4(),
+        )
+        job.id = uuid.uuid4()
+
+        db = _mock_db()
+        db.get = AsyncMock(return_value=job)
+        db.commit = AsyncMock()
+
+        factory_cm = AsyncMock()
+        factory_cm.__aenter__.return_value = db
+        factory_cm.__aexit__.return_value = False
+
+        with patch(
+            "src.sales.service.async_session_factory", return_value=factory_cm
+        ):
+            await run_bulk_upload_job_in_background(job.id, [], uuid.uuid4(), uuid.uuid4())
+
+        assert job.status == UploadJobStatus.COMPLETED
+        db.commit.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_bulk_upload_background_wrapper_marks_failed_on_unexpected_error(self):
+        """An unexpected failure mid-processing (e.g. the DB connection
+        drops) must not leave the job stuck in PROCESSING forever -- it
+        must roll back and mark the job FAILED so a poller doesn't wait
+        indefinitely for a job that will never finish."""
+        from src.sales.models import SaleBulkUploadJob, UploadJobStatus
+
+        job = SaleBulkUploadJob(
+            filename="bg.csv",
+            status=UploadJobStatus.PENDING,
+            total_rows=1,
+            uploaded_by=uuid.uuid4(),
+            business_id=uuid.uuid4(),
+        )
+        job.id = uuid.uuid4()
+
+        db = _mock_db()
+        db.get = AsyncMock(return_value=job)
+        db.commit = AsyncMock()
+        db.rollback = AsyncMock()
+
+        factory_cm = AsyncMock()
+        factory_cm.__aenter__.return_value = db
+        factory_cm.__aexit__.return_value = False
+
+        rows = [{"product_id": str(uuid.uuid4()), "quantity": "1", "unit_price": "10", "sale_date": "2026-01-01", "channel": "retail"}]
+
+        with (
+            patch("src.sales.service.async_session_factory", return_value=factory_cm),
+            patch(
+                "src.sales.service.process_bulk_upload_rows",
+                new=AsyncMock(side_effect=RuntimeError("connection lost")),
+            ),
+        ):
+            await run_bulk_upload_job_in_background(job.id, rows, uuid.uuid4(), uuid.uuid4())
+
+        db.rollback.assert_awaited_once()
+        assert job.status == UploadJobStatus.FAILED
+        assert job.completed_at is not None
 
 
 # ---------------------------------------------------------------------------
@@ -922,6 +1008,41 @@ class TestSalesEndpoints:
                 files={"file": ("test.csv", b"data", "text/csv")},
             )
         assert resp.status_code == 401
+
+    def test_upload_accepted_returns_202_and_schedules_background_processing(self):
+        """The endpoint (task 215) must return as soon as the job is
+        created, not wait for all rows to be processed -- that's the whole
+        point of moving row processing to a background task."""
+        self._override_auth()
+        db = _mock_db()
+
+        def _add_assigns_id(obj):
+            if getattr(obj, "id", None) is None:
+                obj.id = uuid.uuid4()
+
+        db.add = MagicMock(side_effect=_add_assigns_id)
+        self._override_db(db)
+
+        csv_content = (
+            "product_id,quantity,unit_price,sale_date,channel\n"
+            f"{uuid.uuid4()},1,100.00,2026-01-01,retail\n"
+        ).encode("utf-8")
+
+        with patch(
+            "src.sales.router.run_bulk_upload_job_in_background",
+            new_callable=AsyncMock,
+        ) as mock_bg:
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/sales/upload",
+                    files={"file": ("test.csv", csv_content, "text/csv")},
+                )
+
+        assert resp.status_code == 202
+        data = resp.json()
+        assert data["status"] == "pending"
+        assert "job_id" in data
+        mock_bg.assert_called_once()
 
     def test_sales_summary(self):
         self._override_auth()
@@ -2795,7 +2916,9 @@ class TestSalesBulkUploadRowCap:
             mock_settings.MAX_CSV_ROWS = 5
             # Should not raise — 1 row < 5 cap
             try:
-                await process_bulk_upload(db, content, "ok.csv", uuid.uuid4(), business_id=uuid.uuid4())
+                await create_bulk_upload_job(
+                    db, content, "ok.csv", uuid.uuid4(), business_id=uuid.uuid4()
+                )
             except InvalidCSVFormatError:
                 pytest.fail("Should not raise InvalidCSVFormatError within limit")
 
@@ -2810,7 +2933,9 @@ class TestSalesBulkUploadRowCap:
         with patch("src.sales.service.settings") as mock_settings:
             mock_settings.MAX_CSV_ROWS = 5
             with pytest.raises(InvalidCSVFormatError, match="maximum"):
-                await process_bulk_upload(db, content, "big.csv", uuid.uuid4(), business_id=uuid.uuid4())
+                await create_bulk_upload_job(
+                    db, content, "big.csv", uuid.uuid4(), business_id=uuid.uuid4()
+                )
 
 
 # ---------------------------------------------------------------------------

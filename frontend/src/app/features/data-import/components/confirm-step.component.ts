@@ -1,4 +1,6 @@
-import { Component, ChangeDetectionStrategy, inject, input, output, signal, OnInit, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, DestroyRef, inject, input, output, signal, OnInit, computed } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { switchMap, takeWhile, timer } from 'rxjs';
 import { ImportService } from '../services/import.service';
 import { ConfirmationSnapshot, MigrationJob, humanizeKey } from '../models/import.models';
 
@@ -105,11 +107,22 @@ import { ConfirmationSnapshot, MigrationJob, humanizeKey } from '../models/impor
           }
         </button>
       </div>
+
+      @if (submitting()) {
+        <p class="mt-3 text-right text-xs text-muted">
+          Larger imports run in the background and can take a few minutes — stay on this page to
+          see progress.
+        </p>
+      }
     }
   `,
 })
 export class ConfirmStepComponent implements OnInit {
   private readonly importService = inject(ImportService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  private static readonly IMPORT_POLL_INTERVAL_MS = 2000;
+  private static readonly IN_PROGRESS_STATUSES = new Set(['importing', 'recomputing']);
 
   jobId = input.required<string>();
   cancelled = output<void>();
@@ -167,18 +180,70 @@ export class ConfirmStepComponent implements OnInit {
     return firstAny?.trim() || '(no data)';
   }
 
+  // confirmJob(true) (task 215) only flips the job to "importing" and
+  // returns immediately -- the actual extract/transform/load/recompute
+  // work runs in the background, so this polls GET /import/jobs/{id}
+  // until it reaches a terminal state instead of treating the confirm
+  // response itself as the finished import.
   approve(): void {
     this.submitting.set(true);
     this.importService.confirmJob(this.jobId(), true).subscribe({
-      next: (job) => {
-        this.submitting.set(false);
-        this.confirmed.emit(job);
-      },
+      next: (job) => this.pollImportStatus(job),
       error: (err) => {
         this.submitting.set(false);
         this.failed.emit(err?.error?.detail || 'Failed to import data.');
       },
     });
+  }
+
+  private pollImportStatus(initialJob: MigrationJob): void {
+    if (!ConfirmStepComponent.IN_PROGRESS_STATUSES.has(initialJob.status)) {
+      this.handleImportOutcome(initialJob);
+      return;
+    }
+
+    timer(0, ConfirmStepComponent.IMPORT_POLL_INTERVAL_MS)
+      .pipe(
+        switchMap(() => this.importService.getJob(this.jobId())),
+        takeWhile((job) => ConfirmStepComponent.IN_PROGRESS_STATUSES.has(job.status), true),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: (job) => {
+          if (ConfirmStepComponent.IN_PROGRESS_STATUSES.has(job.status)) return;
+          this.handleImportOutcome(job);
+        },
+        error: (err) => {
+          this.submitting.set(false);
+          this.failed.emit(err?.error?.detail || 'Failed to check import status.');
+        },
+      });
+  }
+
+  private handleImportOutcome(job: MigrationJob): void {
+    this.submitting.set(false);
+
+    if (job.status === 'done') {
+      this.confirmed.emit(job);
+      return;
+    }
+
+    if (job.status === 'awaiting_confirmation') {
+      // The background import failed in a retryable way and reverted --
+      // stay on this screen (still showing the same snapshot/buttons) so
+      // the user can just press approve again.
+      this.failed.emit(job.import_error || 'Import failed. You can try again.');
+      return;
+    }
+
+    // Any other terminal status (failed) isn't retryable from here -- the
+    // job is stuck as-is. Don't emit `cancelled`: that triggers the
+    // wizard's "Import cancelled. No data was changed." toast, which
+    // would be actively misleading here -- a failed background import may
+    // well have already written some rows before it broke. Surface the
+    // real error and leave the user on this screen; the job's true state
+    // is visible in Data Imports history if they navigate there themselves.
+    this.failed.emit(job.import_error || 'Import failed.');
   }
 
   decline(): void {

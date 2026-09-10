@@ -89,6 +89,9 @@ export interface MigrationJob {
   validation_warnings: ValidationIssue[];
   created_at: string;
   completed_at: string | null;
+  // Set only when the background import (task 215) fails -- a client-safe
+  // message, never the raw exception.
+  import_error?: string | null;
 }
 
 export interface MigrationJobListResponse {

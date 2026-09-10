@@ -1,7 +1,7 @@
 """Tests for the data_import ETL framework (task 162, Phase 0 foundation)."""
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -31,7 +31,13 @@ from src.data_import.models import (
     MigrationJobStatus,
     SourceSystem,
 )
-from src.data_import.service import build_confirmation_snapshot, confirm_job, rollback_job
+from src.data_import.service import (
+    build_confirmation_snapshot,
+    confirm_job,
+    rollback_job,
+    run_confirmed_import_in_background,
+    start_confirmed_import,
+)
 from tests.conftest import mock_db as _mock_db
 
 BUSINESS_ID = uuid.uuid4()
@@ -2575,6 +2581,136 @@ class TestConfirmationGate:
 
 
 # ---------------------------------------------------------------------------
+# Background confirm (task 215) — confirm_job()'s heavy import work moved
+# off the request so a realistically-sized historical import doesn't hang
+# past gunicorn's --timeout.
+# ---------------------------------------------------------------------------
+
+
+class TestStartConfirmedImport:
+    @pytest.mark.asyncio
+    async def test_flips_to_importing_and_commits(self):
+        job = _make_job(status=MigrationJobStatus.AWAITING_CONFIRMATION)
+        db = _mock_db()
+        db.commit = AsyncMock()
+
+        result = await start_confirmed_import(db, job)
+
+        assert result.status == MigrationJobStatus.IMPORTING
+        db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_raises_when_not_awaiting_confirmation(self):
+        job = _make_job(status=MigrationJobStatus.PENDING)
+        db = _mock_db()
+        with pytest.raises(InvalidJobStateError):
+            await start_confirmed_import(db, job)
+
+
+class TestRunConfirmedImportInBackground:
+    def _patched_factory(self, db):
+        factory_cm = AsyncMock()
+        factory_cm.__aenter__.return_value = db
+        factory_cm.__aexit__.return_value = False
+        return patch(
+            "src.data_import.service.async_session_factory", return_value=factory_cm
+        )
+
+    @pytest.mark.asyncio
+    async def test_commits_on_success(self):
+        job = _make_job(status=MigrationJobStatus.IMPORTING)
+        db = _mock_db()
+        db.get = AsyncMock(return_value=job)
+        db.commit = AsyncMock()
+
+        with (
+            self._patched_factory(db),
+            patch(
+                "src.data_import.service._extract_and_transform",
+                new=AsyncMock(return_value=({}, {"purchase_orders": []}, MagicMock(id_map=IdMap()))),
+            ),
+            patch("src.data_import.service.loader_load", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.loader_load_purchase_orders",
+                new=AsyncMock(return_value=0),
+            ),
+            patch(
+                "src.data_import.service.recompute_after_import",
+                new=AsyncMock(return_value={"errors": []}),
+            ),
+        ):
+            await run_confirmed_import_in_background(job.id)
+
+        assert job.status == MigrationJobStatus.DONE
+        db.commit.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_reverts_to_awaiting_confirmation_on_import_error(self):
+        """Matches confirm_job()'s old synchronous contract (see its
+        docstring/comment history): a translated import error (e.g. a
+        since-deleted product) rolls back and the job reverts to
+        awaiting_confirmation so the client can retry -- it must not land
+        in a terminal FAILED state for something that might just need a
+        re-confirm after the underlying data issue is fixed."""
+        from src.orders.exceptions import OrderLineItemError
+
+        job = _make_job(status=MigrationJobStatus.IMPORTING)
+        db = _mock_db()
+        db.get = AsyncMock(return_value=job)
+        db.commit = AsyncMock()
+        db.rollback = AsyncMock()
+
+        with (
+            self._patched_factory(db),
+            patch(
+                "src.data_import.service._extract_and_transform",
+                new=AsyncMock(return_value=({}, {"purchase_orders": []}, MagicMock(id_map=IdMap()))),
+            ),
+            patch("src.data_import.service.loader_load", new=AsyncMock(return_value={})),
+            patch(
+                "src.data_import.service.loader_load_purchase_orders",
+                new=AsyncMock(side_effect=OrderLineItemError(None, [uuid.uuid4()])),
+            ),
+        ):
+            await run_confirmed_import_in_background(job.id)
+
+        db.rollback.assert_awaited_once()
+        assert job.status == MigrationJobStatus.AWAITING_CONFIRMATION
+        assert job.import_error is not None
+
+    @pytest.mark.asyncio
+    async def test_marks_failed_on_unexpected_error(self):
+        job = _make_job(status=MigrationJobStatus.IMPORTING)
+        db = _mock_db()
+        db.get = AsyncMock(return_value=job)
+        db.commit = AsyncMock()
+        db.rollback = AsyncMock()
+
+        with (
+            self._patched_factory(db),
+            patch(
+                "src.data_import.service._extract_and_transform",
+                new=AsyncMock(side_effect=RuntimeError("db connection lost")),
+            ),
+        ):
+            await run_confirmed_import_in_background(job.id)
+
+        db.rollback.assert_awaited_once()
+        assert job.status == MigrationJobStatus.FAILED
+        assert "db connection lost" not in (job.import_error or "")
+
+    @pytest.mark.asyncio
+    async def test_logs_and_returns_when_job_vanished(self):
+        """The job could theoretically be deleted between scheduling and
+        the background task running -- must not crash, just log and bail."""
+        db = _mock_db()
+        db.get = AsyncMock(return_value=None)
+
+        with self._patched_factory(db):
+            await run_confirmed_import_in_background(uuid.uuid4())  # must not raise
+
+
+# ---------------------------------------------------------------------------
 # Router — confirm endpoint 409 gate
 # ---------------------------------------------------------------------------
 
@@ -2615,3 +2751,33 @@ class TestConfirmEndpoint:
                 f"/api/v1/import/jobs/{job.id}/confirm", json={"approved": True}
             )
         assert resp.status_code == 409
+
+    def test_confirm_approved_returns_importing_and_schedules_background_task(self):
+        """The endpoint (task 215) must return as soon as the job flips to
+        IMPORTING, not wait for the whole extract/transform/load/recompute
+        run to finish -- that's the request-timeout bug this task fixes."""
+        job = _make_job(
+            status=MigrationJobStatus.AWAITING_CONFIRMATION,
+            row_counts={},
+            validation_errors=[],
+            validation_warnings=[],
+            recompute_errors=[],
+            created_at=datetime.now(timezone.utc),
+        )
+        db = _mock_db()
+        db.execute = AsyncMock(return_value=_found_result(job))
+        db.commit = AsyncMock()
+        self._override(db, job)
+
+        with patch(
+            "src.data_import.service.run_confirmed_import_in_background",
+            new_callable=AsyncMock,
+        ) as mock_bg:
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    f"/api/v1/import/jobs/{job.id}/confirm", json={"approved": True}
+                )
+
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "importing"
+        mock_bg.assert_called_once_with(job.id)
