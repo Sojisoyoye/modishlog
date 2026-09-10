@@ -135,6 +135,27 @@ jobs:
           strip_components: 2
           overwrite: true
 
+      # This file's own header comment has always claimed "CI/CD updates:
+      # deploy-staging.yml" -- but until now nothing here actually copied it
+      # to the server. Every previous edit only added env vars with safe
+      # defaults, so the gap never surfaced; adding the redis service here
+      # did, since the server's own (undocumented, manually-maintained)
+      # docker-compose.yml + docker-compose.override.yml has no such
+      # service and plain `docker-compose up -d redis` failed outright
+      # (three failed staging deploys before this fix). Copied under its
+      # own name, not overwriting docker-compose.yml, since we don't know
+      # what else that file/override on the server may still be relied on
+      # for -- see the -f flag added to every command below instead.
+      - name: Copy docker-compose.staging.yml to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          source: "docker-compose.staging.yml"
+          target: ${{ env.DEPLOY_DIR }}
+          overwrite: true
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -150,18 +171,23 @@ jobs:
 
             cd ${{ env.DEPLOY_DIR }}
 
+            # -f docker-compose.staging.yml: use the repo-tracked file just
+            # copied above, not whatever docker-compose.yml/override.yml
+            # already exists here from before this fix.
+            COMPOSE="docker-compose -f docker-compose.staging.yml"
+
             # Pull the exact SHA-tagged image built by this CI run
-            docker-compose pull backend
+            $COMPOSE pull backend
 
             # Ensure redis is running (idempotent — no-op if already healthy)
-            docker-compose up -d redis
+            $COMPOSE up -d redis
 
             # Run migrations before swapping container
             # --no-deps: DB is Neon (external) — no local db service in docker-compose.staging.yml
-            docker-compose run --rm --no-deps backend alembic upgrade head
+            $COMPOSE run --rm --no-deps backend alembic upgrade head
 
             # Restart backend with new image
-            docker-compose up -d --no-deps backend
+            $COMPOSE up -d --no-deps backend
 
             # Reload the shared Caddy proxy so it picks up our snippet above.
             # Only our own file (/opt/modish/sites/modishlog.caddy) was touched —
@@ -177,7 +203,7 @@ jobs:
             # Wait for Docker's built-in container health check to go green.
             # The Dockerfile HEALTHCHECK probes http://localhost:8000/health inside
             # the container, so this is more reliable than curling the host port.
-            CONTAINER=$(docker-compose ps -q backend)
+            CONTAINER=$($COMPOSE ps -q backend)
             for i in $(seq 1 24); do
               HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo "unknown")
               if [ "$HEALTH" = "healthy" ]; then
