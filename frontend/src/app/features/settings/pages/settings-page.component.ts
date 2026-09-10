@@ -150,8 +150,13 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
             <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-50">
               <i class="pi pi-key text-sm text-purple-700"></i>
             </div>
-            <h3 class="text-base font-semibold text-text">API Key</h3>
+            <h3 class="text-base font-semibold text-text">Anthropic API Key (optional)</h3>
           </div>
+          <p class="mb-4 text-xs text-muted" data-testid="anthropic-key-disclaimer">
+            "Test Connection" verifies the key against Anthropic directly, but no ModishLog feature
+            uses it yet — AI Recommendations, Price Suggestions, and Quick Quote are all
+            rule-based today, not LLM-backed. Saving a key here has no effect on the app.
+          </p>
           <div class="space-y-4">
             @if (apiKeyConfigured()) {
               <div class="flex flex-col gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
