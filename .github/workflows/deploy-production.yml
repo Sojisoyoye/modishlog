@@ -179,8 +179,8 @@ jobs:
             # Pull the new production image
             docker compose --env-file .env.production pull backend
 
-            # Ensure db is running (idempotent — no-op if already healthy)
-            docker compose --env-file .env.production up -d db
+            # Ensure db and redis are running (idempotent — no-op if already healthy)
+            docker compose --env-file .env.production up -d db redis
             docker compose --env-file .env.production exec -T db sh -c \
               'until pg_isready -U ${POSTGRES_USER:-modishlog}; do sleep 1; done'
 

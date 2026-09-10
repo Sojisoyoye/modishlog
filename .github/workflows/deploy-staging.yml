@@ -153,6 +153,9 @@ jobs:
             # Pull the exact SHA-tagged image built by this CI run
             docker-compose pull backend
 
+            # Ensure redis is running (idempotent — no-op if already healthy)
+            docker-compose up -d redis
+
             # Run migrations before swapping container
             # --no-deps: DB is Neon (external) — no local db service in docker-compose.staging.yml
             docker-compose run --rm --no-deps backend alembic upgrade head
