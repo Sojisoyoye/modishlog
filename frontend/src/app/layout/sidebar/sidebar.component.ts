@@ -83,6 +83,11 @@ interface NavGroup {
       @if (!collapsed()) {
         <div class="border-t border-gray-200 px-4 py-3">
           <p class="text-xs text-muted">ModishLog v1.0</p>
+          <p class="mt-1 text-xs text-gray-400">
+            <a routerLink="/terms" class="hover:text-gray-600 hover:underline">Terms</a>
+            <span class="mx-1">&middot;</span>
+            <a routerLink="/privacy" class="hover:text-gray-600 hover:underline">Privacy</a>
+          </p>
         </div>
       }
     </aside>
