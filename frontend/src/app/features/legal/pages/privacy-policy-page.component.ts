@@ -7,7 +7,7 @@ import { RouterLink } from '@angular/router';
   imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="min-h-screen bg-white px-6 py-12 lg:px-16">
+    <div data-testid="legal-page-scroll-container" class="h-dvh overflow-y-auto overflow-x-hidden bg-white px-6 py-12 lg:px-16">
       <div class="mx-auto max-w-3xl">
         <!-- Header -->
         <div class="mb-8">
