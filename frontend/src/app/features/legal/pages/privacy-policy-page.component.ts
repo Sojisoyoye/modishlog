@@ -103,8 +103,20 @@ import { RouterLink } from '@angular/router';
           <section>
             <h2 class="text-lg font-semibold text-gray-900 mb-2">8. Cookies</h2>
             <p>
-              We use strictly necessary HttpOnly cookies for authentication (access token, refresh
-              token). No third-party tracking or advertising cookies are set.
+              We use strictly necessary cookies only — no third-party tracking, analytics, or
+              advertising cookies are set. Because these cookies are essential to signing in and
+              keeping you signed in, we don't ask for separate cookie consent; using the Service
+              means using these two cookies.
+            </p>
+            <ul class="list-disc pl-5 space-y-1 mt-2">
+              <li><strong><code>access_token</code></strong> — HttpOnly, SameSite=Lax. Authenticates your requests while you're signed in. Expires 24 hours after sign-in.</li>
+              <li><strong><code>refresh_token</code></strong> — HttpOnly, SameSite=Strict. Used only to issue a new access token without asking you to sign in again. Expires 30 days after sign-in, or immediately on password reset or sign-out.</li>
+            </ul>
+            <p class="mt-2">
+              Both are HttpOnly, meaning JavaScript running on the page can't read them — this
+              protects you from cross-site scripting (XSS) attacks stealing your session. You can
+              block or delete cookies in your browser settings, but doing so will sign you out and
+              may prevent the Service from working.
             </p>
           </section>
 
