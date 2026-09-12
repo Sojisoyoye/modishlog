@@ -341,7 +341,7 @@ async def do_reset_password(
     except InvalidResetTokenError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except WeakPasswordError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     return MessageResponse(message="Password has been reset successfully.")
 
 
