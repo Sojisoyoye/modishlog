@@ -39,38 +39,110 @@ def send_email(*, email_to: str, subject: str, html_content: str) -> None:
     logger.info("email_sent", email_to=email_to, resend_id=(result or {}).get("id"))
 
 
+_BRAND_PRIMARY = "#059669"
+_BRAND_PRIMARY_LIGHT = "#ECFDF5"
+_BRAND_TEXT = "#111827"
+_BRAND_MUTED = "#6B7280"
+_BRAND_BORDER = "#E5E7EB"
+_FONT_STACK = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+
+
+def _render_email_shell(*, title: str, preheader: str, body_html: str) -> str:
+    """Wrap email body content in ModishLog's shared branded shell.
+
+    Inline styles + a table-based header are used throughout because email
+    clients (Outlook especially) don't reliably support modern CSS.
+    """
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>{title}</title></head>
+    <body style="margin: 0; padding: 0; background-color: {_BRAND_PRIMARY_LIGHT}; font-family: {_FONT_STACK};">
+        <span style="display: none; max-height: 0; overflow: hidden;">{preheader}</span>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: {_BRAND_PRIMARY_LIGHT}; padding: 32px 16px;">
+            <tr>
+                <td align="center">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 480px; background-color: #FFFFFF; border-radius: 12px; overflow: hidden;">
+                        <tr>
+                            <td style="padding: 32px 32px 0 32px;">
+                                <table role="presentation" cellpadding="0" cellspacing="0">
+                                    <tr>
+                                        <td style="width: 32px; height: 32px; background-color: {_BRAND_PRIMARY}; border-radius: 8px; text-align: center; vertical-align: middle;">
+                                            <span style="color: #FFFFFF; font-size: 16px; font-weight: 700; line-height: 32px;">M</span>
+                                        </td>
+                                        <td style="padding-left: 10px;">
+                                            <span style="color: {_BRAND_PRIMARY}; font-size: 18px; font-weight: 700;">ModishLog</span>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 24px 32px 32px 32px; color: {_BRAND_TEXT}; font-size: 14px; line-height: 1.6;">
+                                {body_html}
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 20px 32px; border-top: 1px solid {_BRAND_BORDER};">
+                                <p style="margin: 0; color: {_BRAND_MUTED}; font-size: 12px;">
+                                    &copy; 2026 ModishLog &middot; Lagos, Nigeria
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+
+
+def _render_button(link: str, label: str) -> str:
+    return f"""
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 24px 0;">
+        <tr>
+            <td style="background-color: {_BRAND_PRIMARY}; border-radius: 8px;">
+                <a href="{link}"
+                   style="display: inline-block; padding: 12px 28px; color: #FFFFFF;
+                          font-size: 14px; font-weight: 600; text-decoration: none;">
+                    {label}
+                </a>
+            </td>
+        </tr>
+    </table>
+    """
+
+
 def render_verification_email(email_to: str, token: str) -> tuple[str, str]:
     """Return (subject, html) for the email-verification link email."""
     subject = f"{settings.EMAILS_FROM_NAME} - Verify your email address"
     link = f"{settings.FRONTEND_URL}/verify-email?token={token}"
     safe_email = html_lib.escape(email_to)
 
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Verify your email</title></head>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h1 style="color: #2c3e50;">Welcome to {settings.EMAILS_FROM_NAME}!</h1>
-            <p>Please verify your email address ({safe_email}) by clicking the button below:</p>
-            <p style="text-align: center; margin: 30px 0;">
-                <a href="{link}"
-                   style="background-color: #3498db; color: white; padding: 12px 30px;
-                          text-decoration: none; border-radius: 5px; display: inline-block;">
-                    Verify Email
-                </a>
-            </p>
-            <p>Or copy and paste this link into your browser:</p>
-            <p style="word-break: break-all; color: #3498db;">{link}</p>
-            <p style="color: #666; font-size: 14px;">This link will expire in 24 hours.</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-            <p style="color: #999; font-size: 12px;">
-                If you didn't create an account with {settings.EMAILS_FROM_NAME}, please ignore this email.
-            </p>
-        </div>
-    </body>
-    </html>
+    body_html = f"""
+    <h1 style="margin: 0 0 12px 0; color: {_BRAND_TEXT}; font-size: 20px; font-weight: 700;">
+        Welcome to ModishLog!
+    </h1>
+    <p style="margin: 0 0 8px 0;">
+        Please verify your email address ({safe_email}) by clicking the button below:
+    </p>
+    {_render_button(link, "Verify Email")}
+    <p style="margin: 0 0 4px 0; color: {_BRAND_MUTED}; font-size: 13px;">
+        Or copy and paste this link into your browser:
+    </p>
+    <p style="margin: 0 0 16px 0; color: {_BRAND_PRIMARY}; font-size: 13px; word-break: break-all;">{link}</p>
+    <p style="margin: 0; color: {_BRAND_MUTED}; font-size: 13px;">This link will expire in 24 hours.</p>
+    <hr style="border: none; border-top: 1px solid {_BRAND_BORDER}; margin: 24px 0;">
+    <p style="margin: 0; color: {_BRAND_MUTED}; font-size: 12px;">
+        If you didn't create an account with ModishLog, please ignore this email.
+    </p>
     """
+    html_content = _render_email_shell(
+        title="Verify your email",
+        preheader="Verify your email address to finish setting up your ModishLog account.",
+        body_html=body_html,
+    )
     return subject, html_content
 
 
@@ -80,30 +152,27 @@ def render_reset_password_email(email_to: str, token: str) -> tuple[str, str]:
     link = f"{settings.FRONTEND_URL}/reset-password?token={token}"
     safe_email = html_lib.escape(email_to)
 
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head><meta charset="UTF-8"><title>Password Reset</title></head>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h1 style="color: #2c3e50;">{settings.EMAILS_FROM_NAME} - Password Reset</h1>
-            <p>We received a request to reset the password for {safe_email}. Click the button below to create a new password:</p>
-            <p style="text-align: center; margin: 30px 0;">
-                <a href="{link}"
-                   style="background-color: #e74c3c; color: white; padding: 12px 30px;
-                          text-decoration: none; border-radius: 5px; display: inline-block;">
-                    Reset Password
-                </a>
-            </p>
-            <p>Or copy and paste this link into your browser:</p>
-            <p style="word-break: break-all; color: #3498db;">{link}</p>
-            <p style="color: #e74c3c; font-size: 14px; font-weight: bold;">This link will expire in 1 hour.</p>
-            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-            <p style="color: #999; font-size: 12px;">
-                If you didn't request a password reset, please ignore this email. Your password will remain unchanged.
-            </p>
-        </div>
-    </body>
-    </html>
+    body_html = f"""
+    <h1 style="margin: 0 0 12px 0; color: {_BRAND_TEXT}; font-size: 20px; font-weight: 700;">
+        Reset your password
+    </h1>
+    <p style="margin: 0 0 8px 0;">
+        We received a request to reset the password for {safe_email}. Click the button below to create a new password:
+    </p>
+    {_render_button(link, "Reset Password")}
+    <p style="margin: 0 0 4px 0; color: {_BRAND_MUTED}; font-size: 13px;">
+        Or copy and paste this link into your browser:
+    </p>
+    <p style="margin: 0 0 16px 0; color: {_BRAND_PRIMARY}; font-size: 13px; word-break: break-all;">{link}</p>
+    <p style="margin: 0; color: #DC2626; font-size: 13px; font-weight: 600;">This link will expire in 1 hour.</p>
+    <hr style="border: none; border-top: 1px solid {_BRAND_BORDER}; margin: 24px 0;">
+    <p style="margin: 0; color: {_BRAND_MUTED}; font-size: 12px;">
+        If you didn't request a password reset, please ignore this email. Your password will remain unchanged.
+    </p>
     """
+    html_content = _render_email_shell(
+        title="Password Reset",
+        preheader="Reset your ModishLog password. This link expires in 1 hour.",
+        body_html=body_html,
+    )
     return subject, html_content
