@@ -84,7 +84,7 @@ services:
       FX_CACHE_TTL_HOURS: ${FX_CACHE_TTL_HOURS:-4}
       SENTRY_DSN: ${SENTRY_DSN:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      EMAILS_FROM_EMAIL: ${EMAILS_FROM_EMAIL:-noreply@modishlog.com}
+      EMAILS_FROM_EMAIL: ${EMAILS_FROM_EMAIL:-contact@modishlog.com}
       EMAILS_FROM_NAME: ${EMAILS_FROM_NAME:-ModishLog}
       FRONTEND_URL: ${FRONTEND_URL:-https://modishlog.com}
     command: >

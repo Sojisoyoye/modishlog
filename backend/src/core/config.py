@@ -209,7 +209,11 @@ class Settings(BaseSettings):
     # send_email() logs instead of sending, keeping local/dev/CI working
     # with zero setup.
     RESEND_API_KEY: str = ""
-    EMAILS_FROM_EMAIL: str = "noreply@modishlog.com"
+    # contact@ (not noreply@) -- both email types today (verification, forgot
+    # password) are ones a user may legitimately need to reply to for
+    # support. Reserve noreply@ for a future email type that genuinely
+    # doesn't need a reply path.
+    EMAILS_FROM_EMAIL: str = "contact@modishlog.com"
     EMAILS_FROM_NAME: str = "ModishLog"
     # Base URL used to build verification/reset links in outgoing emails.
     FRONTEND_URL: str = "http://localhost:4200"
