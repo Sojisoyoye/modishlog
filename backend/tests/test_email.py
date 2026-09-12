@@ -63,6 +63,17 @@ class TestRenderVerificationEmail:
         assert "https://app.modishlog.com/verify-email?token=abc123token" in html
         assert subject
 
+    def test_uses_brand_styling(self, monkeypatch):
+        from src.core import email as email_module
+        from src.core.config import settings
+
+        monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.modishlog.com")
+        _, html = email_module.render_verification_email(
+            "user@example.com", "abc123token"
+        )
+        assert "#059669" in html
+        assert ">M<" in html
+
 
 class TestRenderResetPasswordEmail:
     def test_includes_token_link(self, monkeypatch):
@@ -76,3 +87,14 @@ class TestRenderResetPasswordEmail:
         assert "resettoken456" in html
         assert "https://app.modishlog.com/reset-password?token=resettoken456" in html
         assert subject
+
+    def test_uses_brand_styling(self, monkeypatch):
+        from src.core import email as email_module
+        from src.core.config import settings
+
+        monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.modishlog.com")
+        _, html = email_module.render_reset_password_email(
+            "user@example.com", "resettoken456"
+        )
+        assert "#059669" in html
+        assert ">M<" in html

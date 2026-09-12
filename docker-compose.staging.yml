@@ -48,7 +48,7 @@ services:
       FX_API_KEY: ${FX_API_KEY:-}
       FX_API_URL: ${FX_API_URL:-https://api.example.com/fx}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      EMAILS_FROM_EMAIL: ${EMAILS_FROM_EMAIL:-contact@modishlog.com}
+      EMAILS_FROM_EMAIL: ${EMAILS_FROM_EMAIL:-noreply@staging.modishlog.com}
       EMAILS_FROM_NAME: ${EMAILS_FROM_NAME:-ModishLog}
       FRONTEND_URL: ${FRONTEND_URL:-https://staging.modishlog.com}
     depends_on:
