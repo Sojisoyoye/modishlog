@@ -60,14 +60,14 @@ test.describe('Sidebar footer links to legal pages for logged-in users', () => {
   });
 
   test('sidebar shows Terms and Privacy links', async ({ page }) => {
-    const termsLink = page.getByRole('link', { name: 'Terms' });
-    const privacyLink = page.getByRole('link', { name: 'Privacy' });
+    const termsLink = page.getByRole('link', { name: 'Terms', exact: true });
+    const privacyLink = page.getByRole('link', { name: 'Privacy', exact: true });
     await expect(termsLink).toHaveAttribute('href', '/terms');
     await expect(privacyLink).toHaveAttribute('href', '/privacy');
   });
 
   test('clicking Terms in the sidebar navigates to the Terms of Service page', async ({ page }) => {
-    await page.getByRole('link', { name: 'Terms' }).click();
+    await page.getByRole('link', { name: 'Terms', exact: true }).click();
     await expect(page).toHaveURL(/\/terms$/);
     await expect(page.getByRole('heading', { name: 'Terms of Service', exact: true })).toBeVisible();
   });
