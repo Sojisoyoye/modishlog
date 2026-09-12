@@ -11,6 +11,15 @@ test.describe('Terms of Service page', () => {
     await expect(page.getByRole('heading', { name: 'Terms of Service', exact: true })).toBeVisible();
   });
 
+  test('mouse-wheel scroll actually moves the page', async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+    await page.goto('/terms');
+    const container = page.getByTestId('legal-page-scroll-container');
+    await page.mouse.move(400, 300);
+    await page.mouse.wheel(0, 2000);
+    await expect.poll(() => container.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  });
+
   test('"Back to ModishLog" link returns to /', async ({ page }) => {
     await page.goto('/terms');
     await page.getByText('Back to ModishLog').click();
@@ -20,6 +29,17 @@ test.describe('Terms of Service page', () => {
   test('links to the Privacy Policy', async ({ page }) => {
     await page.goto('/terms');
     await expect(page.getByRole('link', { name: 'Privacy Policy' }).first()).toHaveAttribute('href', /\/privacy/);
+  });
+});
+
+test.describe('Privacy Policy page', () => {
+  test('mouse-wheel scroll actually moves the page', async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+    await page.goto('/privacy');
+    const container = page.getByTestId('legal-page-scroll-container');
+    await page.mouse.move(400, 300);
+    await page.mouse.wheel(0, 2000);
+    await expect.poll(() => container.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
   });
 });
 
