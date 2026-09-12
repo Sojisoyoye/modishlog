@@ -574,8 +574,8 @@ import { RouterLink } from '@angular/router';
         <div class="mt-8 flex flex-row items-center justify-between gap-4 border-t border-gray-800 pt-8">
           <p class="text-xs text-gray-600">© 2025 ModishLog. All rights reserved.</p>
           <div class="flex items-center gap-6">
-            <a href="#" class="text-xs text-gray-600 hover:text-gray-400 transition-colors">Privacy</a>
-            <a href="#" class="text-xs text-gray-600 hover:text-gray-400 transition-colors">Terms</a>
+            <a routerLink="/privacy" class="text-xs text-gray-600 hover:text-gray-400 transition-colors">Privacy</a>
+            <a routerLink="/terms" class="text-xs text-gray-600 hover:text-gray-400 transition-colors">Terms</a>
           </div>
         </div>
       </div>
