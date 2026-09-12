@@ -273,6 +273,13 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'terms',
+    loadComponent: () =>
+      import('./features/legal/pages/terms-of-service-page.component').then(
+        (m) => m.TermsOfServicePageComponent,
+      ),
+  },
+  {
     path: '**',
     redirectTo: 'dashboard',
   },

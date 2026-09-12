@@ -192,9 +192,11 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                     class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary"
                   />
                   <span class="text-xs text-gray-700">
-                    I consent to ModishLog processing my business data as required by the
-                    Nigeria Data Protection Regulation (NDPR).
-                    <a href="/privacy" target="_blank" rel="noopener noreferrer" class="text-emerald-600 hover:underline">Privacy Policy</a>
+                    I agree to the
+                    <a href="/terms" target="_blank" rel="noopener noreferrer" class="text-emerald-600 hover:underline">Terms of Service</a>
+                    and consent to ModishLog processing my business data as required by the
+                    Nigeria Data Protection Regulation (NDPR), as described in the
+                    <a href="/privacy" target="_blank" rel="noopener noreferrer" class="text-emerald-600 hover:underline">Privacy Policy</a>.
                     <span class="text-danger">*</span>
                   </span>
                 </label>
