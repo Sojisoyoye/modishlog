@@ -1,0 +1,57 @@
+name: Backup Production Database
+
+# Task 233: docs/ops/backup-restore-runbook.md documented a daily backup
+# cadence but nothing ever automated it -- backups were manual-only,
+# meaning there was no guarantee a usable one existed if actually needed.
+# Runs daily via SSH against the same Hetzner box deploy-production.yml
+# targets, using the same PRODUCTION_HOST/PRODUCTION_SSH_KEY secrets.
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # 02:00 UTC daily
+  workflow_dispatch: {} # allow an on-demand run
+
+env:
+  DEPLOY_DIR: /root/modishlog-prod
+
+jobs:
+  backup:
+    name: pg_dump production Postgres
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Run pg_dump, verify integrity, prune old backups
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: root
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            set -e
+
+            mkdir -p ~/backups
+            cd ${{ env.DEPLOY_DIR }}
+
+            # Postgres user is "modishlog" (POSTGRES_USER in .env.production),
+            # not "postgres" -- the default image doesn't create a "postgres"
+            # role when POSTGRES_USER is set to something else.
+            FILE=~/backups/modishlog-$(date +%Y%m%d-%H%M%S).sql.gz
+            docker compose -f docker-compose.yml --env-file .env.production \
+              exec -T db pg_dump -U modishlog modishlog | gzip > "$FILE"
+
+            # A silent failure upstream (e.g. exec succeeding but pg_dump
+            # erroring) can still produce a small/empty gzip file -- catch
+            # that here instead of discovering it during an actual restore.
+            SIZE=$(stat -c%s "$FILE")
+            if [ "$SIZE" -lt 100 ]; then
+              echo "❌ Backup file suspiciously small ($SIZE bytes) -- likely failed silently"
+              exit 1
+            fi
+            gzip -t "$FILE"
+            echo "✅ Backup created: $FILE ($SIZE bytes), gzip integrity OK"
+
+            # Retention: keep 30 days (docs/ops/backup-restore-runbook.md).
+            find ~/backups/ -name "modishlog-*.sql.gz" -mtime +30 -delete
+
+            echo "Backups currently on disk:"
+            ls -lh ~/backups/modishlog-*.sql.gz

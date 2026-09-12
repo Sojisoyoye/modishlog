@@ -9,30 +9,39 @@
 
 ## Backup Overview
 
-ModishLog production runs on a single Hetzner VPS with a local PostgreSQL
-container managed by Docker Compose.  Backups are compressed SQL dumps
-(`pg_dump | gzip`) stored on the VPS and optionally synced to an off-site
-location.
+ModishLog production runs on a single Hetzner VPS (`178.104.122.53`) with a
+local PostgreSQL container managed by Docker Compose, deployed at
+`/root/modishlog-prod/` (see `DEPLOYMENT.md`). Backups are compressed SQL
+dumps (`pg_dump | gzip`) stored on the VPS at `~/backups/` and, as of task
+233, automated daily via a scheduled GitHub Actions workflow
+(`.github/workflows/backup-production.yml`) rather than a server-side cron
+entry nobody would remember existed after a VPS rebuild.
 
 ---
 
 ## Daily Backup Procedure
 
-Run the following command daily (e.g. via cron at 02:00 local server time):
+**Automated** (as of task 233): `.github/workflows/backup-production.yml`
+runs daily via `schedule: cron` and SSHes in to run the same command below,
+using the existing `PRODUCTION_HOST`/`PRODUCTION_SSH_KEY` secrets already
+used by `deploy-production.yml`.
+
+Manual/on-demand version (matches what the workflow runs):
 
 ```bash
-docker compose exec db pg_dump -U postgres modishlog \
-  | gzip > ~/backups/modishlog-$(date +%Y%m%d).sql.gz
+ssh root@178.104.122.53
+cd /root/modishlog-prod
+mkdir -p ~/backups
+docker compose -f docker-compose.yml --env-file .env.production \
+  exec -T db pg_dump -U modishlog modishlog \
+  | gzip > ~/backups/modishlog-$(date +%Y%m%d-%H%M%S).sql.gz
 ```
 
-### Cron example (`crontab -e` on the VPS)
-
-```cron
-# ModishLog: daily DB backup at 02:00
-0 2 * * * cd /opt/modishlog && docker compose exec -T db pg_dump -U postgres modishlog | gzip > ~/backups/modishlog-$(date +\%Y\%m\%d).sql.gz 2>> ~/backups/backup-errors.log
-```
-
-> **Note**: Use `-T` flag with `docker compose exec` in non-interactive (cron) context.
+> Postgres user is `modishlog` (from `POSTGRES_USER` in `.env.production`),
+> **not** `postgres` — the default Postgres image doesn't create a
+> `postgres` role when `POSTGRES_USER` is set to something else. The `db`
+> service isn't exposed on any host port, so this must run via
+> `docker compose exec`, not a direct `psql`/`pg_dump` from the host.
 
 ### Off-site sync (recommended)
 
@@ -63,8 +72,8 @@ find ~/backups/ -name "modishlog-*.sql.gz" -mtime +30 -delete
 ### Step 1: Stop the application
 
 ```bash
-cd /opt/modishlog
-docker compose stop backend
+cd /root/modishlog-prod
+docker compose -f docker-compose.yml --env-file .env.production stop backend
 ```
 
 ### Step 2: Identify the backup to restore
@@ -81,16 +90,19 @@ Choose the most-recent file before the data loss event.
 > Confirm you have a valid backup before proceeding.
 
 ```bash
-docker compose exec db psql -U postgres -c "DROP DATABASE IF EXISTS modishlog;"
-docker compose exec db psql -U postgres -c "CREATE DATABASE modishlog;"
+docker compose -f docker-compose.yml --env-file .env.production exec db \
+  psql -U modishlog -c "DROP DATABASE IF EXISTS modishlog;"
+docker compose -f docker-compose.yml --env-file .env.production exec db \
+  psql -U modishlog -c "CREATE DATABASE modishlog;"
 ```
 
 ### Step 4: Restore from backup
 
 ```bash
-BACKUP_FILE=~/backups/modishlog-20260708.sql.gz
+BACKUP_FILE=~/backups/modishlog-20260708-020000.sql.gz
 
-gunzip -c "$BACKUP_FILE" | docker compose exec -T db psql -U postgres modishlog
+gunzip -c "$BACKUP_FILE" | docker compose -f docker-compose.yml \
+  --env-file .env.production exec -T db psql -U modishlog modishlog
 ```
 
 ### Step 5: Run pending Alembic migrations
@@ -98,23 +110,25 @@ gunzip -c "$BACKUP_FILE" | docker compose exec -T db psql -U postgres modishlog
 If the backup is from a previous application version, apply schema migrations:
 
 ```bash
-docker compose exec backend alembic upgrade head
+docker compose -f docker-compose.yml --env-file .env.production \
+  run --rm --no-deps backend alembic upgrade head
 ```
 
 ### Step 6: Restart the application
 
 ```bash
-docker compose start backend
+docker compose -f docker-compose.yml --env-file .env.production start backend
 ```
 
 ### Step 7: Verify
 
 ```bash
 # Check the health endpoint
-curl https://app.modishlog.com/health
+curl https://api.modishlog.com/health
 
 # Spot-check key counts
-docker compose exec db psql -U postgres modishlog -c \
+docker compose -f docker-compose.yml --env-file .env.production exec db \
+  psql -U modishlog modishlog -c \
   "SELECT COUNT(*) FROM sales; SELECT COUNT(*) FROM products; SELECT COUNT(*) FROM users;"
 ```
 
@@ -122,37 +136,61 @@ docker compose exec db psql -U postgres modishlog -c \
 
 ## Monthly Restore Drill Checklist
 
-Perform a test restore on a **separate staging environment** once per month
-to verify backup integrity and practise the procedure:
+Perform a test restore on a **separate scratch environment** (a local Docker
+container, not staging — staging is a real environment with its own Neon DB,
+not local Postgres, so "restore into staging" doesn't actually apply the way
+this was originally worded) once per month to verify backup integrity and
+practise the procedure:
 
-- [ ] Identify the most-recent production backup file
-- [ ] Copy backup file to staging VPS or local machine
-- [ ] Stand up a fresh Docker Postgres container
-- [ ] Run the restore procedure (Steps 3–6 above against staging)
-- [ ] Verify row counts match production (within last 24h delta)
-- [ ] Verify the health endpoint returns 200
-- [ ] Verify a sample login works
-- [ ] Record the drill date and outcome in this document:
+- [x] Identify the most-recent production backup file
+- [x] Copy backup file to a local machine
+- [x] Stand up a fresh Docker Postgres container (matching prod's actual
+      `postgres:15-alpine`, not whatever version happens to be handy)
+- [x] Run the restore procedure (Steps 3–6 above, adapted for a local
+      container instead of the prod compose stack)
+- [x] Verify row counts match production
+- [x] Verify the health endpoint returns 200 (ran the actual backend image
+      against the restored DB, not just Postgres in isolation)
+- [x] Verify a sample login works (confirmed real bcrypt hashes intact and
+      the `/auth/login` code path executes correctly end-to-end against the
+      restored data — didn't have an actual production password to log in
+      with, so verified the mechanism instead of a literal successful login)
+- [x] Record the drill date and outcome in this document:
 
 | Date | Performed by | Backup date | Outcome | Notes |
 |------|-------------|-------------|---------|-------|
 | 2026-07-08 | — | — | — | Runbook created; drill pending |
+| 2026-09-12 | Claude (ship session, SSH access confirmed by user) | 2026-09-12 18:25 UTC | **Pass** | Real `pg_dump` from production (21K compressed, 1 sale/1 product/2 users/2 businesses — small pre-launch dataset), restored into a local `postgres:15-alpine` container, `alembic upgrade head` applied cleanly (prod's `alembic_version` was `202e2d0f7c04`, several migrations behind repo `HEAD` `e580169665df` — see finding below), backend booted against restored DB and `/health` returned 200, row counts matched exactly, login endpoint correctly processed real user records (401 on wrong password, proving the full auth code path works). Also corrected this runbook's paths/usernames/filenames (`/opt/modishlog`→`/root/modishlog-prod`, `-U postgres`→`-U modishlog`, `docker-compose.production.yml`→`docker-compose.prod.yml`, `app.modishlog.com`→`api.modishlog.com`) — none of the original commands as written would have worked against the real server. |
+
+> **Separate finding, not part of this drill**: production's `alembic_version`
+> (`202e2d0f7c04`) is several migrations behind this repo's current `HEAD`
+> (`e580169665df`) — `deploy-production.yml` is manual/tag-gated and hasn't
+> been run recently, so production is running an older schema/image than
+> what's on `main`. Not a backup/restore problem, but worth knowing before
+> assuming production reflects recent work.
 
 ---
 
 ## What to Do When the VPS is Unresponsive
 
-1. **Check Hetzner Robot panel** — verify the VPS is powered on and network is healthy.
-2. **Attempt SSH** — `ssh appuser@<VPS_IP>`. If connection refused, try the Hetzner console.
-3. **Try hard reset** — Hetzner Robot → Server → Reset (if SSH is completely unavailable).
-4. **Check disk space** — `df -h` — a full `/var` or `/opt` will freeze PostgreSQL.
-5. **Check Docker daemon** — `systemctl status docker` and `docker compose ps`.
-6. **Check container logs** — `docker compose logs --tail=100 backend db`.
-7. **If data corruption is suspected** — stop backend, take a pg_dump, then investigate.
-8. **If VPS is unrecoverable** — provision a fresh Hetzner VPS, restore from backup,
-   update DNS A record to new IP.
+> **This box is shared** — `178.104.122.53` also hosts trading-teddy,
+> heimpath, growthos, and modish-n8n (see `DEPLOYMENT.md`). A hard reset or
+> rebuild affects all of them, not just modishlog. Coordinate before doing
+> anything destructive here; this is not modishlog's dedicated VPS.
 
-**Estimated time for full rebuild**: 2–3 hours (provision + restore + DNS TTL propagation).
+1. **Check Hetzner Robot panel** — verify the VPS is powered on and network is healthy.
+2. **Attempt SSH** — `ssh -i ~/.ssh/hetzner_modish root@178.104.122.53`. If connection refused, try the Hetzner console.
+3. **Try hard reset** — Hetzner Robot → Server → Reset (if SSH is completely unavailable) — see the shared-box warning above first.
+4. **Check disk space** — `df -h` — a full disk will freeze PostgreSQL for every project on the box, not just modishlog.
+5. **Check Docker daemon** — `systemctl status docker` and `docker compose ps` (run from `/root/modishlog-prod/`).
+6. **Check container logs** — `docker compose -f docker-compose.yml --env-file .env.production logs --tail=100 backend db`.
+7. **If data corruption is suspected** — stop backend, take a pg_dump, then investigate.
+8. **If the shared box itself is unrecoverable** — this affects every project on it, not
+   just modishlog; coordinate a full rebuild rather than treating it as a
+   modishlog-only incident. `deploy-production.yml`/`deploy-staging.yml`'s
+   scp steps mean the compose files themselves are recoverable from this
+   repo — only server-local secrets (`.env.production`, the staging `.env`)
+   and the Postgres data volume need restoring from backup.
 
 ---
 
@@ -162,66 +200,38 @@ to verify backup integrity and practise the procedure:
 
 | Resource | Location |
 |----------|----------|
-| Hetzner Robot credentials | 1Password → "Modishlog Hetzner" |
-| VPS SSH key | `~/.ssh/modishlog_hetzner_ed25519` |
-| Database password | `POSTGRES_PASSWORD` in `/opt/modishlog/.env` |
-| Backup storage credentials | 1Password → "Modishlog Backblaze" |
+| Hetzner Robot credentials | 1Password (vault name unverified — confirm before relying on this) |
+| VPS SSH key | `~/.ssh/hetzner_modish` |
+| Database password | `POSTGRES_PASSWORD` in `/root/modishlog-prod/.env.production` |
+| Backup storage credentials | 1Password (vault name unverified — confirm before relying on this; no off-site sync is actually configured yet, see below) |
 
 ---
 
 ## Rate Limiting — Redis Configuration
 
-### Current state (MVP / single instance)
+### Current state
 
-Rate limiting falls back to **in-memory storage** when no Redis instance is
-configured. This is acceptable for a single-instance MVP deployment:
+`docker-compose.prod.yml` now defines a `redis` service and wires
+`REDIS_URL` into the backend (task 212, fixed for real in task 254 after an
+initial version broke the deploy pipeline — see git history on that file).
+**This has not yet reached production** — `deploy-production.yml` is
+manual/tag-gated and hasn't been run since. Confirmed live as of
+2026-09-12: `curl https://api.modishlog.com/health/deep` still shows
+`"redis": "not_configured"`. Staging already has this deployed and working
+(`redis: ok`).
 
-- `/health/deep` will report `redis: not_configured` — this is expected and not an error.
-- Rate-limit counters reset on backend container restart.
-- Works correctly as long as only one backend worker is running.
+Until the next production deploy runs, rate limiting on production falls
+back to in-memory storage — acceptable for the current single-worker MVP
+deployment (gunicorn `--workers 2` in `docker-compose.prod.yml` means
+counters aren't actually fully shared between the two workers today either,
+worth knowing).
 
-### How to enable Redis (before scaling)
-
-Enable Redis before adding a second backend worker or horizontal scaling.
-
-**Step 1 — Add Redis service to `docker-compose.production.yml`:**
-
-```yaml
-services:
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-
-volumes:
-  redis_data:
-```
-
-**Step 2 — Set the environment variable in `.env.production`:**
-
-```bash
-REDIS_URL=redis://redis:6379
-```
-
-**Step 3 — Restart the stack:**
-
-```bash
-docker compose -f docker-compose.production.yml up -d
-```
-
-**Step 4 — Verify:**
+### After the next production deploy, verify:
 
 ```bash
 curl https://api.modishlog.com/health/deep | jq .redis
 # Expected: "ok"
 ```
-
-### When to do this
-
-- Before deploying more than one backend container/worker
-- Before adding a CDN or load balancer in front of the API
-- If rate-limit counters surviving restarts becomes a compliance requirement
 
 ---
 
@@ -247,4 +257,4 @@ Recommended: add an on-call email or phone number before handing off to another 
 
 ---
 
-*Last updated: 2026-07-09 — Redis fallback docs + UptimeRobot monitoring setup*
+*Last updated: 2026-09-12 — task 233: first real backup/restore drill executed (pass), automated daily backup workflow added, corrected paths/usernames/filenames throughout that had never matched the real server*
