@@ -65,7 +65,19 @@ jobs:
       # to connect to Redis — breaking every e2e helper that logs in via a
       # direct API call (getAPIToken(), loginViaAPI()).
       - name: Start backend + test DB (e2e stack)
-        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build backend db_test redis
+        # Retries transient Docker Hub pull failures (e.g. "connection reset
+        # by peer" fetching postgres:16-alpine) -- observed intermittently
+        # failing whole shards before any test ran, unrelated to app code.
+        run: |
+          for attempt in 1 2 3; do
+            if docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build backend db_test redis; then
+              exit 0
+            fi
+            echo "docker compose up failed (attempt $attempt/3), retrying in 10s..."
+            sleep 10
+          done
+          echo "❌ docker compose up failed after 3 attempts"
+          exit 1
         env:
           SECRET_KEY: ci-test-secret-key-do-not-use-in-production-32x
           POSTGRES_PASSWORD: modishlog_dev
