@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI, E2E_EMAIL } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, E2E_EMAIL } from './helpers/auth';
 
 test.beforeAll(async () => {
   await ensureTestUser();
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
 });
 
 test.describe('User Management — Users page', () => {

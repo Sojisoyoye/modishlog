@@ -1,5 +1,5 @@
 import { test, expect, request as pwRequest } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, getAPIToken } from './helpers/auth';
 
 const API = 'http://localhost:8000/api/v1';
 
@@ -49,7 +49,7 @@ test.describe('AI Recommendations page', () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/recommendations');
     await expect(page.getByRole('heading', { name: 'AI Recommendations' })).toBeVisible({ timeout: 15_000 });
   });

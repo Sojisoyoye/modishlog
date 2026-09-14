@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 test.beforeAll(async () => {
   await ensureTestUser();
@@ -25,7 +25,7 @@ async function ensureApiKeyFormVisible(page: import('@playwright/test').Page): P
 
 test.describe('Settings — Anthropic key section is honest about scope (task 216)', () => {
   test('disclaims that no feature consumes the key yet', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/settings');
 
     await expect(page.getByTestId('anthropic-key-disclaimer')).toBeVisible({ timeout: 8_000 });
@@ -35,7 +35,7 @@ test.describe('Settings — Anthropic key section is honest about scope (task 21
 
 test.describe('Settings — API key stored in backend, not localStorage', () => {
   test('after saving API key, localStorage does not contain the key', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/settings');
 
     await ensureApiKeyFormVisible(page);
@@ -51,7 +51,7 @@ test.describe('Settings — API key stored in backend, not localStorage', () => 
   });
 
   test('after saving API key, the "configured" indicator is shown', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/settings');
 
     await ensureApiKeyFormVisible(page);
@@ -62,7 +62,7 @@ test.describe('Settings — API key stored in backend, not localStorage', () => 
   });
 
   test('on page load, shows configured status if key was previously saved', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/settings');
 
     // Save a key first (handling the case where one is already configured)

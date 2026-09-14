@@ -8,7 +8,7 @@
  * chain breaks, a beta user's first session will fail.
  */
 import { test, expect, request as pwRequest } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaUI, loginViaAPI, getAPIToken } from './helpers/auth';
 import { ensureProduct, createOrder } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
@@ -60,12 +60,15 @@ test.describe('Golden path — full MVP business cycle', () => {
   });
 
   test('Login redirects to dashboard', async ({ page }) => {
+    // Deliberately the real UI login flow, not loginViaAPI -- this test's
+    // whole point is verifying the login form itself works as the first
+    // step of the golden path, not just that an authenticated session works.
     await loginViaUI(page);
     await expect(page.getByText("Today's Revenue")).toBeVisible();
   });
 
   test('Purchase order transitions from ORDERED through to DELIVERED via UI', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto(`/orders/${orderId}`);
     await page.waitForLoadState('domcontentloaded');
 
@@ -107,7 +110,7 @@ test.describe('Golden path — full MVP business cycle', () => {
   test('Recording a sale deducts stock and shows success toast', async ({ page }) => {
     const stockBefore = await getStock(productId);
 
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/sales');
     // Wait for page heading — sales.spec.ts requires this before interacting with the form
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 10_000 });
@@ -139,7 +142,7 @@ test.describe('Golden path — full MVP business cycle', () => {
   });
 
   test('P&L report generates with non-zero revenue after the sale', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/reports/profit-loss');
     await page.waitForLoadState('domcontentloaded');
 

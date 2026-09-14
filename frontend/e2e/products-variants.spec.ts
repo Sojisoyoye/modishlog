@@ -1,5 +1,5 @@
 import { test, expect, request as pwRequest } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, getAPIToken } from './helpers/auth';
 import { ensureCategory } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
@@ -59,7 +59,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/products');
   await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible({ timeout: 15_000 });
 });

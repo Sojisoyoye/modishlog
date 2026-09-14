@@ -1,5 +1,5 @@
 import { test, expect, request } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, getAPIToken } from './helpers/auth';
 import { ensureProduct, ensureProductInCategory } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
@@ -101,7 +101,7 @@ test.describe('Price suggestion engine (#76)', () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   /** Search for the product on the products page and return the matching row. */
@@ -317,7 +317,7 @@ test.describe('Category-aware price suggestion margin (#80)', () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   async function findProductRow(page: import('@playwright/test').Page) {

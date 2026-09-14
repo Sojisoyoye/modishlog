@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 test.beforeAll(async () => {
   await ensureTestUser();
@@ -12,7 +12,7 @@ test.beforeAll(async () => {
  */
 test.describe('shareReplay caching for reference data', () => {
   test('customers list is not re-fetched on repeat navigation to Sales', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
 
     let customerCallCount = 0;
     page.on('request', (req) => {
@@ -40,7 +40,7 @@ test.describe('shareReplay caching for reference data', () => {
   });
 
   test('products list is not re-fetched on repeat navigation', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
 
     let productCallCount = 0;
     page.on('request', (req) => {
@@ -70,7 +70,7 @@ test.describe('shareReplay caching for reference data', () => {
   });
 
   test('locations list is not re-fetched on repeat navigation to Sales', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
 
     let locationCallCount = 0;
     page.on('request', (req) => {
@@ -96,7 +96,7 @@ test.describe('shareReplay caching for reference data', () => {
   });
 
   test('customer cache is busted after creating a new customer', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
 
     let customerCallCount = 0;
     page.on('request', (req) => {

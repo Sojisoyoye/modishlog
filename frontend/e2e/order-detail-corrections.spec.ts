@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 import {
   ensureProduct,
   createOrder,
@@ -34,7 +34,7 @@ test.describe('Payment editing', () => {
   });
 
   test('editing a payment updates its displayed amount', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto(`/orders/${orderId}`);
     await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 
@@ -85,7 +85,7 @@ test.describe('Revert delivery', () => {
   });
 
   test('reverting an untouched delivery moves the order back to CLEARED', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto(`/orders/${untouchedOrderId}`);
     await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 
@@ -101,7 +101,7 @@ test.describe('Revert delivery', () => {
   });
 
   test('reverting a delivery already sold from is rejected with a readable error', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto(`/orders/${soldFromOrderId}`);
     await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 
@@ -143,7 +143,7 @@ test.describe('Delivered-order edit form locks non-cost fields', () => {
   });
 
   test('non-cost fields render read-only while cost-correction fields stay editable', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto(`/orders/${orderId}`);
     await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 
@@ -185,7 +185,7 @@ test.describe('Price suggestion column', () => {
   });
 
   test('line items table shows a computed Suggested (₦) price', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto(`/orders/${orderId}`);
     await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 
@@ -237,7 +237,7 @@ test.describe('FX Variance field', () => {
   });
 
   test('shows a computed FX Variance figure when a payment has a differing FX rate', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto(`/orders/${ratedOrderId}`);
     await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 
@@ -245,7 +245,7 @@ test.describe('FX Variance field', () => {
   });
 
   test('does not show FX Variance when no payment has a differing FX rate', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto(`/orders/${unratedOrderId}`);
     await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
 

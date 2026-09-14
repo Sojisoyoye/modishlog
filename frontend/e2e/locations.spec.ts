@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 // ---------------------------------------------------------------------------
 // Locations Page E2E Tests
@@ -10,7 +10,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/settings/locations');
   await expect(page.getByRole('heading', { name: 'Locations', exact: true })).toBeVisible();
 });

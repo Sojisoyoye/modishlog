@@ -16,11 +16,13 @@ jobs:
       - run: npx ng build --configuration production
         working-directory: frontend
 
-  # 4-way sharded E2E run. workers:1 stays pinned in playwright.config.ts (test
-  # files share one Postgres DB/business and would race within a single run),
-  # but each shard gets its own fully isolated CI runner + its own
+  # 8-way sharded E2E run (raised from 4 -- workers:1 within each shard means
+  # wall-clock time is bounded by the slowest shard's total test time, not
+  # setup overhead, so doubling shard count is the direct lever to roughly
+  # halve it). workers:1 stays pinned in playwright.config.ts (test files
+  # share one Postgres DB/business and would race within a single run), but
+  # each shard gets its own fully isolated CI runner + its own
   # backend/db_test/redis stack, so shards never contend with each other.
-  # ~4x wall-clock speedup over one 20-30min serial run (task #178).
   e2e-shard:
     name: e2e-shard
     needs: [build]
@@ -28,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v4
 
@@ -112,7 +114,7 @@ jobs:
           exit 1
 
       - name: Run Playwright E2E tests
-        run: npx playwright test --project=chromium --reporter=list,html --shard=${{ matrix.shard }}/4
+        run: npx playwright test --project=chromium --reporter=list,html --shard=${{ matrix.shard }}/8
         working-directory: frontend
         env:
           CI: 'true'

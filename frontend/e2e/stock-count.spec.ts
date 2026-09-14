@@ -1,5 +1,5 @@
 import { test, expect, request } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, getAPIToken } from './helpers/auth';
 import { ensureProduct, createOrder, advanceOrderToStatus } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
@@ -70,7 +70,7 @@ test.describe('Stock count feature', () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   test('stock counts page is accessible from nav', async ({ page }) => {
@@ -153,7 +153,7 @@ test.describe('LOT-type stock count', () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   test('create LOT-type stock count via UI and see lot rows', async ({ page }) => {

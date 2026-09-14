@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
 
 // ---------------------------------------------------------------------------
 // JWT Token Storage E2E Tests
@@ -14,7 +14,7 @@ test.beforeAll(async () => {
 
 test.describe('Login uses HttpOnly cookie — not localStorage', () => {
   test('after login, localStorage contains no access token', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.waitForURL('**/dashboard', { timeout: 15_000 });
 
     const accessToken = await page.evaluate(() => localStorage.getItem('modishlog_token'));
@@ -26,14 +26,14 @@ test.describe('Login uses HttpOnly cookie — not localStorage', () => {
   });
 
   test('after login, user is authenticated and dashboard is accessible', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await expect(page).toHaveURL(/\/dashboard/);
   });
 });
 
 test.describe('Logout clears session', () => {
   test('logout redirects to /login and localStorage remains empty', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
 
     await page.getByRole('button', { name: 'Logout' }).click();
     await page.waitForURL('**/login', { timeout: 10_000 });

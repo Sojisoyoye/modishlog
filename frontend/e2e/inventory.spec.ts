@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
 import { ensureProduct, addStock } from './helpers/data';
 
 test.beforeAll(async () => {
@@ -7,7 +7,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/inventory');
   await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible();
 });

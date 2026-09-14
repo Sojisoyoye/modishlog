@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 // ---------------------------------------------------------------------------
 // Task 193 — /cash-runway and /dscr fetch failures must show a visible error
@@ -22,7 +22,7 @@ test.describe('Cashflow page — liquidity fetch failure shows a visible error s
   test('shows an error banner, not misleading placeholder data, when /cash-runway and /dscr fail', async ({
     page,
   }) => {
-    // Register routes BEFORE logging in — loginViaUI navigates through
+    // Register routes BEFORE logging in — loginViaAPI navigates through
     // /dashboard first, whose Cash Health card also calls /cash-runway and
     // /dscr. Registering after login would leave that first dashboard call
     // unintercepted, hitting the real backend and (since task 191)
@@ -39,7 +39,7 @@ test.describe('Cashflow page — liquidity fetch failure shows a visible error s
       route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"error"}' })
     );
 
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/cashflow');
     await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
 
@@ -54,7 +54,7 @@ test.describe('Cashflow page — liquidity fetch failure shows a visible error s
 
   test('Retry re-fetches and shows real data once the backend recovers', async ({ page }) => {
     // See the comment in the previous test — routes must be registered
-    // before loginViaUI, not after, since the dashboard it navigates
+    // before loginViaAPI, not after, since the dashboard it navigates
     // through also calls /cash-runway and /dscr.
     //
     // The "recovered" response is a synthetic fulfill(), not
@@ -99,7 +99,7 @@ test.describe('Cashflow page — liquidity fetch failure shows a visible error s
           })
     );
 
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/cashflow');
     await expect(page.getByText(/failed to load/i)).toBeVisible({ timeout: 10_000 });
 

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 function writeTmpCsv(name: string, rows: string[]): string {
   const tmpFile = path.join(os.tmpdir(), name);
@@ -47,7 +47,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/settings/import');
   await expect(page.getByRole('heading', { name: 'Data Imports' })).toBeVisible({ timeout: 15_000 });
 });

@@ -1,5 +1,5 @@
 import { test, expect, request, type Page } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, getAPIToken } from './helpers/auth';
 import { ensureProduct, advanceOrderToStatus } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
@@ -68,7 +68,7 @@ test.describe('Orders pipeline status cards', () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   test('pipeline filter buttons show human-readable labels', async ({ page }) => {

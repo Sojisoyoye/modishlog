@@ -1,5 +1,5 @@
 import { test, expect, request as pwRequest } from '@playwright/test';
-import { ensureTestUser, loginViaUI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
 import { ensureCategory, ensureProductInCategory } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
@@ -17,7 +17,7 @@ test.beforeAll(async () => {
 
 // Authenticate and land on /products before every test
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/products');
   await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible({ timeout: 15000 });
 });
@@ -188,11 +188,11 @@ test('Add Product form margin indicator is green for positive margin, red for ne
   const addForm = page.locator('#add-product-form');
   const marginBadge = addForm.locator('[data-testid="add-margin"]');
 
-  // Positive margin → green
+  // Positive margin → emerald (the component uses text-emerald-700/text-red-500, not text-green/text-red)
   await addForm.locator('[data-testid="add-unit-cost-input"]').fill('100');
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('150');
   await expect(marginBadge).toBeVisible();
-  await expect(marginBadge).toHaveClass(/text-green/);
+  await expect(marginBadge).toHaveClass(/text-emerald/);
 
   // Negative margin (price < cost) → red
   await addForm.locator('[data-testid="add-selling-price-input"]').fill('80');

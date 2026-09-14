@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 const API = process.env['API_URL'] ?? 'http://localhost:8000/api/v1';
 
@@ -36,7 +36,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/expenses');
   await expect(page.getByRole('heading', { name: 'Expenses' })).toBeVisible({ timeout: 15000 });
 });

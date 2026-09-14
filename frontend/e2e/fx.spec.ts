@@ -1,5 +1,5 @@
 import { test, expect, request } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, getAPIToken } from './helpers/auth';
 
 // ---------------------------------------------------------------------------
 // FX Rates Page E2E Tests
@@ -37,7 +37,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/fx');
   await expect(page.getByRole('heading', { name: 'FX Rates' })).toBeVisible({ timeout: 15000 });
 });
