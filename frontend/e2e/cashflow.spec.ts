@@ -269,14 +269,21 @@ test.describe('Saved Scenarios', () => {
     await page.getByRole('button', { name: 'FX +20%' }).click();
     await expect(page.getByText('Worst DSCR')).toBeVisible({ timeout: 30_000 });
 
+    // Positional indexing (nth(0)/nth(1)) into the full checkbox list is
+    // fragile once other scenarios exist in the table (e.g. from earlier
+    // tests in this file, or a shared CI test business with more history)
+    // -- target each row by the FX Shock value this test itself just
+    // created instead, which is unambiguous regardless of table size/order.
     const scenariosTable = page
       .locator('table')
       .filter({ has: page.getByRole('columnheader', { name: 'FX Shock' }) });
-    const checkboxes = scenariosTable.locator('tbody input[type="checkbox"]');
-    await expect(checkboxes.nth(1)).toBeVisible({ timeout: 10_000 });
+    const row10 = scenariosTable.locator('tbody tr').filter({ hasText: '10%' }).first();
+    const row20 = scenariosTable.locator('tbody tr').filter({ hasText: '20%' }).first();
+    await expect(row10).toBeVisible({ timeout: 10_000 });
+    await expect(row20).toBeVisible({ timeout: 10_000 });
 
-    await checkboxes.nth(0).check();
-    await checkboxes.nth(1).check();
+    await row10.locator('input[type="checkbox"]').check();
+    await row20.locator('input[type="checkbox"]').check();
 
     // Two comparison cards render, each showing DSCR/Runway/FX Shock/Revenue Shock.
     await expect(page.getByText('Select two scenarios to compare')).not.toBeVisible();
