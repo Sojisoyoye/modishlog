@@ -99,7 +99,7 @@ from src.pricing.models import (
 from src.products.models import PriceHistory, Product, ProductCategory
 from src.expenses.models import Expense, ExpenseCategory
 from src.sales.models import Sale, SaleAuditEntry, SaleBulkUploadJob, SaleChannel, SaleStatus, SellReturn
-from src.settings.models import UserApiKey, UserPreferences
+from src.settings.models import BusinessProfile, UserApiKey, UserPreferences
 from src.stockcount.models import StockCount, StockCountItem
 from src.suppliers.models import PayTermType, Supplier, SupplierProduct
 
@@ -648,6 +648,7 @@ WIPE_ORDER = [
     InvoiceScheme,
     UserApiKey,
     UserPreferences,
+    BusinessProfile,        # → businesses, users (updated_by) -- must clear before User
     PasswordResetToken,
     RefreshToken,
     User,

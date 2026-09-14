@@ -64,12 +64,13 @@ test.describe('Refresh token endpoint', () => {
       data: { email: E2E_EMAIL, password: E2E_PASSWORD },
     });
     expect(loginResp.ok()).toBeTruthy();
-    const { refresh_token } = await loginResp.json();
-    expect(refresh_token).toBeTruthy();
+    const { access_token } = await loginResp.json();
+    expect(access_token).toBeTruthy();
 
-    const refreshResp = await request.post(`${API}/auth/refresh`, {
-      data: { refresh_token },
-    });
+    // S2 security fix: refresh_token is no longer echoed in the JSON body --
+    // it's set as an HttpOnly cookie scoped to /api/v1/auth/refresh, which
+    // Playwright's request context already holds from the login call above.
+    const refreshResp = await request.post(`${API}/auth/refresh`);
     expect(refreshResp.ok()).toBeTruthy();
     const data = await refreshResp.json();
     expect(data.access_token).toBeTruthy();

@@ -222,6 +222,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                 <button
                   (click)="saveApiKey()"
                   [disabled]="saving()"
+                  data-testid="save-api-key-button"
                   class="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50 min-h-[44px]"
                 >
                   <i class="pi pi-save text-sm"></i> Save

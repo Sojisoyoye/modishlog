@@ -1,11 +1,16 @@
 import { test, expect } from '@playwright/test';
 import { ensureTestUser, loginViaAPI } from './helpers/auth';
+import { ensureProduct, addStock } from './helpers/data';
 
 const MOBILE = { width: 390, height: 844 };
 
 test.describe('Modal mobile responsiveness', () => {
   test.beforeAll(async () => {
     await ensureTestUser();
+    // The inventory Adjust button only renders per-row, so a product with
+    // stock must exist or the table is empty.
+    const product = await ensureProduct('E2E Modal Responsive Product');
+    await addStock(product.id, 10);
   });
 
   test.beforeEach(async ({ page }) => {
