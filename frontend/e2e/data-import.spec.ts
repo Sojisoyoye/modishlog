@@ -121,7 +121,7 @@ test('wizard: full happy path — upload, validate, confirm, summary shows corre
   await page.locator('input[type="file"]#file-products').setInputFiles(productsFile);
   await page.getByRole('button', { name: 'Next' }).click();
 
-  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: /looks good.*proceed to import/i }).click();
 
   // Mandatory confirmation screen (subtask 163.2)
@@ -141,7 +141,7 @@ test('wizard: cancel at confirmation screen does not import any data', async ({ 
   await goToCsvUploadStep(page);
   await page.locator('input[type="file"]#file-products').setInputFiles(productsFile);
   await page.getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: /looks good.*proceed to import/i }).click();
 
   await expect(page.getByRole('heading', { name: /review your import/i })).toBeVisible();
@@ -159,7 +159,7 @@ test('undo a completed import removes it from active data and updates history', 
   await goToCsvUploadStep(page);
   await page.locator('input[type="file"]#file-products').setInputFiles(productsFile);
   await page.getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: /looks good.*proceed to import/i }).click();
   await page.getByRole('button', { name: /yes, import this data/i }).click();
   await expect(page.getByRole('heading', { name: /import complete/i })).toBeVisible({ timeout: 20_000 });

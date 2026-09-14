@@ -111,9 +111,12 @@ test.describe('KPI accordion structure', () => {
   });
 
   test('AI Smart Suggestions expands and reveals card', async ({ page }) => {
-    await expect(page.getByText('Smart Suggestions')).not.toBeVisible();
+    // Non-exact 'Smart Suggestions' also matches the always-visible toggle
+    // header itself ("AI Smart Suggestions"), which contains it as a
+    // substring -- exact match distinguishes the toggle from the card title.
+    await expect(page.getByText('Smart Suggestions', { exact: true })).not.toBeVisible();
     await page.getByText('AI Smart Suggestions').click();
-    await expect(page.getByText('Smart Suggestions').first()).toBeVisible();
+    await expect(page.getByText('Smart Suggestions', { exact: true }).first()).toBeVisible();
   });
 
   test('accordion collapses again on second click', async ({ page }) => {
