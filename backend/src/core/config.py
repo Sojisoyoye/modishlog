@@ -185,6 +185,14 @@ class Settings(BaseSettings):
     # tests that verify the real blocking behaviour.
     E2E_AUTO_VERIFY_EMAIL: bool = False
 
+    # Set only by docker-compose.e2e.yml — /auth/onboard's normal 5/minute
+    # limit is easy to exceed within a single e2e run: register.spec.ts alone
+    # makes several onboard calls (happy path, duplicate-email pre-seeding),
+    # and other files sharing the same CI test business add more across a
+    # shard's full run. Same dedicated-flag rationale as
+    # E2E_RELAXED_LOGIN_RATE_LIMIT and E2E_AUTO_VERIFY_EMAIL above.
+    E2E_RELAXED_ONBOARD_RATE_LIMIT: bool = False
+
     # External APIs
     FX_API_KEY: str = ""
     FX_API_URL: str = "https://api.example.com/fx"

@@ -30,3 +30,4 @@ services:
       ENVIRONMENT: test
       E2E_RELAXED_LOGIN_RATE_LIMIT: "true"
       E2E_AUTO_VERIFY_EMAIL: "true"
+      E2E_RELAXED_ONBOARD_RATE_LIMIT: "true"

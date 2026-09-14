@@ -98,8 +98,18 @@ def _login_rate_limit() -> str:
     return "1000/minute" if settings.E2E_RELAXED_LOGIN_RATE_LIMIT else "10/minute"
 
 
+def _onboard_rate_limit() -> str:
+    """Same rationale as _login_rate_limit(): register.spec.ts alone makes
+    several /onboard calls (happy path, duplicate-email pre-seeding), and a
+    shared CI test business can accumulate more across other e2e files in
+    the same shard/session -- 5/minute genuinely gets hit, surfacing as a
+    generic "Registration failed" in the UI with no indication it was a 429.
+    """
+    return "1000/minute" if settings.E2E_RELAXED_ONBOARD_RATE_LIMIT else "5/minute"
+
+
 @router.post("/onboard", response_model=OnboardResponse, status_code=status.HTTP_201_CREATED)
-@limiter.limit("5/minute")
+@limiter.limit(_onboard_rate_limit)
 async def onboard_business(
     request: Request, data: OnboardRequest, response: Response, db: AsyncSession = Depends(get_db)
 ):
