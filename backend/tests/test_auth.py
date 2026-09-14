@@ -935,7 +935,9 @@ class TestResetPasswordEndpoint:
         assert resp.status_code == 400
 
     def test_reset_password_weak_password(self):
-        """Weak new password returns 400."""
+        """Weak new password returns 422, distinct from the 400 used for an
+        invalid/expired token -- otherwise the frontend can't tell the two
+        failures apart."""
         from src.auth.models import PasswordResetToken
 
         user = _make_user()
@@ -961,7 +963,8 @@ class TestResetPasswordEndpoint:
                     "new_password": "weak",
                 },
             )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
+        assert "at least 12 characters" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

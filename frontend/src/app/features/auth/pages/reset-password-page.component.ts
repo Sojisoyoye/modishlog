@@ -231,7 +231,12 @@ export class ResetPasswordPageComponent implements OnInit {
       },
       error: (err: HttpErrorResponse) => {
         this.loading.set(false);
-        if (err.status === 400) {
+        if (err.status === 422) {
+          this.errorMessage.set(
+            err.error?.detail ||
+              'Password must be at least 12 characters with uppercase, lowercase, digit, and special character.',
+          );
+        } else if (err.status === 400) {
           this.errorMessage.set('Invalid or expired reset link. Please request a new one.');
         } else {
           this.errorMessage.set('An unexpected error occurred. Please try again.');
