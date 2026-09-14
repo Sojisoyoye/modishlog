@@ -28,6 +28,17 @@ services:
       CORS_ORIGINS: '["http://localhost:4200","http://localhost","https://modishlog-staging.vercel.app"]'
       ENVIRONMENT: development
       TZ: UTC
+      # Must match the uploads_data volume mount below, not the UPLOAD_DIR
+      # default (/app/uploads) -- /app is bind-mounted from the host (line
+      # below), so appuser (the non-root Dockerfile USER) owns nothing under
+      # it once the bind mount replaces the image's chown'd /app at runtime.
+      # Locally on macOS this is masked by Docker Desktop/Colima's lenient
+      # bind-mount permission handling, but a native Linux host (e.g. every
+      # GitHub Actions runner) enforces real UID ownership, so writing an
+      # uploaded file under /app/uploads raises PermissionError(13) 100% of
+      # the time in CI. uploads_data is a real Docker-managed volume, not a
+      # bind mount, so it's unaffected either way.
+      UPLOAD_DIR: /uploads
       # Force watchfiles (uvicorn --reload engine) to use mtime polling instead
       # of inotify, which doesn't propagate from macOS host into Docker volumes.
       WATCHFILES_FORCE_POLLING: 'true'

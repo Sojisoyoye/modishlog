@@ -6,7 +6,6 @@ import csv
 import io
 import json
 import os
-import time
 import uuid
 from datetime import datetime, timezone
 
@@ -260,12 +259,6 @@ async def _extract_and_transform(
     could make the two disagree. Acceptable for Phase 0/1's scale; a caching
     layer for the *transform* step is the fix if that becomes a problem.
     """
-    # Task 226: timing breakdown to root-cause CI-only slowness in
-    # validate_job (fast locally, deterministically times out in CI even
-    # with a generous 30s client-side wait) -- narrows down which step is
-    # actually slow instead of guessing. Remove once root-caused.
-    _t0 = time.monotonic()
-
     if job.extraction_mode == ExtractionMode.API:
         # Extraction already happened once, at job-creation time (see
         # create_job) — credentials aren't available here and don't need to
@@ -294,8 +287,6 @@ async def _extract_and_transform(
             entity: csv_adapter.map_rows(entity, rows) for entity, rows in raw.items()
         }
 
-    _t_extract = time.monotonic()
-
     transformer = Transformer(db, job.business_id, job.created_by)
 
     known_product_ids = {
@@ -305,32 +296,22 @@ async def _extract_and_transform(
         mapped.get("sales", []), known_product_ids
     )
 
-    transformed: dict[str, list[dict]] = {}
-    _step_timings: dict[str, float] = {}
-    for _key, _coro in (
-        (
-            "product_categories",
-            transformer.transform_categories(mapped.get("product_categories", [])),
+    transformed: dict[str, list[dict]] = {
+        "product_categories": await transformer.transform_categories(
+            mapped.get("product_categories", [])
         ),
-        (
-            "products",
-            transformer.transform_products(mapped.get("products", []) + ghosts),
+        "products": await transformer.transform_products(
+            mapped.get("products", []) + ghosts
         ),
-        ("suppliers", transformer.transform_suppliers(mapped.get("suppliers", []))),
-        ("customers", transformer.transform_customers(mapped.get("customers", []))),
-    ):
-        _t_step_start = time.monotonic()
-        transformed[_key] = await _coro
-        _step_timings[_key] = time.monotonic() - _t_step_start
-
-    transformed["business_locations"] = transformer.transform_locations(
-        mapped.get("business_locations", [])
-    )
-    _t_variants_start = time.monotonic()
+        "suppliers": await transformer.transform_suppliers(mapped.get("suppliers", [])),
+        "customers": await transformer.transform_customers(mapped.get("customers", [])),
+        "business_locations": transformer.transform_locations(
+            mapped.get("business_locations", [])
+        ),
+    }
     transformed["product_variants"] = await transformer.transform_variants(
         mapped.get("product_variants", [])
     )
-    _step_timings["product_variants"] = time.monotonic() - _t_variants_start
 
     location_map = {}
     for row in transformed["business_locations"]:
@@ -364,22 +345,11 @@ async def _extract_and_transform(
         mapped.get("purchase_returns", [])
     )
 
-    await logger.ainfo(
-        "data_import_extract_and_transform_timing",
-        job_id=str(job.id),
-        extract_seconds=round(_t_extract - _t0, 3),
-        transform_seconds=round(time.monotonic() - _t_extract, 3),
-        total_seconds=round(time.monotonic() - _t0, 3),
-        step_seconds={k: round(v, 3) for k, v in _step_timings.items()},
-    )
-
     return mapped, transformed, transformer
 
 
 async def validate_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
-    _t0 = time.monotonic()
     mapped, transformed, transformer = await _extract_and_transform(db, job)
-    _t_extract_and_transform = time.monotonic()
 
     issues: list[ValidationIssue] = validate_extracted_data(mapped)
     issues.extend(transformer.warnings)
@@ -395,16 +365,7 @@ async def validate_job(db: AsyncSession, job: MigrationJob) -> MigrationJob:
         if not errors
         else MigrationJobStatus.TRANSFORMING
     )
-    _t_before_flush = time.monotonic()
     await db.flush()
-    await logger.ainfo(
-        "data_import_validate_job_timing",
-        job_id=str(job.id),
-        extract_and_transform_seconds=round(_t_extract_and_transform - _t0, 3),
-        issue_validation_seconds=round(_t_before_flush - _t_extract_and_transform, 3),
-        flush_seconds=round(time.monotonic() - _t_before_flush, 3),
-        total_seconds=round(time.monotonic() - _t0, 3),
-    )
     return job
 
 

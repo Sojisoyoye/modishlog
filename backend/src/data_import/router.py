@@ -1,4 +1,3 @@
-import time
 import uuid
 import zipfile
 from io import BytesIO
@@ -229,25 +228,12 @@ async def validate_job(
     db: AsyncSession = Depends(get_db),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    # Task 226: entry/exit markers around the whole handler -- if the
-    # detailed timing logged inside service.validate_job() never shows up
-    # for a slow/hung request, that places the hang upstream of it (auth
-    # dependency resolution, get_db, or get_job) rather than inside the
-    # extract/transform pipeline itself. Remove once root-caused.
-    _t0 = time.monotonic()
-    await logger.ainfo("data_import_validate_endpoint_entered", job_id=str(job_id))
     try:
         job = await service.get_job(db, job_id, business_id=business_id)
     except MigrationJobNotFoundError:
         raise HTTPException(status_code=404, detail="Migration job not found")
     try:
-        result = await service.validate_job(db, job)
-        await logger.ainfo(
-            "data_import_validate_endpoint_completed",
-            job_id=str(job_id),
-            total_seconds=round(time.monotonic() - _t0, 3),
-        )
-        return result
+        return await service.validate_job(db, job)
     except MissingExtractedDataError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
