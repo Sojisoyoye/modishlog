@@ -7,6 +7,33 @@ import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
 
 test.beforeAll(async () => {
   await ensureTestUser();
+
+  // Pre-warm the USDNGN forecast once, up front. Without this, the FIRST
+  // /fx page load in the whole run finds no forecast rows, the page
+  // auto-triggers generateForecast(), and on a fresh test DB that fails
+  // outright ("Insufficient rate data ... have 1 days, need 30") -- so the
+  // forecast table (and its pagination controls) never renders for any
+  // test in this file. Seed 35 days of synthetic history first so the
+  // generate call actually succeeds.
+  const token = await getAPIToken();
+  const ctx = await request.newContext();
+  try {
+    const headers = { Authorization: `Bearer ${token}` };
+    for (let i = 35; i >= 1; i--) {
+      const timestamp = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString();
+      const rate = 1500 + Math.sin(i / 3) * 20; // mild variation, not flat -- avoids a zero-volatility edge case in the GBM fit
+      await ctx.post('http://localhost:8000/api/v1/fx/rates/ingest', {
+        headers,
+        data: { pair: 'USDNGN', rate, source: 'manual', timestamp },
+      });
+    }
+    await ctx.post('http://localhost:8000/api/v1/fx/forecast/generate', {
+      headers,
+      data: { pair: 'USDNGN', horizon_days: 180, num_simulations: 10000 },
+    });
+  } finally {
+    await ctx.dispose();
+  }
 });
 
 test.beforeEach(async ({ page }) => {
@@ -18,11 +45,11 @@ test.beforeEach(async ({ page }) => {
 test.describe('FX page layout', () => {
   test('displays the page heading and subtitle', async ({ page }) => {
     await expect(page.getByRole('heading', { name: 'FX Rates' })).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText('Track and forecast NGN/USD exchange rates')).toBeVisible();
+    await expect(page.getByText('Track and forecast NGN exchange rates')).toBeVisible();
   });
 
-  test('displays the Current NGN/USD Rate card', async ({ page }) => {
-    await expect(page.getByText('Current NGN/USD Rate').first()).toBeVisible();
+  test('displays the USD/NGN rate card', async ({ page }) => {
+    await expect(page.getByText('USD / NGN').first()).toBeVisible();
   });
 
   test('displays the Add Rate form', async ({ page }) => {
@@ -39,15 +66,23 @@ test.describe('FX page layout', () => {
   });
 });
 
-test.describe('EUR/USD sub-card (Task 16)', () => {
-  test('shows EUR/USD Rate label in the rate card', async ({ page }) => {
-    await expect(page.getByText('EUR/USD Rate').first()).toBeVisible();
+test.describe('EUR/NGN rate card', () => {
+  // The component no longer has a standalone "EUR/USD Rate" card -- EUR/USD
+  // is used internally to derive the EUR/NGN card's value (see
+  // fx-page.component.ts, "Derived from USD/NGN x EUR/USD"), not displayed
+  // on its own.
+  test('shows EUR / NGN label in the rate card', async ({ page }) => {
+    await expect(page.getByText('EUR / NGN').first()).toBeVisible();
   });
 
-  test('shows EUR/USD rate value or fallback message', async ({ page }) => {
-    // Either a rate number is shown, or "No EUR/USD rate recorded" text
-    const rateValue = page.locator('text=EUR/USD Rate').locator('..');
-    await expect(rateValue).toBeVisible();
+  test('shows a EUR/NGN rate value or a load-history fallback message', async ({ page }) => {
+    const card = page.getByTestId('eur-ngn-rate-card');
+    const hasValue = await card
+      .getByText(/^₦[\d,]+\.\d{2}$/)
+      .isVisible()
+      .catch(() => false);
+    const hasFallback = await card.getByText('Load history to populate').isVisible().catch(() => false);
+    expect(hasValue || hasFallback).toBeTruthy();
   });
 });
 
@@ -82,7 +117,7 @@ test.describe('Add Rate form', () => {
     expect(sourceOptions.some((t) => t.includes('Parallel Market'))).toBeTruthy();
 
     // Add button
-    await expect(page.getByRole('button', { name: 'Add' })).toBeVisible();
+    await expect(page.getByTestId('fx-add-rate-button')).toBeVisible();
   });
 
   test('selecting EURUSD pair changes rate placeholder', async ({ page }) => {
@@ -141,7 +176,7 @@ test.describe('Add Rate submission', () => {
     // Intercept the ingest API response to capture the rate ID for cleanup
     const [ingestResponse] = await Promise.all([
       page.waitForResponse((resp) => resp.url().includes('/fx/rates/ingest') && resp.status() === 201),
-      page.getByRole('button', { name: 'Add' }).click(),
+      page.getByTestId('fx-add-rate-button').click(),
     ]);
 
     const rateData = await ingestResponse.json();
@@ -151,8 +186,10 @@ test.describe('Add Rate submission', () => {
     await expect(page.getByText('Added')).toBeVisible();
     await expect(page.getByText('USDNGN rate recorded')).toBeVisible();
 
-    // Assert the current rate card updates to show the submitted rate
-    await expect(page.getByText('₦1,580.00')).toBeVisible();
+    // Assert the current rate card updates to show the submitted rate.
+    // Scoped to the rate card specifically -- the Forecast Insight Panel's
+    // "Today (actual)" milestone box can independently show the same value.
+    await expect(page.getByTestId('usd-ngn-rate-card').getByText('₦1,580.00')).toBeVisible();
   });
 
   test('30-Day Forecast section is visible and shows the forecast chart', async ({ page }) => {

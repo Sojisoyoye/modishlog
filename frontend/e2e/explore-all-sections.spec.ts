@@ -47,15 +47,24 @@ async function dismissModal(page: Page) {
 
 test('dashboard – loads KPI cards', async ({ page }) => {
   await page.goto('/dashboard');
-  await page.waitForLoadState('domcontentloaded');
+  // domcontentloaded only waits for the initial HTML shell -- the KPI cards
+  // themselves load async behind several API calls, replacing a skeleton once
+  // done. Wait for that real signal instead of racing a fixed short timeout.
+  await expect(page.getByTestId('hero-revenue-card')).toBeVisible({ timeout: 15_000 });
   await shot(page, '01-dashboard');
   // Dashboard renders the greeting banner and named metric sections
   await expect(page.getByText("Today's Revenue")).toBeVisible();
+  // "Cash Health", "Margin vs Target" and "Currency & Import Risks" live under
+  // the collapsed-by-default "Pulse Metrics" section; "Order Activity" lives
+  // under "Stock & Purchase Metrics" -- both start collapsed, so expand them
+  // first or none of these labels are ever rendered to find.
+  await page.getByRole('button', { name: 'Pulse Metrics' }).click();
+  await page.getByRole('button', { name: 'Stock & Purchase Metrics' }).click();
   // Look for well-known dashboard sections
-  const knownSections = ['Cash Health', 'FX Exposure', 'Profit Margin', 'Order Activity'];
+  const knownSections = ['Cash Health', 'Currency & Import Risks', 'Margin vs Target', 'Order Activity'];
   let found = 0;
   for (const s of knownSections) {
-    if (await page.getByText(s).first().isVisible({ timeout: 2_000 }).catch(() => false)) found++;
+    if (await page.getByText(s).first().isVisible({ timeout: 5_000 }).catch(() => false)) found++;
   }
   expect(found).toBeGreaterThan(1);
 });

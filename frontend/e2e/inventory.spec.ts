@@ -166,12 +166,19 @@ test('typing in search filters inventory rows', async ({ page }) => {
   const searchInput = page.getByPlaceholder('Search product...');
   await expect(searchInput).toBeVisible();
 
+  // Scoped to the inventory table specifically -- the page also has stock-movement
+  // and product-movement tables that can legitimately contain the same product
+  // name (e.g. in an audit-log row for the addStock() call above), and an
+  // unscoped page-wide row search matches both, causing a strict-mode violation.
+  const inventoryTable = page.getByTestId('inventory-table');
   await searchInput.fill(product.name);
-  await expect(page.getByRole('row').filter({ hasText: product.name })).toBeVisible({ timeout: 5_000 });
+  await expect(inventoryTable.getByRole('row').filter({ hasText: product.name })).toBeVisible({
+    timeout: 5_000,
+  });
 
   // Rows not matching the search should be hidden
   await searchInput.fill('zzz_no_match_xyz');
-  await expect(page.getByText('No inventory data')).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText('No inventory items')).toBeVisible({ timeout: 5_000 });
 });
 
 // ---------------------------------------------------------------------------

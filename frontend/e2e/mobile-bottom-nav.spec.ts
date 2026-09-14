@@ -52,10 +52,13 @@ test.describe('mobile bottom navigation', () => {
     const bottomNav = page.getByTestId('bottom-nav');
     // Initially sidebar is hidden — tap More to reveal it
     await bottomNav.getByRole('button', { name: /more/i }).click();
-    // Sidebar slides in
+    // Sidebar slides in -- toBeVisible only checks display/visibility, not that
+    // the CSS transform transition has finished, so poll boundingBox() until the
+    // slide-in animation settles instead of reading it on the first visible frame.
     await expect(sidebar).toBeVisible({ timeout: 2000 });
-    const box = await sidebar.boundingBox();
-    expect(box !== null && box.x >= 0).toBeTruthy();
+    await expect
+      .poll(async () => (await sidebar.boundingBox())?.x ?? -1, { timeout: 2000 })
+      .toBeGreaterThanOrEqual(0);
     // Bottom nav hides itself to avoid overlapping the open sidebar
     await expect(bottomNav).not.toBeVisible();
   });

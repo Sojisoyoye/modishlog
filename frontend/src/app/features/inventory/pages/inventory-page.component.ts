@@ -45,7 +45,7 @@ const SERVER_PAGE_SIZE = 200;
           </div>
         </div>
         <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-gray-200 text-sm">
+          <table data-testid="inventory-table" class="min-w-full divide-y divide-gray-200 text-sm">
             <caption class="sr-only">Current stock levels</caption>
             <thead>
               <tr class="bg-gray-50">
