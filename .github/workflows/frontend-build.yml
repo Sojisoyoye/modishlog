@@ -119,6 +119,16 @@ jobs:
         env:
           CI: 'true'
 
+      # Backend runs in Docker; its stdout only ever reaches this job's log
+      # via the "Wait for backend /health" step's failure branch, so any
+      # info-level structlog output emitted *during* the test run (e.g.
+      # per-request timing) was previously invisible here no matter what a
+      # shard failed on -- dump it unconditionally so a slow/hung endpoint
+      # can actually be diagnosed from CI output instead of guessing.
+      - name: Show backend logs
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs backend
+
       - name: Upload Playwright HTML report
         if: failure()
         uses: actions/upload-artifact@v4
