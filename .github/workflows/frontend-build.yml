@@ -96,6 +96,20 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs backend
           exit 1
 
+      # Playwright's own install command already skips re-downloading a
+      # browser binary that's present at the target revision -- caching
+      # ~/.cache/ms-playwright across runs (keyed on the lockfile, so any
+      # Playwright version bump invalidates it) turns 8x redundant Chromium
+      # downloads per CI run into 8x cache restores. The OS-level apt
+      # packages --with-deps also installs still run every time regardless
+      # (each matrix job is a fresh, non-persisted VM), just not the
+      # multi-hundred-MB browser download.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+
       - name: Install Playwright + Chromium
         run: npx playwright install --with-deps chromium
         working-directory: frontend
