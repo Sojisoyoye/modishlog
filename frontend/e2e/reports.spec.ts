@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 import { ensureProduct, addStock, createSale, voidSale } from './helpers/data';
 
 test.beforeAll(async () => {
@@ -7,7 +7,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/reports');
   await expect(page.getByRole('heading', { name: 'Reports' })).toBeVisible({ timeout: 15_000 });
 });
@@ -40,7 +40,9 @@ test('navigates to purchase & sale report page', async ({ page }) => {
 test.describe('Report breadcrumbs', () => {
   test('profit/loss page shows breadcrumb and clicking it returns to /reports', async ({ page }) => {
     await page.goto('/reports/profit-loss');
-    const crumb = page.getByRole('link', { name: /Reports/ });
+    // getByRole('link', {name: /Reports/}) also matches the sidebar's "Reports"
+    // nav link (same accessible name) -- use the dedicated testid instead.
+    const crumb = page.getByTestId('breadcrumb-back-to-reports');
     await expect(crumb).toBeVisible();
     await crumb.click();
     await expect(page).toHaveURL('/reports');
@@ -48,13 +50,13 @@ test.describe('Report breadcrumbs', () => {
 
   test('stock report page shows breadcrumb', async ({ page }) => {
     await page.goto('/reports/stock');
-    await expect(page.getByRole('link', { name: /Reports/ })).toBeVisible();
+    await expect(page.getByTestId('breadcrumb-back-to-reports')).toBeVisible();
     await expect(page.getByText('Stock Report').nth(1)).toBeVisible();
   });
 
   test('purchase & sale page shows breadcrumb', async ({ page }) => {
     await page.goto('/reports/purchase-sale');
-    await expect(page.getByRole('link', { name: /Reports/ })).toBeVisible();
+    await expect(page.getByTestId('breadcrumb-back-to-reports')).toBeVisible();
     await expect(page.getByText('Purchase & Sale').nth(1)).toBeVisible();
   });
 });

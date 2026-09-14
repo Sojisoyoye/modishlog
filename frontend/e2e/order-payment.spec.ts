@@ -1,5 +1,5 @@
 import { test, expect, request } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, getAPIToken } from './helpers/auth';
 import { ensureProduct, createOrder, deleteOrder, advanceOrderToStatus } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
@@ -27,7 +27,7 @@ test.afterAll(async () => {
 
 test.describe('Order payment recording', () => {
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   test('payment section is visible on order detail', async ({ page }) => {

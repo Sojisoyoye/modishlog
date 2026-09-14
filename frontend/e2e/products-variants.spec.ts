@@ -1,6 +1,6 @@
 import { test, expect, request as pwRequest } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
-import { ensureCategory } from './helpers/data';
+import { ensureTestUser, loginViaAPI, getAPIToken } from './helpers/auth';
+import { ensureCategory, createVariant } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
 
@@ -10,6 +10,12 @@ let testProductName: string;
 /**
  * Create (or reuse) a product with has_variants=true so the Edit dialog
  * will show the variants panel when opened.
+ *
+ * `has_variants` is a derived column, not a settable field on ProductCreate --
+ * the backend silently ignores it in the creation payload and only flips it
+ * to true as a side effect of actually creating a variant (see
+ * backend/src/products/service.py). Passing has_variants: true here does
+ * nothing on its own; a real variant must be created too.
  */
 async function ensureVariantProduct(): Promise<{ id: string; name: string }> {
   const token = await getAPIToken();
@@ -27,7 +33,7 @@ async function ensureVariantProduct(): Promise<{ id: string; name: string }> {
       const items: { id: string; name: string; has_variants?: boolean }[] = Array.isArray(data)
         ? data
         : (data.items ?? []);
-      const found = items.find((p) => p.name === name);
+      const found = items.find((p) => p.name === name && p.has_variants);
       if (found) return { id: found.id, name: found.name };
     }
     const sku = `E2E-VAR-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -45,6 +51,7 @@ async function ensureVariantProduct(): Promise<{ id: string; name: string }> {
     });
     if (!resp.ok()) throw new Error(`Create variant product failed: ${resp.status()} ${await resp.text()}`);
     const product = await resp.json();
+    await createVariant(product.id, `Seed-${Date.now()}`);
     return { id: product.id, name: product.name };
   } finally {
     await ctx.dispose();
@@ -59,7 +66,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/products');
   await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible({ timeout: 15_000 });
 });
@@ -126,6 +133,12 @@ test('toggling has_variants ON reveals the variants panel', async ({ page }) => 
   } finally {
     await ctx.dispose();
   }
+
+  // The products list was already fetched (and cached client-side) by
+  // beforeEach's page.goto('/products') before this product existed --
+  // reload to force a fresh fetch that includes it.
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible({ timeout: 15_000 });
 
   // Search and open Edit dialog for that product
   await page.getByPlaceholder('Search products...').fill(noVariantProductName!);
@@ -209,8 +222,11 @@ test('deactivating a variant shows it as Inactive', async ({ page }) => {
   const variantRow = dialog.locator('table tbody tr').filter({ hasText: seededVariantName! });
   await expect(variantRow).toBeVisible({ timeout: 8_000 });
 
-  // It should currently show "Active" (use exact regex to avoid matching "Inactive" substring)
-  await expect(variantRow.locator('td').filter({ hasText: /^Active$/ }).first()).toBeVisible();
+  // It should currently show "Active" (anchored regex to avoid matching "Inactive" substring;
+  // the template renders the status text with surrounding whitespace, e.g. "<span> Active </span>",
+  // and hasText regex matching -- unlike plain-string hasText -- is not trimmed, so the pattern
+  // must tolerate it explicitly).
+  await expect(variantRow.locator('td').filter({ hasText: /^\s*Active\s*$/ }).first()).toBeVisible();
 
   // Click the Deactivate button on that row and wait for the PATCH response
   const deactivateBtn = variantRow.getByRole('button', { name: /Deactivate/i });

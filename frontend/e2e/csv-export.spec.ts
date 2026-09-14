@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 // ---------------------------------------------------------------------------
 // CSV Export E2E Tests (task #71)
@@ -11,7 +11,7 @@ test.beforeAll(async () => {
 
 test.describe('Sales CSV Export', () => {
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/sales');
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
     // Navigate to All Sales tab so the Export button is visible
@@ -33,7 +33,7 @@ test.describe('Sales CSV Export', () => {
 
 test.describe('Orders CSV Export', () => {
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/orders');
     await expect(page.getByRole('heading', { name: 'Orders', exact: true })).toBeVisible({ timeout: 15_000 });
   });
@@ -53,7 +53,7 @@ test.describe('Orders CSV Export', () => {
 
 test.describe('FX Rates CSV Export', () => {
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/fx');
     await expect(page.getByRole('heading', { name: 'FX Rates', exact: true })).toBeVisible({ timeout: 15_000 });
   });

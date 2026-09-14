@@ -4,7 +4,7 @@
  */
 import { test, expect, Page } from '@playwright/test';
 import { ensureTestUser, loginViaAPI } from './helpers/auth';
-import { addStock, createSale, ensureProduct } from './helpers/data';
+import { addStock, createDailySale, ensureProduct } from './helpers/data';
 
 let productId: string;
 let productName: string;
@@ -14,9 +14,12 @@ test.beforeAll(async () => {
   const p = await ensureProduct('E2E Sales Test Product');
   productId = p.id;
   productName = p.name;
-  // Seed stock and a sale so the All Sales list always has at least one row
+  // Seed stock and a sale so the All Sales list always has at least one row.
+  // createSale() (plain POST /sales) never sets a transaction_id, so it
+  // never appears in the transaction-grouped "All Sales" list -- use
+  // createDailySale() (POST /sales/daily-entry), which does.
   await addStock(productId, 50);
-  await createSale(productId, { quantity: 1 });
+  await createDailySale(productId, { quantity: 1 });
 });
 
 test.beforeEach(async ({ page }) => {
@@ -66,28 +69,31 @@ test('sales - record-sale form opens with required fields', async ({ page }) => 
   await page.goto('/sales');
   await page.waitForLoadState('domcontentloaded');
 
-  // Try button first, then tab
-  const recordBtn = page.getByRole('button', { name: /record sale|new sale|add sale/i }).first();
-  if (await recordBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await recordBtn.click();
-  } else {
-    const recordTab = page.getByRole('tab', { name: /record sale/i });
-    if (await recordTab.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await recordTab.click();
-    }
+  // Click the Add Sale tab, verifying the switch actually happened -- the
+  // click on this tab was found to silently not register sometimes (~50% of
+  // local runs), leaving the page on All Sales. The old check for "a product
+  // selector" (`select`) was a false positive there too: All Sales has its
+  // own unrelated `select` (the "Show N entries" page-size picker), so the
+  // test would proceed as if the switch worked and then fail confusingly
+  // later, or hang on an unbounded scrollIntoViewIfNeeded(). Retry the click
+  // once against a field unique to the Record Sales panel.
+  const recordTab = page.getByTestId('tab-record-sales');
+  const customerField = page.locator('#sale-customer');
+  await recordTab.click();
+  if (!(await customerField.isVisible({ timeout: 3_000 }).catch(() => false))) {
+    await recordTab.click();
+    await customerField.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
   }
-  await page.waitForTimeout(600);
   await shot(page, '03-record-sale-form');
 
   // Form should have a product selector and quantity field
-  const hasProductField = await page.locator('input[placeholder*="product"], select, [class*="dropdown"], [class*="select"]').first().isVisible({ timeout: 4_000 }).catch(() => false);
+  const hasProductField = await customerField.isVisible().catch(() => false);
   const hasQtyField = await page.locator('input[type="number"], input[placeholder*="qty"], input[placeholder*="quantity"]').first().isVisible({ timeout: 3_000 }).catch(() => false);
   expect(hasProductField || hasQtyField).toBe(true);
 
   // There must be a submit button (this is the category of bug we're hunting)
-  const submitBtn = page.getByRole('button', { name: /record|save|submit|sell/i }).first();
-  await submitBtn.scrollIntoViewIfNeeded().catch(() => {});
-  const submitVisible = await submitBtn.isVisible({ timeout: 3_000 }).catch(() => false);
+  const submitBtn = page.getByRole('button', { name: 'Record Sales' });
+  const submitVisible = await submitBtn.isVisible({ timeout: 5_000 }).catch(() => false);
   await shot(page, '03b-record-sale-submit-area');
   expect(submitVisible).toBe(true);
 });

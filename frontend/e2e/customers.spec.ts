@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 test.beforeAll(async () => {
   await ensureTestUser();
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/customers');
   await expect(page.getByRole('heading', { name: 'Customers' })).toBeVisible({ timeout: 15000 });
 });
@@ -62,12 +62,17 @@ test('filter by active status', async ({ page }) => {
   await page.waitForTimeout(400);
   await expect(page.getByRole('cell', { name, exact: true })).toBeVisible({ timeout: 5000 });
 
-  // Toggle it inactive via the power button (title = "Deactivate")
-  await page.getByRole('button', { name: 'Deactivate' }).click();
+  // Toggle it inactive via the power button. It has no accessible name --
+  // PrimeIcons' CSS-generated glyph content on the bare <i> counts toward the
+  // accessible name computation and takes precedence over the `title`
+  // attribute fallback, so getByRole('button', {name: 'Deactivate'}) never
+  // matches. Use the dedicated testid instead.
+  await page.getByTestId(`toggle-active-customer-${name}`).click();
   await page.waitForTimeout(400);
 
   // Active filter: customer should NOT appear
-  await page.getByRole('button', { name: 'Active' }).click();
+  // (non-exact 'Active' also substring-matches the 'Inactive' filter button)
+  await page.getByRole('button', { name: 'Active', exact: true }).click();
   await page.waitForTimeout(400);
   await expect(page.getByRole('cell', { name, exact: true })).not.toBeVisible();
 

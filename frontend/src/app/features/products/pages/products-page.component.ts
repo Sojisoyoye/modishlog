@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, inject, signal, OnInit, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, ElementRef, inject, signal, OnInit, computed, viewChild } from '@angular/core';
 import { forkJoin } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
@@ -1292,7 +1292,7 @@ interface ColEntry {
 
         <!-- Has variants toggle -->
         <div class="flex items-center gap-2 mt-4">
-          <input type="checkbox" id="edit-has-variants"
+          <input type="checkbox" id="edit-has-variants" #hasVariantsInput
             [ngModel]="editForm.has_variants"
             (ngModelChange)="onHasVariantsToggle($event)"
             class="h-4 w-4 rounded border-gray-300 text-emerald-600">
@@ -1485,6 +1485,7 @@ export class ProductsPageComponent implements OnInit {
   editProductVariants = signal<ProductVariant[]>([]);
   variantSaving = signal(false);
   variantDisablePending = signal(false);
+  private readonly hasVariantsInput = viewChild<ElementRef<HTMLInputElement>>('hasVariantsInput');
   newVariantName = signal('');
   newVariantSku = signal('');
   newVariantPriceOverride = signal<string>('');
@@ -2120,8 +2121,14 @@ export class ProductsPageComponent implements OnInit {
 
   cancelDisableVariants(): void {
     this.variantDisablePending.set(false);
-    // Restore the checkbox to checked (has_variants stays true)
+    // Restore the checkbox to checked (has_variants stays true). Since the
+    // value was never actually changed (onHasVariantsToggle returns early
+    // before reassigning editForm), Angular's [ngModel] sees no change in
+    // the bound value and won't re-sync the DOM checkbox the user just
+    // unchecked natively -- set it back directly.
     this.editForm = { ...this.editForm, has_variants: true };
+    const checkbox = this.hasVariantsInput()?.nativeElement;
+    if (checkbox) checkbox.checked = true;
   }
 
   addVariant(): void {

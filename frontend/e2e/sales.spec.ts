@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 import { addStock, createSale, createDailySale, ensureProduct, getInventoryQty, voidSale } from './helpers/data';
 
 // ---------------------------------------------------------------------------
@@ -11,7 +11,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/sales');
   await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 15_000 });
 });
@@ -160,6 +160,10 @@ test.describe('Sales history table', () => {
 
   test('form labels are associated with their inputs', async ({ page }) => {
     await page.goto('/sales');
+    // The Customer field lives on the Record Sales tab -- All Sales (the
+    // default tab) only has one behind a collapsed filter panel, which
+    // isn't in the DOM until expanded.
+    await page.getByTestId('tab-record-sales').click();
     // getByLabel works only when for/id associations exist
     const customerField = page.getByLabel(/customer/i).first();
     await expect(customerField).toBeAttached({ timeout: 5000 });

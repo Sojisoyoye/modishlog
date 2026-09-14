@@ -54,7 +54,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-4">
         <!-- USD/NGN Rate Card -->
-        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div data-testid="usd-ngn-rate-card" class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <div class="mb-3 flex items-center gap-2">
             <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50">
               <i class="pi pi-dollar text-base text-emerald-700"></i>
@@ -76,7 +76,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
         </div>
 
         <!-- EUR/NGN Rate Card -->
-        <div class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+        <div data-testid="eur-ngn-rate-card" class="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
           <div class="mb-3 flex items-center gap-2">
             <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50">
               <i class="pi pi-euro text-base text-emerald-700"></i>
@@ -157,6 +157,7 @@ type ForecastPair = 'USDNGN' | 'EURNGN';
               </select>
             </div>
             <button
+              data-testid="fx-add-rate-button"
               (click)="addRate()"
               class="flex min-h-[44px] items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md"
             >

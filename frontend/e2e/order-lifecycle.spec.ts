@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 import { ensureProduct, createOrder, deleteOrder, advanceOrderToStatus } from './helpers/data';
 
 // ---------------------------------------------------------------------------
@@ -36,7 +36,7 @@ function statusText(page: import('@playwright/test').Page, status: string) {
 }
 
 test('ORDERED → PENDING: advance status and assert badge updates', async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto(`/orders/${orderId}`);
   await page.waitForLoadState('domcontentloaded');
   await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
@@ -50,7 +50,7 @@ test('ORDERED → PENDING: advance status and assert badge updates', async ({ pa
 });
 
 test('PENDING → IN_PRODUCTION: advance status and assert badge updates', async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto(`/orders/${orderId}`);
   await page.waitForLoadState('domcontentloaded');
   await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
@@ -64,7 +64,7 @@ test('PENDING → IN_PRODUCTION: advance status and assert badge updates', async
 });
 
 test('IN_PRODUCTION → SHIPPING: advance status and assert badge updates', async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto(`/orders/${orderId}`);
   await page.waitForLoadState('domcontentloaded');
   await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
@@ -78,7 +78,7 @@ test('IN_PRODUCTION → SHIPPING: advance status and assert badge updates', asyn
 });
 
 test('SHIPPING → CLEARED: advance status and assert badge updates', async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto(`/orders/${orderId}`);
   await page.waitForLoadState('domcontentloaded');
   await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
@@ -92,7 +92,7 @@ test('SHIPPING → CLEARED: advance status and assert badge updates', async ({ p
 });
 
 test('CLEARED → DELIVERED: fill FX rate, advance status, assert badge and In Stock column', async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto(`/orders/${orderId}`);
   await page.waitForLoadState('domcontentloaded');
   await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });
@@ -137,7 +137,7 @@ test.describe('Locally-sourced (NGN) order delivery', () => {
   });
 
   test('CLEARED → DELIVERED: no FX rate input shown, button enabled without one', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto(`/orders/${ngnOrderId}`);
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('heading', { name: /PO-/ })).toBeVisible({ timeout: 10_000 });

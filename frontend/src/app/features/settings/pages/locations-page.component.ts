@@ -7,6 +7,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { HttpErrorResponse } from '@angular/common/http';
 import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 import { FormsModule } from '@angular/forms';
@@ -535,9 +536,13 @@ export class LocationsPageComponent implements OnInit {
           detail: editing ? 'Location updated successfully' : 'Location created successfully',
         });
       },
-      error: () => {
+      error: (err: HttpErrorResponse) => {
         this.saving.set(false);
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to save location' });
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: err.error?.detail || 'Failed to save location',
+        });
       },
     });
   }

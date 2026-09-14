@@ -1,5 +1,5 @@
 import { test, expect, request } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, getAPIToken } from './helpers/auth';
 import { ensureProduct, createOrder, deleteOrder, createLoan, addStock, createSale } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
@@ -13,7 +13,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.waitForLoadState('domcontentloaded');
   // Wait for the page to settle past the loading skeleton
   await page.locator('[data-testid="dashboard-filter-bar"]')
@@ -111,9 +111,12 @@ test.describe('KPI accordion structure', () => {
   });
 
   test('AI Smart Suggestions expands and reveals card', async ({ page }) => {
-    await expect(page.getByText('Smart Suggestions')).not.toBeVisible();
+    // Non-exact 'Smart Suggestions' also matches the always-visible toggle
+    // header itself ("AI Smart Suggestions"), which contains it as a
+    // substring -- exact match distinguishes the toggle from the card title.
+    await expect(page.getByText('Smart Suggestions', { exact: true })).not.toBeVisible();
     await page.getByText('AI Smart Suggestions').click();
-    await expect(page.getByText('Smart Suggestions').first()).toBeVisible();
+    await expect(page.getByText('Smart Suggestions', { exact: true }).first()).toBeVisible();
   });
 
   test('accordion collapses again on second click', async ({ page }) => {

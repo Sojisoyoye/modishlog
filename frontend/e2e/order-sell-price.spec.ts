@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 import { ensureProduct, createOrder, deleteOrder, advanceOrderToStatus } from './helpers/data';
 
 test.describe.configure({ mode: 'serial' });
@@ -24,7 +24,7 @@ test.afterAll(async () => {
 
 test.describe('Order line item sell price (sell_price_ngn)', () => {
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   test('sell column shows (catalog) label when sell_price_ngn is null', async ({ page }) => {

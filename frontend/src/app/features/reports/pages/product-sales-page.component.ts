@@ -20,7 +20,7 @@ import { DATE_PRESETS, DatePreset } from '../../../core/utils/date-presets.utils
     <p-toast />
     <div>
       <div class="mb-4 flex items-center gap-2 text-sm">
-        <a routerLink="/reports" class="flex min-h-[44px] items-center gap-1.5 font-medium text-gray-500 transition-colors hover:text-gray-900">
+        <a routerLink="/reports" data-testid="breadcrumb-back-to-reports" class="flex min-h-[44px] items-center gap-1.5 font-medium text-gray-500 transition-colors hover:text-gray-900">
           <i class="pi pi-arrow-left text-xs"></i> Reports
         </a>
         <span class="text-gray-400">/</span>

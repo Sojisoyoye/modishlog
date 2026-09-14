@@ -1,5 +1,5 @@
 import { test, expect, request } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, getAPIToken } from './helpers/auth';
 import { ensureProduct, createOrder, advanceOrderToStatus } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
@@ -70,7 +70,7 @@ test.describe('Stock count feature', () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   test('stock counts page is accessible from nav', async ({ page }) => {
@@ -115,7 +115,7 @@ test.describe('Stock count feature', () => {
     const confirmDialog = page.getByRole('dialog').filter({ hasText: /Finalise/ });
     await confirmDialog.getByRole('button', { name: /Confirm/i }).click();
 
-    await expect(page.getByText('FINALIZED')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Completed')).toBeVisible({ timeout: 10000 });
     // Counted qty inputs should be gone (read-only after finalization)
     await expect(page.getByRole('spinbutton')).toHaveCount(0);
   });
@@ -127,7 +127,7 @@ test.describe('Stock count feature', () => {
     await page.goto('/stock-counts');
     await page.waitForLoadState('domcontentloaded');
 
-    await expect(page.locator('table tbody tr').filter({ hasText: 'FINALIZED' }).first()).toBeVisible();
+    await expect(page.locator('table tbody tr').filter({ hasText: 'Completed' }).first()).toBeVisible();
   });
 });
 
@@ -153,7 +153,7 @@ test.describe('LOT-type stock count', () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   test('create LOT-type stock count via UI and see lot rows', async ({ page }) => {
@@ -204,10 +204,11 @@ test.describe('LOT-type stock count', () => {
     const confirmDialog = page.getByRole('dialog').filter({ hasText: /Finalise/ });
     await confirmDialog.getByRole('button', { name: /Confirm/i }).click();
 
-    await expect(page.getByText('FINALIZED')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Completed')).toBeVisible({ timeout: 10_000 });
 
-    // Variance badge must be visible and negative (counted 0, system qty ≥ 1 from delivered order)
-    const varianceBadge = page.locator('.bg-red-100.text-red-700').first();
+    // Negative variance is rendered as plain red text (no badge/pill background) --
+    // counted 0, system qty ≥ 1 from delivered order.
+    const varianceBadge = page.locator('.text-red-600').first();
     await expect(varianceBadge).toBeVisible({ timeout: 10_000 });
     const varianceText = await varianceBadge.textContent();
     const varianceValue = parseFloat(varianceText?.trim() ?? '0');
@@ -220,7 +221,7 @@ test.describe('LOT-type stock count', () => {
     await expect(page.locator('table tbody')).toBeVisible();
 
     // List should contain a row showing Lot type and FINALIZED
-    const finalizedLotRow = page.locator('table tbody tr').filter({ hasText: 'FINALIZED' }).filter({ hasText: 'Lot' });
+    const finalizedLotRow = page.locator('table tbody tr').filter({ hasText: 'Completed' }).filter({ hasText: 'Lot' });
     await expect(finalizedLotRow.first()).toBeVisible({ timeout: 10_000 });
   });
 });

@@ -158,6 +158,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                         <i class="pi pi-pencil text-xs"></i>
                       </button>
                       <button
+                        [attr.data-testid]="'toggle-active-customer-' + c.name"
                         (click)="toggleActive(c)"
                         class="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded p-1 text-muted transition-colors hover:bg-gray-100 hover:text-text"
                         [title]="c.is_active ? 'Deactivate' : 'Activate'"

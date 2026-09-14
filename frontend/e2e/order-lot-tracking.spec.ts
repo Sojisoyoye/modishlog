@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 import { ensureProduct, createOrder, deleteOrder, advanceOrderToStatus } from './helpers/data';
 
 test.describe.configure({ mode: 'serial' });
@@ -32,7 +32,7 @@ test.afterAll(async () => {
 
 test.describe('Order lot inventory tracking', () => {
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   test('In Stock column is visible on DELIVERED orders', async ({ page }) => {

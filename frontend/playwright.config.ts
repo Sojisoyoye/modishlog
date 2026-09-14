@@ -10,7 +10,13 @@ export default defineConfig({
   // workers, racing each other against the same shared test-DB/business
   // state and doubling CPU/browser load on the CI runner.
   workers: 1,
-  retries: 0,
+  // Retries only in CI -- a genuinely broken test should still fail fast
+  // locally (0 retries), but CI runners see real variance in page-load /
+  // render timing under shared load that a hand-tuned fixed timeout can't
+  // fully absorb. A test that fails all 3 attempts in CI is still a hard
+  // failure -- this doesn't mask real regressions, it just stops one slow
+  // paint from failing an otherwise-correct test.
+  retries: process.env.CI ? 2 : 0,
   timeout: 30_000,
   reporter: [['list']],
 

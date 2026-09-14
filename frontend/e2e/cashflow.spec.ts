@@ -1,5 +1,5 @@
 import { test, expect, request } from '@playwright/test';
-import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaAPI, getAPIToken } from './helpers/auth';
 import { createOperatingCost, createLoan } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
@@ -15,7 +15,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/cashflow');
   await page.waitForLoadState('domcontentloaded');
   await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
@@ -161,7 +161,7 @@ test.describe('Scenario Simulator', () => {
 
 test.describe('Undefined DSCR/Runway shown as friendly text, not raw 999', () => {
   test('Cash Runway card never shows the raw 999.0 sentinel', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/cashflow');
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
@@ -172,7 +172,7 @@ test.describe('Undefined DSCR/Runway shown as friendly text, not raw 999', () =>
   test('DSCR card never shows the raw 999.00 sentinel when there is no loan', async ({ page }) => {
     // No spec in this suite ever creates a loan obligation, so DSCR is
     // deterministically undefined (no debt-service obligation) here.
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/cashflow');
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
@@ -182,7 +182,7 @@ test.describe('Undefined DSCR/Runway shown as friendly text, not raw 999', () =>
   });
 
   test('Risk Rating badge is never shown as UNKNOWN', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/cashflow');
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
@@ -195,7 +195,7 @@ test.describe('Undefined DSCR/Runway shown as friendly text, not raw 999', () =>
     await ensureTestUser();
     await createLoan('E2E Sentinel Test Bank', '500000.00', '50000.00');
 
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/cashflow');
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
@@ -216,7 +216,7 @@ test.describe('Undefined DSCR/Runway shown as friendly text, not raw 999', () =>
 
 test.describe('Scenario Portfolio Margin', () => {
   test('shows a real computed margin percentage, not placeholder text', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/cashflow');
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
@@ -233,7 +233,7 @@ test.describe('Scenario Portfolio Margin', () => {
 
 test.describe('Saved Scenarios', () => {
   test('displays the Saved Scenarios section', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/cashflow');
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
@@ -242,7 +242,7 @@ test.describe('Saved Scenarios', () => {
   });
 
   test('running a simulation adds it to the Saved Scenarios table', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/cashflow');
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
@@ -258,7 +258,7 @@ test.describe('Saved Scenarios', () => {
   });
 
   test('selecting two saved scenarios shows a side-by-side comparison', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/cashflow');
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByRole('heading', { name: 'Cashflow' })).toBeVisible({ timeout: 10_000 });
@@ -269,14 +269,21 @@ test.describe('Saved Scenarios', () => {
     await page.getByRole('button', { name: 'FX +20%' }).click();
     await expect(page.getByText('Worst DSCR')).toBeVisible({ timeout: 30_000 });
 
+    // Positional indexing (nth(0)/nth(1)) into the full checkbox list is
+    // fragile once other scenarios exist in the table (e.g. from earlier
+    // tests in this file, or a shared CI test business with more history)
+    // -- target each row by the FX Shock value this test itself just
+    // created instead, which is unambiguous regardless of table size/order.
     const scenariosTable = page
       .locator('table')
       .filter({ has: page.getByRole('columnheader', { name: 'FX Shock' }) });
-    const checkboxes = scenariosTable.locator('tbody input[type="checkbox"]');
-    await expect(checkboxes.nth(1)).toBeVisible({ timeout: 10_000 });
+    const row10 = scenariosTable.locator('tbody tr').filter({ hasText: '10%' }).first();
+    const row20 = scenariosTable.locator('tbody tr').filter({ hasText: '20%' }).first();
+    await expect(row10).toBeVisible({ timeout: 10_000 });
+    await expect(row20).toBeVisible({ timeout: 10_000 });
 
-    await checkboxes.nth(0).check();
-    await checkboxes.nth(1).check();
+    await row10.locator('input[type="checkbox"]').check();
+    await row20.locator('input[type="checkbox"]').check();
 
     // Two comparison cards render, each showing DSCR/Runway/FX Shock/Revenue Shock.
     await expect(page.getByText('Select two scenarios to compare')).not.toBeVisible();

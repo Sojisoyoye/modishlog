@@ -1,9 +1,23 @@
-import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { test, expect, Page } from '@playwright/test';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 test.beforeAll(async () => {
   await ensureTestUser();
 });
+
+/**
+ * Navigate via an in-app sidebar link (client-side Angular routing) instead of
+ * page.goto(), which always forces a full browser navigation. A full
+ * navigation tears down and recreates the whole app -- including every
+ * `providedIn: 'root'` service and its in-memory shareReplay cache -- so it
+ * can never actually exercise (or catch a regression in) cross-navigation
+ * caching. Only the very first visit in each test uses page.goto(), as a
+ * deliberate cold start.
+ */
+async function navigateViaSidebar(page: Page, linkName: string): Promise<void> {
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: linkName }).click();
+  await page.waitForLoadState('networkidle');
+}
 
 /**
  * Verifies that shareReplay(1) caching is in place for reference-data services.
@@ -12,7 +26,7 @@ test.beforeAll(async () => {
  */
 test.describe('shareReplay caching for reference data', () => {
   test('customers list is not re-fetched on repeat navigation to Sales', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
 
     let customerCallCount = 0;
     page.on('request', (req) => {
@@ -27,20 +41,18 @@ test.describe('shareReplay caching for reference data', () => {
     const firstCount = customerCallCount;
     expect(firstCount).toBeGreaterThan(0);
 
-    // Navigate away
-    await page.goto('/products');
-    await page.waitForLoadState('networkidle');
+    // Navigate away (client-side)
+    await navigateViaSidebar(page, 'Products');
 
-    // Return to Sales — should use cached observable, no new HTTP call
+    // Return to Sales (client-side) — should use cached observable, no new HTTP call
     const countBefore = customerCallCount;
-    await page.goto('/sales');
-    await page.waitForLoadState('networkidle');
+    await navigateViaSidebar(page, 'Sales');
 
     expect(customerCallCount).toBe(countBefore);
   });
 
   test('products list is not re-fetched on repeat navigation', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
 
     let productCallCount = 0;
     page.on('request', (req) => {
@@ -57,20 +69,18 @@ test.describe('shareReplay caching for reference data', () => {
     const firstCount = productCallCount;
     expect(firstCount).toBeGreaterThan(0);
 
-    // Navigate away
-    await page.goto('/inventory');
-    await page.waitForLoadState('networkidle');
+    // Navigate away (client-side)
+    await navigateViaSidebar(page, 'Inventory');
 
-    // Return — no new product requests
+    // Return (client-side) — no new product requests
     const countBefore = productCallCount;
-    await page.goto('/sales');
-    await page.waitForLoadState('networkidle');
+    await navigateViaSidebar(page, 'Sales');
 
     expect(productCallCount).toBe(countBefore);
   });
 
   test('locations list is not re-fetched on repeat navigation to Sales', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
 
     let locationCallCount = 0;
     page.on('request', (req) => {
@@ -85,18 +95,16 @@ test.describe('shareReplay caching for reference data', () => {
     await page.waitForLoadState('networkidle');
     expect(locationCallCount).toBeGreaterThan(0);
 
-    // Navigate away then back
-    await page.goto('/inventory');
-    await page.waitForLoadState('networkidle');
+    // Navigate away then back (client-side)
+    await navigateViaSidebar(page, 'Inventory');
     const countBefore = locationCallCount;
-    await page.goto('/sales');
-    await page.waitForLoadState('networkidle');
+    await navigateViaSidebar(page, 'Sales');
 
     expect(locationCallCount).toBe(countBefore);
   });
 
   test('customer cache is busted after creating a new customer', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
 
     let customerCallCount = 0;
     page.on('request', (req) => {
@@ -110,19 +118,28 @@ test.describe('shareReplay caching for reference data', () => {
     await page.waitForLoadState('networkidle');
     const afterFirstLoad = customerCallCount;
 
-    // Navigate to Customers page and create a new one (mutates the data → busts cache)
-    await page.goto('/customers');
-    await page.waitForLoadState('networkidle');
+    // Navigate to Customers page (client-side) and create a new one (mutates the data → busts cache)
+    // Contacts defaults to the Suppliers tab -- switch to Customers first.
+    await navigateViaSidebar(page, 'Contacts');
+    await page.getByRole('tab', { name: 'Customers' }).click();
     await page.getByRole('button', { name: 'Add Customer' }).click();
     const name = `Cache Bust ${Date.now()}`;
     await page.getByPlaceholder('Customer name').fill(name);
     await page.getByRole('button', { name: 'Save Customer' }).click();
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
 
-    // After mutation the cache should be invalidated; re-visiting Sales must fire a new request
+    // After mutation the cache should be invalidated; re-visiting Sales (client-side) must fire a new request.
+    // Wait for the specific bare-/customers response rather than generic
+    // networkidle -- Angular's post-navigation subscribe() can fire the
+    // fetch slightly later than the idle-detection window, which flaked
+    // this assertion intermittently when run alongside the other tests.
     const countBeforeReturn = customerCallCount;
-    await page.goto('/sales');
-    await page.waitForLoadState('networkidle');
+    const freshCustomerFetch = page.waitForResponse(
+      (r) => r.url().includes('/customers') && !r.url().includes('/customers/') && r.request().method() === 'GET',
+      { timeout: 8_000 },
+    );
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Sales' }).click();
+    await freshCustomerFetch;
 
     // A fresh request must have fired after the mutation busted the cache
     expect(customerCallCount).toBeGreaterThan(countBeforeReturn);

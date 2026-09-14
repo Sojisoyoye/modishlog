@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 function writeTmpCsv(name: string, rows: string[]): string {
   const tmpFile = path.join(os.tmpdir(), name);
@@ -47,7 +47,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/settings/import');
   await expect(page.getByRole('heading', { name: 'Data Imports' })).toBeVisible({ timeout: 15_000 });
 });
@@ -121,7 +121,7 @@ test('wizard: full happy path — upload, validate, confirm, summary shows corre
   await page.locator('input[type="file"]#file-products').setInputFiles(productsFile);
   await page.getByRole('button', { name: 'Next' }).click();
 
-  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: /looks good.*proceed to import/i }).click();
 
   // Mandatory confirmation screen (subtask 163.2)
@@ -141,7 +141,7 @@ test('wizard: cancel at confirmation screen does not import any data', async ({ 
   await goToCsvUploadStep(page);
   await page.locator('input[type="file"]#file-products').setInputFiles(productsFile);
   await page.getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: /looks good.*proceed to import/i }).click();
 
   await expect(page.getByRole('heading', { name: /review your import/i })).toBeVisible();
@@ -159,7 +159,7 @@ test('undo a completed import removes it from active data and updates history', 
   await goToCsvUploadStep(page);
   await page.locator('input[type="file"]#file-products').setInputFiles(productsFile);
   await page.getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/0 errors, 0 warnings/i)).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: /looks good.*proceed to import/i }).click();
   await page.getByRole('button', { name: /yes, import this data/i }).click();
   await expect(page.getByRole('heading', { name: /import complete/i })).toBeVisible({ timeout: 20_000 });

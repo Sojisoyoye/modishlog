@@ -11,6 +11,10 @@ test.beforeAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await loginViaAPI(page);
+  // The "Money Out" and "Returns" KPI groups are collapsed by default --
+  // expand both so every card and sub-line below is actually reachable.
+  await page.getByRole('button', { name: 'Money Out' }).click();
+  await page.getByRole('button', { name: 'Returns' }).click();
   // Wait for KPI cards to render (data loads async behind loading() signal)
   await page.locator('[data-testid="kpi-card"]').first()
     .waitFor({ timeout: 20_000 }).catch(() => {});
@@ -24,7 +28,9 @@ test.describe('KPI summary header', () => {
 
 test.describe('KPI card labels', () => {
   test('displays all 8 KPI card labels', async ({ page }) => {
-    await expect(page.getByText('Total Sales')).toBeVisible();
+    // "Total Sales" was renamed to "Sales Today" (or "Period Sales" for a
+    // non-today date range) in the current dashboard.
+    await expect(page.getByText('Sales Today').or(page.getByText('Period Sales'))).toBeVisible();
     await expect(page.getByText('Net Profit')).toBeVisible();
     await expect(page.getByText('Unpaid Sales')).toBeVisible();
     await expect(page.getByText('Customer Returns')).toBeVisible();
@@ -40,11 +46,14 @@ test.describe('KPI card values', () => {
     // On a fresh test account with no transactions, all cards should show 0.00
     const zeroPattern = /₦\s*0\.00/;
     const cards = page.locator('[data-testid="kpi-card"]');
-    // Wait for Angular to finish rendering the KPI section
+    // Wait for Angular to finish rendering the KPI section. The 4 hero-row
+    // cards (Today's Revenue, Net Profit, Sales Today, Unpaid Sales) are
+    // custom-styled and don't use the shared kpi-card component -- only the
+    // "Money Out" (3) and "Returns" (2) group cards do, so 5 total, not 8.
     await expect(cards.first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Supplier Refunds')).toBeVisible({ timeout: 5_000 });
     const count = await cards.count();
-    // At least the 8 KPI cards should be present
-    expect(count).toBeGreaterThanOrEqual(8);
+    expect(count).toBeGreaterThanOrEqual(5);
     // Check first visible value card shows ₦ 0.00
     await expect(page.getByText(zeroPattern).first()).toBeVisible();
   });

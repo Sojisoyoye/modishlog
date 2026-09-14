@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 // ---------------------------------------------------------------------------
 // Invoice Schemes E2E Tests (task #122)
@@ -20,7 +20,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
   await page.goto('/settings/invoice-schemes');
   await expect(page.getByRole('heading', { name: 'Invoice Schemes' })).toBeVisible();
 });

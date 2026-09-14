@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 import { addStock, createDailySale, ensureProduct } from './helpers/data';
 
 test.beforeAll(async () => {
@@ -8,7 +8,7 @@ test.beforeAll(async () => {
 
 test.describe('Transaction Detail Page', () => {
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   test('navigates to transaction detail page when transaction row is clicked', async ({ page }) => {

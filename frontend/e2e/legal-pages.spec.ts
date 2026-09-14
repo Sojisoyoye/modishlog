@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 // ---------------------------------------------------------------------------
 // Legal pages E2E tests (task 234)
@@ -76,7 +76,7 @@ test.describe('Sidebar footer links to legal pages for logged-in users', () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
   });
 
   test('sidebar shows Terms and Privacy links', async ({ page }) => {

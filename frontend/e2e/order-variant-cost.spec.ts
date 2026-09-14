@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 import { ensureVariantProduct, createVariant } from './helpers/data';
 
 // ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await loginViaUI(page);
+  await loginViaAPI(page);
 });
 
 test('switching from a variant with a cost override to one without resets unit_cost to the product cost, not stale', async ({ page }) => {

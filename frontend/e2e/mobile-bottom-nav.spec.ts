@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaUI } from './helpers/auth';
+import { ensureTestUser, loginViaAPI } from './helpers/auth';
 
 test.beforeAll(async () => {
   await ensureTestUser();
@@ -9,7 +9,7 @@ test.describe('mobile bottom navigation', () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
   test.beforeEach(async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
   });
@@ -52,10 +52,13 @@ test.describe('mobile bottom navigation', () => {
     const bottomNav = page.getByTestId('bottom-nav');
     // Initially sidebar is hidden — tap More to reveal it
     await bottomNav.getByRole('button', { name: /more/i }).click();
-    // Sidebar slides in
+    // Sidebar slides in -- toBeVisible only checks display/visibility, not that
+    // the CSS transform transition has finished, so poll boundingBox() until the
+    // slide-in animation settles instead of reading it on the first visible frame.
     await expect(sidebar).toBeVisible({ timeout: 2000 });
-    const box = await sidebar.boundingBox();
-    expect(box !== null && box.x >= 0).toBeTruthy();
+    await expect
+      .poll(async () => (await sidebar.boundingBox())?.x ?? -1, { timeout: 2000 })
+      .toBeGreaterThanOrEqual(0);
     // Bottom nav hides itself to avoid overlapping the open sidebar
     await expect(bottomNav).not.toBeVisible();
   });
@@ -70,14 +73,14 @@ test.describe('bottom nav hidden on desktop', () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
   test('bottom nav is hidden on desktop', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
     await expect(page.getByTestId('bottom-nav')).not.toBeVisible();
   });
 
   test('sidebar is visible on desktop', async ({ page }) => {
-    await loginViaUI(page);
+    await loginViaAPI(page);
     await page.goto('/dashboard');
     await page.waitForLoadState('networkidle');
     const sidebar = page.locator('aside');

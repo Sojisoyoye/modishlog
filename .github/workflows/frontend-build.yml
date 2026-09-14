@@ -16,11 +16,13 @@ jobs:
       - run: npx ng build --configuration production
         working-directory: frontend
 
-  # 4-way sharded E2E run. workers:1 stays pinned in playwright.config.ts (test
-  # files share one Postgres DB/business and would race within a single run),
-  # but each shard gets its own fully isolated CI runner + its own
+  # 8-way sharded E2E run (raised from 4 -- workers:1 within each shard means
+  # wall-clock time is bounded by the slowest shard's total test time, not
+  # setup overhead, so doubling shard count is the direct lever to roughly
+  # halve it). workers:1 stays pinned in playwright.config.ts (test files
+  # share one Postgres DB/business and would race within a single run), but
+  # each shard gets its own fully isolated CI runner + its own
   # backend/db_test/redis stack, so shards never contend with each other.
-  # ~4x wall-clock speedup over one 20-30min serial run (task #178).
   e2e-shard:
     name: e2e-shard
     needs: [build]
@@ -28,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v4
 
@@ -63,7 +65,19 @@ jobs:
       # to connect to Redis — breaking every e2e helper that logs in via a
       # direct API call (getAPIToken(), loginViaAPI()).
       - name: Start backend + test DB (e2e stack)
-        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build backend db_test redis
+        # Retries transient Docker Hub pull failures (e.g. "connection reset
+        # by peer" fetching postgres:16-alpine) -- observed intermittently
+        # failing whole shards before any test ran, unrelated to app code.
+        run: |
+          for attempt in 1 2 3; do
+            if docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build backend db_test redis; then
+              exit 0
+            fi
+            echo "docker compose up failed (attempt $attempt/3), retrying in 10s..."
+            sleep 10
+          done
+          echo "❌ docker compose up failed after 3 attempts"
+          exit 1
         env:
           SECRET_KEY: ci-test-secret-key-do-not-use-in-production-32x
           POSTGRES_PASSWORD: modishlog_dev
@@ -81,6 +95,20 @@ jobs:
           echo "❌ Backend did not become healthy after 150s"
           docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs backend
           exit 1
+
+      # Playwright's own install command already skips re-downloading a
+      # browser binary that's present at the target revision -- caching
+      # ~/.cache/ms-playwright across runs (keyed on the lockfile, so any
+      # Playwright version bump invalidates it) turns 8x redundant Chromium
+      # downloads per CI run into 8x cache restores. The OS-level apt
+      # packages --with-deps also installs still run every time regardless
+      # (each matrix job is a fresh, non-persisted VM), just not the
+      # multi-hundred-MB browser download.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
 
       - name: Install Playwright + Chromium
         run: npx playwright install --with-deps chromium
@@ -112,10 +140,20 @@ jobs:
           exit 1
 
       - name: Run Playwright E2E tests
-        run: npx playwright test --project=chromium --reporter=list,html --shard=${{ matrix.shard }}/4
+        run: npx playwright test --project=chromium --reporter=list,html --shard=${{ matrix.shard }}/8
         working-directory: frontend
         env:
           CI: 'true'
+
+      # Backend runs in Docker; its stdout only ever reaches this job's log
+      # via the "Wait for backend /health" step's failure branch, so any
+      # info-level structlog output emitted *during* the test run (e.g.
+      # per-request timing) was previously invisible here no matter what a
+      # shard failed on -- dump it unconditionally so a slow/hung endpoint
+      # can actually be diagnosed from CI output instead of guessing.
+      - name: Show backend logs
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs backend
 
       - name: Upload Playwright HTML report
         if: failure()

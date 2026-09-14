@@ -18,6 +18,13 @@ async function gotoDashboard(page: Page): Promise<void> {
   // Wait for widget card headers to render — they appear only when loading() signal is false
   await page.locator('p.font-semibold.text-slate-800').first()
     .waitFor({ timeout: 20000 }).catch(() => {});
+  // Cash Health, Margin vs Target, Currency & Import Risks, Order Activity,
+  // Stock Levels, Shipping Costs, and Smart Suggestions all live behind
+  // collapsed-by-default accordion sections -- expand all three so every
+  // test below can actually find them.
+  await page.getByRole('button', { name: 'Stock & Purchase Metrics' }).click();
+  await page.getByRole('button', { name: 'Pulse Metrics' }).click();
+  await page.getByRole('button', { name: 'AI Smart Suggestions' }).click();
 }
 
 // ── 1. Page loads and heading is visible ─────────────────────────────────────
@@ -52,7 +59,8 @@ test('dashboard – Liquidity card shows Cash Runway and DSCR', async ({ page })
 test('dashboard – FX Exposure card shows Locked and Floating USD', async ({ page }) => {
   await gotoDashboard(page);
   await shot(page, '04-fx-exposure-card');
-  await expect(page.getByText('FX Exposure').first()).toBeVisible();
+  // Renamed from "FX Exposure" to "Currency & Import Risks"
+  await expect(page.getByText('Currency & Import Risks').first()).toBeVisible();
   // Card renders either FX data rows (Locked/Floating) or the empty-state message
   const hasData = await page.getByText(/Locked/).first().isVisible({ timeout: 8_000 }).catch(() => false);
   const hasEmpty = await page.getByText('No FX exposure tracked yet').isVisible({ timeout: 8_000 }).catch(() => false);
@@ -63,11 +71,14 @@ test('dashboard – FX Exposure card shows Locked and Floating USD', async ({ pa
 test('dashboard – Portfolio Margin card has percentage and target', async ({ page }) => {
   await gotoDashboard(page);
   await shot(page, '05-portfolio-margin-card');
-  await expect(page.getByText('Profit Margin')).toBeVisible();
+  // Renamed from "Profit Margin" to "Margin vs Target"
+  await expect(page.getByText('Margin vs Target')).toBeVisible();
   // Target label for Portfolio Margin specifically (35.xx%)
   await expect(page.getByText(/Target: \d/)).toBeVisible();
-  // Progress bar exists
-  await expect(page.locator('[class*="progress"], [style*="width"], progress').first()).toBeVisible();
+  // Progress bar track exists -- check the outer track, not the inner fill
+  // bar, which can legitimately be 0%-wide (and so "hidden" per Playwright)
+  // when the test business has no real margin data yet.
+  await expect(page.locator('.overflow-hidden.rounded-full.bg-gray-100').first()).toBeVisible();
 });
 
 // ── 6. Orders Pipeline card ───────────────────────────────────────────────────
@@ -81,9 +92,10 @@ test('dashboard – Orders Pipeline card is present', async ({ page }) => {
 test('dashboard – Global Exposure card has NGN/USD/EUR tabs', async ({ page }) => {
   await gotoDashboard(page);
   await shot(page, '07-global-exposure-default');
-  await expect(page.getByText('Global Exposure')).toBeVisible();
-  // Card shows total NGN exposure + USD/EUR obligation sections (static layout, no tab buttons)
-  await expect(page.getByText('Total Exposure (NGN)').first()).toBeVisible();
+  // "Global Exposure" was merged into the "Currency & Import Risks" card's
+  // "Total Obligations" section -- there's no separate card/heading anymore.
+  await expect(page.getByText('Currency & Import Risks').first()).toBeVisible();
+  await expect(page.getByText('Total Amount Owed').first()).toBeVisible();
   await expect(page.getByText('USD Order Obligations').first()).toBeVisible();
   await shot(page, '07-global-exposure-full');
 });
@@ -100,7 +112,8 @@ test('dashboard – Logistics % card has value and target', async ({ page }) => 
 // ── 9. Inventory Alerts widget – "View all" navigates to /inventory ───────────
 test('dashboard – Inventory Alerts View-all link navigates correctly', async ({ page }) => {
   await gotoDashboard(page);
-  await expect(page.getByText('Stock Levels')).toBeVisible();
+  // exact: true -- substring matching also picks up "All stock levels healthy"
+  await expect(page.getByText('Stock Levels', { exact: true })).toBeVisible();
   // Stock Levels card has an "Inventory →" link scoped within it
   // Use the link with routerLink /inventory — it appears inside the widget (not the sidebar)
   const inventoryLink = page.locator('a[href="/inventory"]').first();
@@ -136,8 +149,9 @@ test('dashboard – sidebar nav items are all present', async ({ page }) => {
   await shot(page, '11-sidebar');
 
   const navLabels = [
+    // Suppliers/Customers were merged into a single "Contacts" nav item
     'Dashboard', 'Sales', 'Products', 'Inventory', 'Stock Counts',
-    'Orders', 'Suppliers', 'Pricing', 'FX Rates', 'Cashflow',
+    'Orders', 'Contacts', 'Pricing', 'FX Rates', 'Cashflow',
     'AI Insights', 'Reports', 'Invoice Schemes', 'Locations', 'Settings',
   ];
   for (const label of navLabels) {
