@@ -63,11 +63,17 @@ test.describe('User Management — Users page', () => {
     // doResetPassword() uses a native confirm() before submitting.
     page.once('dialog', (dialog) => dialog.accept());
 
+    // The reset button is icon-only (PrimeIcons <i class="pi pi-key">) --
+    // per this repo's own e2e lessons, icon glyphs dominate the computed
+    // accessible name, so getByRole('button', {name: ...}) against a
+    // title-only button silently never matches. Use the data-testid
+    // scoped to this row instead, matched via the seeded admin's email.
+    const row = page.locator('tr', { hasText: E2E_EMAIL });
     const [resetResponse] = await Promise.all([
       page.waitForResponse(
         (resp) => resp.url().includes('/reset-password') && resp.status() === 200,
       ),
-      page.getByRole('button', { name: /reset password/i }).first().click(),
+      row.getByTestId(/^reset-password-/).click(),
     ]);
 
     const body = await resetResponse.json();

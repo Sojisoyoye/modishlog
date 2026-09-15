@@ -135,6 +135,7 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
                     <button
                       (click)="doResetPassword(user)"
                       title="Reset password"
+                      [attr.data-testid]="'reset-password-' + user.id"
                       class="rounded-lg px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 min-h-[44px]"
                     >
                       <i class="pi pi-key"></i>
