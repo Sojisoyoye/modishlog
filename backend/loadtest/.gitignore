@@ -1,0 +1,6 @@
+# Generated at seed/run time -- loadtest_users.json contains real (if
+# fake-password) seeded credentials for a disposable local DB, and
+# results/ is per-run locust output. Neither belongs in version control.
+loadtest_users.json
+results/
+__pycache__/

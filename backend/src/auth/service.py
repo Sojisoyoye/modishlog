@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 import secrets
@@ -83,7 +84,14 @@ async def create_user(
 
     user = User(
         email=email,
-        hashed_password=get_password_hash(password),
+        # bcrypt is deliberately slow (~100-300ms) and CPU-bound -- calling
+        # it directly here would block this worker's entire event loop for
+        # that whole duration, stalling every other concurrent request on
+        # the same gunicorn worker (task 243's load test measured this: 200
+        # concurrent logins produced a 5s median / 28s max response time on
+        # a nominally sub-second operation). asyncio.to_thread offloads it
+        # to a worker thread instead.
+        hashed_password=await asyncio.to_thread(get_password_hash, password),
         full_name=full_name,
         is_active=True,
         role=role,
@@ -161,7 +169,9 @@ async def authenticate_user(
         )
         raise AccountLockedError(user.locked_until)
 
-    if not verify_password(password, user.hashed_password):
+    # See create_user()'s comment above -- same event-loop-blocking concern
+    # applies to verification, and login is the highest-traffic bcrypt call.
+    if not await asyncio.to_thread(verify_password, password, user.hashed_password):
         new_attempts = (user.failed_login_attempts or 0) + 1
         locked_until = (
             now + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
@@ -259,7 +269,7 @@ async def reset_password(
 
     # Fetch user and update password
     user = await db.get(User, token_obj.user_id)
-    user.hashed_password = get_password_hash(new_password)
+    user.hashed_password = await asyncio.to_thread(get_password_hash, new_password)
 
     # Mark token as consumed
     token_obj.used = True
