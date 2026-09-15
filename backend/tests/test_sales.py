@@ -3241,3 +3241,27 @@ class TestCreateSaleVariants:
             await create_sale(db, data, uuid.uuid4(), business_id=uuid.uuid4())
 
         assert exc_info.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Task #247 -- financial precision: every money column on Sale must share
+# the same Decimal scale, or subtracting/comparing them silently drifts.
+# ---------------------------------------------------------------------------
+
+
+class TestSaleMoneyColumnPrecision:
+    def test_payment_amount_matches_total_amount_scale(self):
+        """Found during task #247's audit: Sale.payment_amount was declared
+        NUMERIC(18, 2) while Sale.total_amount (and every other money
+        column on Sale) is NUMERIC(18, 6). reports/service.py's sales_due
+        calculation does `Sale.total_amount - Sale.payment_amount` --
+        confirmed empirically against real Postgres that a fully-paid sale
+        with genuine sub-cent total_amount (e.g. from FX-converted pricing,
+        1234.567891) gets payment_amount silently rounded to 1234.57 on
+        insert, leaving a permanent -0.002109 phantom balance in the
+        sales_due report for a sale that was actually paid in full.
+        """
+        total_amount_type = Sale.__table__.c.total_amount.type
+        payment_amount_type = Sale.__table__.c.payment_amount.type
+        assert payment_amount_type.scale == total_amount_type.scale
+        assert payment_amount_type.precision == total_amount_type.precision
