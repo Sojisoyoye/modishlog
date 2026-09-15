@@ -92,8 +92,13 @@ class Sale(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     payment_status: Mapped[str | None] = mapped_column(
         String(20), nullable=True, default="paid"
     )
+    # NUMERIC(18, 6) -- must match total_amount's scale (task #247). At
+    # NUMERIC(18, 2), reports/service.py's `total_amount - payment_amount`
+    # (sales_due) picked up a silent rounding residual for any sale whose
+    # total_amount carries genuine sub-cent precision (e.g. FX-converted
+    # pricing), leaving a permanent phantom balance on fully-paid sales.
     payment_amount: Mapped[Decimal | None] = mapped_column(
-        Numeric(18, 2), nullable=True, default=None
+        Numeric(18, 6), nullable=True, default=None
     )
     payment_date: Mapped[date | None] = mapped_column(Date, nullable=True, default=None)
     invoice_number: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None, index=True)
