@@ -62,7 +62,8 @@ describe('AlertBannerComponent', () => {
     it('emits dismissed when Cancel is clicked', () => {
       let dismissed = false;
       fixture.componentInstance.dismissed.subscribe(() => (dismissed = true));
-      const buttons = fixture.nativeElement.querySelectorAll<HTMLButtonElement>('button');
+      const el: HTMLElement = fixture.nativeElement;
+      const buttons = el.querySelectorAll<HTMLButtonElement>('button');
       const cancelBtn = Array.from(buttons).find((b) => b.textContent?.trim() === 'Cancel');
       cancelBtn!.click();
       expect(dismissed).toBe(true);
@@ -71,7 +72,8 @@ describe('AlertBannerComponent', () => {
     it('emits confirmed when confirm button is clicked', () => {
       let confirmed = false;
       fixture.componentInstance.confirmed.subscribe(() => (confirmed = true));
-      const buttons = fixture.nativeElement.querySelectorAll<HTMLButtonElement>('button');
+      const el: HTMLElement = fixture.nativeElement;
+      const buttons = el.querySelectorAll<HTMLButtonElement>('button');
       const confirmBtn = Array.from(buttons).find((b) => b.textContent?.trim() === 'Delete');
       confirmBtn!.click();
       expect(confirmed).toBe(true);
