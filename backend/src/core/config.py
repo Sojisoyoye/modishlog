@@ -152,13 +152,36 @@ class Settings(BaseSettings):
     MAX_CSV_ROWS: int = 50000
 
     # Database connection pool — exposed as env vars so they can be tuned per environment.
-    # Neon (serverless Postgres) drops idle connections; pool_recycle and pool_pre_ping
-    # protect against InterfaceError on checkout after a server-side drop.
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
-    # Recycle connections after 1800 s (30 min) to protect against Neon serverless
-    # idle-connection drops (~5 min timeout). pool_pre_ping=True provides additional
-    # protection by validating connections before checkout.
+    #
+    # Headroom math (task #228, reproduced as a real failure by task #243's
+    # load test): production runs self-hosted Postgres
+    # (docker-compose.prod.yml's `db` service, plain postgres:15-alpine,
+    # default max_connections=100) behind gunicorn --workers 2. Total app
+    # connection demand is workers * (DB_POOL_SIZE + DB_MAX_OVERFLOW) — at
+    # the old 10+20, that was 2*30=60, which a 200-concurrent-user load test
+    # saturated completely (sqlalchemy.exc.TimeoutError: QueuePool limit
+    # ... reached), producing real 500s on /products and /sales. Raised to
+    # 15+25=40/worker (2*40=80 total) to use more of the previously-unused
+    # headroom under max_connections=100, while still leaving 20 connections
+    # free for migrations, admin psql sessions, and health checks. If
+    # --workers is ever raised, lower these accordingly (env vars) or raise
+    # Postgres's own max_connections first (confirm available RAM on the
+    # Hetzner box before doing that — each extra connection slot reserves
+    # shared memory) — don't let workers * (pool_size + max_overflow)
+    # silently exceed max_connections. See
+    # .taskmaster/docs/loadtest-findings-243.md for the full reproduction.
+    #
+    # Staging uses Neon (serverless Postgres), not this self-hosted setup —
+    # pool_recycle and pool_pre_ping below exist for Neon's idle-connection
+    # drops as well as any transient network blip against the self-hosted
+    # instance.
+    DB_POOL_SIZE: int = 15
+    DB_MAX_OVERFLOW: int = 25
+    # Recycle connections after 1800 s (30 min) to protect against Neon
+    # serverless idle-connection drops (~5 min timeout) on staging, and
+    # against any long-idle connection going stale in general.
+    # pool_pre_ping=True provides additional protection by validating
+    # connections before checkout.
     DB_POOL_RECYCLE: int = 1800  # seconds (30 minutes)
 
     # Environment

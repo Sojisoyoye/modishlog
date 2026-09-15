@@ -87,6 +87,18 @@ services:
       EMAILS_FROM_EMAIL: ${EMAILS_FROM_EMAIL:-contact@modishlog.com}
       EMAILS_FROM_NAME: ${EMAILS_FROM_NAME:-ModishLog}
       FRONTEND_URL: ${FRONTEND_URL:-https://modishlog.com}
+    # --workers is load-bearing for DB connection headroom (task #228):
+    # each worker opens up to DB_POOL_SIZE + DB_MAX_OVERFLOW connections
+    # (core/config.py), so total demand is workers * (pool_size +
+    # max_overflow). The `db` service below is a plain postgres:15-alpine
+    # with the default max_connections=100. If you raise --workers here,
+    # lower DB_POOL_SIZE/DB_MAX_OVERFLOW via env vars to compensate, or
+    # raise Postgres's own max_connections first (confirm available RAM on
+    # the Hetzner box before doing that -- it's shared with staging's
+    # containers on the same VPS, even though staging's DB itself is a
+    # separate Neon instance). See core/config.py's DB_POOL_SIZE comment
+    # and .taskmaster/docs/loadtest-findings-243.md for the load test that
+    # reproduced this as a real failure, not just a theoretical risk.
     command: >
       gunicorn src.main:app
         --worker-class uvicorn.workers.UvicornWorker
