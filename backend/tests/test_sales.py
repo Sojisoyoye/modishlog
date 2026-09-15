@@ -1324,6 +1324,74 @@ class TestGetSellReturnScoping:
 
 
 # ---------------------------------------------------------------------------
+# Task #246 -- create_sell_return writes an audit trail entry
+# ---------------------------------------------------------------------------
+
+
+class TestCreateSellReturnAuditLog:
+    @pytest.mark.asyncio
+    async def test_create_sell_return_records_audit_event(self):
+        """A refund is a sensitive action (task 245/246) -- creating one
+        must leave an immutable audit trail entry, not just the SellReturn
+        row itself."""
+        from src.sales.schemas import SellReturnCreate
+        from src.sales.service import create_sell_return
+
+        sale = _make_sale()
+        business_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        db = _mock_db_with_execute(scalar_result=sale)
+
+        with patch("src.sales.service.record_audit_event") as mock_record:
+            mock_record.return_value = AsyncMock()
+            await create_sell_return(
+                db,
+                sale_id=sale.id,
+                data=SellReturnCreate(
+                    return_date=date(2026, 3, 16),
+                    total_amount=Decimal("150.00"),
+                    amount_paid=Decimal("0"),
+                ),
+                user_id=user_id,
+                business_id=business_id,
+            )
+
+        mock_record.assert_called_once()
+        _, kwargs = mock_record.call_args
+        assert kwargs["business_id"] == business_id
+        assert kwargs["actor_user_id"] == user_id
+        assert kwargs["action"] == "sell_return_created"
+        assert kwargs["entity_type"] == "sell_return"
+
+    @pytest.mark.asyncio
+    async def test_create_sell_return_does_not_audit_on_validation_failure(self):
+        """If the sale can't be returned (e.g. not completed), no audit
+        event should be recorded -- nothing sensitive actually happened."""
+        from src.sales.exceptions import SaleValidationError
+        from src.sales.schemas import SellReturnCreate
+        from src.sales.service import create_sell_return
+
+        sale = _make_sale(status=SaleStatus.VOIDED)
+        db = _mock_db_with_execute(scalar_result=sale)
+
+        with patch("src.sales.service.record_audit_event") as mock_record:
+            with pytest.raises(SaleValidationError):
+                await create_sell_return(
+                    db,
+                    sale_id=sale.id,
+                    data=SellReturnCreate(
+                        return_date=date(2026, 3, 16),
+                        total_amount=Decimal("150.00"),
+                        amount_paid=Decimal("0"),
+                    ),
+                    user_id=uuid.uuid4(),
+                    business_id=uuid.uuid4(),
+                )
+
+        mock_record.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Service tests - daily_entry_endpoint business scoping
 # ---------------------------------------------------------------------------
 

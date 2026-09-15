@@ -104,6 +104,10 @@ def _mock_db_lookup(user=None):
     result_mock.scalar_one_or_none.return_value = user
     db.execute = AsyncMock(return_value=result_mock)
     db.flush = AsyncMock()
+    # db.add() is sync on a real AsyncSession -- record_audit_event() (task
+    # #246) calls it directly without awaiting, which a bare AsyncMock
+    # attribute would auto-mock as async and leave an unawaited coroutine.
+    db.add = MagicMock()
     return db
 
 
@@ -174,6 +178,64 @@ class TestUpdateUserService:
 
         with pytest.raises(CannotModifySelfError):
             await update_user(db, admin.id, {"role": UserRole.SALES_MANAGER}, admin.id, business_id)
+
+
+class TestUpdateUserAuditLog:
+    """Task #246: role changes and deactivation via update_user are
+    sensitive actions and must leave an audit trail entry."""
+
+    @pytest.mark.asyncio
+    async def test_role_change_records_audit_event(self):
+        from src.auth.service import update_user
+
+        business_id = uuid.uuid4()
+        target = _make_user(role=UserRole.SALES_MANAGER, business_id=business_id)
+        admin = _make_user(business_id=business_id)
+        db = _mock_db_lookup(target)
+
+        with patch("src.auth.service.record_audit_event") as mock_record:
+            mock_record.return_value = AsyncMock()
+            await update_user(db, target.id, {"role": UserRole.ADMIN}, admin.id, business_id)
+
+        mock_record.assert_called_once()
+        _, kwargs = mock_record.call_args
+        assert kwargs["business_id"] == business_id
+        assert kwargs["actor_user_id"] == admin.id
+        assert kwargs["action"] == "user_role_changed"
+        assert kwargs["entity_type"] == "user"
+        assert kwargs["entity_id"] == target.id
+
+    @pytest.mark.asyncio
+    async def test_deactivation_via_update_user_records_audit_event(self):
+        from src.auth.service import update_user
+
+        business_id = uuid.uuid4()
+        target = _make_user(is_active=True, business_id=business_id)
+        admin = _make_user(business_id=business_id)
+        db = _mock_db_lookup(target)
+
+        with patch("src.auth.service.record_audit_event") as mock_record:
+            mock_record.return_value = AsyncMock()
+            await update_user(db, target.id, {"is_active": False}, admin.id, business_id)
+
+        mock_record.assert_called_once()
+        _, kwargs = mock_record.call_args
+        assert kwargs["action"] == "user_deactivated"
+
+    @pytest.mark.asyncio
+    async def test_non_sensitive_field_update_does_not_record_audit_event(self):
+        """Renaming a user isn't a sensitive action -- no audit noise for it."""
+        from src.auth.service import update_user
+
+        business_id = uuid.uuid4()
+        target = _make_user(full_name="Old Name", business_id=business_id)
+        admin = _make_user(business_id=business_id)
+        db = _mock_db_lookup(target)
+
+        with patch("src.auth.service.record_audit_event") as mock_record:
+            await update_user(db, target.id, {"full_name": "New Name"}, admin.id, business_id)
+
+        mock_record.assert_not_called()
 
 
 def _assert_and_scoped_by_business_id(stmt, business_id: uuid.UUID) -> None:
@@ -307,6 +369,29 @@ class TestDeactivateUserService:
         await deactivate_user(db, target.id, admin.id, business_id)
 
         db.execute.assert_called()  # Lookup + token deletion queries were executed
+
+    @pytest.mark.asyncio
+    async def test_deactivate_user_records_audit_event(self):
+        """Task #246: account deactivation is a sensitive action and must
+        leave an audit trail entry."""
+        from src.auth.service import deactivate_user
+
+        business_id = uuid.uuid4()
+        target = _make_user(business_id=business_id)
+        admin = _make_user(business_id=business_id)
+        db = _mock_db_lookup(target)
+
+        with patch("src.auth.service.record_audit_event") as mock_record:
+            mock_record.return_value = AsyncMock()
+            await deactivate_user(db, target.id, admin.id, business_id)
+
+        mock_record.assert_called_once()
+        _, kwargs = mock_record.call_args
+        assert kwargs["business_id"] == business_id
+        assert kwargs["actor_user_id"] == admin.id
+        assert kwargs["action"] == "user_deactivated"
+        assert kwargs["entity_type"] == "user"
+        assert kwargs["entity_id"] == target.id
 
 
 class TestActivateUserService:

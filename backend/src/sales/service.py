@@ -11,6 +11,7 @@ import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.audit.service import record_audit_event
 from src.core.config import settings
 from src.core.database import async_session_factory
 from src.core.query_helpers import variant_or_untagged_filter
@@ -1180,6 +1181,15 @@ async def create_sell_return(
     db.add(sell_return)
     await db.flush()
     await logger.ainfo("sell_return_created", sale_id=str(sale_id), amount=str(data.total_amount))
+    await record_audit_event(
+        db,
+        business_id=business_id,
+        actor_user_id=user_id,
+        action="sell_return_created",
+        entity_type="sell_return",
+        entity_id=sell_return.id,
+        details={"sale_id": str(sale_id), "total_amount": str(data.total_amount)},
+    )
     return sell_return
 
 

@@ -183,8 +183,15 @@ class TestCreateSellReturnService:
             business_id=uuid.uuid4(),
         )
 
-        db.add.assert_called_once()
-        db.flush.assert_called_once()
+        # One add for the SellReturn itself, one for the audit trail entry
+        # (task #246) -- a refund is a sensitive action that must leave a
+        # record beyond the SellReturn row.
+        from src.audit.models import AuditLog
+        from src.sales.models import SellReturn
+
+        added_types = [type(call.args[0]) for call in db.add.call_args_list]
+        assert added_types == [SellReturn, AuditLog]
+        assert db.flush.await_count == 2
         assert result is not None
 
     @pytest.mark.asyncio

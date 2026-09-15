@@ -64,6 +64,7 @@ from src.ai_engine.models import (  # noqa: F401
     ReorderConfig,
 )
 from src.data_import.models import MigrationJob  # noqa: F401
+from src.audit.models import AuditLog  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
