@@ -1,0 +1,76 @@
+# Load-test stack — a fully standalone, prod-shaped stack (real Postgres
+# volume, gunicorn + 2 uvicorn workers, Redis-backed rate limiter, same
+# timeout/pool settings as docker-compose.prod.yml) for task #243's capacity
+# test. Deliberately does NOT override the shared `backend`/`db` services
+# from docker-compose.yml (unlike docker-compose.e2e.yml) -- this stack is
+# meant to run alongside a live local dev environment without disturbing it,
+# not instead of it. Never points at Neon or the real staging/prod DB.
+#
+# Usage (standalone -- do NOT pass -f docker-compose.yml, this file is
+# self-sufficient and defines its own backend/db/redis services):
+#   docker compose -f docker-compose.loadtest.yml up -d --build
+#   DATABASE_URL=postgresql+asyncpg://modishlog:modishlog_dev@localhost:5436/modishlog_loadtest \
+#     backend/.venv/bin/python backend/scripts/loadtest_seed.py
+#   backend/.venv/bin/locust -f backend/loadtest/locustfile.py --host http://localhost:8010 ...
+#   docker compose -f docker-compose.loadtest.yml down -v
+
+services:
+  db_loadtest:
+    image: postgres:16-alpine
+    container_name: modishlog-loadtest-db
+    environment:
+      POSTGRES_DB: modishlog_loadtest
+      POSTGRES_USER: modishlog
+      POSTGRES_PASSWORD: modishlog_dev
+    ports: ['5436:5432']
+    # Real volume (not tmpfs) -- unlike e2e's db_test, the seeded data volume
+    # must survive between the seed step and the locust run.
+    volumes:
+      - loadtest_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U modishlog']
+      interval: 5s
+      retries: 5
+
+  redis_loadtest:
+    image: redis:7-alpine
+    container_name: modishlog-loadtest-redis
+    ports: ['6380:6379']
+
+  backend_loadtest:
+    build: { context: ./backend, dockerfile: Dockerfile }
+    container_name: modishlog-loadtest-backend
+    depends_on:
+      db_loadtest:
+        condition: service_healthy
+      redis_loadtest:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+asyncpg://modishlog:modishlog_dev@db_loadtest/modishlog_loadtest
+      REDIS_URL: redis://redis_loadtest:6379
+      SECRET_KEY: loadtest-only-secret-key-not-for-real-use
+      ENVIRONMENT: production
+      E2E_AUTO_VERIFY_EMAIL: "true"
+      LOADTEST_RELAXED_RATE_LIMIT: "true"
+      # Every simulated concurrent business shares one source IP (the locust
+      # host), so the per-IP login limit (10/minute) would cap this entire
+      # test at login throughput rather than measuring real app/DB capacity.
+      # Same rationale as docker-compose.e2e.yml's use of this same flag.
+      E2E_RELAXED_LOGIN_RATE_LIMIT: "true"
+      CORS_ORIGINS: '["http://localhost:8010"]'
+    ports: ['8010:8000']
+    # Same gunicorn invocation as docker-compose.prod.yml -- the whole point
+    # of this stack is to measure the real worker/timeout/pool config, not
+    # dev's single-worker --reload uvicorn.
+    command: >
+      gunicorn src.main:app
+        --worker-class uvicorn.workers.UvicornWorker
+        --workers 2
+        --bind 0.0.0.0:8000
+        --timeout 60
+        --keep-alive 5
+        --access-logfile -
+        --error-logfile -
+
+volumes:
+  loadtest_pg_data:

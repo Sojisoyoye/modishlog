@@ -27,6 +27,6 @@ else:
 
 limiter = Limiter(
     key_func=get_remote_address,
-    default_limits=["200/minute"],
+    default_limits=["1000000/minute"] if settings.LOADTEST_RELAXED_RATE_LIMIT else ["200/minute"],
     storage_uri=_storage_uri,
 )

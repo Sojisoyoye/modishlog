@@ -193,6 +193,15 @@ class Settings(BaseSettings):
     # E2E_RELAXED_LOGIN_RATE_LIMIT and E2E_AUTO_VERIFY_EMAIL above.
     E2E_RELAXED_ONBOARD_RATE_LIMIT: bool = False
 
+    # Set only by docker-compose.loadtest.yml — the global default_limits
+    # ("200/minute", core/rate_limit.py) is keyed on client IP, which is
+    # meaningless for a load-test tool: every virtual user originates from
+    # the same load-generator host, so the per-IP limit caps throughput at
+    # a fraction of what real traffic (spread across many customer IPs)
+    # would ever hit. Deliberately a dedicated flag, not reused from the
+    # E2E_* flags above, since those only cover login/onboard specifically.
+    LOADTEST_RELAXED_RATE_LIMIT: bool = False
+
     # External APIs
     FX_API_KEY: str = ""
     FX_API_URL: str = "https://api.example.com/fx"
