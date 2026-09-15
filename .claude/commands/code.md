@@ -71,6 +71,38 @@ result = await db.execute(
 return result.scalar_one()
 ```
 
+### Derived/computed fields must not appear in Create schemas
+If a field's true value can only be derived server-side from other state
+(e.g. `has_variants` is really "does this product have any variants",
+computed as a side effect of variant creation/deletion), do **not** also
+accept it as an optional field on the `*Create` Pydantic schema "for
+convenience." Pydantic silently drops unknown/extra fields by default, so a
+caller (or an e2e seed helper) passing `has_variants: true` at creation time
+gets no error and no effect -- the field is quietly ignored, and nothing
+signals that the value never took. This is confusing to test against and to
+extend later. Either add real support for setting it at creation time (with
+validation), or leave it off the Create schema entirely so a stray field in
+a request body is a Pydantic error, not a silent no-op.
+
+### New rate-limited endpoints called repeatedly by e2e need e2e relaxation
+If a new endpoint gets `@limiter.limit("N/minute")` and is expected to be
+called more than N times across a full Playwright suite (registration,
+login, any endpoint an e2e helper calls in `beforeEach`/`beforeAll`), add a
+dedicated relaxation flag up front, following the existing
+`E2E_RELAXED_LOGIN_RATE_LIMIT` / `E2E_AUTO_VERIFY_EMAIL` pattern in
+`src/core/config.py`:
+- A dedicated `bool` setting, default `False`.
+- A `_xxx_rate_limit() -> str` function returning a relaxed limit when the
+  flag is set, the normal limit otherwise.
+- Set the flag to `"true"` **only** in `docker-compose.e2e.yml`, never tied
+  to `ENVIRONMENT=test` -- the plain backend pytest CI job also sets
+  `ENVIRONMENT=test`, and its own security regression tests specifically
+  verify the strict limit is enforced there.
+Skipping this means the endpoint works fine in isolation but fails
+intermittently once a real e2e suite exercises it enough times in one run --
+surfacing as a generic frontend error with the real cause (`429`) visible
+only in backend logs, not in the Playwright output.
+
 ## Angular coding rules
 - All components are standalone (no NgModule).
 - Use ChangeDetectionStrategy.OnPush on every component.
@@ -81,6 +113,26 @@ return result.scalar_one()
 - Error handling only in GlobalErrorInterceptor -- not in components.
 - TailwindCSS for all styling -- no inline styles.
 - Lazy-load all feature routes.
+
+### `[ngModel]`/`[checked]` one-way binding does not auto-revert
+A checkbox/input bound as `[ngModel]="expr"` (or `[checked]="expr"`, one-way,
+no banana-in-a-box) plus a separate `(ngModelChange)`/`(change)` handler is a
+common pattern for "intercept before committing" flows (e.g. show a confirm
+dialog before actually toggling a destructive setting). **It silently breaks
+if the cancel/revert path reassigns the SAME value the expression already
+held** -- Angular's change-detection only re-writes the DOM when the bound
+expression's value actually *changes* between checks. If the user's native
+click already flipped the checkbox and your cancel handler sets the backing
+signal/field back to the value it logically "was" (but which the CD cycle
+already considers unchanged, since nothing else touched it), the view never
+gets told to re-sync and stays visually wrong even though internal state is
+correct. Symptom: `toBeChecked()`/`not.toBeVisible()` assertions fail in e2e
+tests immediately after a cancel action, with no error anywhere.
+Fix: add a template ref (`#myInput`) + `viewChild<ElementRef>()`, and in the
+cancel/revert handler set `el.nativeElement.checked = value` directly,
+alongside the signal update (which is still needed for internal state).
+Prefer this pattern from the start for any checkbox gating a destructive
+action behind a confirm dialog -- don't wait to discover it via a flaky test.
 
 ## Git workflow (MANDATORY)
 1. Create branch: `git checkout -b feat/<task-id>-<description> main`
