@@ -11,10 +11,12 @@ describe('authInterceptor', () => {
   let authService: AuthService;
 
   beforeEach(() => {
-    localStorage.clear();
+    sessionStorage.clear();
     TestBed.configureTestingModule({
       providers: [
-        provideRouter([]),
+        // A real 'login' route so router.navigate(['/login']) (called on
+        // refresh failure) resolves instead of rejecting with NG04002.
+        provideRouter([{ path: 'login', component: class {} as any }]),
         provideHttpClient(withInterceptors([authInterceptor])),
         provideHttpClientTesting(),
       ],
@@ -26,11 +28,11 @@ describe('authInterceptor', () => {
 
   afterEach(() => {
     httpMock.verify();
-    localStorage.clear();
+    sessionStorage.clear();
   });
 
   it('adds Authorization header when token exists', () => {
-    localStorage.setItem('modishlog_token', 'test-jwt');
+    authService.setToken('test-jwt');
     http.get('/api/test').subscribe();
     const req = httpMock.expectOne('/api/test');
     expect(req.request.headers.get('Authorization')).toBe('Bearer test-jwt');
@@ -45,8 +47,10 @@ describe('authInterceptor', () => {
   });
 
   it('silently refreshes access token on 401 and retries original request', () => {
-    localStorage.setItem('modishlog_token', 'expired-token');
-    localStorage.setItem('modishlog_refresh_token', 'valid-refresh-token');
+    authService.login({ email: 'test@test.com', password: 'password123' }).subscribe();
+    httpMock
+      .expectOne((r) => r.url.includes('/auth/login'))
+      .flush({ access_token: 'expired-token', refresh_token: 'valid-refresh-token', token_type: 'bearer' });
 
     let result: unknown = null;
     http.get('/api/protected').subscribe((r) => (result = r));
@@ -70,8 +74,10 @@ describe('authInterceptor', () => {
   });
 
   it('redirects to login when refresh also fails', () => {
-    localStorage.setItem('modishlog_token', 'expired-token');
-    localStorage.setItem('modishlog_refresh_token', 'invalid-refresh-token');
+    authService.login({ email: 'test@test.com', password: 'password123' }).subscribe();
+    httpMock
+      .expectOne((r) => r.url.includes('/auth/login'))
+      .flush({ access_token: 'expired-token', refresh_token: 'invalid-refresh-token', token_type: 'bearer' });
 
     let errorReceived = false;
     http.get('/api/protected').subscribe({ error: () => (errorReceived = true) });
@@ -85,13 +91,13 @@ describe('authInterceptor', () => {
     refreshReq.flush('Unauthorized', { status: 401, statusText: 'Unauthorized' });
 
     expect(errorReceived).toBe(true);
-    expect(localStorage.getItem('modishlog_token')).toBeNull();
-    expect(localStorage.getItem('modishlog_refresh_token')).toBeNull();
+    expect(authService.getToken()).toBeNull();
+    expect(authService.getRefreshToken()).toBeNull();
   });
 
   it('does not attempt refresh when no refresh token is stored', () => {
-    localStorage.setItem('modishlog_token', 'expired-token');
-    // No refresh token in localStorage
+    authService.setToken('expired-token');
+    // No refresh token stored
 
     let errorReceived = false;
     http.get('/api/protected').subscribe({ error: () => (errorReceived = true) });

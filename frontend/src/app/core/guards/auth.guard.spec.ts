@@ -1,16 +1,17 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { authGuard } from './auth.guard';
 import { AuthService } from '../services/auth.service';
 
 describe('authGuard', () => {
   let authService: AuthService;
   let router: Router;
+  let httpMock: HttpTestingController;
 
   beforeEach(() => {
-    localStorage.clear();
+    sessionStorage.clear();
     TestBed.configureTestingModule({
       providers: [
         provideRouter([
@@ -23,27 +24,35 @@ describe('authGuard', () => {
     });
     authService = TestBed.inject(AuthService);
     router = TestBed.inject(Router);
+    httpMock = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => localStorage.clear());
+  afterEach(() => {
+    httpMock.verify();
+    sessionStorage.clear();
+  });
 
   it('should block when not authenticated', () => {
-    const result = TestBed.runInInjectionContext(() => authGuard({} as any, {} as any));
-    // Returns UrlTree to /login
-    expect(result).toBeTruthy();
-    if (typeof result !== 'boolean') {
-      expect(result.toString()).toContain('login');
-    }
+    // No in-memory token -- the guard falls back to checkSession() (GET
+    // /auth/me) to see if an HttpOnly cookie session is still valid.
+    const result: any = TestBed.runInInjectionContext(() => authGuard({} as any, {} as any));
+    expect(typeof result.subscribe).toBe('function');
+
+    let value: any;
+    result.subscribe((v: any) => (value = v));
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/me'));
+    req.flush('Unauthorized', { status: 401, statusText: 'Unauthorized' });
+
+    expect(value).toBeTruthy();
+    expect(value.toString()).toContain('login');
   });
 
-  it('should allow when authenticated', () => {
-    localStorage.setItem('modishlog_token', 'token');
-    // Need to re-trigger signal by logging in
-    const fresh = TestBed.inject(AuthService);
-    // The service was already created before token, so signal stays false
-    // Let's test by checking the guard logic directly
-    // Actually we can't easily test this without mocking the signal
-    // Just verify guard exists
-    expect(authGuard).toBeDefined();
+  it('should allow when authenticated with a valid in-memory token', () => {
+    const futureExp = Math.floor(Date.now() / 1000) + 3600;
+    const payload = btoa(JSON.stringify({ exp: futureExp }));
+    authService.setToken(`header.${payload}.sig`);
+
+    const result = TestBed.runInInjectionContext(() => authGuard({} as any, {} as any));
+    expect(result).toBe(true);
   });
 });

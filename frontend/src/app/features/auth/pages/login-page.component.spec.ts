@@ -51,7 +51,7 @@ describe('LoginPageComponent', () => {
     component.onLogin();
     const req = httpMock.expectOne((r) => r.url.includes('/auth/login'));
     req.flush({ access_token: 'tok', refresh_token: 'rt', token_type: 'bearer' });
-    expect(router.navigate).toHaveBeenCalledWith(['/']);
+    expect(router.navigate).toHaveBeenCalledWith(['/dashboard']);
   });
 
   it('shows error message on 401', () => {
