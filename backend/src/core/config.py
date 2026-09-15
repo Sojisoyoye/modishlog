@@ -225,6 +225,11 @@ class Settings(BaseSettings):
     # E2E_* flags above, since those only cover login/onboard specifically.
     LOADTEST_RELAXED_RATE_LIMIT: bool = False
 
+    # Task #252: self-service business account deletion is a grace-period
+    # soft delete, not immediate -- gives the OWNER a window to cancel
+    # before a background purge job (see task #260) anonymizes PII.
+    BUSINESS_DELETION_GRACE_PERIOD_DAYS: int = 30
+
     # External APIs
     FX_API_KEY: str = ""
     FX_API_URL: str = "https://api.example.com/fx"

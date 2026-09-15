@@ -1216,8 +1216,9 @@ class TestCashflowEndpoints:
 
     def test_scenario_projection_invalid(self):
         db = _mock_db()
+        headers, user = self._auth_headers()
+        db.get = AsyncMock(return_value=user)
         self._override_db(db)
-        headers, _ = self._auth_headers()
         with TestClient(self.app) as client:
             resp = client.get(
                 "/api/v1/cashflow/projection/INVALID_SCENARIO",

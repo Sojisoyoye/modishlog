@@ -43,3 +43,15 @@ class UserNotFoundError(Exception):
 
 class CannotModifySelfError(Exception):
     """Raised when an admin attempts a destructive action on their own account."""
+
+
+class DeletionAlreadyScheduledError(Exception):
+    """Raised when requesting deletion for a business that's already scheduled."""
+
+
+class DeletionNotScheduledError(Exception):
+    """Raised when cancelling deletion for a business with none pending."""
+
+
+class BusinessPendingDeletionError(Exception):
+    """Raised when a user tries to log in while their business is scheduled for deletion."""

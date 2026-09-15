@@ -58,11 +58,31 @@ async def get_current_user(
 async def get_current_active_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """Ensure the authenticated user's account is active."""
+    """Ensure the authenticated user's account is active.
+
+    Also cuts off an already-issued access token mid-session for a
+    business pending self-service deletion (task #252) -- revoking
+    refresh tokens alone only stops renewal, and an access token can stay
+    validly signed for up to ACCESS_TOKEN_EXPIRE_MINUTES (24h in prod)
+    after deletion is scheduled. OWNER is exempted so they can still reach
+    the cancel-deletion endpoint (itself gated on this same dependency)
+    during the grace period; every other role in the business is cut off
+    immediately, matching what login-time blocking already does for new
+    sessions.
+    """
     if not current_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is inactive",
+        )
+    if (
+        current_user.role != UserRole.OWNER
+        and current_user.business is not None
+        and current_user.business.deletion_requested_at is not None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is scheduled for deletion.",
         )
     return current_user
 
@@ -81,6 +101,22 @@ async def require_admin(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin role required",
+        )
+    return current_user
+
+
+async def require_owner(
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """Ensure the authenticated user is the business OWNER specifically --
+    stricter than require_admin. Used for actions that affect the whole
+    business (e.g. scheduling account deletion, task #252) where even an
+    ADMIN teammate shouldn't be able to act unilaterally.
+    """
+    if current_user.role != UserRole.OWNER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Owner role required",
         )
     return current_user
 

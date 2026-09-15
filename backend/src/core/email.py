@@ -176,3 +176,62 @@ def render_reset_password_email(email_to: str, token: str) -> tuple[str, str]:
         body_html=body_html,
     )
     return subject, html_content
+
+
+def render_business_deletion_scheduled_email(
+    email_to: str, business_name: str, purge_at_display: str
+) -> tuple[str, str]:
+    """Return (subject, html) for the deletion-scheduled confirmation email."""
+    subject = f"{settings.EMAILS_FROM_NAME} - Account deletion scheduled"
+    safe_name = html_lib.escape(business_name)
+
+    body_html = f"""
+    <h1 style="margin: 0 0 12px 0; color: {_BRAND_TEXT}; font-size: 20px; font-weight: 700;">
+        Account deletion scheduled
+    </h1>
+    <p style="margin: 0 0 8px 0;">
+        Deletion has been scheduled for <strong>{safe_name}</strong>. Your
+        account and all business users are logged out immediately, and
+        login is blocked until this is either cancelled or the deletion
+        completes.
+    </p>
+    <p style="margin: 0 0 16px 0; color: #DC2626; font-size: 13px; font-weight: 600;">
+        Your account will be permanently deleted on {purge_at_display} unless you cancel before then.
+    </p>
+    <p style="margin: 0; color: {_BRAND_MUTED}; font-size: 13px;">
+        If you didn't request this, contact support immediately — anyone with
+        Owner access to your account can cancel this from the Danger Zone in
+        Settings before the deletion date above.
+    </p>
+    """
+    html_content = _render_email_shell(
+        title="Account Deletion Scheduled",
+        preheader=f"Your ModishLog account will be deleted on {purge_at_display} unless cancelled.",
+        body_html=body_html,
+    )
+    return subject, html_content
+
+
+def render_business_deletion_cancelled_email(
+    email_to: str, business_name: str
+) -> tuple[str, str]:
+    """Return (subject, html) for the deletion-cancelled confirmation email."""
+    subject = f"{settings.EMAILS_FROM_NAME} - Account deletion cancelled"
+    safe_name = html_lib.escape(business_name)
+
+    body_html = f"""
+    <h1 style="margin: 0 0 12px 0; color: {_BRAND_TEXT}; font-size: 20px; font-weight: 700;">
+        Account deletion cancelled
+    </h1>
+    <p style="margin: 0 0 8px 0;">
+        The scheduled deletion for <strong>{safe_name}</strong> has been
+        cancelled. Your account is fully active again and login has been
+        restored for all business users.
+    </p>
+    """
+    html_content = _render_email_shell(
+        title="Account Deletion Cancelled",
+        preheader="Your ModishLog account deletion has been cancelled.",
+        body_html=body_html,
+    )
+    return subject, html_content

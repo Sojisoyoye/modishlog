@@ -517,6 +517,77 @@ class TestAuthEndpoints:
         data = resp.json()
         assert data["email"] == user.email
 
+    def test_me_includes_business_deletion_status_when_pending(self):
+        """Task #252: the frontend Danger Zone needs to know if the current
+        business has a deletion scheduled, to show the pending-deletion
+        banner instead of the delete button.
+
+        Uses OWNER specifically -- a non-owner would correctly get 403'd by
+        the mid-session pending-deletion cutoff (its own dedicated test
+        coverage), which isn't what this test is checking.
+        """
+        from src.auth.models import Business, UserRole
+
+        business = Business(id=uuid.uuid4(), name="Test Biz")
+        business.deletion_requested_at = datetime.now(timezone.utc)
+        business.purge_at = datetime.now(timezone.utc) + timedelta(days=30)
+        user = _make_user(role=UserRole.OWNER, business_id=business.id)
+        user.business = business
+        token = build_token(user)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["business_deletion_requested_at"] is not None
+        assert data["business_purge_at"] is not None
+
+    def test_me_business_deletion_status_null_when_not_pending(self):
+        from src.auth.models import Business
+
+        business = Business(id=uuid.uuid4(), name="Test Biz")
+        user = _make_user(business_id=business.id)
+        user.business = business
+        token = build_token(user)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["business_deletion_requested_at"] is None
+        assert data["business_purge_at"] is None
+
+    def test_me_includes_real_business_name(self):
+        """Task #252: the Danger Zone's type-to-confirm check needs the
+        real auth.Business.name, not the separate settings.BusinessProfile
+        display name (null until a user explicitly saves that form)."""
+        from src.auth.models import Business
+
+        business = Business(id=uuid.uuid4(), name="Ade Traders Ltd")
+        user = _make_user(business_id=business.id)
+        user.business = business
+        token = build_token(user)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["business_name"] == "Ade Traders Ltd"
+
     def test_me_no_token_401(self):
         with TestClient(self.app) as client:
             resp = client.get("/api/v1/auth/me")

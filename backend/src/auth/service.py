@@ -19,7 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.exceptions import (
     AccountLockedError,
+    BusinessPendingDeletionError,
     CannotModifySelfError,
+    DeletionAlreadyScheduledError,
+    DeletionNotScheduledError,
     EmailNotVerifiedError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
@@ -195,6 +198,13 @@ async def authenticate_user(
     if not user.email_verified:
         await logger.awarn("login_blocked_unverified_email", email=email)
         raise EmailNotVerifiedError()
+
+    # Task #252: a business scheduled for self-service deletion blocks
+    # login for every user in it during the grace period -- cancelling the
+    # deletion (OWNER-only) is the only way back in.
+    if user.business is not None and user.business.deletion_requested_at is not None:
+        await logger.awarn("login_blocked_business_pending_deletion", email=email)
+        raise BusinessPendingDeletionError()
 
     # Successful login — reset counters
     user.failed_login_attempts = 0
@@ -646,3 +656,88 @@ async def admin_reset_user_password(
     raw_token = await generate_password_reset_token(db, user.email)
     await logger.ainfo("admin_password_reset_initiated", user_id=str(user_id))
     return raw_token
+
+
+async def request_business_deletion(
+    db: AsyncSession,
+    business_id: uuid.UUID,
+    requesting_user_id: uuid.UUID,
+) -> Business:
+    """Schedule a business for self-service deletion (task #252).
+
+    Grace-period soft delete, not immediate: sets deletion_requested_at and
+    a computed purge_at (settings.BUSINESS_DELETION_GRACE_PERIOD_DAYS out).
+    Immediately revokes every refresh token for every user in the business
+    and blocks their login for the duration (see authenticate_user's
+    BusinessPendingDeletionError check) -- reuses the same session-
+    revocation pattern as reset_password()'s. Actual purge/anonymization is
+    a separate background job (task #260), not performed here.
+    """
+    result = await db.execute(select(Business).where(Business.id == business_id))
+    business = result.scalar_one_or_none()
+    if business is None:
+        raise UserNotFoundError(f"Business {business_id} not found")
+
+    if business.deletion_requested_at is not None:
+        raise DeletionAlreadyScheduledError(
+            f"Business {business_id} already has deletion scheduled"
+        )
+
+    now = datetime.now(timezone.utc)
+    business.deletion_requested_at = now
+    business.purge_at = now + timedelta(days=settings.BUSINESS_DELETION_GRACE_PERIOD_DAYS)
+
+    await db.execute(
+        delete(RefreshToken).where(
+            RefreshToken.user_id.in_(
+                select(User.id).where(User.business_id == business_id)
+            )
+        )
+    )
+    await db.flush()
+    await logger.ainfo(
+        "business_deletion_scheduled",
+        business_id=str(business_id),
+        purge_at=business.purge_at.isoformat(),
+    )
+    await record_audit_event(
+        db,
+        business_id=business_id,
+        actor_user_id=requesting_user_id,
+        action="business_deletion_scheduled",
+        entity_type="business",
+        entity_id=business_id,
+        details={"purge_at": business.purge_at.isoformat()},
+    )
+    return business
+
+
+async def cancel_business_deletion(
+    db: AsyncSession,
+    business_id: uuid.UUID,
+    requesting_user_id: uuid.UUID,
+) -> Business:
+    """Cancel a pending business deletion within the grace period (task #252)."""
+    result = await db.execute(select(Business).where(Business.id == business_id))
+    business = result.scalar_one_or_none()
+    if business is None:
+        raise UserNotFoundError(f"Business {business_id} not found")
+
+    if business.deletion_requested_at is None:
+        raise DeletionNotScheduledError(
+            f"Business {business_id} has no deletion scheduled"
+        )
+
+    business.deletion_requested_at = None
+    business.purge_at = None
+    await db.flush()
+    await logger.ainfo("business_deletion_cancelled", business_id=str(business_id))
+    await record_audit_event(
+        db,
+        business_id=business_id,
+        actor_user_id=requesting_user_id,
+        action="business_deletion_cancelled",
+        entity_type="business",
+        entity_id=business_id,
+    )
+    return business

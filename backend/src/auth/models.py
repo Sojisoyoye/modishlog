@@ -36,6 +36,19 @@ class Business(UUIDMixin, TimestampMixin, Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
+    # Self-service deletion (task #252) -- grace-period soft delete, not
+    # immediate. deletion_requested_at set when the OWNER initiates closure;
+    # purge_at is computed at that time (now + settings.
+    # BUSINESS_DELETION_GRACE_PERIOD_DAYS) and is when a background job may
+    # actually purge/anonymize the business. Both null means no deletion is
+    # pending -- clearing them (cancel_business_deletion) reverses this.
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    purge_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
     # lazy="select" (not "selectin") avoids loading all users whenever a Business is
     # loaded as part of a User query — which would happen on every authenticated request.
     # Call selectinload(Business.users) explicitly only when the full user list is needed.

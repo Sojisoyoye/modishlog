@@ -57,6 +57,16 @@ class UserProfile(BaseModel):
     is_active: bool
     role: str = "admin"
     created_at: datetime
+    # Task #252: lets the frontend show the Danger Zone's pending-deletion
+    # banner instead of the delete button, without a second round trip.
+    business_deletion_requested_at: datetime | None = None
+    business_purge_at: datetime | None = None
+    # The real business name (auth.Business.name, set at onboarding) --
+    # NOT settings.BusinessProfile.business_name, a separate, lazily-
+    # created display-profile field that's null until a user explicitly
+    # saves the Settings > Business Profile form. The Danger Zone's
+    # type-to-confirm check needs a name that's guaranteed to exist.
+    business_name: str | None = None
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -88,6 +98,13 @@ class MessageResponse(BaseModel):
     """Generic message response."""
 
     message: str
+
+
+class BusinessDeletionResponse(BaseModel):
+    """Response for scheduling/cancelling self-service business deletion."""
+
+    message: str
+    purge_at: datetime | None
 
 
 class UnlockUserRequest(BaseModel):

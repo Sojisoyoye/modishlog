@@ -5,9 +5,11 @@ import { RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
+import { Dialog } from 'primeng/dialog';
 import { SettingsService, BusinessProfile } from '../../../core/services/settings.service';
 import { PricingService, MarginTargetRead } from '../../../core/services/pricing.service';
 import { ProductsService, Product, Category } from '../../../core/services/products.service';
+import { AuthService } from '../../../core/services/auth.service';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 
 const MONTH_NAMES = [
@@ -19,7 +21,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 @Component({
   selector: 'app-settings-page',
   standalone: true,
-  imports: [FormsModule, RouterLink, Toast, ConfirmDialogComponent],
+  imports: [FormsModule, RouterLink, Toast, Dialog, ConfirmDialogComponent],
   template: `
     <p-toast />
     <div>
@@ -541,6 +543,48 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
             }
           </div>
         </div>
+
+        <!-- Danger Zone -->
+        @if (isOwner()) {
+          <div class="rounded-xl border border-red-200 bg-white p-6 shadow-sm lg:col-span-2" data-testid="danger-zone">
+            <div class="mb-5 flex items-center gap-2">
+              <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50">
+                <i class="pi pi-exclamation-triangle text-sm text-red-600"></i>
+              </div>
+              <h3 class="text-base font-semibold text-red-700">Danger Zone</h3>
+            </div>
+
+            @if (deletionPending()) {
+              <div class="flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center sm:justify-between" data-testid="deletion-pending-banner">
+                <p class="text-sm text-red-800">
+                  Deletion scheduled &mdash; your account will be permanently deleted on
+                  <strong>{{ formatPurgeDate(deletionPurgeAt()) }}</strong>.
+                </p>
+                <button
+                  (click)="cancelDeletion()"
+                  [disabled]="cancellingDeletion()"
+                  data-testid="cancel-deletion-btn"
+                  class="shrink-0 rounded-lg border border-red-300 bg-white px-4 py-2.5 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50 min-h-[44px]"
+                >
+                  {{ cancellingDeletion() ? 'Cancelling…' : 'Cancel Deletion' }}
+                </button>
+              </div>
+            } @else {
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p class="text-sm text-muted">
+                  Permanently delete this business account. There is a 30-day grace period to cancel before anything is removed.
+                </p>
+                <button
+                  (click)="openDeleteConfirm()"
+                  data-testid="delete-business-btn"
+                  class="shrink-0 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-700 min-h-[44px]"
+                >
+                  Delete My Business
+                </button>
+              </div>
+            }
+          </div>
+        }
       </div>
     </div>
 
@@ -551,6 +595,46 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
       (confirmed)="executeDeleteMarginTarget()"
       (cancelled)="marginTargetPendingDelete.set(null)"
     />
+
+    <p-dialog
+      [header]="'Delete ' + (realBusinessName() || 'Business')"
+      [visible]="showDeleteConfirm()"
+      [modal]="true"
+      [style]="{ width: '460px' }"
+      [breakpoints]="{ '960px': '75vw', '640px': '90vw' }"
+      [closable]="false"
+      [closeOnEscape]="false"
+      data-testid="delete-business-modal"
+    >
+      <p class="py-2 text-sm text-text">
+        This schedules permanent deletion of <strong>{{ realBusinessName() }}</strong> after a 30-day grace period.
+        All users will be logged out immediately. To confirm, type the business name below.
+      </p>
+      <input
+        type="text"
+        [ngModel]="deleteConfirmText()"
+        (ngModelChange)="deleteConfirmText.set($event)"
+        [placeholder]="realBusinessName() || ''"
+        data-testid="delete-confirm-input"
+        class="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-red-500 focus:ring-1 focus:ring-red-500 min-h-[44px]"
+      />
+      <div class="flex justify-end gap-2 pt-4">
+        <button
+          (click)="closeDeleteConfirm()"
+          class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 min-h-[44px]"
+        >
+          Cancel
+        </button>
+        <button
+          (click)="confirmDeleteBusiness()"
+          [disabled]="!deleteConfirmValid() || deletingBusiness()"
+          data-testid="confirm-delete-business-btn"
+          class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50 min-h-[44px]"
+        >
+          {{ deletingBusiness() ? 'Scheduling…' : 'Delete Business' }}
+        </button>
+      </div>
+    </p-dialog>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -558,6 +642,7 @@ export class SettingsPageComponent implements OnInit {
   private readonly settingsService = inject(SettingsService);
   private readonly pricingService = inject(PricingService);
   private readonly productsService = inject(ProductsService);
+  private readonly authService = inject(AuthService);
   private readonly messageService = inject(MessageService);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyRef = inject(DestroyRef);
@@ -614,6 +699,23 @@ export class SettingsPageComponent implements OnInit {
   mtStatus = signal<'saved' | 'error' | null>(null);
   marginTargetPendingDelete = signal<MarginTargetRead | null>(null);
 
+  // Danger Zone -- self-service business deletion (task #252)
+  isOwner = computed(() => this.authService.currentUser()?.role === 'owner');
+  deletionPurgeAt = computed(() => this.authService.currentUser()?.business_purge_at ?? null);
+  deletionPending = computed(() => !!this.deletionPurgeAt());
+  // The real auth.Business.name (always set at onboarding) -- NOT
+  // bpForm.business_name, which is the separate settings.BusinessProfile
+  // display name and stays null until a user explicitly saves that form.
+  realBusinessName = computed(() => this.authService.currentUser()?.business_name ?? null);
+  showDeleteConfirm = signal(false);
+  deleteConfirmText = signal('');
+  deleteConfirmValid = computed(() => {
+    const name = this.realBusinessName();
+    return !!name && this.deleteConfirmText().trim() === name.trim();
+  });
+  deletingBusiness = signal(false);
+  cancellingDeletion = signal(false);
+
   fyDayWarning = computed(() => {
     const m = parseInt(this.fyMonth(), 10);
     const d = this.fyDay();
@@ -645,6 +747,12 @@ export class SettingsPageComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // Ensures currentUser (role + deletion status) is fresh even when the
+    // auth guard's fast path skipped /auth/me for this navigation.
+    this.authService
+      .checkSession()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ error: () => {} });
     this.settingsService.getApiKeyStatus('anthropic').subscribe({
       next: (status) => this.apiKeyConfigured.set(status.is_configured),
       error: () => {},
@@ -754,6 +862,62 @@ export class SettingsPageComponent implements OnInit {
         this.messageService.add({ severity: 'error', summary: 'Error', detail });
       },
     });
+  }
+
+  openDeleteConfirm(): void {
+    this.deleteConfirmText.set('');
+    this.showDeleteConfirm.set(true);
+  }
+
+  closeDeleteConfirm(): void {
+    this.showDeleteConfirm.set(false);
+    this.deleteConfirmText.set('');
+  }
+
+  confirmDeleteBusiness(): void {
+    if (!this.deleteConfirmValid() || this.deletingBusiness()) return;
+    this.deletingBusiness.set(true);
+    this.authService.closeBusiness().subscribe({
+      next: () => {
+        this.deletingBusiness.set(false);
+        this.closeDeleteConfirm();
+        this.messageService.add({
+          severity: 'warn',
+          summary: 'Deletion scheduled',
+          detail: `Your account will be permanently deleted on ${this.formatPurgeDate(this.deletionPurgeAt())}.`,
+        });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.deletingBusiness.set(false);
+        const detail = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to schedule deletion';
+        this.messageService.add({ severity: 'error', summary: 'Error', detail });
+      },
+    });
+  }
+
+  cancelDeletion(): void {
+    if (this.cancellingDeletion()) return;
+    this.cancellingDeletion.set(true);
+    this.authService.cancelBusinessDeletion().subscribe({
+      next: () => {
+        this.cancellingDeletion.set(false);
+        this.messageService.add({
+          severity: 'success',
+          summary: 'Deletion cancelled',
+          detail: 'Your account is fully active again.',
+        });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.cancellingDeletion.set(false);
+        const detail = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to cancel deletion';
+        this.messageService.add({ severity: 'error', summary: 'Error', detail });
+      },
+    });
+  }
+
+  formatPurgeDate(iso: string | null): string {
+    if (!iso) return '';
+    return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   }
 
   saveBusinessProfile(): void {

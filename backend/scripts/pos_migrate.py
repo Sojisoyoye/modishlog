@@ -48,6 +48,7 @@ from src.ai_engine.models import (
     USDPurchaseSchedule,
     USDStrategyConfig,
 )
+from src.audit.models import AuditLog
 from src.auth.models import PasswordResetToken, RefreshToken, User, UserRole
 from src.cashflow.models import (
     CashflowProjection,
@@ -651,6 +652,7 @@ WIPE_ORDER = [
     BusinessProfile,        # → businesses, users (updated_by) -- must clear before User
     PasswordResetToken,
     RefreshToken,
+    AuditLog,               # → businesses, users (actor_user_id) -- must clear before User
     User,
 ]
 
