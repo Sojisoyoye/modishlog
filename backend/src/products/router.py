@@ -199,6 +199,43 @@ async def bulk_upload_products_endpoint(
         )
 
     contents = await file.read()
+
+    # S6/task #219: verify actual content, not just the filename extension --
+    # matches upload_product_image()'s MIME-sniffing approach above. CSV has
+    # no distinct byte signature (it's just text), so libmagic sniffs a
+    # real CSV as either text/csv or text/plain depending on how confidently
+    # it can detect delimiter structure -- both are accepted for .csv, but
+    # binaries/scripts/images are not. XLSX (a real ZIP+OOXML container) and
+    # legacy XLS (CFBF/OLE2) both have genuine, distinct signatures.
+    ALLOWED_MIME_TYPES = {
+        "csv": {"text/csv", "text/plain"},
+        "xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+        "xls": {"application/vnd.ms-excel", "application/x-ole-storage", "application/CDFV2"},
+    }
+    try:
+        import magic
+
+        detected_mime = magic.from_buffer(contents, mime=True)
+    except ImportError:
+        raise RuntimeError(
+            "python-magic/libmagic is required for file upload validation but is not installed. "
+            "Install libmagic via: apt-get install libmagic1 && pip install python-magic"
+        )
+
+    if detected_mime not in ALLOWED_MIME_TYPES[ext]:
+        await _logger.awarning(
+            "bulk_upload_mime_rejected",
+            business_id=str(business_id),
+            filename=filename,
+            detected_mime=detected_mime,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"File content does not match a .{ext} file. "
+                f"Detected: {detected_mime}. Accepted: {', '.join(sorted(ALLOWED_MIME_TYPES[ext]))}"
+            ),
+        )
     rows: list[dict[str, str]] = []
 
     if ext == "csv":

@@ -463,6 +463,119 @@ class TestFileUploadMimeValidation:
             "products/router.py must import magic for MIME validation"
         )
 
+    def _override_auth(self):
+        """Reliable auth bypass via app.dependency_overrides -- unlike
+        patch("src.auth.dependencies....") above (kept as-is for the
+        pre-existing tests using it), this actually takes effect against
+        FastAPI's dependency-injected Depends() references. Caller must
+        restore self.app.dependency_overrides afterward."""
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+
+        async def _fake_user():
+            return MagicMock(id=uuid.uuid4(), is_active=True)
+
+        async def _fake_business_id():
+            return uuid.uuid4()
+
+        app.dependency_overrides[get_current_active_user] = _fake_user
+        app.dependency_overrides[get_current_business_id] = _fake_business_id
+
+    def _restore_auth(self):
+        self.app.dependency_overrides = self._original_overrides
+
+    def test_php_file_disguised_as_csv_rejected_on_bulk_upload(self):
+        """Task #219: bulk_upload_products_endpoint only checked the file
+        extension, not actual content -- a PHP shell (or any binary/script)
+        renamed to .csv would reach csv.DictReader/openpyxl unvalidated.
+        Must be rejected with 400, matching the image-upload endpoint's
+        existing MIME-sniffing behavior."""
+        php_bytes = b"<?php system($_GET['cmd']); ?>"
+
+        self._override_auth()
+        try:
+            resp = self.client.post(
+                "/api/v1/products/bulk-upload",
+                files={"file": ("evil.csv", php_bytes, "text/csv")},
+            )
+        finally:
+            self._restore_auth()
+
+        assert resp.status_code == 400, (
+            f"PHP-as-CSV must be rejected on bulk upload. Got {resp.status_code}: {resp.text}"
+        )
+        assert "does not match" in resp.text.lower() or "mime" in resp.text.lower()
+
+    def test_generic_zip_disguised_as_xlsx_rejected_on_bulk_upload(self):
+        """A generic (non-office) ZIP archive renamed to .xlsx must be
+        rejected -- real XLSX files have a distinct OOXML spreadsheet MIME
+        signature libmagic can detect; a bare ZIP does not match it."""
+        import io
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("hello.txt", "not a real spreadsheet")
+        fake_xlsx = buf.getvalue()
+
+        self._override_auth()
+        try:
+            resp = self.client.post(
+                "/api/v1/products/bulk-upload",
+                files={
+                    "file": (
+                        "evil.xlsx",
+                        fake_xlsx,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+                },
+            )
+        finally:
+            self._restore_auth()
+
+        assert resp.status_code == 400, (
+            f"Generic ZIP-as-XLSX must be rejected on bulk upload. Got {resp.status_code}: {resp.text}"
+        )
+        assert "does not match" in resp.text.lower() or "mime" in resp.text.lower()
+
+    def test_valid_csv_accepted_on_bulk_upload(self):
+        """A real multi-row CSV must not be rejected by MIME validation.
+
+        Note: libmagic's CSV detection is content-based, not extension-based
+        -- a minimal (single-row-of-data) CSV can be sniffed as text/plain
+        rather than text/csv, since CSV has no distinct byte signature the
+        way binary formats do. Both are accepted for the .csv extension;
+        only genuinely non-text content (binaries, scripts, images) is
+        rejected."""
+        csv_bytes = (
+            b"name,unit_cost,selling_price\n"
+            b"Widget,10.00,15.00\n"
+            b"Gadget,20.00,30.00\n"
+        )
+
+        self._override_auth()
+        try:
+            with (
+                patch(
+                    "src.products.router.create_product",
+                    new=AsyncMock(return_value=MagicMock(id=uuid.uuid4())),
+                ),
+                patch("src.products.router.list_categories", new=AsyncMock(return_value=[])),
+            ):
+                resp = self.client.post(
+                    "/api/v1/products/bulk-upload",
+                    files={"file": ("products.csv", csv_bytes, "text/csv")},
+                )
+        finally:
+            self._restore_auth()
+
+        assert resp.status_code != 400 or "does not match" not in resp.text.lower(), (
+            f"Valid CSV must not be rejected by MIME validation. Got: {resp.text}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # S7 — sanitize_url strips passwords from DB URLs
