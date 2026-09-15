@@ -603,6 +603,13 @@ async def void_sale(
 # alone only pushes changes within this session's own transaction.
 _PROGRESS_COMMIT_INTERVAL = 25
 
+# Caps concurrent bulk-upload background jobs per worker process (task
+# #255) -- see BULK_UPLOAD_MAX_CONCURRENT_JOBS in core/config.py for the
+# full rationale. Module-level so it's shared across every call within
+# this worker's event loop, matching FastAPI BackgroundTasks' in-process
+# execution model.
+_BULK_UPLOAD_SEMAPHORE = asyncio.Semaphore(settings.BULK_UPLOAD_MAX_CONCURRENT_JOBS)
+
 
 def _parse_bulk_upload_csv(file_content: bytes, filename: str) -> list[dict]:
     """Decode + validate a bulk-upload CSV. CPU-bound, no I/O -- callers
@@ -741,8 +748,14 @@ async def run_bulk_upload_job_in_background(
     already sent, so it must use its own session rather than the (by then
     closed) request-scoped one, matching the pattern already used for the
     login-lockout write path in auth/service.py.
+
+    Bounded by _BULK_UPLOAD_SEMAPHORE (task #255) so a burst of concurrent
+    uploads can't all hold a DB connection from the shared pool at once --
+    excess jobs wait here (yielding the event loop, not blocking it) until
+    a slot frees up, rather than immediately competing with foreground
+    request handling for the same pool.
     """
-    async with async_session_factory() as db:
+    async with _BULK_UPLOAD_SEMAPHORE, async_session_factory() as db:
         job = await db.get(SaleBulkUploadJob, job_id)
         if job is None:
             await logger.aerror("bulk_upload_job_vanished", job_id=str(job_id))

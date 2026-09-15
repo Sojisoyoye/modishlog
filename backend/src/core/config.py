@@ -184,6 +184,18 @@ class Settings(BaseSettings):
     # connections before checkout.
     DB_POOL_RECYCLE: int = 1800  # seconds (30 minutes)
 
+    # Bounds how many bulk-upload background jobs run concurrently per
+    # worker process (task #255). run_bulk_upload_job_in_background()
+    # pulls from the same per-worker DB connection pool as foreground
+    # request handling -- task #243's load test found that an unbounded
+    # burst of concurrent imports (many businesses uploading at once)
+    # degrades every other business's dashboard/product/sales page loads
+    # on that worker. Capping concurrent background jobs, rather than
+    # adding a second DB pool, keeps this fix simple and avoids re-opening
+    # the connection budget math above (task #228) that's already tuned
+    # against Postgres's max_connections=100.
+    BULK_UPLOAD_MAX_CONCURRENT_JOBS: int = 2
+
     # Environment
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "info"
