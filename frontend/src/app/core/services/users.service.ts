@@ -64,10 +64,7 @@ export class UsersService {
     return this.api.post<{ message: string }>(`/auth/admin/users/${id}/activate`, {});
   }
 
-  resetPassword(id: string): Observable<{ message: string; token: string }> {
-    return this.api.post<{ message: string; token: string }>(
-      `/auth/admin/users/${id}/reset-password`,
-      {},
-    );
+  resetPassword(id: string): Observable<{ message: string }> {
+    return this.api.post<{ message: string }>(`/auth/admin/users/${id}/reset-password`, {});
   }
 }

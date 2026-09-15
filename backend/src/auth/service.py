@@ -638,14 +638,19 @@ async def activate_user(db: AsyncSession, user_id: uuid.UUID, business_id: uuid.
 
 async def admin_reset_user_password(
     db: AsyncSession, user_id: uuid.UUID, business_id: uuid.UUID
-) -> str | None:
+) -> tuple[str, str] | None:
     """Generate a password-reset token for a user (admin-initiated).
 
-    Returns the raw reset token string, or None on unexpected lookup failure.
+    Returns (user_email, raw_token), or None on unexpected lookup failure.
     S4: lookup is scoped to business_id. This function never touches
     hashed_password itself -- the returned token is later consumed via the
     same reset_password() the self-service flow uses, so the refresh-token
     revocation there (task 214) covers this admin-initiated path too.
+
+    The caller (router) is responsible for emailing the token directly to
+    the user (task #224) -- it must never be returned to the admin, who
+    would otherwise have to relay a high-privilege credential over an
+    uncontrolled channel (WhatsApp/SMS/verbal).
     """
     result = await db.execute(
         select(User).where(User.id == user_id, User.business_id == business_id)
@@ -656,7 +661,9 @@ async def admin_reset_user_password(
 
     raw_token = await generate_password_reset_token(db, user.email)
     await logger.ainfo("admin_password_reset_initiated", user_id=str(user_id))
-    return raw_token
+    if raw_token is None:
+        return None
+    return user.email, raw_token
 
 
 async def request_business_deletion(
