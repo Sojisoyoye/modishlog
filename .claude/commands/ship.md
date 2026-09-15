@@ -63,6 +63,16 @@ ruff check backend/src/ && ruff format --check backend/src/
 
 All three must be clean before committing. Fix any failures before proceeding.
 
+**If you also run e2e locally as part of verification:** `ng build` here is
+the bare/production form and hardcodes the prod API URL — if you rebuild
+with `ng build --configuration=development` for e2e testing, do NOT leave
+it there before this step's `ng build` gate check, and remember to rebuild
+`--configuration=development` again afterward if you need to test locally
+some more. See `.claude/commands/test.md` for the full list of e2e
+environment pitfalls (rate limits, `docker-compose.e2e.yml` overlay,
+locator ambiguity) before writing or debugging Playwright specs, and
+`.claude/commands/infra.md` before touching Dockerfiles/compose/workflows.
+
 ### Step 6 — Commit and push
 ```bash
 git add <specific files — never git add .>
