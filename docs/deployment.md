@@ -119,11 +119,45 @@ docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 
 ### Rollback
 
+There is no automated rollback (task #249) — if the post-deploy smoke test
+fails (`/health/deep` reports DB or Redis unhealthy, or times out after 2
+minutes), the workflow exits 1 and stops. Redeploying the previous image
+is a manual step:
+
+**1. Check migration compatibility first.** By the time the smoke test can
+fail, `alembic upgrade head` has already run against the production
+database (it runs *before* the smoke test, with `set -e`). Simply
+redeploying the old backend image is only safe if that migration is
+backward-compatible with the old code — i.e. the old code can still run
+correctly against the *new* schema (additive columns, no renamed/dropped
+columns the old code reads, no new NOT NULL column without a default).
+If the migration wasn't backward-compatible, rolling back the image alone
+will not fix the deploy — you'll need to also manually `alembic downgrade`
+one revision, or fix forward instead of rolling back. This is why every
+migration should be written with backward-compatibility in mind, not just
+idempotency, as part of its own review — not decided under pressure during
+an incident.
+
+**2. Find the last known-good image tag.** Every successful deploy pushes
+a `prod-<short-sha>` tag to GHCR in addition to the moving `production`
+tag (see `build-production` job in `.github/workflows/deploy-production.yml`).
+Find the SHA of the last commit that deployed successfully via
+`gh run list --workflow=deploy-production.yml --status=success --limit=5`,
+then the commit it built at `gh run view <run-id> --json headSha`.
+
+**3. Redeploy that tag:**
 ```bash
 ssh root@178.104.122.53
 cd /root/modishlog-prod
-# Edit .env.production → change BACKEND_IMAGE to a previous tag (e.g. prod-abc1234)
-docker compose --env-file .env.production up -d --no-deps --force-recreate backend
+# Edit .env.production → change BACKEND_IMAGE to the previous known-good
+# tag, e.g. ghcr.io/sojisoyoye/modishlog/backend:prod-abc1234
+#
+# -f docker-compose.prod.yml is required: a stale docker-compose.yml
+# (pre-dating task #254's fix) still sits in this directory too, and
+# `docker compose` defaults to that file, not the repo-tracked one, if
+# -f is omitted. Verified both files are still present on the real
+# server as of 2026-09-15.
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-deps --force-recreate backend
 ```
 
 ### Manual deploy (without CI)
@@ -134,15 +168,16 @@ docker build -t ghcr.io/sojisoyoye/modishlog/backend:production ./backend
 echo $GHCR_TOKEN | docker login ghcr.io -u sojisoyoye --password-stdin
 docker push ghcr.io/sojisoyoye/modishlog/backend:production
 
-# 2. SSH in and deploy
+# 2. SSH in and deploy -- see the -f docker-compose.prod.yml note above;
+# the same stale-file trap applies here.
 ssh root@178.104.122.53 "
   cd /root/modishlog-prod
   echo \$GHCR_TOKEN | docker login ghcr.io -u sojisoyoye --password-stdin
-  docker compose --env-file .env.production pull backend
-  docker compose --env-file .env.production up -d db
-  docker compose --env-file .env.production run --rm --no-deps backend alembic upgrade head
+  docker compose -f docker-compose.prod.yml --env-file .env.production pull backend
+  docker compose -f docker-compose.prod.yml --env-file .env.production up -d db
+  docker compose -f docker-compose.prod.yml --env-file .env.production run --rm --no-deps backend alembic upgrade head
   docker run --rm -v modishlog-prod_modishlog_uploads:/app/uploads alpine sh -c 'mkdir -p /app/uploads/products /app/uploads/logos && chmod -R 777 /app/uploads'
-  docker compose --env-file .env.production up -d --no-deps backend
+  docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-deps backend
 "
 ```
 
