@@ -240,8 +240,17 @@ jobs:
             # DB/Redis failing here isn't something that self-heals with a
             # retry -- fail fast instead of burning the full 2 minutes.
             for i in $(seq 1 24); do
-              HTTP_STATUS=$(curl -sf -o /tmp/health_deep_response.json -w "%{http_code}" https://api.modishlog.com/health/deep || echo "000")
-              RESPONSE=$(cat /tmp/health_deep_response.json 2>/dev/null || echo "")
+              # No -f: with --fail, curl suppresses the response body on
+              # HTTP error statuses (e.g. the 503 health/deep itself
+              # returns for a DB failure), which would silently defeat the
+              # db/redis error grep below on exactly the response it needs
+              # to inspect. Single request, body + status split via a
+              # marker line; the `|| echo` fallback keeps this survivable
+              # under `set -e` if the connection itself fails outright
+              # (e.g. the container isn't listening yet).
+              RAW=$(curl -s -w "\nHTTPSTATUS:%{http_code}" https://api.modishlog.com/health/deep 2>/dev/null || echo -e "\nHTTPSTATUS:000")
+              HTTP_STATUS=$(echo "$RAW" | grep "HTTPSTATUS:" | sed 's/.*HTTPSTATUS://')
+              RESPONSE=$(echo "$RAW" | sed '$d')
 
               if echo "$RESPONSE" | grep -q '"db":"error"'; then
                 echo "❌ Production DB check failed — $RESPONSE"
