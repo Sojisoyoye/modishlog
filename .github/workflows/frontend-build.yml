@@ -13,6 +13,54 @@ jobs:
                 cache-dependency-path: frontend/package-lock.json }
       - run: npm ci
         working-directory: frontend
+
+      # Task #221: matches the backend's pip-audit gate (_dependency-scan.yml).
+      # Scoped to production dependencies (--omit=dev) -- devDependencies
+      # (build tooling, test frameworks) never ship to a user's browser, so
+      # their CVEs carry essentially none of the risk a runtime dependency's
+      # does; auditing all ~600 dev deps would produce a much noisier,
+      # lower-value gate. ACCEPTED_ADVISORIES is a deliberate, documented
+      # exception list, not a blanket bypass -- currently just xlsx@0.18.5's
+      # two advisories (no npm-registry fix exists; see the usage-site
+      # comment in sales-page.component.ts for why the actual risk is
+      # limited). Any newly introduced vulnerability not on this list fails
+      # the build.
+      - name: npm audit (production dependencies)
+        working-directory: frontend
+        run: |
+          npm audit --omit=dev --json > /tmp/npm-audit.json || true
+          python3 << 'EOF'
+          import json
+
+          ACCEPTED_ADVISORIES = {
+              "GHSA-4r6h-8v6p-xvw6",  # xlsx prototype pollution -- write-only usage, no fix on npm
+              "GHSA-5pgg-2g8v-p4x9",  # xlsx ReDoS -- same package, no fix on npm
+          }
+
+          with open("/tmp/npm-audit.json") as f:
+              data = json.load(f)
+
+          unaccepted = []
+          for name, v in data.get("vulnerabilities", {}).items():
+              for via in v.get("via", []):
+                  if not isinstance(via, dict):
+                      continue
+                  ghsa = via.get("url", "").rsplit("/", 1)[-1]
+                  if ghsa not in ACCEPTED_ADVISORIES:
+                      unaccepted.append(f"{name}: {via.get('title')} ({ghsa}) — {via.get('severity')}")
+
+          if unaccepted:
+              print("❌ New/unaccepted production dependency vulnerabilities found:")
+              for line in unaccepted:
+                  print(f"  - {line}")
+              print()
+              print("Fix them, or if genuinely unfixable/inapplicable, add the GHSA ID")
+              print("to ACCEPTED_ADVISORIES in this workflow with a documented reason.")
+              raise SystemExit(1)
+
+          print("✅ No new production dependency vulnerabilities (only the documented xlsx@0.18.5 exceptions present, task #221)")
+          EOF
+
       - run: npx ng build --configuration production
         working-directory: frontend
 
