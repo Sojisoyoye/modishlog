@@ -1949,6 +1949,18 @@ export class SalesPageComponent implements OnInit {
       this.messageService.add({ severity: 'warn', summary: 'No data', detail: 'Nothing to export' });
       return;
     }
+    // xlsx@0.18.5 has two known advisories (GHSA-4r6h-8v6p-xvw6 prototype
+    // pollution, GHSA-5pgg-2g8v-p4x9 ReDoS) with no fix published to npm
+    // (task #221) -- accepted, not blindly ignored: this is the only real
+    // usage of the package in the frontend, and it's write-only (utils.*
+    // building a workbook + writeFile), never XLSX.read()/parsing an
+    // untrusted file. The prototype-pollution advisory explicitly excludes
+    // this exact pattern ("workflows that do not read arbitrary files... are
+    // unaffected"). The ReDoS advisory doesn't document its trigger as
+    // precisely, so this isn't a zero-risk accept -- rows here are built
+    // from this business's own sale records (customer_name, notes, etc. can
+    // contain user-influenced text), so re-evaluate if SheetJS ever
+    // publishes a real npm fix.
     import('xlsx').then(({ utils, writeFile }) => {
       const ws = utils.json_to_sheet(rows);
       const wb = utils.book_new();
