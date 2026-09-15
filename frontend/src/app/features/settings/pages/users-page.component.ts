@@ -15,13 +15,12 @@ import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MessageService } from 'primeng/api';
 import { Toast } from 'primeng/toast';
-import { Dialog } from 'primeng/dialog';
 import { UsersService, UserListItem, UserInvite } from '../../../core/services/users.service';
 
 @Component({
   selector: 'app-users-page',
   standalone: true,
-  imports: [DatePipe, FormsModule, Toast, Dialog],
+  imports: [DatePipe, FormsModule, Toast],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -136,6 +135,7 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
                     <button
                       (click)="doResetPassword(user)"
                       title="Reset password"
+                      [attr.data-testid]="'reset-password-' + user.id"
                       class="rounded-lg px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-100 min-h-[44px]"
                     >
                       <i class="pi pi-key"></i>
@@ -320,35 +320,6 @@ import { UsersService, UserListItem, UserInvite } from '../../../core/services/u
       </div>
     }
 
-    <!-- Password Reset Token Dialog -->
-    <p-dialog
-      [visible]="showTokenDialog()"
-      (visibleChange)="showTokenDialog.set($event)"
-      (onHide)="onTokenDialogHide()"
-      header="Password Reset Token"
-      [modal]="true"
-      [closable]="true"
-      [style]="{ width: '28rem' }"
-    >
-      <div class="space-y-4 py-2">
-        <p class="text-sm text-muted">Copy this token and share it securely with the user. It will not be shown again.</p>
-        <div class="flex gap-2">
-          <input
-            type="text"
-            [value]="resetToken() ?? ''"
-            readonly
-            class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-gray-50 font-mono min-h-[40px]"
-            aria-label="Password reset token"
-          />
-          <button
-            (click)="copyToken()"
-            class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white hover:bg-primary/90 min-h-[44px]"
-          >
-            <i class="pi pi-copy"></i> Copy
-          </button>
-        </div>
-      </div>
-    </p-dialog>
   `,
 })
 export class UsersPageComponent implements OnInit, OnDestroy {
@@ -376,9 +347,6 @@ export class UsersPageComponent implements OnInit, OnDestroy {
   readonly editSaving = signal(false);
   readonly editingUser = signal<UserListItem | null>(null);
   editForm: { full_name: string; role: string } = { full_name: '', role: '' };
-
-  readonly resetToken = signal<string | null>(null);
-  readonly showTokenDialog = signal(false);
 
   constructor() {
     effect(() => {
@@ -515,29 +483,18 @@ export class UsersPageComponent implements OnInit, OnDestroy {
   }
 
   doResetPassword(user: UserListItem): void {
-    if (!confirm(`Generate a password reset token for ${user.full_name}?`)) return;
+    if (!confirm(`Send a password reset email to ${user.full_name}?`)) return;
     this.usersService.resetPassword(user.id).subscribe({
-      next: (res) => {
-        this.resetToken.set(res.token);
-        this.showTokenDialog.set(true);
+      next: () => {
+        this.toast.add({
+          severity: 'success',
+          summary: 'Reset email sent',
+          detail: `A password reset email was sent to ${user.full_name}`,
+        });
       },
       error: () => {
         this.toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to reset password' });
       },
     });
-  }
-
-  copyToken(): void {
-    const token = this.resetToken();
-    if (!token) return;
-    navigator.clipboard.writeText(token).then(() => {
-      this.toast.add({ severity: 'success', summary: 'Copied', detail: 'Token copied to clipboard', life: 3000 });
-    }).catch(() => {
-      this.toast.add({ severity: 'warn', summary: 'Copy failed', detail: 'Please copy the token manually', life: 5000 });
-    });
-  }
-
-  onTokenDialogHide(): void {
-    this.resetToken.set(null);
   }
 }

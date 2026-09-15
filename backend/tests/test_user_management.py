@@ -326,6 +326,53 @@ class TestUserManagementBusinessIsolation:
         _assert_and_scoped_by_business_id(db.execute.call_args[0][0], business_id)
 
 
+class TestAdminResetUserPasswordService:
+    """Task #224: admin_reset_user_password() must return the target's
+    email alongside the raw token -- the caller (router) needs it to email
+    the token directly to the user instead of ever handing it back to the
+    admin to relay manually."""
+
+    @pytest.mark.asyncio
+    async def test_returns_target_email_and_raw_token(self):
+        from src.auth.service import admin_reset_user_password
+
+        business_id = uuid.uuid4()
+        target = _make_user(email="target@example.com", business_id=business_id)
+        db = _mock_db_lookup(target)
+
+        result = await admin_reset_user_password(db, target.id, business_id)
+
+        assert result is not None
+        email, raw_token = result
+        assert email == "target@example.com"
+        assert isinstance(raw_token, str)
+        assert len(raw_token) > 0
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_token_generation_fails(self):
+        """Error case: generate_password_reset_token() re-looks-up the user
+        by email internally and returns None if that lookup comes back
+        empty (defensive -- shouldn't normally happen given the id+business
+        lookup just above it succeeded, but must not raise or return a
+        malformed result if it ever does)."""
+        from src.auth.service import admin_reset_user_password
+
+        business_id = uuid.uuid4()
+        target = _make_user(email="target@example.com", business_id=business_id)
+
+        db = AsyncMock()
+        first_lookup = MagicMock()
+        first_lookup.scalar_one_or_none.return_value = target
+        second_lookup = MagicMock()
+        second_lookup.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(side_effect=[first_lookup, second_lookup])
+        db.flush = AsyncMock()
+
+        result = await admin_reset_user_password(db, target.id, business_id)
+
+        assert result is None
+
+
 class TestDeactivateUserService:
     """Unit tests for deactivate_user service function."""
 
@@ -663,15 +710,22 @@ class TestAdminUsersEndpoints:
 
         assert resp.status_code == 200
 
-    def test_admin_reset_password_returns_message(self):
-        """POST /admin/users/{id}/reset-password must return a token/message."""
+    def test_admin_reset_password_emails_token_and_never_returns_it(self):
+        """POST /admin/users/{id}/reset-password (task #224) must email the
+        raw token directly to the target user and never echo it back in
+        the API response -- returning it after also emailing it would
+        double the token's exposure surface, and defeats the point of
+        proving the recipient controls the account's email."""
         admin = _make_user(business_id=uuid.uuid4())
         target = _make_user(email="target@example.com")
         self._override_require_admin(admin)
 
-        with patch(
-            "src.auth.router.admin_reset_user_password",
-            AsyncMock(return_value="raw-token-abc"),
+        with (
+            patch(
+                "src.auth.router.admin_reset_user_password",
+                AsyncMock(return_value=("target@example.com", "raw-token-abc")),
+            ),
+            patch("src.auth.router.send_email") as mock_send,
         ):
             db = _mock_db()
             self._override_db(db)
@@ -679,7 +733,36 @@ class TestAdminUsersEndpoints:
                 resp = client.post(f"/api/v1/auth/admin/users/{target.id}/reset-password")
 
         assert resp.status_code == 200
-        assert "token" in resp.json() or "message" in resp.json()
+        body = resp.json()
+        assert "message" in body
+        assert "token" not in body
+        assert "raw-token-abc" not in resp.text
+        mock_send.assert_called_once()
+        assert mock_send.call_args.kwargs["email_to"] == "target@example.com"
+
+    def test_admin_reset_password_returns_500_when_email_send_fails(self):
+        """Error case: if the email fails to send, the admin must know --
+        unlike forgot-password (which never reveals account existence),
+        this is an authenticated admin action with no other channel to
+        deliver the token now that it's never returned raw."""
+        admin = _make_user(business_id=uuid.uuid4())
+        target = _make_user(email="target@example.com")
+        self._override_require_admin(admin)
+
+        with (
+            patch(
+                "src.auth.router.admin_reset_user_password",
+                AsyncMock(return_value=("target@example.com", "raw-token-abc")),
+            ),
+            patch("src.auth.router.send_email", side_effect=RuntimeError("Resend down")),
+        ):
+            db = _mock_db()
+            self._override_db(db)
+            with TestClient(self.app) as client:
+                resp = client.post(f"/api/v1/auth/admin/users/{target.id}/reset-password")
+
+        assert resp.status_code == 500
+        assert "raw-token-abc" not in resp.text
 
     def test_non_admin_cannot_access_user_management(self):
         """All /admin/users/* endpoints must return 403 for non-admin users."""

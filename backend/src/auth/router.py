@@ -539,21 +539,36 @@ async def admin_reset_password(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Generate a password-reset token for a user (admin-initiated). Admin only."""
+    """Generate a password-reset token for a user and email it to them
+    directly (task #224). Admin only.
+
+    The raw token is never returned in the API response -- echoing it back
+    to the admin (for them to relay manually over an uncontrolled channel)
+    defeats the point of proving the recipient controls the account's
+    email, and doubles the token's exposure surface on top of the email
+    that's actually sent.
+    """
     business_id = _require_admin_business_id(admin)
     try:
-        raw_token = await admin_reset_user_password(db, user_id, business_id)
+        result = await admin_reset_user_password(db, user_id, business_id)
     except UserNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    if not raw_token:
+    if result is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate reset token — user email lookup failed",
         )
-    return AdminResetPasswordResponse(
-        message="Password reset token generated. Share this token with the user securely.",
-        token=raw_token,
-    )
+    user_email, raw_token = result
+    try:
+        subject, html_content = render_reset_password_email(user_email, raw_token)
+        send_email(email_to=user_email, subject=subject, html_content=html_content)
+    except Exception:
+        await logger.aexception("admin_reset_password_email_send_failed", user_id=str(user_id))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Reset token generated but the email failed to send. Try again.",
+        )
+    return AdminResetPasswordResponse(message="Password reset email sent to the user.")
 
 
 @router.post("/business/close", response_model=BusinessDeletionResponse)

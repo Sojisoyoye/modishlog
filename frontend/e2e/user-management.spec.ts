@@ -56,14 +56,34 @@ test.describe('User Management — Users page', () => {
     await expect(page.getByPlaceholder(/search/i)).toBeVisible({ timeout: 10_000 });
   });
 
-  test('reset token dialog can be opened and closed', async ({ page }) => {
+  test('reset password confirms, calls the API, and shows a success toast -- never displays the raw token (task #224)', async ({ page }) => {
     await page.goto('/settings/users');
-    // Look for any reset-related button
-    const resetBtns = page.getByRole('button', { name: /reset/i });
-    if (await resetBtns.count() > 0) {
-      // The dialog should appear as a p-dialog, not a toast
-      // Just verify the page doesn't crash
-      await expect(page.locator('table')).toBeVisible({ timeout: 5000 });
-    }
+    await expect(page.getByText(E2E_EMAIL)).toBeVisible({ timeout: 10_000 });
+
+    // doResetPassword() uses a native confirm() before submitting.
+    page.once('dialog', (dialog) => dialog.accept());
+
+    // The reset button is icon-only (PrimeIcons <i class="pi pi-key">) --
+    // per this repo's own e2e lessons, icon glyphs dominate the computed
+    // accessible name, so getByRole('button', {name: ...}) against a
+    // title-only button silently never matches. Use the data-testid
+    // scoped to this row instead, matched via the seeded admin's email.
+    const row = page.locator('tr', { hasText: E2E_EMAIL });
+    const [resetResponse] = await Promise.all([
+      page.waitForResponse(
+        (resp) => resp.url().includes('/reset-password') && resp.status() === 200,
+      ),
+      row.getByTestId(/^reset-password-/).click(),
+    ]);
+
+    const body = await resetResponse.json();
+    expect(body).toEqual({ message: expect.any(String) });
+    expect(body).not.toHaveProperty('token');
+
+    await expect(page.getByText(/reset email sent/i)).toBeVisible({ timeout: 5_000 });
+
+    // The raw token must never reach the page -- no dialog, no input field
+    // holding it (this replaces the old "copy the token" UI entirely).
+    await expect(page.getByRole('dialog')).not.toBeVisible();
   });
 });

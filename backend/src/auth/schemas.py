@@ -153,10 +153,13 @@ class UserUpdate(BaseModel):
 
 
 class AdminResetPasswordResponse(BaseModel):
-    """Response after admin-initiated password reset."""
+    """Response after admin-initiated password reset (task #224).
+
+    Deliberately has no token field -- the raw token is emailed directly
+    to the target user, never returned to the admin who initiated it.
+    """
 
     message: str
-    token: str
 
 
 class OnboardRequest(BaseModel):
