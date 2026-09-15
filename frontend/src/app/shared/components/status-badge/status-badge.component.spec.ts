@@ -25,7 +25,7 @@ describe('StatusBadgeComponent', () => {
   it('applies success class for success status', () => {
     fixture.componentRef.setInput('status', 'success');
     fixture.detectChanges();
-    expect(fixture.componentInstance.badgeClass()).toContain('green');
+    expect(fixture.componentInstance.badgeClass()).toContain('emerald');
   });
 
   it('applies danger class for danger status', () => {

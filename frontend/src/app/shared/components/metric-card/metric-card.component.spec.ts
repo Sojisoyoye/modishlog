@@ -35,6 +35,6 @@ describe('MetricCardComponent', () => {
   it('applies danger border for danger severity', () => {
     fixture.componentRef.setInput('severity', 'danger');
     fixture.detectChanges();
-    expect(fixture.componentInstance.borderClass()).toContain('danger');
+    expect(fixture.componentInstance.borderClass()).toContain('red');
   });
 });

@@ -11,9 +11,15 @@ describe('AuthService', () => {
   let router: Router;
 
   beforeEach(() => {
-    localStorage.clear();
+    sessionStorage.clear();
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        // A real 'login' route so router.navigate(['/login']) (called by
+        // logout()) resolves instead of rejecting with NG04002.
+        provideRouter([{ path: 'login', component: class {} as any }]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+      ],
     });
     service = TestBed.inject(AuthService);
     httpMock = TestBed.inject(HttpTestingController);
@@ -22,7 +28,7 @@ describe('AuthService', () => {
 
   afterEach(() => {
     httpMock.verify();
-    localStorage.clear();
+    sessionStorage.clear();
   });
 
   it('should be created', () => {
@@ -34,52 +40,58 @@ describe('AuthService', () => {
   });
 
   it('isAuthenticated returns true when token exists', () => {
-    localStorage.setItem('modishlog_token', 'test-token');
-    const fresh = TestBed.inject(AuthService);
-    // Re-inject won't work because it's singleton, but the initial state was set before construction
-    // We test via login flow instead
-    expect(service.isAuthenticated()).toBe(false);
+    service.setToken('test-token');
+    expect(service.isAuthenticated()).toBe(true);
   });
 
   it('login stores both access_token and refresh_token', () => {
     service.login({ email: 'test@test.com', password: 'password123' }).subscribe();
     const req = httpMock.expectOne((r) => r.url.includes('/auth/login'));
     req.flush({ access_token: 'jwt-token', refresh_token: 'rt-value', token_type: 'bearer' });
-    expect(localStorage.getItem('modishlog_token')).toBe('jwt-token');
-    expect(localStorage.getItem('modishlog_refresh_token')).toBe('rt-value');
+    expect(service.getToken()).toBe('jwt-token');
+    expect(service.getRefreshToken()).toBe('rt-value');
     expect(service.isAuthenticated()).toBe(true);
   });
 
   it('logout clears both tokens and navigates to login', () => {
-    localStorage.setItem('modishlog_token', 'jwt-token');
-    localStorage.setItem('modishlog_refresh_token', 'rt-value');
+    service.login({ email: 'test@test.com', password: 'password123' }).subscribe();
+    httpMock
+      .expectOne((r) => r.url.includes('/auth/login'))
+      .flush({ access_token: 'jwt-token', refresh_token: 'rt-value', token_type: 'bearer' });
+
     vi.spyOn(router, 'navigate');
     service.logout();
 
-    // Absorb the logout API call
+    // logout() always notifies the backend (with the refresh token in the
+    // body when one exists) so any HttpOnly server-side session is revoked.
     const req = httpMock.expectOne((r) => r.url.includes('/auth/logout'));
     req.flush({ message: 'Logged out.' });
 
-    expect(localStorage.getItem('modishlog_token')).toBeNull();
-    expect(localStorage.getItem('modishlog_refresh_token')).toBeNull();
+    expect(service.getToken()).toBeNull();
+    expect(service.getRefreshToken()).toBeNull();
     expect(service.isAuthenticated()).toBe(false);
     expect(router.navigate).toHaveBeenCalledWith(['/login']);
   });
 
-  it('logout works even when no refresh token is stored', () => {
-    localStorage.setItem('modishlog_token', 'jwt-token');
+  it('logout still notifies the backend when no refresh token is stored', () => {
+    service.setToken('jwt-token');
     vi.spyOn(router, 'navigate');
     service.logout();
 
-    // No logout API call should be made when there is no refresh token
-    httpMock.expectNone((r) => r.url.includes('/auth/logout'));
-    expect(localStorage.getItem('modishlog_token')).toBeNull();
+    // logout() posts to /auth/logout regardless -- with an empty body when
+    // there's no refresh token -- so any HttpOnly cookie session still gets
+    // revoked server-side even if the client never had a refresh token.
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/logout'));
+    expect(req.request.body).toEqual({});
+    req.flush({ message: 'Logged out.' });
+
+    expect(service.getToken()).toBeNull();
     expect(service.isAuthenticated()).toBe(false);
     expect(router.navigate).toHaveBeenCalledWith(['/login']);
   });
 
   it('getToken returns stored token', () => {
-    localStorage.setItem('modishlog_token', 'my-token');
+    service.setToken('my-token');
     expect(service.getToken()).toBe('my-token');
   });
 
@@ -88,7 +100,10 @@ describe('AuthService', () => {
   });
 
   it('getRefreshToken returns stored refresh token', () => {
-    localStorage.setItem('modishlog_refresh_token', 'my-refresh-token');
+    service.login({ email: 'test@test.com', password: 'password123' }).subscribe();
+    httpMock
+      .expectOne((r) => r.url.includes('/auth/login'))
+      .flush({ access_token: 'a', refresh_token: 'my-refresh-token', token_type: 'bearer' });
     expect(service.getRefreshToken()).toBe('my-refresh-token');
   });
 
@@ -98,16 +113,19 @@ describe('AuthService', () => {
 
   it('setToken updates the stored access token and sets authenticated', () => {
     service.setToken('new-access-token');
-    expect(localStorage.getItem('modishlog_token')).toBe('new-access-token');
+    expect(service.getToken()).toBe('new-access-token');
     expect(service.isAuthenticated()).toBe(true);
   });
 
   it('clearTokens removes both tokens and sets unauthenticated', () => {
-    localStorage.setItem('modishlog_token', 'tok');
-    localStorage.setItem('modishlog_refresh_token', 'rt');
+    service.login({ email: 'test@test.com', password: 'password123' }).subscribe();
+    httpMock
+      .expectOne((r) => r.url.includes('/auth/login'))
+      .flush({ access_token: 'tok', refresh_token: 'rt', token_type: 'bearer' });
+
     service.clearTokens();
-    expect(localStorage.getItem('modishlog_token')).toBeNull();
-    expect(localStorage.getItem('modishlog_refresh_token')).toBeNull();
+    expect(service.getToken()).toBeNull();
+    expect(service.getRefreshToken()).toBeNull();
     expect(service.isAuthenticated()).toBe(false);
   });
 
@@ -130,7 +148,7 @@ describe('AuthService', () => {
       user_id: 'u1',
       business_id: 'b1',
     });
-    expect(localStorage.getItem('modishlog_token')).toBeNull();
+    expect(service.getToken()).toBeNull();
     expect(service.isAuthenticated()).toBe(false);
   });
 
@@ -153,13 +171,17 @@ describe('AuthService', () => {
   });
 
   it('refreshToken calls /auth/refresh and stores new access token', () => {
-    localStorage.setItem('modishlog_refresh_token', 'existing-rt');
+    service.login({ email: 'test@test.com', password: 'password123' }).subscribe();
+    httpMock
+      .expectOne((r) => r.url.includes('/auth/login'))
+      .flush({ access_token: 'a', refresh_token: 'existing-rt', token_type: 'bearer' });
+
     let result: { access_token: string; refresh_token: string; token_type: string } | null = null;
     service.refreshToken().subscribe((r) => (result = r));
     const req = httpMock.expectOne((r) => r.url.includes('/auth/refresh'));
     expect(req.request.body).toEqual({ refresh_token: 'existing-rt' });
     req.flush({ access_token: 'fresh-token', refresh_token: '', token_type: 'bearer' });
-    expect(localStorage.getItem('modishlog_token')).toBe('fresh-token');
+    expect(service.getToken()).toBe('fresh-token');
     expect(result).toBeTruthy();
   });
 
