@@ -37,6 +37,7 @@ from src.auth.models import (
     User,
     UserRole,
 )
+from src.audit.service import record_audit_event
 from src.core.config import settings
 from src.core.database import async_session_factory
 from src.core.security import create_access_token, get_password_hash, verify_password
@@ -538,6 +539,9 @@ async def update_user(
         if "role" in data and data["role"] != user.role:
             raise CannotModifySelfError("Cannot change your own role")
 
+    old_role = user.role
+    old_is_active = user.is_active
+
     if "full_name" in data and data["full_name"] is not None:
         user.full_name = data["full_name"]
     if "role" in data and data["role"] is not None:
@@ -547,6 +551,29 @@ async def update_user(
 
     await db.flush()
     await logger.ainfo("user_updated", user_id=str(user_id), fields=list(data.keys()))
+
+    # Task #246: role changes and deactivation are sensitive actions that
+    # need a tamper-resistant trail for later dispute investigation --
+    # a plain full_name edit doesn't.
+    if user.role != old_role:
+        await record_audit_event(
+            db,
+            business_id=business_id,
+            actor_user_id=requesting_user_id,
+            action="user_role_changed",
+            entity_type="user",
+            entity_id=user.id,
+            details={"old_role": old_role.value, "new_role": user.role.value},
+        )
+    if old_is_active and not user.is_active:
+        await record_audit_event(
+            db,
+            business_id=business_id,
+            actor_user_id=requesting_user_id,
+            action="user_deactivated",
+            entity_type="user",
+            entity_id=user.id,
+        )
     return user
 
 
@@ -574,6 +601,14 @@ async def deactivate_user(
     await db.execute(delete(RefreshToken).where(RefreshToken.user_id == user_id))
     await db.flush()
     await logger.ainfo("user_deactivated", user_id=str(user_id))
+    await record_audit_event(
+        db,
+        business_id=business_id,
+        actor_user_id=requesting_user_id,
+        action="user_deactivated",
+        entity_type="user",
+        entity_id=user.id,
+    )
 
 
 async def activate_user(db: AsyncSession, user_id: uuid.UUID, business_id: uuid.UUID) -> None:

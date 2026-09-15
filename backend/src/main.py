@@ -280,6 +280,10 @@ from src.data_import.router import router as data_import_router  # noqa: E402
 
 app.include_router(data_import_router, prefix="/api/v1/import", tags=["data-import"])
 
+from src.audit.router import router as audit_router  # noqa: E402
+
+app.include_router(audit_router, prefix="/api/v1/audit-log", tags=["audit"])
+
 from src.health.router import api_router as health_api_router, router as health_router  # noqa: E402
 
 # Mount at both /health (used by docker-compose healthcheck) and /api/health (convention)
