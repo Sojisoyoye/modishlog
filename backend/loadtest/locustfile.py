@@ -21,7 +21,7 @@ import io
 import json
 import os
 import random
-import uuid
+import time
 
 from locust import HttpUser, between, events, task
 
@@ -127,10 +127,9 @@ class TraderUser(HttpUser):
             return
         job_id = resp.json()["job_id"]
 
-        import time
-
         start = time.monotonic()
-        for _ in range(60):  # up to ~60s of polling
+        final_status = None
+        for _ in range(60):  # up to ~60 poll attempts
             status_resp = self.client.get(
                 f"/api/v1/sales/upload/{job_id}/status",
                 name="/sales/upload/status [poll]",
@@ -139,14 +138,23 @@ class TraderUser(HttpUser):
                 "completed",
                 "failed",
             ):
+                final_status = status_resp.json()["status"]
                 break
             time.sleep(1)
         elapsed = time.monotonic() - start
+        # Distinguish "reached a terminal status within the poll budget"
+        # from "gave up waiting" -- firing both cases as an unconditional
+        # success would conflate a real completion time with a job that
+        # never actually finished, hiding exactly the kind of worst-case
+        # tail this scenario exists to measure.
+        exception = None if final_status is not None else TimeoutError(
+            f"job {job_id} did not reach a terminal status within 60 poll attempts"
+        )
         events.request.fire(
             request_type="JOB",
             name="/sales/upload [end-to-end]",
             response_time=elapsed * 1000,
             response_length=0,
-            exception=None,
+            exception=exception,
             context={},
         )
