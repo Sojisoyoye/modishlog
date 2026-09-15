@@ -1,5 +1,6 @@
 """Tests for sales CRUD, inventory integration, and audit trail."""
 
+import asyncio
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -854,6 +855,116 @@ class TestBulkUpload:
         db.rollback.assert_awaited_once()
         assert job.status == UploadJobStatus.FAILED
         assert job.completed_at is not None
+
+
+class TestBulkUploadConcurrencyCap:
+    """Task #255: run_bulk_upload_job_in_background() pulls from the same
+    per-worker DB connection pool as foreground requests, so an unbounded
+    burst of concurrent imports was found (task #243's load test) to
+    degrade every other business's page loads on that worker. A semaphore
+    caps how many background jobs can actually be processing rows at once,
+    per worker process."""
+
+    @pytest.mark.asyncio
+    async def test_never_exceeds_configured_concurrency_cap(self):
+        from src.sales import service as sales_service
+        from src.sales.models import SaleBulkUploadJob, UploadJobStatus
+
+        cap = 2
+        current = 0
+        max_observed = 0
+        lock = asyncio.Lock()
+
+        async def fake_process_rows(db, job, rows, user_id, business_id):
+            nonlocal current, max_observed
+            async with lock:
+                current += 1
+                max_observed = max(max_observed, current)
+            await asyncio.sleep(0.05)
+            async with lock:
+                current -= 1
+            return job
+
+        def make_job():
+            job = SaleBulkUploadJob(
+                filename="bg.csv",
+                status=UploadJobStatus.PENDING,
+                total_rows=0,
+                uploaded_by=uuid.uuid4(),
+                business_id=uuid.uuid4(),
+            )
+            job.id = uuid.uuid4()
+            return job
+
+        jobs = [make_job() for _ in range(5)]
+
+        def make_factory_cm(job):
+            db = _mock_db()
+            db.get = AsyncMock(return_value=job)
+            db.commit = AsyncMock()
+            cm = AsyncMock()
+            cm.__aenter__.return_value = db
+            cm.__aexit__.return_value = False
+            return cm
+
+        with (
+            patch.object(sales_service, "_BULK_UPLOAD_SEMAPHORE", asyncio.Semaphore(cap)),
+            patch.object(sales_service, "process_bulk_upload_rows", new=fake_process_rows),
+            patch.object(
+                sales_service,
+                "async_session_factory",
+                side_effect=[make_factory_cm(j) for j in jobs],
+            ),
+        ):
+            await asyncio.gather(
+                *(
+                    run_bulk_upload_job_in_background(job.id, [], uuid.uuid4(), uuid.uuid4())
+                    for job in jobs
+                )
+            )
+
+        assert max_observed <= cap
+
+    @pytest.mark.asyncio
+    async def test_semaphore_released_even_when_job_processing_raises(self):
+        """Error case: if a background job crashes mid-processing, its
+        concurrency slot must still be released -- otherwise a single
+        failure permanently shrinks how many jobs can ever run concurrently
+        again for the life of the worker process."""
+        from src.sales import service as sales_service
+        from src.sales.models import SaleBulkUploadJob, UploadJobStatus
+
+        semaphore = asyncio.Semaphore(1)
+
+        job = SaleBulkUploadJob(
+            filename="bg.csv",
+            status=UploadJobStatus.PENDING,
+            total_rows=1,
+            uploaded_by=uuid.uuid4(),
+            business_id=uuid.uuid4(),
+        )
+        job.id = uuid.uuid4()
+
+        db = _mock_db()
+        db.get = AsyncMock(return_value=job)
+        db.commit = AsyncMock()
+        db.rollback = AsyncMock()
+        factory_cm = AsyncMock()
+        factory_cm.__aenter__.return_value = db
+        factory_cm.__aexit__.return_value = False
+
+        with (
+            patch.object(sales_service, "_BULK_UPLOAD_SEMAPHORE", semaphore),
+            patch.object(sales_service, "async_session_factory", return_value=factory_cm),
+            patch.object(
+                sales_service,
+                "process_bulk_upload_rows",
+                new=AsyncMock(side_effect=RuntimeError("connection lost")),
+            ),
+        ):
+            await run_bulk_upload_job_in_background(job.id, [], uuid.uuid4(), uuid.uuid4())
+
+        assert semaphore._value == 1
 
 
 # ---------------------------------------------------------------------------
