@@ -2283,6 +2283,94 @@ class TestSalesOwnershipChecks:
 
 
 # ---------------------------------------------------------------------------
+# Task #245 -- refund/return creation authorization gate
+# ---------------------------------------------------------------------------
+
+
+class TestSellReturnAuthorizationGate:
+    """create_sell_return_endpoint previously accepted any authenticated
+    user regardless of role -- a SALES_MANAGER-equivalent account could
+    issue unlimited unsupervised refunds. Must now require ADMIN/OWNER."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+        async def _fake_db():
+            yield db_mock
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _override_auth_as(self, user):
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+        _business_id = uuid.uuid4()
+        async def _fake_auth():
+            return user
+        async def _fake_business_id():
+            return _business_id
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
+
+    def _return_body(self):
+        return {
+            "return_date": "2026-03-16",
+            "total_amount": "150.00",
+            "amount_paid": "0",
+        }
+
+    def test_sales_manager_cannot_create_sell_return(self):
+        """A SALES_MANAGER-role user must be refused with 403."""
+        from src.auth.models import UserRole
+
+        sale = _make_sale()
+        db = _mock_db_with_execute(scalar_result=sale)
+        self._override_db(db)
+        self._override_auth_as(_make_user(role=UserRole.SALES_MANAGER))
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                f"/api/v1/sales/{sale.id}/returns", json=self._return_body()
+            )
+        assert resp.status_code == 403
+
+    def test_admin_can_create_sell_return(self):
+        """An ADMIN-role user is allowed to create a return."""
+        from src.auth.models import UserRole
+
+        sale = _make_sale()
+        db = _mock_db_with_execute(scalar_result=sale)
+        self._override_db(db)
+        self._override_auth_as(_make_user(role=UserRole.ADMIN))
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                f"/api/v1/sales/{sale.id}/returns", json=self._return_body()
+            )
+        assert resp.status_code == 201
+
+    def test_owner_can_create_sell_return(self):
+        """OWNER is admin-equivalent within their own business (task 177)
+        and must also be allowed to create a return."""
+        from src.auth.models import UserRole
+
+        sale = _make_sale()
+        db = _mock_db_with_execute(scalar_result=sale)
+        self._override_db(db)
+        self._override_auth_as(_make_user(role=UserRole.OWNER))
+
+        with TestClient(self.app) as client:
+            resp = client.post(
+                f"/api/v1/sales/{sale.id}/returns", json=self._return_body()
+            )
+        assert resp.status_code == 201
+
+
+# ---------------------------------------------------------------------------
 # Service tests - update_transaction
 # ---------------------------------------------------------------------------
 

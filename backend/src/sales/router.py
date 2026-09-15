@@ -10,7 +10,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFi
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user, get_current_business_id, require_any_role
+from src.auth.dependencies import (
+    get_current_active_user,
+    get_current_business_id,
+    require_admin,
+    require_any_role,
+)
 from src.auth.models import User, UserRole
 from src.core.csv_utils import csv_safe
 from src.core.database import get_db
@@ -460,10 +465,15 @@ async def create_sell_return_endpoint(
     sale_id: uuid.UUID,
     body: SellReturnCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_admin),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ) -> SellReturnRead:
-    """Create a sell return against an existing sale."""
+    """Create a sell return against an existing sale.
+
+    Requires ADMIN/OWNER (task 245) -- unrestricted refund creation by any
+    authenticated user, including the lowest-privilege SALES_MANAGER role,
+    was a real control gap (no manager approval, no amount threshold).
+    """
     try:
         return await create_sell_return(db, sale_id=sale_id, data=body, user_id=current_user.id, business_id=business_id)
     except SaleNotFoundError as e:
