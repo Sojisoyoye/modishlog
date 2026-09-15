@@ -333,18 +333,31 @@ class TestDatabasePoolConfiguration:
         10+20 defaults, which left only 60/100 connections in use but still
         weren't enough headroom against real concurrent demand -- and for
         the opposite mistake of raising these so high they'd leave no
-        headroom at all if PROD_GUNICORN_WORKERS ever changes without this
-        test being revisited.
+        headroom at all if --workers is ever raised without revisiting pool
+        settings.
+
+        Reads the real --workers value out of docker-compose.prod.yml
+        rather than hardcoding it, so bumping --workers there without
+        touching this test actually fails the test instead of silently
+        validating against a stale assumption.
         """
+        import re
+
         from src.core.config import settings
 
-        PROD_GUNICORN_WORKERS = 2  # keep in sync with docker-compose.prod.yml
-        PROD_POSTGRES_MAX_CONNECTIONS = 100
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        compose_path = os.path.join(repo_root, "docker-compose.prod.yml")
+        compose_text = open(compose_path).read()
+        match = re.search(r"--workers\s+(\d+)", compose_text)
+        assert match, "Could not find --workers in docker-compose.prod.yml"
+        prod_gunicorn_workers = int(match.group(1))
 
-        total_app_connections = PROD_GUNICORN_WORKERS * (
+        prod_postgres_max_connections = 100
+
+        total_app_connections = prod_gunicorn_workers * (
             settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW
         )
-        headroom = PROD_POSTGRES_MAX_CONNECTIONS - total_app_connections
+        headroom = prod_postgres_max_connections - total_app_connections
 
         # Enough capacity to have caught the pre-fix 60-connection ceiling
         # that a 200-concurrent-user load test saturated.
