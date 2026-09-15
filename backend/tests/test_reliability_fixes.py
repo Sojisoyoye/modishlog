@@ -322,6 +322,37 @@ class TestDatabasePoolConfiguration:
         assert settings.DB_POOL_SIZE >= 5
         assert settings.DB_MAX_OVERFLOW >= 10
 
+    def test_pool_headroom_stays_under_prod_max_connections(self):
+        """Task #228/#243: total app connection demand across all gunicorn
+        workers (workers * (DB_POOL_SIZE + DB_MAX_OVERFLOW)) must stay
+        comfortably under production Postgres's max_connections (100,
+        docker-compose.prod.yml's plain postgres:15-alpine default) --
+        with real headroom left for migrations, admin sessions, and health
+        checks. This is a regression guard for the exact failure a launch-
+        scale load test reproduced (QueuePool timeouts / 500s) at the old
+        10+20 defaults, which left only 60/100 connections in use but still
+        weren't enough headroom against real concurrent demand -- and for
+        the opposite mistake of raising these so high they'd leave no
+        headroom at all if PROD_GUNICORN_WORKERS ever changes without this
+        test being revisited.
+        """
+        from src.core.config import settings
+
+        PROD_GUNICORN_WORKERS = 2  # keep in sync with docker-compose.prod.yml
+        PROD_POSTGRES_MAX_CONNECTIONS = 100
+
+        total_app_connections = PROD_GUNICORN_WORKERS * (
+            settings.DB_POOL_SIZE + settings.DB_MAX_OVERFLOW
+        )
+        headroom = PROD_POSTGRES_MAX_CONNECTIONS - total_app_connections
+
+        # Enough capacity to have caught the pre-fix 60-connection ceiling
+        # that a 200-concurrent-user load test saturated.
+        assert total_app_connections >= 70
+        # Enough headroom left over for migrations/admin/health checks that
+        # this fix must not silently eat.
+        assert headroom >= 10
+
 
 # ---------------------------------------------------------------------------
 # R4 — CSV upload streaming with row limit
