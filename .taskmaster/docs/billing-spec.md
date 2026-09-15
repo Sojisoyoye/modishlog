@@ -70,12 +70,19 @@ launch-pricing time, not part of this spec — this doc fixes the *shape*
   default and only option shown to Nigerian card/bank customers.
 - **USD as a secondary display/charge option** for businesses that select USD
   as their operating currency (existing `Business.currency` field already
-  supports non-NGN — see `fx` domain). Paystack supports USD subscriptions
-  for supported card types; if a business's `Business.currency == "USD"`,
-  create/charge against the USD-denominated Plan instead of the NGN one.
-  Two Paystack Plan codes per tier (NGN + USD), not runtime FX conversion of
-  a single price — avoids exchange-rate drift inside billing itself, which
-  must never float against real invoiced amounts.
+  supports non-NGN — see `fx` domain). If a business's
+  `Business.currency == "USD"`, create/charge against a USD-denominated Plan
+  instead of the NGN one, rather than doing runtime FX conversion of a single
+  price — avoids exchange-rate drift inside billing itself, which must never
+  float against real invoiced amounts.
+  **Unverified — action item for the implementation task**: Paystack's
+  recurring billing (Plans/Subscriptions) is NGN-first; USD/multi-currency
+  support depends on merchant account approval and may not extend to
+  recurring charges the same way it does one-off payments. Confirm directly
+  with Paystack (dashboard settings or support) that the live merchant
+  account can create recurring USD Plans *before* building the two-Plan-code
+  schema below. If it can't, fall back to NGN-only billing for v1 (USD
+  businesses still pay in NGN) rather than redesigning mid-implementation.
 
 ## 6. Schema/enforcement sketch (for the implementation task, not built here)
 
