@@ -1,0 +1,35 @@
+name: Purge Deleted Businesses
+
+# Task 260: task #252 shipped the self-service business deletion request
+# (30-day grace period) but nothing ever actually purged/anonymized a
+# business once that grace period expired. Runs daily via SSH against the
+# same Hetzner box deploy-production.yml targets, executing the purge
+# script inside the already-running backend container so it reuses the
+# app's own DB connection, models, and settings rather than needing
+# separate DB credentials as workflow secrets.
+
+on:
+  schedule:
+    - cron: '30 2 * * *' # 02:30 UTC daily, after the 02:00 backup
+  workflow_dispatch: {} # allow an on-demand run
+
+env:
+  DEPLOY_DIR: /root/modishlog-prod
+
+jobs:
+  purge:
+    name: Purge businesses past their grace period
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Run purge script inside the backend container
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: root
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ env.DEPLOY_DIR }}
+            docker compose -f docker-compose.prod.yml --env-file .env.production \
+              exec -T backend python scripts/purge_deleted_businesses.py

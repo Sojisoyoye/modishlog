@@ -184,6 +184,26 @@ class TestCancelBusinessDeletion:
         with pytest.raises(DeletionNotScheduledError):
             await cancel_business_deletion(db, business.id, owner.id)
 
+    @pytest.mark.asyncio
+    async def test_already_purged_raises(self):
+        """Once the background purge job (task #260) has anonymized a
+        business, cancelling must be refused -- there's nothing meaningful
+        left to restore, and reactivating anonymized data would be
+        misleading."""
+        from src.auth.exceptions import BusinessAlreadyPurgedError
+        from src.auth.service import cancel_business_deletion
+
+        business = _make_business(
+            deletion_requested_at=datetime.now(timezone.utc) - timedelta(days=31),
+            purge_at=datetime.now(timezone.utc) - timedelta(days=1),
+            purged_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        )
+        owner = _make_user(business_id=business.id)
+        db = _mock_db_lookup(business)
+
+        with pytest.raises(BusinessAlreadyPurgedError):
+            await cancel_business_deletion(db, business.id, owner.id)
+
 
 class TestAuthenticateUserBlocksPendingDeletion:
     @pytest.mark.asyncio

@@ -55,3 +55,7 @@ class DeletionNotScheduledError(Exception):
 
 class BusinessPendingDeletionError(Exception):
     """Raised when a user tries to log in while their business is scheduled for deletion."""
+
+
+class BusinessAlreadyPurgedError(Exception):
+    """Raised when cancelling deletion for a business the purge job already anonymized."""
