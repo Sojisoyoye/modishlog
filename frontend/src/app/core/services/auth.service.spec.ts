@@ -162,4 +162,51 @@ describe('AuthService', () => {
     expect(localStorage.getItem('modishlog_token')).toBe('fresh-token');
     expect(result).toBeTruthy();
   });
+
+  it('checkSession populates currentUser on success', () => {
+    service.checkSession().subscribe();
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/me'));
+    req.flush({ id: '1', email: 'owner@test.com', full_name: 'Owner', role: 'owner' });
+    expect(service.currentUser()?.email).toBe('owner@test.com');
+  });
+
+  it('closeBusiness posts to /auth/business/close and updates currentUser.business_purge_at', () => {
+    service.checkSession().subscribe();
+    httpMock
+      .expectOne((r) => r.url.includes('/auth/me'))
+      .flush({ id: '1', email: 'owner@test.com', full_name: 'Owner', role: 'owner' });
+
+    let result: { message: string; purge_at: string | null } | null = null;
+    service.closeBusiness().subscribe((r) => (result = r));
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/business/close'));
+    expect(req.request.method).toBe('POST');
+    req.flush({ message: 'Deletion scheduled.', purge_at: '2026-10-15T00:00:00Z' });
+
+    expect(result).toBeTruthy();
+    expect(service.currentUser()?.business_purge_at).toBe('2026-10-15T00:00:00Z');
+  });
+
+  it('cancelBusinessDeletion posts to /auth/business/cancel-deletion and clears currentUser.business_purge_at', () => {
+    service.checkSession().subscribe();
+    httpMock
+      .expectOne((r) => r.url.includes('/auth/me'))
+      .flush({
+        id: '1',
+        email: 'owner@test.com',
+        full_name: 'Owner',
+        role: 'owner',
+        business_deletion_requested_at: '2026-09-15T00:00:00Z',
+        business_purge_at: '2026-10-15T00:00:00Z',
+      });
+
+    let result: { message: string; purge_at: string | null } | null = null;
+    service.cancelBusinessDeletion().subscribe((r) => (result = r));
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/business/cancel-deletion'));
+    expect(req.request.method).toBe('POST');
+    req.flush({ message: 'Deletion cancelled.', purge_at: null });
+
+    expect(result).toBeTruthy();
+    expect(service.currentUser()?.business_purge_at).toBeNull();
+    expect(service.currentUser()?.business_deletion_requested_at).toBeNull();
+  });
 });

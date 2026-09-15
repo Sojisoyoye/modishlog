@@ -19,6 +19,14 @@ interface UserProfile {
   email: string;
   full_name: string;
   role: string;
+  business_deletion_requested_at?: string | null;
+  business_purge_at?: string | null;
+  business_name?: string | null;
+}
+
+export interface BusinessDeletionResponse {
+  message: string;
+  purge_at: string | null;
 }
 
 export interface RegisterRequest {
@@ -61,6 +69,9 @@ export class AuthService {
 
   private readonly _isAuthenticated = signal<boolean>(false);
   readonly isAuthenticated = this._isAuthenticated.asReadonly();
+
+  private readonly _currentUser = signal<UserProfile | null>(null);
+  readonly currentUser = this._currentUser.asReadonly();
 
   login(credentials: LoginRequest): Observable<AuthTokens> {
     return this.api.post<AuthTokens>('/auth/login', credentials).pipe(
@@ -133,9 +144,34 @@ export class AuthService {
       tap((user) => {
         if (user) {
           this._isAuthenticated.set(true);
+          this._currentUser.set(user);
         }
       }),
       catchError(() => of(null)),
+    );
+  }
+
+  /** Schedule self-service deletion for the caller's business. Owner only (task #252). */
+  closeBusiness(): Observable<BusinessDeletionResponse> {
+    return this.api.post<BusinessDeletionResponse>('/auth/business/close', {}).pipe(
+      tap((res) => {
+        const user = this._currentUser();
+        if (user) {
+          this._currentUser.set({ ...user, business_purge_at: res.purge_at });
+        }
+      }),
+    );
+  }
+
+  /** Cancel a pending self-service business deletion within the grace period. Owner only. */
+  cancelBusinessDeletion(): Observable<BusinessDeletionResponse> {
+    return this.api.post<BusinessDeletionResponse>('/auth/business/cancel-deletion', {}).pipe(
+      tap(() => {
+        const user = this._currentUser();
+        if (user) {
+          this._currentUser.set({ ...user, business_deletion_requested_at: null, business_purge_at: null });
+        }
+      }),
     );
   }
 

@@ -1140,6 +1140,8 @@ class TestPricingEndpoints:
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
         headers, user = self._auth_headers()
+        user.business_id = uuid.uuid4()
+        db.get = AsyncMock(return_value=user)
         fake_id = str(uuid.uuid4())
         with TestClient(self.app) as client:
             resp = client.post(
@@ -1162,6 +1164,8 @@ class TestPricingEndpoints:
         db = _mock_db()
         self._override_db(db)
         headers, user = self._auth_headers()
+        user.business_id = uuid.uuid4()
+        db.get = AsyncMock(return_value=user)
         cat1 = str(uuid.uuid4())
         cat2 = str(uuid.uuid4())
         with TestClient(self.app) as client:

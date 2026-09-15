@@ -10,10 +10,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.config import settings
 from src.core.rate_limit import limiter
 
-from src.auth.dependencies import get_current_active_user, require_admin
+from src.auth.dependencies import (
+    get_current_active_user,
+    get_current_business_id,
+    require_admin,
+    require_owner,
+)
 from src.auth.exceptions import (
     AccountLockedError,
+    BusinessPendingDeletionError,
     CannotModifySelfError,
+    DeletionAlreadyScheduledError,
+    DeletionNotScheduledError,
     EmailNotVerifiedError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
@@ -26,6 +34,7 @@ from src.auth.exceptions import (
 from src.auth.models import User, UserRole
 from src.auth.schemas import (
     AdminResetPasswordResponse,
+    BusinessDeletionResponse,
     ForgotPasswordRequest,
     LogoutRequest,
     MessageResponse,
@@ -49,6 +58,7 @@ from src.auth.service import (
     admin_reset_user_password,
     authenticate_user,
     build_token,
+    cancel_business_deletion,
     create_business_and_owner,
     create_refresh_token,
     create_user,
@@ -58,6 +68,7 @@ from src.auth.service import (
     get_user_by_id,
     list_users,
     refresh_access_token,
+    request_business_deletion,
     resend_verification_email,
     reset_password,
     revoke_refresh_token,
@@ -66,7 +77,13 @@ from src.auth.service import (
     verify_email,
 )
 from src.core.database import get_db
-from src.core.email import render_reset_password_email, render_verification_email, send_email
+from src.core.email import (
+    render_business_deletion_cancelled_email,
+    render_business_deletion_scheduled_email,
+    render_reset_password_email,
+    render_verification_email,
+    send_email,
+)
 
 logger = structlog.get_logger()
 
@@ -188,6 +205,11 @@ async def login(
                 "detail": "Account locked",
                 "locked_until": e.locked_until.isoformat() + "Z",
             },
+        )
+    except BusinessPendingDeletionError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is scheduled for deletion. Contact an owner to cancel it.",
         )
     access_token = build_token(user)
     raw_refresh_token = await create_refresh_token(db, user)
@@ -373,7 +395,14 @@ async def admin_unlock_user(
 @router.get("/me", response_model=UserProfile)
 async def get_me(current_user: User = Depends(get_current_active_user)):
     """Return the authenticated user's profile."""
-    return current_user
+    profile = UserProfile.model_validate(current_user)
+    if current_user.business is not None:
+        profile.business_deletion_requested_at = (
+            current_user.business.deletion_requested_at
+        )
+        profile.business_purge_at = current_user.business.purge_at
+        profile.business_name = current_user.business.name
+    return profile
 
 
 # ---------------------------------------------------------------------------
@@ -523,4 +552,56 @@ async def admin_reset_password(
     return AdminResetPasswordResponse(
         message="Password reset token generated. Share this token with the user securely.",
         token=raw_token,
+    )
+
+
+@router.post("/business/close", response_model=BusinessDeletionResponse)
+async def close_business_endpoint(
+    db: AsyncSession = Depends(get_db),
+    owner: User = Depends(require_owner),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Schedule self-service deletion for the caller's business (task #252).
+
+    Owner only -- not just admin-equivalent, since this affects every user
+    in the business, not the caller's own account.
+    """
+    try:
+        business = await request_business_deletion(db, business_id, owner.id)
+    except DeletionAlreadyScheduledError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+    subject, html_content = render_business_deletion_scheduled_email(
+        owner.email, business.name, business.purge_at.strftime("%B %d, %Y")
+    )
+    send_email(email_to=owner.email, subject=subject, html_content=html_content)
+
+    return BusinessDeletionResponse(
+        message=f"Deletion scheduled. Your account will be permanently deleted on {business.purge_at.strftime('%B %d, %Y')} unless cancelled.",
+        purge_at=business.purge_at,
+    )
+
+
+@router.post("/business/cancel-deletion", response_model=BusinessDeletionResponse)
+async def cancel_business_deletion_endpoint(
+    db: AsyncSession = Depends(get_db),
+    owner: User = Depends(require_owner),
+    business_id: uuid.UUID = Depends(get_current_business_id),
+):
+    """Cancel a pending self-service deletion within the grace period. Owner only."""
+    try:
+        business = await cancel_business_deletion(db, business_id, owner.id)
+    except DeletionNotScheduledError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except UserNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+    subject, html_content = render_business_deletion_cancelled_email(owner.email, business.name)
+    send_email(email_to=owner.email, subject=subject, html_content=html_content)
+
+    return BusinessDeletionResponse(
+        message="Deletion cancelled. Your account is fully active again.",
+        purge_at=None,
     )

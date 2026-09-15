@@ -359,10 +359,13 @@ export class LoginPageComponent implements OnDestroy {
         } else if (err.status === 429) {
           this.errorMessage.set('Account locked due to failed login attempts. Try again later.');
         } else if (err.status === 403) {
-          this.errorMessage.set(
-            err.error?.detail || 'Please verify your email before logging in.',
-          );
-          this.unverifiedEmail.set(true);
+          // Task #252: a business pending self-service deletion also 403s
+          // here (BusinessPendingDeletionError) -- must not show the
+          // "Resend verification email" affordance for that case, only
+          // for an actually-unverified email.
+          const detail = err.error?.detail || 'Please verify your email before logging in.';
+          this.errorMessage.set(detail);
+          this.unverifiedEmail.set(detail.toLowerCase().includes('verify your email'));
         } else if (err.status === 401) {
           this.errorMessage.set('Invalid email or password.');
         } else {

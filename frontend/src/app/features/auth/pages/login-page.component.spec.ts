@@ -72,6 +72,31 @@ describe('LoginPageComponent', () => {
     expect(component.errorMessage()).toContain('locked');
   });
 
+  it('shows resend-verification affordance on unverified-email 403', () => {
+    component.email = 'test@test.com';
+    component.password = 'password';
+    component.onLogin();
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/login'));
+    req.flush(
+      { detail: 'Please verify your email before logging in.' },
+      { status: 403, statusText: 'Forbidden' },
+    );
+    expect(component.unverifiedEmail()).toBe(true);
+  });
+
+  it('does not show resend-verification affordance on business-pending-deletion 403 (task #252)', () => {
+    component.email = 'test@test.com';
+    component.password = 'password';
+    component.onLogin();
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/login'));
+    req.flush(
+      { detail: 'This account is scheduled for deletion. Contact an owner to cancel it.' },
+      { status: 403, statusText: 'Forbidden' },
+    );
+    expect(component.unverifiedEmail()).toBe(false);
+    expect(component.errorMessage()).toContain('scheduled for deletion');
+  });
+
   describe('password visibility toggle', () => {
     it('showPassword signal starts as false', () => {
       expect(component.showPassword()).toBe(false);
