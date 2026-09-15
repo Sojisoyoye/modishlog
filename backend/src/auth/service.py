@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.exceptions import (
     AccountLockedError,
+    BusinessAlreadyPurgedError,
     BusinessPendingDeletionError,
     CannotModifySelfError,
     DeletionAlreadyScheduledError,
@@ -728,6 +729,11 @@ async def cancel_business_deletion(
             f"Business {business_id} has no deletion scheduled"
         )
 
+    if business.purged_at is not None:
+        raise BusinessAlreadyPurgedError(
+            f"Business {business_id} was already purged and cannot be restored"
+        )
+
     business.deletion_requested_at = None
     business.purge_at = None
     await db.flush()
@@ -741,3 +747,82 @@ async def cancel_business_deletion(
         entity_id=business_id,
     )
     return business
+
+
+async def purge_expired_business_deletions(db: AsyncSession) -> list[uuid.UUID]:
+    """Anonymize every business whose grace period has expired (task #260).
+
+    Retention decision made with the user (2026-09-15): anonymize PII on
+    Business and User, but keep the financial ledger (sales, expenses,
+    purchase orders -- amounts, dates, quantities) indefinitely rather than
+    purging it on a rolling window. Historical customer-identifying fields
+    scattered across Sale rows (customer_name, contact_number) are
+    explicitly NOT scrubbed here -- a known, accepted gap, not an oversight
+    (this isn't a full anonymization pipeline).
+
+    Intended to run on a schedule (see
+    .github/workflows/purge-deleted-businesses.yml), not from a request path.
+    """
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(Business).where(
+            Business.deletion_requested_at.is_not(None),
+            Business.purge_at.is_not(None),
+            Business.purge_at <= now,
+            Business.purged_at.is_(None),
+        )
+    )
+    businesses = result.scalars().all()
+
+    purged_ids: list[uuid.UUID] = []
+    for business in businesses:
+        await _purge_business(db, business, now)
+        purged_ids.append(business.id)
+    return purged_ids
+
+
+async def _purge_business(db: AsyncSession, business: Business, now: datetime) -> None:
+    """Anonymize a single business and its users. Caller (
+    purge_expired_business_deletions) is responsible for scoping which
+    businesses are eligible."""
+    users_result = await db.execute(select(User).where(User.business_id == business.id))
+    users = users_result.scalars().all()
+
+    # Record the audit event with the real (pre-anonymization) actor before
+    # mutating anything -- deliberately: the actor's name/email become
+    # unreadable immediately after, but the audit row itself and its FK to
+    # the (now-anonymized) user stay intact, so "a purge happened, by whom
+    # structurally" remains traceable even though the human-readable
+    # identity doesn't.
+    actor = next((u for u in users if u.role == UserRole.OWNER), users[0] if users else None)
+    if actor is not None:
+        await record_audit_event(
+            db,
+            business_id=business.id,
+            actor_user_id=actor.id,
+            action="business_purged",
+            entity_type="business",
+            entity_id=business.id,
+            details={"user_count": len(users)},
+        )
+    else:
+        await logger.awarn(
+            "business_purge_no_users_for_audit_event", business_id=str(business.id)
+        )
+
+    business.name = f"[deleted business {business.id}]"
+    business.phone = None
+    business.tax_number = None
+    business.country = None
+    business.state = None
+    business.city = None
+    business.purged_at = now
+
+    for user in users:
+        user.email = f"purged-{user.id}@deleted.modishlog.invalid"
+        user.full_name = "[deleted user]"
+        user.hashed_password = get_password_hash(secrets.token_urlsafe(32))
+        user.is_active = False
+
+    await db.flush()
+    await logger.ainfo("business_purged", business_id=str(business.id), user_count=len(users))

@@ -18,6 +18,7 @@ from src.auth.dependencies import (
 )
 from src.auth.exceptions import (
     AccountLockedError,
+    BusinessAlreadyPurgedError,
     BusinessPendingDeletionError,
     CannotModifySelfError,
     DeletionAlreadyScheduledError,
@@ -594,6 +595,8 @@ async def cancel_business_deletion_endpoint(
     try:
         business = await cancel_business_deletion(db, business_id, owner.id)
     except DeletionNotScheduledError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except BusinessAlreadyPurgedError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except UserNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

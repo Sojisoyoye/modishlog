@@ -48,6 +48,13 @@ class Business(UUIDMixin, TimestampMixin, Base):
     purge_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
+    # Set by the background purge job (task #260) once it has actually
+    # anonymized this business. Distinct from purge_at (when it's due) so
+    # the purge query can exclude businesses already processed, and so
+    # cancel_business_deletion can refuse to "restore" anonymized data.
+    purged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
 
     # lazy="select" (not "selectin") avoids loading all users whenever a Business is
     # loaded as part of a User query — which would happen on every authenticated request.
