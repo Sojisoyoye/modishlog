@@ -6080,12 +6080,13 @@
         "description": "Task #245 added a backend ADMIN/OWNER authorization gate to POST /sales/{sale_id}/returns (create_sell_return_endpoint). The frontend returns feature (frontend/src/app/features/returns/components/sell-return-form-modal/) has no role-based gating at all -- a SALES_MANAGER-role user still sees and can submit the create-return form, and now gets a generic 'Something went wrong. Please try again.' toast (from the global error.interceptor.ts, which attaches a generic userMessage to any non-401 error) instead of a clear permission message. Not a broken/crashing UX, but confusing and not a real fix.",
         "details": "Add a role check (current user's role from the auth/session store) to hide or disable the 'Create Return' action for non-ADMIN/OWNER users, with a clear tooltip/message ('Manager approval required') rather than letting them hit a confusing generic error after filling out the form. Check whether other admin-only actions elsewhere in the frontend already have an established role-check pattern/directive to reuse for consistency.",
         "testStrategy": "Playwright E2E test: a SALES_MANAGER-role test user does not see (or sees disabled) the create-return action; an ADMIN/OWNER test user does.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "245"
         ],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-16T09:59:06.513Z"
       },
       {
         "id": "258",
@@ -6179,9 +6180,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-16T09:41:45.326Z",
+      "lastModified": "2026-09-16T09:59:06.517Z",
       "taskCount": 264,
-      "completedCount": 241,
+      "completedCount": 242,
       "tags": [
         "master"
       ]
