@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.inventory.models import InventoryLevel
 from src.inventory.service import initialize_inventory
 from src.products.exceptions import (
     CategoryHasChildrenError,
@@ -270,6 +271,16 @@ async def get_product(
     return product
 
 
+_PRODUCT_SORT_COLUMNS = {
+    "name": Product.name,
+    "sku": Product.sku,
+    "unit_cost": Product.unit_cost,
+    "selling_price": Product.selling_price,
+    "stock": InventoryLevel.quantity_on_hand,
+    "category": ProductCategory.name,
+}
+
+
 async def list_products(
     db: AsyncSession,
     business_id: uuid.UUID,
@@ -280,8 +291,21 @@ async def list_products(
     page: int = 1,
     page_size: int = 20,
     load_variants: bool = False,
+    sort_by: str | None = None,
+    sort_dir: str = "asc",
 ) -> tuple[list[Product], int]:
-    """List products with filtering and pagination, scoped to a business."""
+    """List products with filtering and pagination, scoped to a business.
+
+    task #223: sort_by/sort_dir and the embedded current_stock/
+    low_stock_threshold on each item support the products list page's
+    server-side sort and stock column without a second unbounded
+    frontend fetch. The `stock`/`category` sort columns need a join --
+    added to the main query only for ordering purposes (values are NOT
+    selected from it, to avoid restructuring the existing selectinload-
+    based entity query); actual stock/threshold values for the response
+    come from a separate, small follow-up query scoped to just this
+    page's product ids.
+    """
     options = [selectinload(Product.category)]
     if load_variants:
         options.append(selectinload(Product.variants))
@@ -306,10 +330,40 @@ async def list_products(
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
+    if sort_by == "stock":
+        query = query.outerjoin(
+            InventoryLevel,
+            (InventoryLevel.product_id == Product.id)
+            & InventoryLevel.variant_id.is_(None),
+        )
+    elif sort_by == "category":
+        query = query.outerjoin(
+            ProductCategory, Product.category_id == ProductCategory.id
+        )
+
+    sort_column = _PRODUCT_SORT_COLUMNS.get(sort_by or "name", Product.name)
+    order_clause = sort_column.desc() if sort_dir == "desc" else sort_column.asc()
+
     offset = (page - 1) * page_size
-    query = query.order_by(Product.name).offset(offset).limit(page_size)
+    query = query.order_by(order_clause).offset(offset).limit(page_size)
     result = await db.execute(query)
     items = list(result.scalars().all())
+
+    if items:
+        stock_query = select(
+            InventoryLevel.product_id,
+            InventoryLevel.quantity_on_hand,
+            InventoryLevel.low_stock_threshold,
+        ).where(
+            InventoryLevel.product_id.in_([item.id for item in items]),
+            InventoryLevel.variant_id.is_(None),
+        )
+        stock_result = await db.execute(stock_query)
+        stock_by_product = {row[0]: (row[1], row[2]) for row in stock_result.all()}
+        for item in items:
+            stock = stock_by_product.get(item.id)
+            item.current_stock = stock[0] if stock else None
+            item.low_stock_threshold = stock[1] if stock else None
 
     return items, total
 

@@ -1,6 +1,6 @@
 import { test, expect, request as pwRequest } from '@playwright/test';
 import { ensureTestUser, loginViaAPI, E2E_EMAIL, E2E_PASSWORD } from './helpers/auth';
-import { ensureCategory, ensureProductInCategory } from './helpers/data';
+import { ensureCategory, ensureProductInCategory, ensureProduct, addStock } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
 
@@ -791,5 +791,40 @@ test.describe('FX-aware selling price suggestion', () => {
 
     const warning = addForm.locator('[data-testid="add-price-below-min-warning"]');
     await expect(warning).not.toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Server-side sort (task #223, slice 1)
+// ---------------------------------------------------------------------------
+
+test.describe('Products list server-side sort', () => {
+  test('sorting by Stock orders rows by real inventory quantity, both directions', async ({ page }) => {
+    const prefix = `Task223Sort${Date.now()}`;
+    const low = await ensureProduct(`${prefix} Low`);
+    const mid = await ensureProduct(`${prefix} Mid`);
+    const high = await ensureProduct(`${prefix} High`);
+    await addStock(low.id, 1);
+    await addStock(mid.id, 25);
+    await addStock(high.id, 100);
+
+    await page.getByPlaceholder('Search products...').fill(prefix);
+    await page.waitForTimeout(500);
+
+    const rowNames = () => page.locator('tbody tr .font-medium.text-text');
+    await expect(rowNames()).toHaveCount(3, { timeout: 10_000 });
+
+    // Ascending (first click on a fresh column defaults to asc, per toggleSort)
+    await page.locator('th', { hasText: 'Stock' }).click();
+    await expect(rowNames()).toHaveCount(3);
+    await expect(rowNames().nth(0)).toHaveText(low.name);
+    await expect(rowNames().nth(1)).toHaveText(mid.name);
+    await expect(rowNames().nth(2)).toHaveText(high.name);
+
+    // Descending (second click on the same column flips direction)
+    await page.locator('th', { hasText: 'Stock' }).click();
+    await expect(rowNames().nth(0)).toHaveText(high.name);
+    await expect(rowNames().nth(1)).toHaveText(mid.name);
+    await expect(rowNames().nth(2)).toHaveText(low.name);
   });
 });

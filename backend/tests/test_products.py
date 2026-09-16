@@ -1404,6 +1404,173 @@ async def test_products_owner_sees_own_data():
 
 
 # ---------------------------------------------------------------------------
+# list_products sorting + embedded stock (task #223, slice 1)
+# ---------------------------------------------------------------------------
+
+
+class TestListProductsSorting:
+    """list_products() must support sorting by column, including columns
+    that require a join (stock -> inventory_levels, category -> the
+    category table), and embed current_stock/low_stock_threshold on each
+    returned item without restructuring the existing selectinload-based
+    entity query."""
+
+    def _mock_execute_sequence(self, *, count=1, items=None, stock_rows=None):
+        """count query -> main select -> stock/threshold follow-up query."""
+        items = items if items is not None else [_make_product()]
+        stock_rows = stock_rows if stock_rows is not None else []
+
+        count_result = MagicMock()
+        count_result.scalar.return_value = count
+
+        main_result = MagicMock()
+        main_result.scalars.return_value.all.return_value = items
+
+        stock_result = MagicMock()
+        stock_result.all.return_value = stock_rows
+
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[count_result, main_result, stock_result])
+        return db
+
+    @pytest.mark.asyncio
+    async def test_sort_by_stock_orders_by_inventory_quantity(self):
+        from src.products.service import list_products
+
+        db = self._mock_execute_sequence()
+        await list_products(db, business_id=uuid.uuid4(), sort_by="stock", sort_dir="desc")
+
+        main_query = db.execute.call_args_list[1].args[0]
+        compiled = str(main_query.compile(compile_kwargs={"literal_binds": False}))
+        assert "inventory_levels" in compiled
+        assert "ORDER BY inventory_levels.quantity_on_hand DESC" in compiled
+
+    @pytest.mark.asyncio
+    async def test_sort_by_category_orders_by_category_name(self):
+        from src.products.service import list_products
+
+        db = self._mock_execute_sequence()
+        await list_products(db, business_id=uuid.uuid4(), sort_by="category")
+
+        main_query = db.execute.call_args_list[1].args[0]
+        compiled = str(main_query.compile(compile_kwargs={"literal_binds": False}))
+        assert "product_categories" in compiled
+        assert "ORDER BY product_categories.name" in compiled
+
+    @pytest.mark.asyncio
+    async def test_sort_by_unit_cost_orders_by_product_column(self):
+        from src.products.service import list_products
+
+        db = self._mock_execute_sequence()
+        await list_products(db, business_id=uuid.uuid4(), sort_by="unit_cost", sort_dir="desc")
+
+        main_query = db.execute.call_args_list[1].args[0]
+        compiled = str(main_query.compile(compile_kwargs={"literal_binds": False}))
+        assert "ORDER BY products.unit_cost DESC" in compiled
+
+    @pytest.mark.asyncio
+    async def test_default_sort_unchanged_when_sort_by_omitted(self):
+        """Backward compatible: no sort_by -> same default (name) ordering
+        as before this change, for the 9 call sites that don't pass it."""
+        from src.products.service import list_products
+
+        db = self._mock_execute_sequence()
+        await list_products(db, business_id=uuid.uuid4())
+
+        main_query = db.execute.call_args_list[1].args[0]
+        compiled = str(main_query.compile(compile_kwargs={"literal_binds": False}))
+        assert "ORDER BY products.name" in compiled
+
+    @pytest.mark.asyncio
+    async def test_embeds_current_stock_and_threshold_on_items(self):
+        from src.products.service import list_products
+
+        product = _make_product()
+        db = self._mock_execute_sequence(
+            items=[product],
+            stock_rows=[(product.id, 42, 10)],
+        )
+        items, _ = await list_products(db, business_id=uuid.uuid4())
+
+        assert items[0].current_stock == 42
+        assert items[0].low_stock_threshold == 10
+
+    @pytest.mark.asyncio
+    async def test_current_stock_none_when_no_inventory_row_yet(self):
+        """A product with no inventory_levels row at all (never stocked) --
+        must not error, must report current_stock/threshold as None rather
+        than 0 (0 would incorrectly imply a known empty stock level)."""
+        from src.products.service import list_products
+
+        product = _make_product()
+        db = self._mock_execute_sequence(items=[product], stock_rows=[])
+        items, _ = await list_products(db, business_id=uuid.uuid4())
+
+        assert items[0].current_stock is None
+        assert items[0].low_stock_threshold is None
+
+
+class TestListProductsEndpointSort:
+    """GET /products query-param round-trip for sort_by/sort_dir."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_db(self, db_mock):
+        from src.core.database import get_db
+
+        async def _fake_db():
+            yield db_mock
+
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def _override_auth(self):
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+
+        u = _make_user(business_id=uuid.uuid4())
+
+        async def _fake_auth():
+            return u
+
+        async def _fake_business_id():
+            return u.business_id
+
+        self.app.dependency_overrides[get_current_active_user] = _fake_auth
+        self.app.dependency_overrides[get_current_business_id] = _fake_business_id
+
+    def test_valid_sort_by_accepted(self):
+        count_result = MagicMock()
+        count_result.scalar.return_value = 0
+        main_result = MagicMock()
+        main_result.scalars.return_value.all.return_value = []
+        stock_result = MagicMock()
+        stock_result.all.return_value = []
+
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[count_result, main_result, stock_result])
+        self._override_db(db)
+        self._override_auth()
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/products", params={"sort_by": "stock", "sort_dir": "desc"})
+        assert resp.status_code == 200
+
+    def test_invalid_sort_by_rejected(self):
+        self._override_db(AsyncMock())
+        self._override_auth()
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/products", params={"sort_by": "not_a_real_column"})
+        assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # Product variant tests (task #160)
 # ---------------------------------------------------------------------------
 

@@ -2,6 +2,7 @@
 
 import os
 import uuid
+from typing import Literal
 
 import anyio
 import structlog
@@ -407,10 +408,13 @@ async def list_products_endpoint(
     search: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: Literal["name", "sku", "unit_cost", "selling_price", "stock", "category"]
+    | None = None,
+    sort_dir: Literal["asc", "desc"] = "asc",
     db: AsyncSession = Depends(get_db),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
-    """List products with filtering and pagination (includes variants)."""
+    """List products with filtering, sorting, and pagination (includes variants)."""
     items, total = await list_products(
         db,
         business_id,
@@ -420,6 +424,8 @@ async def list_products_endpoint(
         page=page,
         page_size=page_size,
         load_variants=True,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
     return ProductListResponse(items=items, total=total, page=page, page_size=page_size)
 

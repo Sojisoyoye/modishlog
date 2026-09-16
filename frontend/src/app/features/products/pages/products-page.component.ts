@@ -1,5 +1,6 @@
-import { Component, ChangeDetectionStrategy, ElementRef, inject, signal, OnInit, computed, viewChild } from '@angular/core';
-import { forkJoin } from 'rxjs';
+import { Component, ChangeDetectionStrategy, DestroyRef, ElementRef, effect, inject, signal, OnInit, computed, untracked, viewChild } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, debounceTime } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { MessageService } from 'primeng/api';
@@ -10,6 +11,7 @@ import {
   Product,
   ProductVariant,
   ProductVariantCreate,
+  ProductSortColumn,
   Category,
   CategoryCreate,
   CategoryUpdate,
@@ -17,7 +19,6 @@ import {
   ProductUpdate,
   BulkUploadResult,
 } from '../../../core/services/products.service';
-import { InventoryService } from '../../../core/services/inventory.service';
 import { FxService } from '../../../core/services/fx.service';
 import { ApiService } from '../../../core/services/api.service';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
@@ -173,7 +174,7 @@ interface ColEntry {
             [class]="activeTab() === 'products' ? 'shrink-0 border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'shrink-0 border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
           >
             <i class="pi pi-box mr-1.5 text-xs"></i> All Products
-            <span class="ml-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-muted">{{ products().length }}</span>
+            <span class="ml-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-muted">{{ total() }}</span>
           </button>
           <button
             (click)="activeTab.set('stock-report')"
@@ -194,7 +195,7 @@ interface ColEntry {
             <i class="pi pi-upload mr-1.5 text-xs"></i> Bulk Upload
           </button>
           <button
-            (click)="activeTab.set('categories')"
+            (click)="activeTab.set('categories'); ensureAllProductsLoaded()"
             [class]="activeTab() === 'categories' ? 'shrink-0 border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary' : 'shrink-0 border-b-2 border-transparent px-4 py-2 text-sm text-muted hover:text-text'"
           >
             <i class="pi pi-tag mr-1.5 text-xs"></i> Categories
@@ -343,7 +344,7 @@ interface ColEntry {
             <input
               type="text"
               [ngModel]="searchQuery()"
-              (ngModelChange)="searchQuery.set($event); currentPage.set(1)"
+              (ngModelChange)="onSearchInput($event)"
               placeholder="Search products..."
               class="w-52 rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
@@ -465,8 +466,8 @@ interface ColEntry {
                   }
                   @if (visibleCols().stock) {
                     <td class="px-4 py-3 text-right">
-                      <span [class]="stockStatus(product.id) === 'out' ? 'font-semibold text-red-600' : stockStatus(product.id) === 'low' ? 'font-semibold text-amber-600' : 'text-text'">
-                        {{ stockMap().get(product.id) ?? 0 }}
+                      <span [class]="stockStatus(product) === 'out' ? 'font-semibold text-red-600' : stockStatus(product) === 'low' ? 'font-semibold text-amber-600' : 'text-text'">
+                        {{ product.current_stock ?? 0 }}
                       </span>
                     </td>
                   }
@@ -505,10 +506,10 @@ interface ColEntry {
         </div>
 
         <!-- Pagination -->
-        @if (filteredProducts().length > 0) {
+        @if (total() > 0) {
           <div class="mt-4 flex items-center justify-between text-sm text-muted">
             <span>
-              Showing {{ showingFrom() }}–{{ showingTo() }} of {{ filteredProducts().length }} products
+              Showing {{ showingFrom() }}–{{ showingTo() }} of {{ total() }} products
               @if (selectedIds().size > 0) {
                 · <span class="font-medium text-primary">{{ selectedIds().size }} selected</span>
               }
@@ -576,7 +577,7 @@ interface ColEntry {
                     <p class="font-semibold text-emerald-700">{{ product.selling_price | number: '1.2-2' }}</p>
                   </div>
                 </div>
-                <p class="text-xs text-muted">Stock: <span [class]="stockStatus(product.id) === 'out' ? 'font-semibold text-red-600' : stockStatus(product.id) === 'low' ? 'font-semibold text-amber-600' : 'font-semibold text-text'">{{ stockMap().get(product.id) ?? 0 }}</span></p>
+                <p class="text-xs text-muted">Stock: <span [class]="stockStatus(product) === 'out' ? 'font-semibold text-red-600' : stockStatus(product) === 'low' ? 'font-semibold text-amber-600' : 'font-semibold text-text'">{{ product.current_stock ?? 0 }}</span></p>
               </div>
               <div class="mt-3 flex gap-2 border-t border-gray-100 pt-3">
                 <button (click)="openEdit(product)" class="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50">
@@ -594,9 +595,9 @@ interface ColEntry {
             </div>
           }
         </div>
-        @if (filteredProducts().length > pageSize()) {
+        @if (total() > pageSize()) {
           <div class="mt-4 flex items-center justify-between text-sm text-muted">
-            <span>Showing {{ showingFrom() }}–{{ showingTo() }} of {{ filteredProducts().length }}</span>
+            <span>Showing {{ showingFrom() }}–{{ showingTo() }} of {{ total() }}</span>
             <div class="flex items-center gap-1">
               <button (click)="prevPage()" [disabled]="currentPage() === 1" aria-label="Previous page" class="flex min-h-[44px] min-w-[44px] items-center justify-center rounded hover:bg-gray-100 disabled:opacity-40"><i class="pi pi-chevron-left text-xs"></i></button>
               @for (n of pageNumbers(); track n) {
@@ -632,16 +633,16 @@ interface ColEntry {
                 <td class="px-4 py-3 font-mono text-xs text-muted">{{ product.sku }}</td>
                 <td class="px-4 py-3 text-right text-text">{{ product.unit_cost | number: '1.2-2' }}</td>
                 <td class="px-4 py-3 text-right font-semibold text-emerald-700">{{ product.selling_price | number: '1.2-2' }}</td>
-                <td class="px-4 py-3 text-right text-text">{{ stockMap().get(product.id) ?? 0 }}</td>
+                <td class="px-4 py-3 text-right text-text">{{ product.current_stock ?? 0 }}</td>
                 <td class="px-4 py-3 text-right">
                   <span [class]="margin(product) >= 30 ? 'font-semibold text-emerald-700' : margin(product) >= 15 ? 'font-semibold text-amber-600' : 'font-semibold text-red-500'">
                     {{ margin(product) | number: '1.0-1' }}%
                   </span>
                 </td>
                 <td class="px-4 py-3 text-center">
-                  @if (stockStatus(product.id) === 'out') {
+                  @if (stockStatus(product) === 'out') {
                     <span class="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700">Out of Stock</span>
-                  } @else if (stockStatus(product.id) === 'low') {
+                  } @else if (stockStatus(product) === 'low') {
                     <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">Low Stock</span>
                   } @else {
                     <span class="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700">In Stock</span>
@@ -1419,32 +1420,42 @@ interface ColEntry {
 })
 export class ProductsPageComponent implements OnInit {
   private readonly productsService = inject(ProductsService);
-  private readonly inventoryService = inject(InventoryService);
   private readonly fxService = inject(FxService);
   private readonly messageService = inject(MessageService);
   private readonly api = inject(ApiService);
+  private readonly destroyRef = inject(DestroyRef);
   readonly mediaBaseUrl = environment.apiBaseUrl.replace('/api/v1', '');
 
   // ── Shared state ──────────────────────────────────────────────────────────
   pageLoading = signal(true);
+  // task #223: server-paginated -- this IS the current page, not the full
+  // catalog. total (below) is the full filtered/sorted result-set count.
   products = signal<Product[]>([]);
+  total = signal(0);
   categories = signal<Category[]>([]);   // flat list: all top-level + sub-categories
   categoryTree = signal<Category[]>([]); // tree: top-level with children nested
   saving = signal(false);
   savingAdd = signal(false);
 
+  // task #223: lazily populated via the (unchanged) getAll() full-catalog
+  // fetch -- only for the two features that genuinely need every product
+  // regardless of the current page/filters: category counts (Categories
+  // tab) and CSV export. Never loaded just for viewing the products list.
+  allProductsCache = signal<Product[] | null>(null);
+  private allProductsLoading = false;
+
   // ── Tab & view ────────────────────────────────────────────────────────────
   activeTab = signal<ProductsTab>('products');
   viewMode = signal<'grid' | 'list'>('list');
-
-  // ── Stock data ────────────────────────────────────────────────────────────
-  stockMap = signal<Map<string, number>>(new Map());
-  thresholdMap = signal<Map<string, number>>(new Map());
 
   // ── Filters & search ──────────────────────────────────────────────────────
   filterCategoryId = signal('');
   filterStatus = signal<'' | 'active' | 'inactive'>('');
   searchQuery = signal('');
+  // The server-driving value, updated only after the debounce below settles
+  // -- searchQuery stays instant for the input's own display binding.
+  debouncedSearch = signal('');
+  private readonly searchSubject = new Subject<string>();
   showFilters = signal(false);
 
   // ── Sort ──────────────────────────────────────────────────────────────────
@@ -1542,39 +1553,15 @@ export class ProductsPageComponent implements OnInit {
   editCurrency = signal<string>('NGN');
 
   // ── Computed ──────────────────────────────────────────────────────────────
-  filteredProducts = computed(() => {
-    let items = this.products();
-    const catFilter = this.filterCategoryId();
-    if (catFilter) items = items.filter((p) => p.category_id === catFilter);
-    const statusFilter = this.filterStatus();
-    if (statusFilter === 'active') items = items.filter((p) => p.is_active);
-    else if (statusFilter === 'inactive') items = items.filter((p) => !p.is_active);
-    const q = this.searchQuery().toLowerCase().trim();
-    if (q) items = items.filter((p) => p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q));
-    const col = this.sortCol();
-    const dir = this.sortDir() === 'asc' ? 1 : -1;
-    return [...items].sort((a, b) => {
-      let av: string | number, bv: string | number;
-      switch (col) {
-        case 'sku': av = a.sku ?? ''; bv = b.sku ?? ''; break;
-        case 'category': av = this.categoryName(a.category_id); bv = this.categoryName(b.category_id); break;
-        case 'unit_cost': av = a.unit_cost; bv = b.unit_cost; break;
-        case 'selling_price': av = a.selling_price; bv = b.selling_price; break;
-        case 'stock': av = this.stockMap().get(a.id) ?? 0; bv = this.stockMap().get(b.id) ?? 0; break;
-        default: av = a.name.toLowerCase(); bv = b.name.toLowerCase();
-      }
-      return av < bv ? -dir : av > bv ? dir : 0;
-    });
-  });
+  // task #223: filtering, search, and sort all happen server-side now (see
+  // the effect() in the constructor) -- products() already IS the current,
+  // filtered, sorted page. pagedProducts is kept as a compat alias so the
+  // template (and allSelected below) don't need touching.
+  pagedProducts = computed(() => this.products());
 
-  pagedProducts = computed(() => {
-    const start = (this.currentPage() - 1) * this.pageSize();
-    return this.filteredProducts().slice(start, start + this.pageSize());
-  });
-
-  totalPages = computed(() => Math.max(1, Math.ceil(this.filteredProducts().length / this.pageSize())));
-  showingFrom = computed(() => this.filteredProducts().length === 0 ? 0 : (this.currentPage() - 1) * this.pageSize() + 1);
-  showingTo = computed(() => Math.min(this.currentPage() * this.pageSize(), this.filteredProducts().length));
+  totalPages = computed(() => Math.max(1, Math.ceil(this.total() / this.pageSize())));
+  showingFrom = computed(() => this.total() === 0 ? 0 : (this.currentPage() - 1) * this.pageSize() + 1);
+  showingTo = computed(() => Math.min(this.currentPage() * this.pageSize(), this.total()));
 
   pageNumbers = computed(() => {
     const total = this.totalPages();
@@ -1603,47 +1590,78 @@ export class ProductsPageComponent implements OnInit {
   });
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
-  ngOnInit(): void {
-    this.pageLoading.set(true);
-    forkJoin({
-      products: this.productsService.getAll(),
-      categories: this.productsService.getCategories(),
-      stock: this.inventoryService.getCurrent(1, 10_000),
-    }).subscribe({
-      next: ({ products, categories, stock }) => {
-        this.products.set(products);
-
-        this.categoryTree.set(categories);
-        this.categories.set(this._flattenCategories(categories));
-
-        const sm = new Map<string, number>();
-        const tm = new Map<string, number>();
-        stock.items.forEach((item) => {
-          sm.set(item.product_id, item.current_stock);
-          tm.set(item.product_id, item.low_stock_threshold);
-        });
-        this.stockMap.set(sm);
-        this.thresholdMap.set(tm);
-
-        this.pageLoading.set(false);
-      },
-      error: () => { this.pageLoading.set(false); },
+  constructor() {
+    // task #223: re-fetch the current page from the server whenever any of
+    // these change. currentPage itself is reset to 1 by the individual
+    // filter/sort/search handlers already (see toggleSort, the filter
+    // <select>s, and the search subscription below) before this fires.
+    effect(() => {
+      const page = this.currentPage();
+      const pageSize = this.pageSize();
+      const categoryId = this.filterCategoryId();
+      const status = this.filterStatus();
+      const search = this.debouncedSearch();
+      const sortBy = this.sortCol();
+      const sortDir = this.sortDir();
+      untracked(() => this.fetchProducts({ page, pageSize, categoryId, status, search, sortBy, sortDir }));
     });
+  }
+
+  ngOnInit(): void {
+    this.searchSubject.pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef)).subscribe((value) => {
+      this.debouncedSearch.set(value);
+      this.currentPage.set(1);
+    });
+    this.loadCategories();
     // FX rate is optional UI enhancement — fire independently so it doesn't
-    // block the main forkJoin or delay the skeleton from clearing.
+    // block the products fetch or delay the skeleton from clearing.
     this.fxService.getLatest().subscribe({
       next: (rate) => this.currentFxRate.set(rate.rate),
       error: () => { /* FX rate unavailable — min price hint will be hidden for foreign currencies */ },
     });
   }
 
+  private fetchProducts(params: {
+    page: number; pageSize: number; categoryId: string; status: '' | 'active' | 'inactive';
+    search: string; sortBy: string; sortDir: SortDir;
+  }): void {
+    this.pageLoading.set(true);
+    this.productsService
+      .list({
+        page: params.page,
+        page_size: params.pageSize,
+        category_id: params.categoryId || undefined,
+        is_active: params.status === 'active' ? true : params.status === 'inactive' ? false : undefined,
+        search: params.search || undefined,
+        sort_by: params.sortBy as ProductSortColumn,
+        sort_dir: params.sortDir,
+      })
+      .subscribe({
+        next: (res) => {
+          this.products.set(res.items);
+          this.total.set(res.total);
+          this.pageLoading.set(false);
+        },
+        error: () => {
+          this.pageLoading.set(false);
+          this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to load products' });
+        },
+      });
+  }
+
+  /** Re-run the current page/filter/sort state — used after create/edit/delete/bulk-upload. */
   private loadProducts(): void {
-    this.productsService.getAll().subscribe({
-      next: (p) => { this.products.set(p); },
-      error: () => {
-        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to refresh products' });
-      },
+    this.fetchProducts({
+      page: this.currentPage(),
+      pageSize: this.pageSize(),
+      categoryId: this.filterCategoryId(),
+      status: this.filterStatus(),
+      search: this.debouncedSearch(),
+      sortBy: this.sortCol(),
+      sortDir: this.sortDir(),
     });
+    // Any CRUD invalidates the full-catalog cache too, if it was loaded.
+    this.allProductsCache.set(null);
   }
 
   private loadCategories(): void {
@@ -1664,18 +1682,18 @@ export class ProductsPageComponent implements OnInit {
     return flat;
   }
 
-  private loadStock(): void {
-    this.inventoryService.getCurrent(1, 10_000).subscribe({
-      next: ({ items }) => {
-        const sm = new Map<string, number>();
-        const tm = new Map<string, number>();
-        items.forEach((item) => {
-          sm.set(item.product_id, item.current_stock);
-          tm.set(item.product_id, item.low_stock_threshold);
-        });
-        this.stockMap.set(sm);
-        this.thresholdMap.set(tm);
+  /** task #223: lazily fetch the full catalog (unchanged getAll(), cached
+   * inside ProductsService itself) only when a feature that genuinely
+   * needs every product is used -- the Categories tab and CSV export. */
+  ensureAllProductsLoaded(): void {
+    if (this.allProductsCache() !== null || this.allProductsLoading) return;
+    this.allProductsLoading = true;
+    this.productsService.getAll().subscribe({
+      next: (items) => {
+        this.allProductsCache.set(items);
+        this.allProductsLoading = false;
       },
+      error: () => { this.allProductsLoading = false; },
     });
   }
 
@@ -1686,13 +1704,13 @@ export class ProductsPageComponent implements OnInit {
   }
 
   productCountForCategory(categoryId: string): number {
-    return this.products().filter((p) => p.category_id === categoryId).length;
+    return (this.allProductsCache() ?? []).filter((p) => p.category_id === categoryId).length;
   }
 
-  stockStatus(productId: string): 'out' | 'low' | 'ok' {
-    const qty = this.stockMap().get(productId) ?? 0;
+  stockStatus(product: Product): 'out' | 'low' | 'ok' {
+    const qty = product.current_stock ?? 0;
     if (qty === 0) return 'out';
-    const threshold = this.thresholdMap().get(productId) ?? 10;
+    const threshold = product.low_stock_threshold ?? 10;
     return qty <= threshold ? 'low' : 'ok';
   }
 
@@ -1746,6 +1764,11 @@ export class ProductsPageComponent implements OnInit {
   }
 
   // ── Sort / filter / pagination ────────────────────────────────────────────
+  onSearchInput(value: string): void {
+    this.searchQuery.set(value);
+    this.searchSubject.next(value);
+  }
+
   toggleSort(col: string): void {
     if (this.sortCol() === col) {
       this.sortDir.update((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -1760,6 +1783,7 @@ export class ProductsPageComponent implements OnInit {
     this.filterCategoryId.set('');
     this.filterStatus.set('');
     this.searchQuery.set('');
+    this.debouncedSearch.set('');
     this.currentPage.set(1);
   }
 
@@ -1786,23 +1810,47 @@ export class ProductsPageComponent implements OnInit {
   }
 
   // ── Export ────────────────────────────────────────────────────────────────
+  /** Applies the same category/status/search predicates the products list
+   * view sends to the server, but client-side against a full-catalog
+   * array -- used by exportCsv() so "Export" still means "export what I'm
+   * currently filtering", not literally the whole catalog unconditionally. */
+  private applyClientFilters(items: Product[]): Product[] {
+    let result = items;
+    const catFilter = this.filterCategoryId();
+    if (catFilter) result = result.filter((p) => p.category_id === catFilter);
+    const statusFilter = this.filterStatus();
+    if (statusFilter === 'active') result = result.filter((p) => p.is_active);
+    else if (statusFilter === 'inactive') result = result.filter((p) => !p.is_active);
+    const q = this.searchQuery().toLowerCase().trim();
+    if (q) result = result.filter((p) => p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q));
+    return result;
+  }
+
   exportCsv(): void {
-    const items = this.selectedIds().size > 0
-      ? this.filteredProducts().filter((p) => this.selectedIds().has(p.id))
-      : this.filteredProducts();
-    const header = 'Name,SKU,Category,Unit Cost,Selling Price,Stock,Status';
-    const rows = items.map((p) =>
-      [p.name, p.sku, this.categoryName(p.category_id), p.unit_cost, p.selling_price, this.stockMap().get(p.id) ?? 0, p.is_active ? 'Active' : 'Inactive']
-        .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`)
-        .join(',')
-    );
-    const csv = [header, ...rows].join('\n');
-    const a = Object.assign(document.createElement('a'), {
-      href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
-      download: 'products.csv',
+    this.productsService.getAll().subscribe({
+      next: (all) => {
+        const filtered = this.applyClientFilters(all);
+        const items = this.selectedIds().size > 0
+          ? filtered.filter((p) => this.selectedIds().has(p.id))
+          : filtered;
+        const header = 'Name,SKU,Category,Unit Cost,Selling Price,Stock,Status';
+        const rows = items.map((p) =>
+          [p.name, p.sku, this.categoryName(p.category_id), p.unit_cost, p.selling_price, p.current_stock ?? 0, p.is_active ? 'Active' : 'Inactive']
+            .map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`)
+            .join(',')
+        );
+        const csv = [header, ...rows].join('\n');
+        const a = Object.assign(document.createElement('a'), {
+          href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+          download: 'products.csv',
+        });
+        a.click();
+        URL.revokeObjectURL(a.href);
+      },
+      error: () => {
+        this.messageService.add({ severity: 'error', summary: 'Error', detail: 'Failed to export products' });
+      },
     });
-    a.click();
-    URL.revokeObjectURL(a.href);
   }
 
   // ── Column visibility ─────────────────────────────────────────────────────
@@ -2223,7 +2271,6 @@ export class ProductsPageComponent implements OnInit {
         this.bulkFile = null;
         if (result.successful > 0) {
           this.loadProducts();
-          this.loadStock();
           this.messageService.add({
             severity: 'success',
             summary: 'Upload complete',
