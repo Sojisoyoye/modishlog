@@ -505,6 +505,58 @@ class TestDeepHealthCheck:
         body = resp.json()
         assert body["checks"]["fx_api"] != "ok"
 
+    def test_deep_health_includes_email_check(self):
+        """task #263: response must include an 'email' check field."""
+        with (
+            patch("src.health.router.check_db", new=AsyncMock(return_value="ok")),
+            patch("src.health.router.check_fx_api", new=AsyncMock(return_value="ok")),
+            patch("src.health.router.check_anthropic", new=AsyncMock(return_value="ok")),
+            patch("src.health.router.check_email", new=AsyncMock(return_value="ok")),
+        ):
+            resp = self.client.get("/health/deep")
+        assert resp.status_code == 200
+        assert "email" in resp.json()["checks"]
+
+    def test_deep_health_email_failure_returns_degraded_not_unhealthy(self):
+        """task #263: email is non-critical (same tier as anthropic/redis) —
+        a misconfigured RESEND_API_KEY must never take the whole app down."""
+        with (
+            patch("src.health.router.check_db", new=AsyncMock(return_value="ok")),
+            patch("src.health.router.check_fx_api", new=AsyncMock(return_value="ok")),
+            patch("src.health.router.check_anthropic", new=AsyncMock(return_value="ok")),
+            patch(
+                "src.health.router.check_email",
+                new=AsyncMock(side_effect=Exception("bad key")),
+            ),
+        ):
+            resp = self.client.get("/health/deep")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "degraded"
+        assert body["checks"]["email"] == "error"
+
+
+class TestCheckEmail:
+    """task #263: check_email() must never make a live Resend API call —
+    only inspects whether RESEND_API_KEY is configured (cost/latency/rate
+    limit concerns), matching check_anthropic()'s shallow-check pattern."""
+
+    @pytest.mark.asyncio
+    async def test_check_email_ok_when_key_configured(self, monkeypatch):
+        from src.core.config import settings
+        from src.health.router import check_email
+
+        monkeypatch.setattr(settings, "RESEND_API_KEY", "re_test_key")
+        assert await check_email() == "ok"
+
+    @pytest.mark.asyncio
+    async def test_check_email_not_configured_when_key_empty(self, monkeypatch):
+        from src.core.config import settings
+        from src.health.router import check_email
+
+        monkeypatch.setattr(settings, "RESEND_API_KEY", "")
+        assert await check_email() == "not_configured"
+
 
 # ---------------------------------------------------------------------------
 # R6 — Sentry PII scrubbing

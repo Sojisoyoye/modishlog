@@ -18,7 +18,7 @@ router = APIRouter()
 async def check_db() -> str:
     """Ping the database. Returns 'ok' or raises on failure."""
     async with async_session_factory() as session:
-        await session.execute(text("SELECT 1"))  # risk-ok: health ping, not business logic
+        await session.execute(text("SELECT 1"))  # risk-ok: health ping
     return "ok"
 
 
@@ -51,6 +51,19 @@ async def check_anthropic() -> str:
         return "not_configured"
     if not key.startswith("sk-ant-"):
         raise ValueError("ANTHROPIC_API_KEY does not start with 'sk-ant-'")
+    return "ok"
+
+
+async def check_email() -> str:
+    """Verify the Resend API key is configured.
+
+    Never makes a live call to Resend's API (cost, latency, rate limits) --
+    a shallow presence check only, matching check_anthropic()'s pattern.
+
+    Returns 'ok' if RESEND_API_KEY is non-empty, 'not_configured' otherwise.
+    """
+    if not settings.emails_enabled:
+        return "not_configured"
     return "ok"
 
 
@@ -95,11 +108,13 @@ async def health() -> JSONResponse:
 
 @router.get("/health/deep")
 async def health_deep() -> JSONResponse:
-    """Deep health check: verifies DB, FX API, Anthropic key, and Redis (if configured).
+    """Deep health check: verifies DB, FX API, Anthropic key, Redis, and Resend
+    email (each if configured).
 
     Returns:
     - 200 with status=healthy when all critical checks pass.
-    - 200 with status=degraded when non-critical checks fail (FX API, Anthropic, Redis).
+    - 200 with status=degraded when non-critical checks fail (FX API,
+      Anthropic, Redis, email).
     - 503 with status=unhealthy when a critical check fails (DB).
 
     Used by production monitoring to distinguish DB outage from external API unavailability.
@@ -135,6 +150,13 @@ async def health_deep() -> JSONResponse:
     except Exception as exc:
         logger.warning("deep_health_redis_failed", error=str(exc))
         checks["redis"] = "error"
+
+    # Email (Resend) — NON-CRITICAL: notifications don't send, not a full outage
+    try:
+        checks["email"] = await check_email()
+    except Exception as exc:
+        logger.warning("deep_health_email_failed", error=str(exc))
+        checks["email"] = "error"
 
     if critical_failed:
         overall_status = "unhealthy"
