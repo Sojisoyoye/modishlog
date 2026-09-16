@@ -6159,13 +6159,14 @@
         "title": "Add a Resend/email health check to /health/deep",
         "description": "Task #249 upgraded the production deploy smoke test to hit /health/deep instead of /health, and to fail fast on 'db' or 'redis' reporting error/not_configured -- specifically because task #212 found Redis and Resend both silently misconfigured in production and nothing would have caught it before a manual audit. The Redis half is now covered. Resend/email is not: backend/src/health/router.py's health_deep() checks db, fx_api, anthropic, and redis, but has no check_email()/Resend check at all, so a misconfigured RESEND_API_KEY in production would still report healthy indefinitely. Deliberately left out of task #249 since it's new backend surface requiring its own tests (CLAUDE.md TDD rule), not just a workflow YAML change like the db/redis fix was.",
         "priority": "low",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "249"
         ],
         "details": "Add check_email() to backend/src/health/router.py, following the exact shallow-check pattern already used by check_anthropic() (settings.py already has EMAIL_ENABLED = bool(RESEND_API_KEY) at core/config.py:268) -- return 'ok' if settings.RESEND_API_KEY is non-empty, 'not_configured' otherwise. Do NOT make a live call to Resend's API from a health check (cost, latency, rate limits). Wire it into health_deep()'s checks dict as NON-CRITICAL (same tier as anthropic/redis -- email being down means notifications don't send, not a full outage). Then extend deploy-production.yml's smoke test grep to also fail fast on '\"email\":\"(error|not_configured)\"', matching the redis check added in task #249.",
         "testStrategy": "Backend: 2 tests minimum for check_email() (RESEND_API_KEY set -> 'ok'; empty -> 'not_configured') plus a test that health_deep() includes 'email' in its checks dict and that an email check failure alone produces 'degraded' (200), not 'unhealthy' (503). Manually verify against a real deploy that the smoke test grep correctly fails when RESEND_API_KEY is deliberately unset.",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-16T10:37:45.181Z"
       },
       {
         "id": "264",
@@ -6181,9 +6182,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-16T10:18:53.098Z",
+      "lastModified": "2026-09-16T10:37:45.187Z",
       "taskCount": 264,
-      "completedCount": 243,
+      "completedCount": 244,
       "tags": [
         "master"
       ]
