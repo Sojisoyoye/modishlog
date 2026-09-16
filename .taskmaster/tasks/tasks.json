@@ -5599,10 +5599,11 @@
         "description": "ProductsService.getAll() (frontend/src/app/core/services/products.service.ts:126-147) fetches page 1 (100 items), then forkJoin's every remaining page in parallel to build a full in-memory array, cached via shareReplay(1). It's called from at least 10 different feature pages (products, sales, transaction-detail, inventory, pricing, orders, order-detail, recommendations, settings, invoice-schemes). As a business's catalog grows into the thousands of SKUs, this means dozens of parallel unpaginated API calls fired from many different pages and thousands of full product objects held in browser memory, refetched entirely on any cache invalidation (e.g. any single product edit).",
         "details": "Given the number of call sites (10+ pages), this needs careful, incremental migration rather than a single risky rewrite this close to launch. Prioritize converting the highest-traffic/largest-catalog-impact call sites first (products list, sales, inventory) to a typeahead/search-scoped lookup or true server-side pagination instead of \"load everything into memory.\" Lower-traffic call sites (settings, invoice-schemes) can follow post-launch. Flag as a regression-risk item -- test each converted page's product-selection UX carefully since this touches a widely-shared service.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-16T14:00:38.744Z"
       },
       {
         "id": "224",
@@ -6186,9 +6187,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-16T13:10:58.595Z",
+      "lastModified": "2026-09-16T14:00:38.752Z",
       "taskCount": 264,
-      "completedCount": 248,
+      "completedCount": 249,
       "tags": [
         "master"
       ]
