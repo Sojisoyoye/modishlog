@@ -6106,12 +6106,13 @@
         "description": "GET /api/v1/audit-log (task #246) returns actor_user_id as a raw UUID. Functionally complete and queryable, but for an actual dispute investigation an admin would need to manually cross-reference that UUID against the admin users list to find out who it was -- not a great UX for the exact scenario this feature exists for.",
         "details": "Join AuditLog to User in list_audit_events (backend/src/audit/service.py) and add actor_name/actor_email to AuditLogRead (backend/src/audit/schemas.py), or accept the UUID-only shape and add a lightweight frontend lookup instead if a backend join is judged unnecessary. Low priority -- not a correctness issue, pure polish.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [
           "246"
         ],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-16T10:00:08.529Z"
       },
       {
         "id": "260",
@@ -6180,7 +6181,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-16T09:59:06.517Z",
+      "lastModified": "2026-09-16T10:00:08.529Z",
       "taskCount": 264,
       "completedCount": 242,
       "tags": [

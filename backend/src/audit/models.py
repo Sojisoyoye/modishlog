@@ -11,8 +11,9 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import JSON, DateTime, ForeignKey, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from src.auth.models import User
 from src.core.database import Base, UUIDMixin
 
 
@@ -34,6 +35,14 @@ class AuditLog(UUIDMixin, Base):
     details: Mapped[dict | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    # task #259: surfaces actor_name/actor_email on read without forcing an
+    # admin to cross-reference actor_user_id against the users list by hand.
+    # viewonly -- this domain's write path never touches actor via the ORM
+    # relationship, only via the plain actor_user_id column.
+    actor: Mapped["User | None"] = relationship(
+        "User", foreign_keys=[actor_user_id], lazy="raise", viewonly=True
     )
 
     def __repr__(self) -> str:

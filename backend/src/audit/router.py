@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_business_id, require_admin
-from src.audit.schemas import AuditLogListResponse
+from src.audit.schemas import AuditLogListResponse, AuditLogRead
 from src.audit.service import list_audit_events
 from src.core.database import get_db
 
@@ -28,5 +28,15 @@ async def list_audit_events_endpoint(
         db, business_id, page=page, page_size=page_size
     )
     return AuditLogListResponse(
-        items=items, total=total, page=page, page_size=page_size
+        items=[_to_read(item) for item in items],
+        total=total,
+        page=page,
+        page_size=page_size,
     )
+
+
+def _to_read(entry) -> AuditLogRead:
+    r = AuditLogRead.model_validate(entry)
+    r.actor_name = entry.actor.full_name if entry.actor else None
+    r.actor_email = entry.actor.email if entry.actor else None
+    return r
