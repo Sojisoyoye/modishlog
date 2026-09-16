@@ -90,7 +90,7 @@ test.describe('Register page — step navigation', () => {
   });
 });
 
-test.describe('Register page — full happy path', () => {
+test.describe('Register page — full happy path @smoke', () => {
   test('submitting both steps with valid data redirects to /check-email (not auto-logged-in)', async ({
     page,
   }) => {

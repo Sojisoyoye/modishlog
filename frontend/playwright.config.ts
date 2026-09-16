@@ -36,5 +36,23 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
+    // task #231: no automated coverage existed for Safari (WebKit) or a
+    // real mobile device before this -- mobile-bottom-nav.spec.ts only
+    // resizes the Chromium viewport, it doesn't exercise WebKit's actual
+    // rendering engine, touch input, or Mobile Safari's user agent. Scoped
+    // to @smoke-tagged tests only (grep) -- given the 2-day launch
+    // timeline, running the full suite on every extra browser project
+    // triples CI time/cost for coverage that's mostly redundant with
+    // chromium; expand post-launch instead of gating launch on it.
+    {
+      name: 'webkit',
+      grep: /@smoke/,
+      use: { ...devices['Desktop Safari'] },
+    },
+    {
+      name: 'mobile',
+      grep: /@smoke/,
+      use: { ...devices['iPhone 13'] },
+    },
   ],
 });
