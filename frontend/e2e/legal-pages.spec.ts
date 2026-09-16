@@ -91,4 +91,9 @@ test.describe('Sidebar footer links to legal pages for logged-in users', () => {
     await expect(page).toHaveURL(/\/terms$/);
     await expect(page.getByRole('heading', { name: 'Terms of Service', exact: true })).toBeVisible();
   });
+
+  test('sidebar shows a Contact Support mailto link (task #235)', async ({ page }) => {
+    const supportLink = page.getByRole('link', { name: /contact support/i });
+    await expect(supportLink).toHaveAttribute('href', 'mailto:contact@modishlog.com');
+  });
 });
