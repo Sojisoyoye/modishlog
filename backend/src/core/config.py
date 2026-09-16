@@ -279,5 +279,15 @@ class Settings(BaseSettings):
     def emails_enabled(self) -> bool:
         return bool(self.RESEND_API_KEY)
 
+    # Billing (Paystack, task #237/#238) — empty means "not configured":
+    # initiate_checkout() raises BillingNotConfiguredError rather than a
+    # confusing raw API failure, keeping local/dev/CI working with zero
+    # setup. Plan codes are created once in the Paystack dashboard (where
+    # the actual NGN price per tier is set) and referenced here by code --
+    # this app never computes or sends a charge amount itself.
+    PAYSTACK_SECRET_KEY: str = ""
+    PAYSTACK_BASIC_PLAN_CODE: str = ""
+    PAYSTACK_PRO_PLAN_CODE: str = ""
+
 
 settings = Settings()

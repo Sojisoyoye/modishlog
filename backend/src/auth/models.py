@@ -18,6 +18,23 @@ class UserRole(str, enum.Enum):
     OWNER = "owner"
 
 
+class SubscriptionStatus(str, enum.Enum):
+    """Business subscription lifecycle state (task #237/#238)."""
+
+    TRIALING = "trialing"
+    ACTIVE = "active"
+    PAST_DUE = "past_due"
+    READ_ONLY = "read_only"
+    CANCELED = "canceled"
+
+
+class SubscriptionTier(str, enum.Enum):
+    """Feature-gating tier (task #237/#238)."""
+
+    BASIC = "basic"
+    PRO = "pro"
+
+
 class Business(UUIDMixin, TimestampMixin, Base):
     """Business entity that owns a set of users."""
 
@@ -53,6 +70,35 @@ class Business(UUIDMixin, TimestampMixin, Base):
     # the purge query can exclude businesses already processed, and so
     # cancel_business_deletion can refuse to "restore" anonymized data.
     purged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
+    # Billing (task #237/#238). trial_ends_at is deliberately NOT a column
+    # here -- derived as created_at + 7 days per the billing spec, no
+    # separate trial-tracking state to keep in sync.
+    subscription_status: Mapped[SubscriptionStatus] = mapped_column(
+        Enum(SubscriptionStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        server_default=SubscriptionStatus.TRIALING.value,
+    )
+    # Defaults to PRO during trial (full-featured trial experience) --
+    # this is an implementation default, not the launch pricing/tiering
+    # decision itself; see task #238's PR description.
+    subscription_tier: Mapped[SubscriptionTier] = mapped_column(
+        Enum(SubscriptionTier, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        server_default=SubscriptionTier.PRO.value,
+    )
+    # Set once a checkout creates/reuses a Paystack customer (task #238).
+    paystack_customer_code: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, default=None
+    )
+    # Set only once task #239's webhook confirms payment succeeded --
+    # initiating a checkout does not guarantee the user completes it.
+    paystack_subscription_code: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, default=None
+    )
+    current_period_end: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
 
