@@ -3,12 +3,13 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
+from src.core.rate_limit import limiter
 from src.settings import service
 from src.settings.schemas import (
     ApiKeyStatus,
@@ -101,7 +102,9 @@ async def save_api_key(
 
 
 @router.get("/api-key/anthropic/test", response_model=ApiKeyTestResult)
+@limiter.limit("10/hour")
 async def test_anthropic_api_key(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> ApiKeyTestResult:
