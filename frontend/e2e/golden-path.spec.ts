@@ -8,7 +8,7 @@
  * chain breaks, a beta user's first session will fail.
  */
 import { test, expect, request as pwRequest } from '@playwright/test';
-import { ensureTestUser, loginViaUI, loginViaAPI, getAPIToken } from './helpers/auth';
+import { ensureTestUser, loginViaUI, getAPIToken } from './helpers/auth';
 import { ensureProduct, createOrder } from './helpers/data';
 
 const API = 'http://localhost:8000/api/v1';
@@ -60,15 +60,26 @@ test.describe('Golden path — full MVP business cycle @smoke', () => {
   });
 
   test('Login redirects to dashboard', async ({ page }) => {
-    // Deliberately the real UI login flow, not loginViaAPI -- this test's
-    // whole point is verifying the login form itself works as the first
-    // step of the golden path, not just that an authenticated session works.
+    // The real UI login flow -- this test's whole point is verifying the
+    // login form itself works as the first step of the golden path, not
+    // just that an authenticated session works. Every other test below
+    // also uses loginViaUI now (see task #231) for reliability, not just
+    // this one for its original reason.
     await loginViaUI(page);
     await expect(page.getByText("Today's Revenue")).toBeVisible();
   });
 
   test('Purchase order transitions from ORDERED through to DELIVERED via UI', async ({ page }) => {
-    await loginViaAPI(page);
+    // loginViaAPI's cookie-only session (set via page.context().request.post(),
+    // outside the page's own JS) reliably survives the *first* subsequent
+    // navigation but not a second one in WebKit specifically -- task #231's
+    // CI run caught this landing back on /login instead of the target page.
+    // loginViaUI drives the real login form, so the resulting session is
+    // established through the app's normal login() flow instead, which is
+    // what every real user's browser does -- proven reliable across all
+    // three projects (this file's first test already used it for exactly
+    // this reason, just not the other tests below it).
+    await loginViaUI(page);
     await page.goto(`/orders/${orderId}`);
     await page.waitForLoadState('domcontentloaded');
 
@@ -117,7 +128,7 @@ test.describe('Golden path — full MVP business cycle @smoke', () => {
   test('Recording a sale deducts stock and shows success toast', async ({ page }) => {
     const stockBefore = await getStock(productId);
 
-    await loginViaAPI(page);
+    await loginViaUI(page);
     await page.goto('/sales');
     // Wait for page heading — sales.spec.ts requires this before interacting with the form
     await expect(page.getByRole('heading', { name: 'Sales', exact: true })).toBeVisible({ timeout: 10_000 });
@@ -149,7 +160,7 @@ test.describe('Golden path — full MVP business cycle @smoke', () => {
   });
 
   test('P&L report generates with non-zero revenue after the sale', async ({ page }) => {
-    await loginViaAPI(page);
+    await loginViaUI(page);
     await page.goto('/reports/profit-loss');
     await page.waitForLoadState('domcontentloaded');
 
