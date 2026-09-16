@@ -5563,10 +5563,11 @@
         "description": "auth/models.py:64-65 and schemas.py:164-171 collect ndpr_consent_given/ndpr_consent_at at signup, but there is no self-service data-export endpoint and no true deletion/anonymization path anywhere in the backend (grep -rli ndpr backend/src only hits the consent fields). deactivate_user() (auth/service.py:533-559) only flips is_active=False and deletes refresh tokens -- it does not purge or anonymize PII. This is a real NDPR compliance gap for a Nigerian SaaS collecting personal data (access + erasure rights), not just a nice-to-have.",
         "details": "Given the 2-day launch timeline, a full self-service feature is likely out of scope. Realistic split: (1) immediate: document a manual, support-handled data export/erasure process (what data exists, who can action a request, turnaround expectations) as an interim stopgap, and make sure there's a real internal runbook/contact for it -- not just a TODO. (2) Post-launch: build a real self-service data export (JSON/CSV dump of a user's own data on request) and an actual erasure/anonymization path (not just is_active=False) as a proper feature with its own task breakdown.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-16T10:42:45.448Z"
       },
       {
         "id": "221",
@@ -6182,9 +6183,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-16T10:37:45.187Z",
+      "lastModified": "2026-09-16T10:42:45.454Z",
       "taskCount": 264,
-      "completedCount": 244,
+      "completedCount": 245,
       "tags": [
         "master"
       ]
