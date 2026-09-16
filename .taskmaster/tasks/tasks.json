@@ -5738,10 +5738,11 @@
         "description": "No support email address, in-app chat widget, or help channel of any kind was found anywhere in the frontend or documentation. There is also no written escalation playbook for who handles a day-one production outage or urgent user-facing bug report. Launching to real SMB owners without any way for them to reach you when something breaks (and without your own team having a clear \"who does what\" plan for an outage) is a real operational gap.",
         "details": "Minimum viable for launch: a monitored support email address (even a plain inbox someone actually checks) surfaced somewhere reachable in the app (footer, settings page, or an error-state fallback), plus a short written escalation doc -- who gets paged/notified for a prod outage, what the immediate triage steps are, where to check first (health endpoints, Sentry, logs). A full chat widget (Crisp/Intercom/etc.) can follow post-launch if time doesn't allow it now, but the monitored inbox + playbook should exist before real users start hitting issues.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-16T12:53:48.424Z"
       },
       {
         "id": "236",
@@ -6184,9 +6185,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-16T12:39:52.927Z",
+      "lastModified": "2026-09-16T12:53:48.427Z",
       "taskCount": 264,
-      "completedCount": 246,
+      "completedCount": 247,
       "tags": [
         "master"
       ]
