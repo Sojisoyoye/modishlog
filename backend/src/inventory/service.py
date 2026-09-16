@@ -401,8 +401,10 @@ async def get_stock_movements(
     db: AsyncSession,
     product_id: uuid.UUID,
     business_id: uuid.UUID | None = None,
+    limit: int = 50,
 ) -> list[StockMovement]:
-    """Get stock movement history for a product.
+    """Get stock movement history for a product (most recent first, bounded
+    to `limit` rows -- task #222, matches list_all_movements()'s pattern).
 
     If business_id is provided, verifies the product belongs to that business.
     """
@@ -420,6 +422,7 @@ async def get_stock_movements(
         select(StockMovement)
         .where(StockMovement.product_id == product_id)
         .order_by(StockMovement.created_at.desc())
+        .limit(limit)
     )
     return list(result.scalars().all())
 

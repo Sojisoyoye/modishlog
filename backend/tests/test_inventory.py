@@ -297,6 +297,51 @@ class TestInventoryAdjustEndpoint(_InventoryEndpointBase):
 
 
 # ---------------------------------------------------------------------------
+# GET /inventory/{product_id}/movements  (task #222 — bounded query)
+# ---------------------------------------------------------------------------
+
+
+class TestGetStockMovementsService:
+    """get_stock_movements() (task #222) previously had no .limit() -- for
+    any product with meaningful history this was both an unindexed full
+    table scan+sort (stock_movements has no index beyond its bare FK) and
+    an unbounded result set."""
+
+    @pytest.mark.asyncio
+    async def test_applies_default_limit(self):
+        """Without an explicit limit, the query must still be bounded."""
+        from src.inventory.service import get_stock_movements
+
+        product_id = uuid.uuid4()
+        db = _mock_db(movements=[])
+
+        await get_stock_movements(db, product_id)
+
+        query = db.execute.call_args_list[-1][0][0]
+        assert query._limit_clause is not None, (
+            "get_stock_movements() must apply a LIMIT -- an unbounded query "
+            "against stock_movements (no index beyond its FK) is both a full "
+            "table scan+sort and an unbounded result set for any product "
+            "with meaningful movement history"
+        )
+
+    @pytest.mark.asyncio
+    async def test_respects_custom_limit(self):
+        """An explicit limit argument must actually reach the SQL LIMIT
+        clause, not just exist as an unused parameter."""
+        from src.inventory.service import get_stock_movements
+
+        product_id = uuid.uuid4()
+        db = _mock_db(movements=[])
+
+        await get_stock_movements(db, product_id, limit=10)
+
+        query = db.execute.call_args_list[-1][0][0]
+        assert query._limit_clause is not None
+        assert query._limit_clause.value == 10
+
+
+# ---------------------------------------------------------------------------
 # GET /inventory/movements  (new endpoint — all recent movements)
 # ---------------------------------------------------------------------------
 

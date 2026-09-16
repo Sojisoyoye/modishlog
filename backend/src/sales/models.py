@@ -55,7 +55,11 @@ class Sale(UUIDMixin, MigrationTaggedMixin, TimestampMixin, Base):
     business_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("businesses.id"), nullable=True, index=True, default=None
     )
-    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
+    # index=True (task #222): filtered directly (sales/pricing/ai_engine
+    # service.py) and joined on repeatedly across reports -- was missing
+    # from 370b5f18aa74_add_perf_indexes.py despite covering customer_id/
+    # payment_status/transaction_id on this same table.
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), index=True)
     quantity: Mapped[int] = mapped_column(Integer)
     unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 6))

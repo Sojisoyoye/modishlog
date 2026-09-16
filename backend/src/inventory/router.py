@@ -160,12 +160,13 @@ async def adjust_stock_endpoint(
 @router.get("/{product_id}/movements", response_model=list[StockMovementRead])
 async def get_movements_endpoint(
     product_id: uuid.UUID,
+    limit: int = 50,
     db: AsyncSession = Depends(get_db),
     business_id: uuid.UUID = Depends(get_current_business_id),
 ):
     """Get stock movement history for a product."""
     try:
-        return await get_stock_movements(db, product_id, business_id=business_id)
+        return await get_stock_movements(db, product_id, business_id=business_id, limit=limit)
     except ProductStockNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 

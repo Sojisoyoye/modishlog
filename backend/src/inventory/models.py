@@ -95,6 +95,14 @@ class StockMovement(UUIDMixin, MigrationTaggedMixin, Base):
     """Immutable record of a stock quantity change."""
 
     __tablename__ = "stock_movements"
+    # task #222: matches the actual hot-path query in inventory/service.py's
+    # get_stock_movements() -- WHERE product_id = ... ORDER BY created_at
+    # DESC. Previously had no index beyond the bare FK constraint on
+    # product_id (not even that, single-column) -- a full table scan+sort
+    # for any product with meaningful movement history.
+    __table_args__ = (
+        Index("ix_stock_movements_product_id_created_at", "product_id", "created_at"),
+    )
 
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
     # variant_id links the movement to a specific variant row.
