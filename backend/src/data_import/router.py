@@ -10,6 +10,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Request,
     Response,
     UploadFile,
     status,
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
+from src.core.rate_limit import limiter
 from src.data_import import service
 from src.data_import.etl.adapters.registry import API_ADAPTERS
 from src.data_import.etl.extractor import APIExtractor
@@ -123,7 +125,9 @@ async def test_connection(data: TestConnectionRequest):
 @router.post(
     "/jobs", response_model=MigrationJobRead, status_code=status.HTTP_201_CREATED
 )
+@limiter.limit("20/hour")
 async def create_job(
+    request: Request,
     source_system: SourceSystem = Form(...),
     extraction_mode: ExtractionMode = Form(ExtractionMode.CSV),
     product_categories: UploadFile | None = File(None),

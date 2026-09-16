@@ -3,7 +3,7 @@
 import uuid
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.ai_engine.exceptions import (
@@ -44,6 +44,7 @@ from src.ai_engine.service import (
 from src.auth.dependencies import get_current_active_user, get_current_business_id
 from src.auth.models import User
 from src.core.database import get_db
+from src.core.rate_limit import limiter
 
 logger = structlog.get_logger()
 
@@ -60,7 +61,9 @@ router = APIRouter(dependencies=[Depends(get_current_active_user)])
     response_model=list[RecommendationRead],
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("10/hour")
 async def generate_recommendations_endpoint(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     business_id: uuid.UUID = Depends(get_current_business_id),
@@ -255,7 +258,9 @@ async def update_usd_strategy_config_endpoint(
     response_model=list[ReorderSuggestionRead],
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit("10/hour")
 async def generate_reorder_suggestions_endpoint(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
     business_id: uuid.UUID = Depends(get_current_business_id),

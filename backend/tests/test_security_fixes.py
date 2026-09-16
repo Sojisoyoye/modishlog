@@ -656,3 +656,104 @@ class TestPipAuditCI:
         assert "--fail-on-vuln" in content or "fail-on-vuln" in content, (
             "_dependency-scan.yml must use pip-audit --fail-on-vuln to block merges on CVEs"
         )
+
+
+# ---------------------------------------------------------------------------
+# S9 — Rate limiting on AI generation, bulk import, and report export
+# ---------------------------------------------------------------------------
+
+
+def _assert_rate_limited(client, method: str, path: str, *, attempts: int, **kwargs) -> None:
+    """Hit an endpoint `attempts` times and assert a 429 shows up -- matches
+    TestRedisRateLimiter.test_rate_limiter_rejects_at_threshold's pattern.
+    slowapi's @limiter.limit decorator checks the limit before the wrapped
+    endpoint body runs, so it doesn't matter whether the mocked
+    db/business-logic calls underneath would have succeeded or errored for
+    unrelated reasons -- only that requests actually reach the endpoint
+    (auth/db dependencies must be overridden, not just mocked-and-hoped)."""
+    statuses = []
+    for _ in range(attempts):
+        resp = getattr(client, method)(path, **kwargs)
+        statuses.append(resp.status_code)
+    assert 429 in statuses, f"Expected 429 among {attempts} rapid requests, got: {statuses}"
+
+
+class TestExpensiveEndpointRateLimiting:
+    """S9 (task #218): every @limiter.limit(...) in the codebase was in
+    auth/router.py -- AI recommendation/reorder generation, the live
+    Anthropic key test, bulk import job creation, and report CSV export
+    were all unthrottled, each either compute-heavy or externally costly
+    enough to be a real cost-exhaustion or DoS vector."""
+
+    @pytest.fixture(autouse=True)
+    def _client(self):
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+        from src.auth.models import User, UserRole
+        from src.core.database import get_db
+        from src.main import app
+
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        result.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(return_value=result)
+
+        user = MagicMock(spec=User)
+        user.id = uuid.uuid4()
+        user.is_active = True
+        user.role = UserRole.ADMIN
+
+        async def _fake_user():
+            return user
+
+        async def _fake_business_id():
+            return uuid.uuid4()
+
+        app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_current_active_user] = _fake_user
+        app.dependency_overrides[get_current_business_id] = _fake_business_id
+
+        self.client = TestClient(app, raise_server_exceptions=False)
+        yield
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_active_user, None)
+        app.dependency_overrides.pop(get_current_business_id, None)
+
+    def test_generate_recommendations_rate_limited(self):
+        _assert_rate_limited(
+            self.client, "post", "/api/v1/ai/recommendations/generate", attempts=12
+        )
+
+    def test_generate_reorder_suggestions_rate_limited(self):
+        _assert_rate_limited(
+            self.client, "post", "/api/v1/ai/reorder/generate", attempts=12
+        )
+
+    def test_anthropic_key_test_rate_limited(self):
+        _assert_rate_limited(
+            self.client, "get", "/api/v1/settings/api-key/anthropic/test", attempts=12
+        )
+
+    def test_bulk_import_job_creation_rate_limited(self):
+        _assert_rate_limited(
+            self.client,
+            "post",
+            "/api/v1/import/jobs",
+            attempts=22,
+            data={"source_system": "generic", "extraction_mode": "csv"},
+        )
+
+    def test_profit_loss_export_rate_limited(self):
+        _assert_rate_limited(
+            self.client, "get", "/api/v1/reports/profit-loss/export-csv", attempts=22
+        )
+
+    def test_stock_export_rate_limited(self):
+        _assert_rate_limited(
+            self.client, "get", "/api/v1/reports/stock/export-csv", attempts=22
+        )
+
+    def test_purchase_sale_export_rate_limited(self):
+        _assert_rate_limited(
+            self.client, "get", "/api/v1/reports/purchase-sale/export-csv", attempts=22
+        )

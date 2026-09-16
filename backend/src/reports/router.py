@@ -7,7 +7,7 @@ from datetime import date
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,7 @@ from src.auth.dependencies import get_current_active_user, get_current_business_
 from src.auth.models import User
 from src.core.csv_utils import csv_safe
 from src.core.database import get_db
+from src.core.rate_limit import limiter
 from src.reports.schemas import (
     ProductSalesReport,
     ProfitLossReport,
@@ -36,7 +37,9 @@ router = APIRouter()
 
 # Static route BEFORE the base /profit-loss endpoint
 @router.get("/profit-loss/export-csv")
+@limiter.limit("20/hour")
 async def export_profit_loss_csv(
+    request: Request,
     start_date: date | None = None,
     end_date: date | None = None,
     location_id: uuid.UUID | None = None,
@@ -97,7 +100,9 @@ async def profit_loss_endpoint(
 
 # Static route BEFORE parameterized routes
 @router.get("/stock/export-csv")
+@limiter.limit("20/hour")
 async def export_stock_csv(
+    request: Request,
     category_id: uuid.UUID | None = None,
     location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
@@ -170,7 +175,9 @@ async def stock_report_endpoint(
 
 # Static route BEFORE the base /purchase-sale endpoint
 @router.get("/purchase-sale/export-csv")
+@limiter.limit("20/hour")
 async def export_purchase_sale_csv(
+    request: Request,
     start_date: date | None = None,
     end_date: date | None = None,
     location_id: uuid.UUID | None = None,
