@@ -41,7 +41,7 @@ function iso30DaysAgo(): string {
 
 test.describe.configure({ mode: 'serial' });
 
-test.describe('Golden path — full MVP business cycle', () => {
+test.describe('Golden path — full MVP business cycle @smoke', () => {
   let productId: string;
   let productName: string;
   let orderId: string;

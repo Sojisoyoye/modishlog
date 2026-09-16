@@ -211,19 +211,119 @@ jobs:
           path: frontend/playwright-report/
           retention-days: 7
 
+  # task #231: WebKit (Safari rendering engine) + a real mobile device
+  # (iPhone 13, also WebKit-backed -- see playwright.config.ts) had zero
+  # automated coverage before this; the whole E2E suite only ever ran
+  # against desktop Chrome. Scoped to @smoke-tagged tests only via each
+  # project's `grep` in playwright.config.ts -- not the full suite, to keep
+  # CI time/cost bounded so close to launch. Expand post-launch.
+  e2e-smoke-cross-browser:
+    name: e2e-smoke-cross-browser
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: npm,
+                cache-dependency-path: frontend/package-lock.json }
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend (dev config)
+        run: npx ng build --configuration development
+        working-directory: frontend
+
+      - name: Start backend + test DB (e2e stack)
+        run: |
+          for attempt in 1 2 3; do
+            if docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build backend db_test redis; then
+              exit 0
+            fi
+            echo "docker compose up failed (attempt $attempt/3), retrying in 10s..."
+            sleep 10
+          done
+          echo "❌ docker compose up failed after 3 attempts"
+          exit 1
+        env:
+          SECRET_KEY: ci-test-secret-key-do-not-use-in-production-32x
+          POSTGRES_PASSWORD: modishlog_dev
+
+      - name: Wait for backend /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 5
+          done
+          echo "❌ Backend did not become healthy after 150s"
+          docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs backend
+          exit 1
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-webkit-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Install Playwright + WebKit
+        run: npx playwright install --with-deps webkit
+        working-directory: frontend
+
+      - name: Serve frontend (port 4200)
+        run: npx http-server dist/frontend/browser -p 4200 -P "http://localhost:4200?" --silent &
+        working-directory: frontend
+
+      - name: Wait for frontend (port 4200)
+        run: |
+          for i in $(seq 1 12); do
+            if curl -sf http://localhost:4200; then
+              echo "Frontend is ready"
+              exit 0
+            fi
+            echo "Waiting for frontend... ($i/12)"
+            sleep 5
+          done
+          echo "❌ Frontend did not become ready after 60s"
+          exit 1
+
+      - name: Run smoke tests on WebKit + mobile
+        run: npx playwright test --project=webkit --project=mobile --reporter=list,html
+        working-directory: frontend
+        env:
+          CI: 'true'
+
+      - name: Show backend logs
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs backend
+
+      - name: Upload Playwright HTML report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-smoke-cross-browser
+          path: frontend/playwright-report/
+          retention-days: 7
+
   # Fan-in: build AND every shard must pass. Branch protection should require
   # this job ("frontend-build / gate") rather than the individual shard jobs
   # (matches the dependency-scan+test fan-in pattern in backend-tests.yml).
   gate:
     name: gate
-    needs: [build, e2e-shard]
+    needs: [build, e2e-shard, e2e-smoke-cross-browser]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: All checks passed
         run: |
           if [[ "${{ needs.build.result }}" != "success" || \
-                "${{ needs.e2e-shard.result }}" != "success" ]]; then
-            echo "❌ build=${{ needs.build.result }} e2e-shard=${{ needs.e2e-shard.result }}"
+                "${{ needs.e2e-shard.result }}" != "success" || \
+                "${{ needs.e2e-smoke-cross-browser.result }}" != "success" ]]; then
+            echo "❌ build=${{ needs.build.result }} e2e-shard=${{ needs.e2e-shard.result }} e2e-smoke-cross-browser=${{ needs.e2e-smoke-cross-browser.result }}"
             exit 1
           fi
