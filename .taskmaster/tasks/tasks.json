@@ -6070,12 +6070,13 @@
         "description": "Task #243's load test ran on the local Colima VM, which has only 2 vCPUs / 2GB RAM total (colima list), shared with the existing local dev stack for the entire run. That's almost certainly far below the real Hetzner production box's capacity, so while the *structural* findings (DB connection pool ceiling, bcrypt event-loop blocking) are environment-independent and valid, the *absolute* latency numbers (5-28s response times, etc.) are not a reliable prediction of real production behavior -- see .taskmaster/docs/loadtest-findings-243.md's caveat section. In particular, the finding that asyncio.to_thread-offloading bcrypt didn't clearly improve tail latency needs re-measuring on hardware with real spare CPU capacity before concluding it doesn't help -- on a 2-vCPU sandbox, offloading CPU-bound work to a thread pool can't create capacity that doesn't exist.",
         "details": "Reuse docker-compose.loadtest.yml, backend/scripts/loadtest_seed.py, and backend/loadtest/locustfile.py as-is (all already written and committed from task #243) -- either point them at a temporarily provisioned Hetzner box / staging-equivalent VPS, or reconfigure the local Colima VM with more resources (colima start --cpu 4 --memory 4) as a cheaper first approximation. Compare against the baseline numbers already recorded in backend/loadtest/results/baseline_stats.csv and run2_stats.csv.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "228"
         ],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-16T13:10:58.594Z"
       },
       {
         "id": "257",
@@ -6185,9 +6186,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-16T12:53:48.427Z",
+      "lastModified": "2026-09-16T13:10:58.595Z",
       "taskCount": 264,
-      "completedCount": 247,
+      "completedCount": 248,
       "tags": [
         "master"
       ]
