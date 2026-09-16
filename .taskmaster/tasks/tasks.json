@@ -5690,10 +5690,11 @@
         "description": "frontend/playwright.config.ts only defines a single 'chromium' project (devices['Desktop Chrome']) -- there is no Firefox, WebKit/Safari, or mobile-viewport (iOS/Android) project configured anywhere. The entire E2E suite, and therefore the entire CI safety net, has only ever validated against desktop Chrome. Real users will hit this on Safari (iOS is a huge share of SMB owner mobile usage) and Firefox with zero automated coverage today.",
         "details": "Add at least a WebKit project (covers Safari rendering behavior) and a mobile viewport project (e.g. devices['iPhone 13'] or similar) to playwright.config.ts. Given the 2-day timeline, don't necessarily run the full suite on every new project in CI (time/cost) -- start with a smoke-test subset (login, onboarding, core dashboard load, one or two key workflows) on the new browser/viewport projects, and expand post-launch. Manually spot-check the app in real Safari and a real mobile device regardless, since automated coverage won't exist in time for launch.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-16T12:39:52.919Z"
       },
       {
         "id": "232",
@@ -6183,9 +6184,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-16T10:42:45.454Z",
+      "lastModified": "2026-09-16T12:39:52.927Z",
       "taskCount": 264,
-      "completedCount": 245,
+      "completedCount": 246,
       "tags": [
         "master"
       ]
