@@ -5774,12 +5774,13 @@
         "description": "Build the actual gateway integration per the model decided in task 237: initiate a subscription checkout via the chosen gateway's hosted checkout/tokenization flow (no raw card data touching ModishLog's servers), create the corresponding subscription/customer records on the gateway side, and persist the resulting subscription reference on the Business record.",
         "details": "Add subscription-related columns to Business (or a new Subscription table): plan, status, gateway_customer_id, gateway_subscription_id, current_period_end, trial_ends_at as decided in task 237 -- via a proper Alembic migration following the project's idempotent-migration convention. TDD per CLAUDE.md: write tests for checkout initiation and subscription-record creation before implementing. Never log or store raw card details -- only gateway-issued references/tokens.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "237"
         ],
         "priority": "high",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-16T15:05:22.562Z"
       },
       {
         "id": "239",
@@ -6187,9 +6188,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-16T14:00:38.752Z",
+      "lastModified": "2026-09-16T15:05:22.565Z",
       "taskCount": 264,
-      "completedCount": 249,
+      "completedCount": 250,
       "tags": [
         "master"
       ]
