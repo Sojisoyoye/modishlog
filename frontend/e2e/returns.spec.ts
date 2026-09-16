@@ -1,9 +1,15 @@
 import { test, expect } from '@playwright/test';
-import { ensureTestUser, loginViaAPI } from './helpers/auth';
+import {
+  ensureTestUser,
+  loginViaAPI,
+  ensureSalesManagerUser,
+  loginAsSalesManager,
+} from './helpers/auth';
 import { ensureProduct, addStock, createSale } from './helpers/data';
 
 test.beforeAll(async () => {
   await ensureTestUser();
+  await ensureSalesManagerUser();
 });
 
 test.beforeEach(async ({ page }) => {
@@ -52,4 +58,21 @@ test('create sell return', async ({ page }) => {
     'No sell returns found.',
     { timeout: 5000 },
   );
+});
+
+test('sales_manager cannot create a sell return; owner can (task #257)', async ({ page }) => {
+  await page.getByRole('button', { name: 'Sell Returns' }).click();
+  const logReturnButton = page.getByRole('button', { name: 'Log Return' });
+  await expect(logReturnButton).toBeVisible();
+  await expect(logReturnButton).toBeEnabled();
+
+  await loginAsSalesManager(page);
+  await page.goto('/returns');
+  await expect(page.getByRole('heading', { name: 'Returns' })).toBeVisible({ timeout: 15000 });
+  await page.getByRole('button', { name: 'Sell Returns' }).click();
+
+  const restrictedButton = page.getByRole('button', { name: 'Log Return' });
+  await expect(restrictedButton).toBeVisible();
+  await expect(restrictedButton).toBeDisabled();
+  await expect(restrictedButton).toHaveAttribute('title', /manager approval required/i);
 });

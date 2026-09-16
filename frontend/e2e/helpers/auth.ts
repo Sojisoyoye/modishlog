@@ -3,6 +3,8 @@ import { Page, request } from '@playwright/test';
 const API = 'http://localhost:8000/api/v1';
 export const E2E_EMAIL = 'e2e-suite@modishlogtest.com';
 export const E2E_PASSWORD = 'E2eTest!1234';
+export const E2E_SALES_MANAGER_EMAIL = 'e2e-sales-manager@modishlogtest.com';
+export const E2E_SALES_MANAGER_PASSWORD = 'E2eTest!1234';
 
 /**
  * Create the test user's business + owner account (idempotent -- 409
@@ -74,6 +76,58 @@ export async function loginViaAPI(page: Page): Promise<void> {
     break;
   }
   // Navigate directly — the auth guard restores the session via /auth/me + cookie.
+  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
+  await page.waitForURL('**/dashboard', { timeout: 20_000 });
+}
+
+/**
+ * Create a SALES_MANAGER-role staff account under the e2e-suite owner's
+ * business (idempotent -- 409 Conflict is expected on re-runs). Admin
+ * invite requires an already-authenticated admin/owner, so this logs in
+ * as the owner first.
+ */
+export async function ensureSalesManagerUser(): Promise<void> {
+  const ctx = await request.newContext();
+  try {
+    const loginResp = await ctx.post(`${API}/auth/login`, {
+      data: { email: E2E_EMAIL, password: E2E_PASSWORD },
+    });
+    const { access_token } = await loginResp.json();
+    await ctx.post(`${API}/auth/admin/users/invite`, {
+      headers: { Authorization: `Bearer ${access_token}` },
+      data: {
+        email: E2E_SALES_MANAGER_EMAIL,
+        full_name: 'E2E Sales Manager',
+        role: 'sales_manager',
+        password: E2E_SALES_MANAGER_PASSWORD,
+      },
+    });
+    // 201 = created, 409 = already exists -- both are fine
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Log in as the SALES_MANAGER test user via the API (see loginViaAPI).
+ */
+export async function loginAsSalesManager(page: Page): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    let resp: Awaited<ReturnType<typeof page.context['request']['post']>>;
+    try {
+      resp = await page.context().request.post(`${API}/auth/login`, {
+        data: { email: E2E_SALES_MANAGER_EMAIL, password: E2E_SALES_MANAGER_PASSWORD },
+      });
+    } catch (err) {
+      if (attempt === 3) throw err;
+      await new Promise(r => setTimeout(r, attempt * 1000));
+      continue;
+    }
+    if (!resp.ok()) {
+      throw new Error(`loginAsSalesManager failed: HTTP ${resp.status()} — ${await resp.text()}`);
+    }
+    break;
+  }
   await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
   await page.waitForURL('**/dashboard', { timeout: 20_000 });
 }
