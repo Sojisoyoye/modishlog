@@ -50,6 +50,23 @@ export interface Product {
   image_url?: string | null;
   has_variants?: boolean;
   variants?: ProductVariant[];
+  // task #223: embedded by the backend's list endpoint (both list() and
+  // getAll(), same endpoint) -- null when the product has no inventory_levels
+  // row yet, not 0 (0 would incorrectly imply a known empty stock level).
+  current_stock?: number | null;
+  low_stock_threshold?: number | null;
+}
+
+export type ProductSortColumn = 'name' | 'sku' | 'unit_cost' | 'selling_price' | 'stock' | 'category';
+
+export interface ProductListParams {
+  page: number;
+  page_size: number;
+  category_id?: string;
+  is_active?: boolean;
+  search?: string;
+  sort_by?: ProductSortColumn;
+  sort_dir?: 'asc' | 'desc';
 }
 
 export interface Category {
@@ -102,7 +119,7 @@ export interface BulkUploadResult {
   created_ids: string[];
 }
 
-interface ProductListResponse {
+export interface ProductListResponse {
   items: Product[];
   total: number;
   page: number;
@@ -121,6 +138,24 @@ export class ProductsService {
   private invalidateCache(): void {
     this.allCache$ = null;
     this.categoriesCache$ = null;
+  }
+
+  /**
+   * task #223: real server-side pagination/filter/sort -- unlike getAll(),
+   * this fetches exactly one page and is not cached (page-scoped data, not
+   * the full-catalog snapshot getAll() provides).
+   */
+  list(params: ProductListParams): Observable<ProductListResponse> {
+    const query: Record<string, string> = {
+      page: String(params.page),
+      page_size: String(params.page_size),
+    };
+    if (params.category_id) query['category_id'] = params.category_id;
+    if (params.is_active !== undefined) query['is_active'] = String(params.is_active);
+    if (params.search) query['search'] = params.search;
+    if (params.sort_by) query['sort_by'] = params.sort_by;
+    if (params.sort_dir) query['sort_dir'] = params.sort_dir;
+    return this.api.get<ProductListResponse>('/products', query);
   }
 
   getAll(): Observable<Product[]> {

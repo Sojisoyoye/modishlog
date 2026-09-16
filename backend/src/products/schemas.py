@@ -122,6 +122,11 @@ class ProductRead(BaseModel):
     variants: list[ProductVariantRead] = []
     created_at: datetime
     updated_at: datetime
+    # task #223: embedded by list_products() so the products list page's
+    # stock column/sort-by-stock don't need a second unbounded frontend
+    # fetch. None (not 0) when the product has no inventory_levels row yet.
+    current_stock: int | None = None
+    low_stock_threshold: int | None = None
 
 
 class ProductListResponse(BaseModel):
