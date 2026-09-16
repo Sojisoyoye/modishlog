@@ -1,11 +1,13 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  computed,
   inject,
   signal,
   OnInit,
 } from '@angular/core';
 import { DecimalPipe, DatePipe } from '@angular/common';
+import { AuthService } from '../../../../core/services/auth.service';
 import { ReturnsService } from '../../services/returns.service';
 import { SellReturn } from '../../models/return.model';
 import { SellReturnFormModalComponent } from '../sell-return-form-modal/sell-return-form-modal.component';
@@ -20,7 +22,9 @@ import { SellReturnFormModalComponent } from '../sell-return-form-modal/sell-ret
       <p class="text-sm text-muted">{{ total() }} sell return{{ total() !== 1 ? 's' : '' }}</p>
       <button
         (click)="showModal.set(true)"
-        class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 min-h-[40px]"
+        [disabled]="!canCreateReturn()"
+        [title]="canCreateReturn() ? '' : 'Manager approval required'"
+        class="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 min-h-[40px] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-primary"
       >
         <i class="pi pi-plus text-sm"></i> Log Return
       </button>
@@ -107,6 +111,7 @@ import { SellReturnFormModalComponent } from '../sell-return-form-modal/sell-ret
 })
 export class SellReturnsTabComponent implements OnInit {
   private readonly returnsService = inject(ReturnsService);
+  private readonly authService = inject(AuthService);
 
   returns = signal<SellReturn[]>([]);
   loading = signal(false);
@@ -114,6 +119,11 @@ export class SellReturnsTabComponent implements OnInit {
   total = signal(0);
   page = signal(1);
   showModal = signal(false);
+
+  canCreateReturn = computed(() => {
+    const role = this.authService.currentUser()?.role;
+    return role === 'admin' || role === 'owner';
+  });
 
   readonly pageSize = 25;
 
