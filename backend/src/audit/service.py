@@ -8,6 +8,7 @@ import uuid
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.audit.models import AuditLog
 
@@ -54,6 +55,7 @@ async def list_audit_events(
         .order_by(AuditLog.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
+        .options(selectinload(AuditLog.actor))
     )
     items = (await db.execute(list_q)).scalars().all()
     return list(items), total

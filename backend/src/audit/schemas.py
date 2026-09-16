@@ -8,6 +8,8 @@ class AuditLogRead(BaseModel):
     id: uuid.UUID
     business_id: uuid.UUID
     actor_user_id: uuid.UUID
+    actor_name: str | None = None
+    actor_email: str | None = None
     action: str
     entity_type: str
     entity_id: uuid.UUID

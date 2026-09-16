@@ -1,6 +1,7 @@
 """Tests for the audit trail domain (task #246)."""
 
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -115,6 +116,24 @@ class TestListAuditEvents:
             assert "audit_logs.business_id" in compiled
 
     @pytest.mark.asyncio
+    async def test_list_audit_events_eager_loads_actor(self):
+        """The list query must eager-load actor (selectinload) so the router
+        can surface actor_name/actor_email without a lazy-load in async
+        context (which would raise, per CLAUDE.md rule #12)."""
+        db = AsyncMock()
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        list_result = MagicMock()
+        list_result.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(side_effect=[count_result, list_result])
+
+        await list_audit_events(db, uuid.uuid4())
+
+        list_query = db.execute.call_args_list[1].args[0]
+        loader_paths = [str(opt.path) for opt in list_query._with_options]
+        assert any("AuditLog.actor" in path for path in loader_paths)
+
+    @pytest.mark.asyncio
     async def test_list_audit_events_empty_business_returns_empty(self):
         """A business with no audit events gets an empty list, not an error."""
         db = AsyncMock()
@@ -191,3 +210,72 @@ class TestAuditLogEndpointAuthorization:
             resp = client.get("/api/v1/audit-log")
         assert resp.status_code == 200
         assert resp.json() == {"items": [], "total": 0, "page": 1, "page_size": 25}
+
+    def test_audit_log_includes_actor_name_and_email(self):
+        """task #259: the raw actor_user_id alone forces an admin to manually
+        cross-reference the users list during a dispute investigation -- the
+        eager-loaded actor's name/email must be surfaced directly."""
+        from src.auth.models import UserRole
+
+        actor = _make_user(
+            id=uuid.uuid4(), full_name="Jane Admin", email="jane@example.com"
+        )
+        entry = AuditLog(
+            id=uuid.uuid4(),
+            business_id=uuid.uuid4(),
+            actor_user_id=actor.id,
+            action="sell_return_created",
+            entity_type="sell_return",
+            entity_id=uuid.uuid4(),
+            created_at=datetime.now(timezone.utc),
+        )
+        entry.actor = actor
+
+        db = AsyncMock()
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 1
+        list_result = MagicMock()
+        list_result.scalars.return_value.all.return_value = [entry]
+        db.execute = AsyncMock(side_effect=[count_result, list_result])
+        self._override_db(db)
+        self._override_auth_as(_make_user(role=UserRole.ADMIN))
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/audit-log")
+        assert resp.status_code == 200
+        item = resp.json()["items"][0]
+        assert item["actor_name"] == "Jane Admin"
+        assert item["actor_email"] == "jane@example.com"
+
+    def test_audit_log_actor_name_null_when_actor_not_loaded(self):
+        """Edge case: the actor user no longer resolvable (e.g. relationship
+        not loaded, or the row predates a data backfill) -- must return null
+        actor fields, never a 500."""
+        from src.auth.models import UserRole
+
+        entry = AuditLog(
+            id=uuid.uuid4(),
+            business_id=uuid.uuid4(),
+            actor_user_id=uuid.uuid4(),
+            action="sell_return_created",
+            entity_type="sell_return",
+            entity_id=uuid.uuid4(),
+            created_at=datetime.now(timezone.utc),
+        )
+        entry.actor = None
+
+        db = AsyncMock()
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 1
+        list_result = MagicMock()
+        list_result.scalars.return_value.all.return_value = [entry]
+        db.execute = AsyncMock(side_effect=[count_result, list_result])
+        self._override_db(db)
+        self._override_auth_as(_make_user(role=UserRole.ADMIN))
+
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/audit-log")
+        assert resp.status_code == 200
+        item = resp.json()["items"][0]
+        assert item["actor_name"] is None
+        assert item["actor_email"] is None
