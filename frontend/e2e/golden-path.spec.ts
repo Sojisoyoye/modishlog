@@ -73,7 +73,14 @@ test.describe('Golden path — full MVP business cycle @smoke', () => {
     await page.waitForLoadState('domcontentloaded');
 
     // --- ORDERED → PENDING ---
-    await expect(page.getByText('ORDERED').first()).toBeVisible();
+    // Explicit longer timeout on this first assertion only -- it's the one
+    // waiting on the initial Angular bootstrap + order-detail API round
+    // trip after page.goto(), not just a client-side state update like the
+    // later transitions below. WebKit is measurably slower than Chromium at
+    // this on CI (task #231 found it timing out at the 5s default), the
+    // same class of first-load variance order-lifecycle.spec.ts and
+    // order-detail.spec.ts already handle with the same explicit timeout.
+    await expect(page.getByText('ORDERED').first()).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: 'PENDING' }).click();
     await page.waitForLoadState('domcontentloaded');
     await expect(page.getByText('PENDING').first()).toBeVisible();
