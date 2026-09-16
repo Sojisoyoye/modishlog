@@ -64,7 +64,7 @@ async def check_email() -> str:
 
     Returns 'ok' if RESEND_API_KEY is non-empty, 'not_configured' otherwise.
     """
-    if not settings.RESEND_API_KEY:
+    if not settings.emails_enabled:
         return "not_configured"
     return "ok"
 
