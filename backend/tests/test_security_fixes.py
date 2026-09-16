@@ -757,3 +757,119 @@ class TestExpensiveEndpointRateLimiting:
         _assert_rate_limited(
             self.client, "get", "/api/v1/reports/purchase-sale/export-csv", attempts=22
         )
+
+
+class TestAdminEndpointRateLimiting:
+    """S10 (task #229): /auth/admin/* endpoints had no rate limiting at
+    all, unlike the rest of the auth module. Lower severity (already
+    admin-gated), but a compromised/malicious-insider admin account could
+    enumerate via GET /admin/users?search= with no throttle, or flood
+    admin_reset_password to generate a stream of reset tokens."""
+
+    @pytest.fixture(autouse=True)
+    def _client(self):
+        from src.auth.dependencies import get_current_active_user
+        from src.auth.models import User, UserRole
+        from src.core.database import get_db
+        from src.main import app
+
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        result.scalar.return_value = 0
+        result.scalars.return_value.all.return_value = []
+        db.execute = AsyncMock(return_value=result)
+
+        admin = MagicMock(spec=User)
+        admin.id = uuid.uuid4()
+        admin.is_active = True
+        admin.role = UserRole.ADMIN
+        # _require_admin_business_id() reads admin.business_id directly
+        # (not via a separate Depends()) -- must be a real UUID or every
+        # request 400s before ever reaching the rate limiter.
+        admin.business_id = uuid.uuid4()
+
+        async def _fake_admin():
+            return admin
+
+        app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_current_active_user] = _fake_admin
+
+        self.client = TestClient(app, raise_server_exceptions=False)
+        yield
+        app.dependency_overrides.pop(get_db, None)
+        app.dependency_overrides.pop(get_current_active_user, None)
+        # These tests deliberately exhaust /admin/users and
+        # /admin/users/invite's rate limits (30/min, 20/min) -- the
+        # limiter's in-memory storage is a process-global singleton, not
+        # reset between tests, so without this, test_user_management.py's
+        # pre-existing tests against those same two endpoints get 429s
+        # instead of their expected 200/201 depending on pytest's run
+        # order within the session.
+        from src.core.rate_limit import limiter as app_limiter
+
+        app_limiter.reset()
+
+    def test_list_users_rate_limited(self):
+        _assert_rate_limited(self.client, "get", "/api/v1/auth/admin/users", attempts=32)
+
+    def test_invite_user_rate_limited(self):
+        _assert_rate_limited(
+            self.client,
+            "post",
+            "/api/v1/auth/admin/users/invite",
+            attempts=22,
+            json={
+                "email": "invitee@example.com",
+                "full_name": "Invitee",
+                "role": "sales_manager",
+                "password": "Str0ng!Pass#99",
+            },
+        )
+
+    def test_get_user_rate_limited(self):
+        _assert_rate_limited(
+            self.client, "get", f"/api/v1/auth/admin/users/{uuid.uuid4()}", attempts=32
+        )
+
+    def test_update_user_rate_limited(self):
+        _assert_rate_limited(
+            self.client,
+            "patch",
+            f"/api/v1/auth/admin/users/{uuid.uuid4()}",
+            attempts=22,
+            json={"full_name": "Updated Name"},
+        )
+
+    def test_deactivate_user_rate_limited(self):
+        _assert_rate_limited(
+            self.client,
+            "post",
+            f"/api/v1/auth/admin/users/{uuid.uuid4()}/deactivate",
+            attempts=22,
+        )
+
+    def test_activate_user_rate_limited(self):
+        _assert_rate_limited(
+            self.client,
+            "post",
+            f"/api/v1/auth/admin/users/{uuid.uuid4()}/activate",
+            attempts=22,
+        )
+
+    def test_admin_reset_password_rate_limited(self):
+        _assert_rate_limited(
+            self.client,
+            "post",
+            f"/api/v1/auth/admin/users/{uuid.uuid4()}/reset-password",
+            attempts=22,
+        )
+
+    def test_admin_unlock_rate_limited(self):
+        _assert_rate_limited(
+            self.client,
+            "patch",
+            "/api/v1/auth/admin/unlock",
+            attempts=22,
+            json={"email": "locked@example.com"},
+        )

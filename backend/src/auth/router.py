@@ -379,7 +379,9 @@ async def do_reset_password(
 
 
 @router.patch("/admin/unlock", response_model=UserProfile)
+@limiter.limit("20/minute")
 async def admin_unlock_user(
+    request: Request,
     body: UnlockUserRequest,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -413,7 +415,9 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
 
 
 @router.get("/admin/users", response_model=UserListResponse)
+@limiter.limit("30/minute")
 async def admin_list_users(
+    request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = Query(None),
@@ -444,7 +448,9 @@ async def admin_list_users(
 @router.post(
     "/admin/users/invite", response_model=UserProfile, status_code=status.HTTP_201_CREATED
 )
+@limiter.limit("20/minute")
 async def admin_invite_user(
+    request: Request,
     body: UserInvite,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -468,7 +474,9 @@ async def admin_invite_user(
 
 
 @router.get("/admin/users/{user_id}", response_model=UserProfile)
+@limiter.limit("30/minute")
 async def admin_get_user(
+    request: Request,
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -483,7 +491,9 @@ async def admin_get_user(
 
 
 @router.patch("/admin/users/{user_id}", response_model=UserProfile)
+@limiter.limit("20/minute")
 async def admin_update_user(
+    request: Request,
     user_id: uuid.UUID,
     body: UserUpdate,
     db: AsyncSession = Depends(get_db),
@@ -502,7 +512,9 @@ async def admin_update_user(
 
 
 @router.post("/admin/users/{user_id}/deactivate", response_model=MessageResponse)
+@limiter.limit("20/minute")
 async def admin_deactivate_user(
+    request: Request,
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -519,7 +531,9 @@ async def admin_deactivate_user(
 
 
 @router.post("/admin/users/{user_id}/activate", response_model=MessageResponse)
+@limiter.limit("20/minute")
 async def admin_activate_user(
+    request: Request,
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
@@ -534,7 +548,9 @@ async def admin_activate_user(
 
 
 @router.post("/admin/users/{user_id}/reset-password", response_model=AdminResetPasswordResponse)
+@limiter.limit("20/minute")
 async def admin_reset_password(
+    request: Request,
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
