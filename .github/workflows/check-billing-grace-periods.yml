@@ -1,0 +1,34 @@
+name: Check Billing Grace Periods
+
+# Task 239: Paystack webhooks report a failed charge, but never send a
+# "N days have now elapsed" event -- the 3-day past_due -> read_only
+# grace-period expiry has to be enforced by this scheduled job instead.
+# Mirrors purge-deleted-businesses.yml's SSH-into-the-already-running-prod-
+# container mechanism, reusing the app's own DB connection, models, and
+# settings rather than needing separate DB credentials as workflow secrets.
+
+on:
+  schedule:
+    - cron: '45 2 * * *' # 02:45 UTC daily, after the 02:30 business purge job
+  workflow_dispatch: {} # allow an on-demand run
+
+env:
+  DEPLOY_DIR: /root/modishlog-prod
+
+jobs:
+  check-grace-periods:
+    name: Move expired past_due businesses to read_only
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Run grace-period check inside the backend container
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: root
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ env.DEPLOY_DIR }}
+            docker compose -f docker-compose.prod.yml --env-file .env.production \
+              exec -T backend python scripts/check_billing_grace_periods.py

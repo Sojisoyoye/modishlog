@@ -67,6 +67,7 @@ from src.data_import.models import MigrationJob  # noqa: F401
 from src.audit.models import AuditLog  # noqa: F401
 from src.stockcount.models import StockCount, StockCountItem  # noqa: F401
 from src.invoice_schemes.models import InvoiceScheme  # noqa: F401
+from src.billing.models import WebhookEvent  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
