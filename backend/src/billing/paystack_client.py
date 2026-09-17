@@ -1,9 +1,7 @@
-"""Thin async wrapper over Paystack's REST API (task #238).
+"""Thin async wrapper over Paystack's REST API (tasks #238/#239)."""
 
-Only the two calls task #238 needs: create a customer, initialize a
-Plan-code-driven checkout transaction. Webhook consumption (task #239)
-lives in its own module -- this client never touches subscription state.
-"""
+import hashlib
+import hmac
 
 import httpx
 import structlog
@@ -63,3 +61,20 @@ async def initialize_transaction(email: str, plan_code: str, callback_url: str) 
             raise PaystackAPIError(f"Paystack initialize_transaction network error: {exc}") from exc
 
     return response.json()["data"]
+
+
+def verify_signature(raw_body: bytes, signature: str | None) -> bool:
+    """Verify a Paystack webhook's HMAC-SHA512 signature (task #239).
+
+    Paystack signs the raw request body with the secret key; comparing
+    against a freshly-parsed-and-reserialized JSON body would not
+    reproduce the exact bytes signed, so the caller must pass the raw
+    body read straight off the request, before any JSON parsing.
+    hmac.compare_digest avoids a timing side-channel on the comparison.
+    """
+    if not signature or not settings.PAYSTACK_SECRET_KEY:
+        return False
+    expected = hmac.new(
+        settings.PAYSTACK_SECRET_KEY.encode("utf-8"), raw_body, hashlib.sha512
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)

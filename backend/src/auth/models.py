@@ -101,6 +101,13 @@ class Business(UUIDMixin, TimestampMixin, Base):
     current_period_end: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
+    # Set when a webhook first reports a failed charge (task #239), cleared
+    # once status moves back to ACTIVE. The grace-period expiry job needs
+    # this to know "3 days since *when*" -- a second consecutive failure
+    # notification must not reset this clock.
+    past_due_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
 
     # lazy="select" (not "selectin") avoids loading all users whenever a Business is
     # loaded as part of a User query — which would happen on every authenticated request.

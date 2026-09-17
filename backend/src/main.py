@@ -285,8 +285,10 @@ from src.audit.router import router as audit_router  # noqa: E402
 app.include_router(audit_router, prefix="/api/v1/audit-log", tags=["audit"])
 
 from src.billing.router import router as billing_router  # noqa: E402
+from src.billing.router import webhook_router as billing_webhook_router  # noqa: E402
 
 app.include_router(billing_router, prefix="/api/v1/billing", tags=["billing"])
+app.include_router(billing_webhook_router, prefix="/api/v1/billing", tags=["billing"])
 
 from src.health.router import api_router as health_api_router, router as health_router  # noqa: E402
 
