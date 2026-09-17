@@ -5645,10 +5645,11 @@
         "description": "get_stock_report() (reports/service.py:166-235) builds a 3-way join (Product / InventoryLevel subquery / ProductCategory + sales subquery) and does result.all() with no .limit() -- every active product for the business is loaded and serialized on every report request (reports/service.py:339-373). Fine at dozens of products, will visibly slow down and bloat response payloads once a business has a few thousand SKUs. get_product_sales_report in the same file is correctly paginated already.",
         "details": "Mirror the pagination pattern already used correctly in get_product_sales_report (same file) -- add page/page_size params, LIMIT/OFFSET on the main query, and a total count for the frontend's pagination UI. Check the frontend stock-report page for whether it already expects a paginated response shape or needs updating alongside this change.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-17T12:47:12.246Z"
       },
       {
         "id": "228",
@@ -5680,10 +5681,11 @@
         "description": "core/config.py allows an empty SENTRY_DSN with no environment-based validation -- same class of issue as the Redis/Resend config gap (separate task): nothing forces required production settings to actually be present. A misconfigured prod deploy currently loses error visibility silently instead of failing loudly or at least logging a clear startup warning.",
         "details": "Add a startup-time check (e.g. in main.py's startup sequence, or a Settings validator) that warns loudly (structlog, not print) if ENVIRONMENT is production/staging and SENTRY_DSN is empty -- doesn't need to hard-fail startup, but should make the gap impossible to miss in logs/monitoring rather than silent. Consider bundling this with a broader \"required prod settings\" checklist (REDIS_URL, RESEND_API_KEY, SENTRY_DSN, FERNET_KEYS) validated together at startup, since all of these share the same \"silently absent in prod\" failure mode found across this audit.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-17T12:39:57.322Z"
       },
       {
         "id": "231",
@@ -6191,9 +6193,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-17T12:02:05.050Z",
+      "lastModified": "2026-09-17T12:47:12.251Z",
       "taskCount": 264,
-      "completedCount": 253,
+      "completedCount": 254,
       "tags": [
         "master"
       ]
