@@ -427,6 +427,19 @@ class TestProcessWebhookEvent:
         db.add.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_null_customer_field_skipped_gracefully(self):
+        """Some Paystack event types send an explicit "customer": null
+        rather than omitting the key -- must not crash (AttributeError on
+        None.get) for an event type this app doesn't even handle."""
+        from src.billing.service import process_webhook_event
+
+        db = _mock_execute_sequence(_no_match_result(), _no_match_result())
+
+        await process_webhook_event(db, "some.other.event", {"id": 1, "customer": None}, b"{}")
+
+        db.add.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_charge_success_activates_subscription(self):
         from src.billing.service import process_webhook_event
 

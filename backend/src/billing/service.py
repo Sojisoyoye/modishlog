@@ -100,7 +100,7 @@ def _handle_subscription_create(business: Business, data: dict) -> None:
     if next_payment_date:
         try:
             business.current_period_end = datetime.fromisoformat(
-                next_payment_date.replace("Z", "+00:00")
+                str(next_payment_date).replace("Z", "+00:00")
             )
         except ValueError:
             pass  # Malformed date from the gateway -- don't crash the webhook over a display field.
@@ -157,7 +157,10 @@ async def process_webhook_event(
         )
         return
 
-    customer_code = data.get("customer", {}).get("customer_code")
+    # `or {}` (not just .get(..., {})) -- some Paystack event types send an
+    # explicit "customer": null rather than omitting the key, which would
+    # otherwise crash this on an event type we don't even handle.
+    customer_code = (data.get("customer") or {}).get("customer_code")
     business_result = await db.execute(
         select(Business).where(Business.paystack_customer_code == customer_code)
     )
