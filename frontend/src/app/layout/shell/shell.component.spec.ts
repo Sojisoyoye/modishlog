@@ -1,4 +1,4 @@
-import { subscriptionBannerFor } from './shell.component';
+import { subscriptionBannerFor } from '../../core/utils/subscription.utils';
 import { UserProfile } from '../../core/services/auth.service';
 
 function makeUser(overrides: Partial<UserProfile>): UserProfile {
