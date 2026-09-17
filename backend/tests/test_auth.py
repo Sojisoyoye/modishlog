@@ -567,6 +567,57 @@ class TestAuthEndpoints:
         assert data["business_deletion_requested_at"] is None
         assert data["business_purge_at"] is None
 
+    def test_me_includes_trial_ends_at_while_trialing(self):
+        """Task #240: the frontend status banner needs a derived trial
+        countdown -- trial_ends_at = created_at + 7 days, not stored state
+        (billing spec section 3)."""
+        from src.auth.models import Business, SubscriptionStatus, SubscriptionTier
+
+        created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        business = Business(id=uuid.uuid4(), name="Test Biz")
+        business.created_at = created_at
+        business.subscription_status = SubscriptionStatus.TRIALING
+        business.subscription_tier = SubscriptionTier.PRO
+        user = _make_user(business_id=business.id)
+        user.business = business
+        token = build_token(user)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["business_subscription_status"] == "trialing"
+        parsed = datetime.fromisoformat(data["business_trial_ends_at"])
+        assert parsed == created_at + timedelta(days=7)
+
+    def test_me_subscription_status_flows_through_when_read_only(self):
+        from src.auth.models import Business, SubscriptionStatus, SubscriptionTier
+
+        business = Business(id=uuid.uuid4(), name="Test Biz")
+        business.subscription_status = SubscriptionStatus.READ_ONLY
+        business.subscription_tier = SubscriptionTier.BASIC
+        user = _make_user(business_id=business.id)
+        user.business = business
+        token = build_token(user)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        with TestClient(self.app) as client:
+            resp = client.get(
+                "/api/v1/auth/me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["business_subscription_status"] == "read_only"
+        # Not trialing -- no derived trial countdown to show.
+        assert data["business_trial_ends_at"] is None
+
     def test_me_includes_real_business_name(self):
         """Task #252: the Danger Zone's type-to-confirm check needs the
         real auth.Business.name, not the separate settings.BusinessProfile

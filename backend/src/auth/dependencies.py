@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.models import User, UserRole
+from src.auth.models import SubscriptionStatus, User, UserRole
 from src.core.database import get_db
 from src.core.security import decode_access_token
 
@@ -126,6 +126,34 @@ async def require_any_role(
 ) -> User:
     """Allow any authenticated and active user regardless of role."""
     return current_user
+
+
+async def require_active_subscription(
+    request: Request,
+    current_user: User = Depends(get_current_active_user),
+) -> None:
+    """Block writes for read_only businesses (task #240) -- the billing
+    spec's 3-day-grace-period lapse behavior. GET/HEAD/OPTIONS always pass
+    (data stays visible/exportable even when read_only); only
+    state-changing methods are gated. No hard lockout, ever -- read_only
+    is the only status this blocks; trialing/active/past_due keep full
+    write access (past_due is the grace period itself).
+    """
+    if request.method not in ("POST", "PUT", "PATCH", "DELETE"):
+        return
+    if (
+        current_user.business is not None
+        and current_user.business.subscription_status == SubscriptionStatus.READ_ONLY
+    ):
+        await logger.awarning(
+            "subscription_gate_blocked_write",
+            business_id=str(current_user.business_id),
+            path=request.url.path,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Your subscription is read-only. Renew to restore write access.",
+        )
 
 
 async def get_current_business_id(

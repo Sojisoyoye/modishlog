@@ -56,4 +56,21 @@ describe('errorInterceptor', () => {
     expect(receivedError).toBeTruthy();
     expect(receivedError!.status).toBe(500);
   });
+
+  it('sets a distinct message for 402 (task #240 paywall gate)', () => {
+    let receivedError: any = null;
+    http.post('/api/test', {}).subscribe({
+      error: (err) => (receivedError = err),
+    });
+    const req = httpMock.expectOne('/api/test');
+    req.flush(
+      { detail: 'Your subscription is read-only. Renew to restore write access.' },
+      { status: 402, statusText: 'Payment Required' },
+    );
+
+    expect(receivedError.status).toBe(402);
+    expect(receivedError.userMessage).toBe(
+      'Your subscription is read-only. This action is unavailable until you renew.',
+    );
+  });
 });

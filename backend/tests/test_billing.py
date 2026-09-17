@@ -606,6 +606,134 @@ class TestWebhookEndpoint:
         mock_process.assert_called_once()
 
 
+class TestRequireActiveSubscription:
+    """Task #240: the paywall gate. Pure unit tests of the dependency
+    function itself, plus a thin integration test confirming it's actually
+    wired into the app for a real router."""
+
+    @pytest.mark.asyncio
+    async def test_read_only_business_blocks_post(self):
+        from fastapi import HTTPException
+
+        from src.auth.dependencies import require_active_subscription
+
+        business_id = uuid.uuid4()
+        business = _make_business(id=business_id)
+        business.subscription_status = SubscriptionStatus.READ_ONLY
+        owner = _make_owner(business_id)
+        owner.business = business
+
+        request = MagicMock()
+        request.method = "POST"
+        request.url.path = "/api/v1/products/categories"
+
+        with pytest.raises(HTTPException) as exc_info:
+            await require_active_subscription(request, owner)
+        assert exc_info.value.status_code == 402
+
+    @pytest.mark.asyncio
+    async def test_read_only_business_allows_get(self):
+        from src.auth.dependencies import require_active_subscription
+
+        business_id = uuid.uuid4()
+        business = _make_business(id=business_id)
+        business.subscription_status = SubscriptionStatus.READ_ONLY
+        owner = _make_owner(business_id)
+        owner.business = business
+
+        request = MagicMock()
+        request.method = "GET"
+
+        await require_active_subscription(request, owner)  # must not raise
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "status_value",
+        [
+            SubscriptionStatus.TRIALING,
+            SubscriptionStatus.ACTIVE,
+            SubscriptionStatus.PAST_DUE,
+        ],
+    )
+    async def test_non_read_only_statuses_allow_writes(self, status_value):
+        """trialing/active/past_due all keep full write access -- past_due
+        is the 3-day grace period itself, not a block."""
+        from src.auth.dependencies import require_active_subscription
+
+        business_id = uuid.uuid4()
+        business = _make_business(id=business_id)
+        business.subscription_status = status_value
+        owner = _make_owner(business_id)
+        owner.business = business
+
+        request = MagicMock()
+        request.method = "POST"
+
+        await require_active_subscription(request, owner)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_no_business_passes_through(self):
+        from src.auth.dependencies import require_active_subscription
+
+        owner = _make_owner(uuid.uuid4())
+        owner.business = None
+
+        request = MagicMock()
+        request.method = "POST"
+
+        await require_active_subscription(request, owner)  # must not raise
+
+
+class TestSubscriptionGateWiring:
+    """Confirms require_active_subscription is actually mounted on a real
+    business-domain router, not just correct in isolation."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_auth(self, business_status: SubscriptionStatus):
+        from src.auth.dependencies import get_current_active_user
+        from src.core.database import get_db
+
+        business_id = uuid.uuid4()
+        business = _make_business(id=business_id)
+        business.subscription_status = business_status
+        owner = _make_owner(business_id)
+        owner.business = business
+
+        async def _fake_user():
+            return owner
+
+        async def _fake_db():
+            yield AsyncMock()
+
+        self.app.dependency_overrides[get_current_active_user] = _fake_user
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_read_only_business_gets_402_on_post(self):
+        self._override_auth(SubscriptionStatus.READ_ONLY)
+        with patch("src.products.router.create_category", new=AsyncMock()) as mock_create:
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/products/categories", json={"name": "Widgets"}
+                )
+        assert resp.status_code == 402
+        mock_create.assert_not_called()
+
+    def test_read_only_business_get_still_works(self):
+        self._override_auth(SubscriptionStatus.READ_ONLY)
+        with patch("src.products.router.list_categories", new=AsyncMock(return_value=[])):
+            with TestClient(self.app) as client:
+                resp = client.get("/api/v1/products/categories")
+        assert resp.status_code == 200
+
+
 class TestCheckExpiredGracePeriods:
     @pytest.mark.asyncio
     async def test_past_due_over_3_days_moves_to_read_only(self):

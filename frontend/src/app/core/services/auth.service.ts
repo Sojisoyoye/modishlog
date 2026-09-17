@@ -14,7 +14,7 @@ interface LoginRequest {
   password: string;
 }
 
-interface UserProfile {
+export interface UserProfile {
   id: string;
   email: string;
   full_name: string;
@@ -22,6 +22,13 @@ interface UserProfile {
   business_deletion_requested_at?: string | null;
   business_purge_at?: string | null;
   business_name?: string | null;
+  // Task #240: subscription-status banner fields. business_trial_ends_at is
+  // derived server-side (created_at + 7 days) and only set while trialing.
+  business_subscription_status?: 'trialing' | 'active' | 'past_due' | 'read_only' | 'canceled' | null;
+  business_subscription_tier?: 'basic' | 'pro' | null;
+  business_trial_ends_at?: string | null;
+  business_current_period_end?: string | null;
+  business_past_due_since?: string | null;
 }
 
 export interface BusinessDeletionResponse {
