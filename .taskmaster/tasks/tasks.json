@@ -5635,11 +5635,11 @@
         "description": "Production sets ACCESS_TOKEN_EXPIRE_MINUTES=1440 (24h) vs. the code default of 60 minutes, and REFRESH_TOKEN_EXPIRE_DAYS=30 vs. default 7. Access tokens are stateless JWTs with no server-side revocation list; combined with the password-reset-doesn't-revoke-sessions gap (separate task), a stolen access token from an XSS/leak scenario stays valid for up to a full day regardless of any remediation action taken (password change, account deactivation only helps via is_active check on next lookup, not immediate token invalidation).",
         "details": "Decide whether 24h is an intentional product tradeoff (fewer re-logins for SMB users on shared/kiosk-style devices) or should be shortened now that refresh-token rotation exists to handle the UX cost of a shorter access token life. If kept at 24h, consider whether a lightweight access-token revocation mechanism (e.g. a short Redis-backed denylist keyed by jti, checked on the hot path) is worth the complexity given Redis is being wired in anyway per the prod-config task. This is a judgment call, not a mechanical fix -- flag for discussion rather than assuming a specific answer.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-09-17T13:05:12.754Z"
+        "updatedAt": "2026-09-17T14:45:16.379Z"
       },
       {
         "id": "227",
@@ -6196,9 +6196,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-17T13:15:05.152Z",
+      "lastModified": "2026-09-17T14:45:16.382Z",
       "taskCount": 264,
-      "completedCount": 257,
+      "completedCount": 258,
       "tags": [
         "master"
       ]
