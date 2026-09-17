@@ -83,3 +83,46 @@ class TestVerifyTurnstileToken:
         assert result is False
         mock_err.assert_called_once()
         assert mock_err.call_args[0][0] == "turnstile_verify_network_error"
+
+    @pytest.mark.asyncio
+    async def test_fails_closed_on_malformed_non_json_response(self):
+        """response.json() raises a plain JSONDecodeError (not an httpx
+        exception) on a non-JSON body -- a malformed-but-200-OK response
+        (e.g. Cloudflare serving an HTML error page) must still fail
+        closed, not crash with an uncaught exception."""
+        from src.core import turnstile
+
+        mock_response = MagicMock()
+        mock_response.json.side_effect = ValueError("not valid JSON")
+        mock_response.raise_for_status = MagicMock()
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch.object(turnstile.settings, "TURNSTILE_SECRET_KEY", "sk_test"):
+            with patch.object(turnstile.httpx, "AsyncClient", return_value=mock_client):
+                with patch.object(turnstile.logger, "aerror", new=AsyncMock()) as mock_err:
+                    result = await turnstile.verify_turnstile_token("some-token")
+        assert result is False
+        mock_err.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fails_closed_when_response_is_valid_json_but_not_a_dict(self):
+        """A well-formed-JSON-but-wrong-shape response (e.g. a bare list)
+        must not crash on .get('success') -- fail closed instead."""
+        from src.core import turnstile
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = ["unexpected", "shape"]
+        mock_response.raise_for_status = MagicMock()
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch.object(turnstile.settings, "TURNSTILE_SECRET_KEY", "sk_test"):
+            with patch.object(turnstile.httpx, "AsyncClient", return_value=mock_client):
+                with patch.object(turnstile.logger, "awarning", new=AsyncMock()):
+                    result = await turnstile.verify_turnstile_token("some-token")
+        assert result is False

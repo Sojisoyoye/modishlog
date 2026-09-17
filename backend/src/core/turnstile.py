@@ -41,16 +41,21 @@ async def verify_turnstile_token(token: str, remote_ip: str | None = None) -> bo
             response = await client.post(_VERIFY_URL, data=data)
             response.raise_for_status()
             result = response.json()
-    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-        # Distinct from a rejected token below -- keeps a real Cloudflare
-        # outage diagnosable as exactly that, not confused with "under
-        # attack" in the logs.
+    except Exception as exc:
+        # Broad on purpose -- covers network/timeout errors (httpx.RequestError),
+        # non-2xx responses (httpx.HTTPStatusError), AND a malformed/non-JSON
+        # body (response.json() raises a plain JSONDecodeError, not an
+        # httpx exception). Any of these must fail closed just like a
+        # network error -- distinct from a rejected token below, so a real
+        # Cloudflare outage/API change is diagnosable as exactly that, not
+        # confused with "under attack" in the logs.
         await logger.aerror("turnstile_verify_network_error", error=str(exc))
         return False
 
-    if not result.get("success"):
+    if not isinstance(result, dict) or not result.get("success"):
         await logger.awarning(
-            "turnstile_verify_rejected", error_codes=result.get("error-codes")
+            "turnstile_verify_rejected",
+            error_codes=result.get("error-codes") if isinstance(result, dict) else None,
         )
         return False
     return True
