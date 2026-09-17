@@ -1,7 +1,7 @@
 """Auth API routes -- thin layer, all logic in service.py."""
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import structlog
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.core.rate_limit import limiter
+from src.core.security import decode_access_token
+from src.core.token_revocation import revoke_jti
 
 from src.auth.dependencies import (
     get_current_active_user,
@@ -279,19 +281,41 @@ async def refresh(
 
 @router.post("/logout", response_model=MessageResponse)
 async def logout(
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
     cookie_refresh_token: str | None = Cookie(default=None, alias="refresh_token"),
+    cookie_access_token: str | None = Cookie(default=None, alias="access_token"),
     body: LogoutRequest | None = None,
 ):
-    """Revoke the refresh token (logout).
+    """Revoke the refresh token and the access token in use (logout).
 
-    Always returns 200 -- never reveals whether the token existed.
+    Always returns 200 -- never reveals whether either token existed.
     Clears both the access_token and refresh_token HttpOnly cookies.
-    Reads the refresh token from the HttpOnly cookie (preferred) or body fallback.
+    Reads the refresh token from the HttpOnly cookie (preferred) or body
+    fallback. task #226: also revokes the access token's jti (via cookie
+    or Authorization header, mirroring get_current_user's own extraction)
+    so a logged-out token can't keep being used for up to its full 24h
+    lifetime -- any decode failure (missing/expired/malformed) is silently
+    ignored, same tolerance already applied to an unknown refresh token.
     """
     token_to_revoke = cookie_refresh_token or (body.refresh_token if body else None)
     await revoke_refresh_token(db, token_to_revoke)
+
+    auth_header = request.headers.get("Authorization", "")
+    bearer_token = auth_header.removeprefix("Bearer ").strip() if auth_header else None
+    access_token = cookie_access_token or bearer_token
+    if access_token:
+        try:
+            payload = decode_access_token(access_token)
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                ttl_seconds = int(exp - datetime.now(timezone.utc).timestamp())
+                await revoke_jti(jti, ttl_seconds)
+        except ValueError:
+            pass
+
     _secure = settings.ENVIRONMENT != "development"
     response.delete_cookie(key="access_token", path="/", secure=_secure)
     # S2: Also clear the refresh_token cookie so an attacker cannot call /auth/refresh post-logout.

@@ -1,5 +1,6 @@
 """JWT token handling and password hashing utilities."""
 
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -22,12 +23,17 @@ def get_password_hash(password: str) -> str:
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
-    """Create a JWT access token."""
+    """Create a JWT access token.
+
+    jti (task #226) gives each token a unique identity so it can be
+    individually revoked (see core/token_revocation.py) without needing
+    to invalidate every token for the user.
+    """
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "jti": str(uuid.uuid4())})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
