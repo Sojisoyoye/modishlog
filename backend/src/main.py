@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 import sentry_sdk
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -206,17 +206,29 @@ def _mount_static_files(app: FastAPI) -> None:
 _mount_static_files(app)
 
 # Include domain routers
+from src.auth.dependencies import require_active_subscription  # noqa: E402
 from src.auth.router import router as auth_router  # noqa: E402
 
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 
+# Every business-domain router below is gated with require_active_subscription
+# (task #240) -- blocks writes (POST/PUT/PATCH/DELETE) for read_only
+# businesses per the billing spec, no-ops otherwise. auth/billing/health are
+# deliberately excluded above/below: they must stay reachable regardless of
+# subscription state (login, checkout, Paystack's webhook, health checks).
+_paywall = [Depends(require_active_subscription)]
+
 from src.suppliers.router import router as suppliers_router  # noqa: E402
 
-app.include_router(suppliers_router, prefix="/api/v1/suppliers", tags=["suppliers"])
+app.include_router(
+    suppliers_router, prefix="/api/v1/suppliers", tags=["suppliers"], dependencies=_paywall
+)
 
 from src.customers.router import router as customers_router  # noqa: E402
 
-app.include_router(customers_router, prefix="/api/v1/customers", tags=["customers"])
+app.include_router(
+    customers_router, prefix="/api/v1/customers", tags=["customers"], dependencies=_paywall
+)
 
 from src.fx.router import router as fx_router  # noqa: E402
 from src.inventory.router import router as inventory_router  # noqa: E402
@@ -224,65 +236,95 @@ from src.orders.router import router as orders_router  # noqa: E402
 from src.products.router import router as products_router  # noqa: E402
 from src.sales.router import router as sales_router  # noqa: E402
 
-app.include_router(products_router, prefix="/api/v1/products", tags=["products"])
-app.include_router(inventory_router, prefix="/api/v1/inventory", tags=["inventory"])
-app.include_router(sales_router, prefix="/api/v1/sales", tags=["sales"])
-app.include_router(orders_router, prefix="/api/v1/orders", tags=["orders"])
-app.include_router(fx_router, prefix="/api/v1/fx", tags=["fx"])
+app.include_router(
+    products_router, prefix="/api/v1/products", tags=["products"], dependencies=_paywall
+)
+app.include_router(
+    inventory_router, prefix="/api/v1/inventory", tags=["inventory"], dependencies=_paywall
+)
+app.include_router(sales_router, prefix="/api/v1/sales", tags=["sales"], dependencies=_paywall)
+app.include_router(
+    orders_router, prefix="/api/v1/orders", tags=["orders"], dependencies=_paywall
+)
+app.include_router(fx_router, prefix="/api/v1/fx", tags=["fx"], dependencies=_paywall)
 
 from src.pricing.router import router as pricing_router  # noqa: E402
 
-app.include_router(pricing_router, prefix="/api/v1/pricing", tags=["pricing"])
+app.include_router(
+    pricing_router, prefix="/api/v1/pricing", tags=["pricing"], dependencies=_paywall
+)
 
 from src.cashflow.router import router as cashflow_router  # noqa: E402
 
-app.include_router(cashflow_router, prefix="/api/v1/cashflow", tags=["cashflow"])
+app.include_router(
+    cashflow_router, prefix="/api/v1/cashflow", tags=["cashflow"], dependencies=_paywall
+)
 
 from src.ai_engine.router import router as ai_engine_router  # noqa: E402
 
-app.include_router(ai_engine_router, prefix="/api/v1/ai", tags=["ai"])
+app.include_router(ai_engine_router, prefix="/api/v1/ai", tags=["ai"], dependencies=_paywall)
 
 from src.reports.router import router as reports_router  # noqa: E402
 
-app.include_router(reports_router, prefix="/api/v1/reports", tags=["reports"])
+app.include_router(
+    reports_router, prefix="/api/v1/reports", tags=["reports"], dependencies=_paywall
+)
 
 from src.invoice_schemes.router import router as invoice_schemes_router  # noqa: E402
 
 app.include_router(
-    invoice_schemes_router, prefix="/api/v1/invoice-schemes", tags=["invoice-schemes"]
+    invoice_schemes_router,
+    prefix="/api/v1/invoice-schemes",
+    tags=["invoice-schemes"],
+    dependencies=_paywall,
 )
 
 from src.locations.router import router as locations_router  # noqa: E402
 
-app.include_router(locations_router, prefix="/api/v1/locations", tags=["locations"])
+app.include_router(
+    locations_router, prefix="/api/v1/locations", tags=["locations"], dependencies=_paywall
+)
 
 from src.stockcount.router import router as stockcount_router  # noqa: E402
 
-app.include_router(stockcount_router, prefix="/api/v1/stockcount", tags=["stockcount"])
+app.include_router(
+    stockcount_router, prefix="/api/v1/stockcount", tags=["stockcount"], dependencies=_paywall
+)
 
 from src.settings.router import router as settings_router  # noqa: E402
 
-app.include_router(settings_router, prefix="/api/v1", tags=["settings"])
+app.include_router(settings_router, prefix="/api/v1", tags=["settings"], dependencies=_paywall)
 
 from src.dashboard.router import router as dashboard_router  # noqa: E402
 
-app.include_router(dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"])
+app.include_router(
+    dashboard_router, prefix="/api/v1/dashboard", tags=["dashboard"], dependencies=_paywall
+)
 
 from src.expenses.router import categories_router as expense_categories_router  # noqa: E402
 from src.expenses.router import expenses_router  # noqa: E402
 
 app.include_router(
-    expense_categories_router, prefix="/api/v1/expense-categories", tags=["expenses"]
+    expense_categories_router,
+    prefix="/api/v1/expense-categories",
+    tags=["expenses"],
+    dependencies=_paywall,
 )
-app.include_router(expenses_router, prefix="/api/v1/expenses", tags=["expenses"])
+app.include_router(
+    expenses_router, prefix="/api/v1/expenses", tags=["expenses"], dependencies=_paywall
+)
 
 from src.data_import.router import router as data_import_router  # noqa: E402
 
-app.include_router(data_import_router, prefix="/api/v1/import", tags=["data-import"])
+app.include_router(
+    data_import_router, prefix="/api/v1/import", tags=["data-import"], dependencies=_paywall
+)
 
 from src.audit.router import router as audit_router  # noqa: E402
 
-app.include_router(audit_router, prefix="/api/v1/audit-log", tags=["audit"])
+app.include_router(
+    audit_router, prefix="/api/v1/audit-log", tags=["audit"], dependencies=_paywall
+)
 
 from src.billing.router import router as billing_router  # noqa: E402
 from src.billing.router import webhook_router as billing_webhook_router  # noqa: E402

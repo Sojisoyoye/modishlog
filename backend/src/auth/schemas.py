@@ -67,6 +67,15 @@ class UserProfile(BaseModel):
     # saves the Settings > Business Profile form. The Danger Zone's
     # type-to-confirm check needs a name that's guaranteed to exist.
     business_name: str | None = None
+    # Task #240: lets the frontend show a subscription-status banner (trial
+    # countdown, past-due warning, read-only notice) without a second round
+    # trip. business_trial_ends_at is derived (created_at + 7 days per the
+    # billing spec), not stored state -- only meaningful while trialing.
+    business_subscription_status: str | None = None
+    business_subscription_tier: str | None = None
+    business_trial_ends_at: datetime | None = None
+    business_current_period_end: datetime | None = None
+    business_past_due_since: datetime | None = None
 
 
 class ForgotPasswordRequest(BaseModel):

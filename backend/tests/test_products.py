@@ -545,6 +545,7 @@ class TestProductEndpoints:
     def test_list_categories_empty(self):
         db = _mock_db_with_execute(scalars_result=[])
         self._override_db(db)
+        self._override_auth()
         self._override_business_id()
         with TestClient(self.app) as client:
             resp = client.get("/api/v1/products/categories")
@@ -597,6 +598,7 @@ class TestProductEndpoints:
     def test_get_product_not_found(self):
         db = _mock_db_with_execute(scalar_result=None)
         self._override_db(db)
+        self._override_auth()
         self._override_business_id()
         fake_id = str(uuid.uuid4())
         with TestClient(self.app) as client:

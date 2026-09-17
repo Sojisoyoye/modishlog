@@ -1,9 +1,55 @@
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, inject, signal } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { SidebarComponent } from '../sidebar/sidebar.component';
 import { TopbarComponent } from '../topbar/topbar.component';
 import { BottomNavComponent } from '../bottom-nav/bottom-nav.component';
 import { OfflineService } from '../../core/services/offline.service';
+import { AuthService, UserProfile } from '../../core/services/auth.service';
+
+export interface SubscriptionBanner {
+  kind: 'trial' | 'past_due' | 'read_only';
+  message: string;
+}
+
+/**
+ * Pure function (task #240) so the banner's status->message mapping is
+ * unit-testable without rendering the full shell (sidebar/topbar/bottom-nav
+ * all have their own dependency graphs). Informational only -- no
+ * checkout/upgrade action here, that's task #241's Settings
+ * subscription-management page. read_only reuses the existing support
+ * mailto link (task #235) as the only actionable step until that page
+ * exists.
+ */
+export function subscriptionBannerFor(
+  user: UserProfile | null,
+  now: Date = new Date(),
+): SubscriptionBanner | null {
+  if (!user) return null;
+
+  if (user.business_subscription_status === 'trialing' && user.business_trial_ends_at) {
+    const daysLeft = Math.max(
+      0,
+      Math.ceil((new Date(user.business_trial_ends_at).getTime() - now.getTime()) / 86_400_000),
+    );
+    return {
+      kind: 'trial',
+      message: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left in your free trial.`,
+    };
+  }
+  if (user.business_subscription_status === 'past_due') {
+    return {
+      kind: 'past_due',
+      message: 'Your last payment failed. Please update your billing to avoid losing write access.',
+    };
+  }
+  if (user.business_subscription_status === 'read_only') {
+    return {
+      kind: 'read_only',
+      message: 'Your account is read-only due to a billing issue.',
+    };
+  }
+  return null;
+}
 
 @Component({
   selector: 'app-shell',
@@ -30,6 +76,21 @@ import { OfflineService } from '../../core/services/offline.service';
           (toggleMenu)="onToggleMenu()"
           [sidebarCollapsed]="sidebarCollapsed()"
         />
+        @if (subscriptionBanner(); as banner) {
+          <div
+            role="alert"
+            class="flex flex-wrap items-center justify-center gap-2 px-4 py-2 text-center text-sm font-medium text-white"
+            [class.bg-primary]="banner.kind === 'trial'"
+            [class.bg-warning]="banner.kind === 'past_due'"
+            [class.bg-danger]="banner.kind === 'read_only'"
+            data-testid="subscription-banner"
+          >
+            <span>{{ banner.message }}</span>
+            @if (banner.kind === 'read_only') {
+              <a href="mailto:contact@modishlog.com" class="underline">Contact support</a>
+            }
+          </div>
+        }
         <main id="main-content" class="flex-1 overflow-y-auto p-4 pb-20 md:p-6 md:pb-6 lg:p-8">
           <router-outlet />
         </main>
@@ -49,8 +110,13 @@ import { OfflineService } from '../../core/services/offline.service';
 })
 export class ShellComponent {
   readonly offline = inject(OfflineService);
+  private readonly authService = inject(AuthService);
   mobileOpen = signal(false);
   sidebarCollapsed = signal(false);
+
+  readonly subscriptionBanner = computed(() =>
+    subscriptionBannerFor(this.authService.currentUser()),
+  );
 
   onToggleMenu(): void {
     // On mobile: toggle the mobile overlay sidebar

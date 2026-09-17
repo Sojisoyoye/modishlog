@@ -1,6 +1,7 @@
 """Auth API routes -- thin layer, all logic in service.py."""
 
 import uuid
+from datetime import timedelta
 
 import structlog
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
@@ -32,7 +33,7 @@ from src.auth.exceptions import (
     UserNotFoundError,
     WeakPasswordError,
 )
-from src.auth.models import User, UserRole
+from src.auth.models import SubscriptionStatus, User, UserRole
 from src.auth.schemas import (
     AdminResetPasswordResponse,
     BusinessDeletionResponse,
@@ -405,6 +406,14 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
         )
         profile.business_purge_at = current_user.business.purge_at
         profile.business_name = current_user.business.name
+        if current_user.business.subscription_status is not None:
+            profile.business_subscription_status = current_user.business.subscription_status.value
+        if current_user.business.subscription_tier is not None:
+            profile.business_subscription_tier = current_user.business.subscription_tier.value
+        if current_user.business.subscription_status == SubscriptionStatus.TRIALING:
+            profile.business_trial_ends_at = current_user.business.created_at + timedelta(days=7)
+        profile.business_current_period_end = current_user.business.current_period_end
+        profile.business_past_due_since = current_user.business.past_due_since
     return profile
 
 
