@@ -517,6 +517,42 @@ class TestAuthEndpoints:
         data = resp.json()
         assert data["email"] == user.email
 
+    def test_me_with_revoked_jti_returns_401(self):
+        """Task #226: a token whose jti is in the revocation denylist must
+        be rejected, even though it's otherwise a validly-signed,
+        unexpired token."""
+        user = _make_user()
+        token = build_token(user)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        with patch("src.auth.dependencies.is_jti_revoked", new=AsyncMock(return_value=True)):
+            with TestClient(self.app) as client:
+                resp = client.get(
+                    "/api/v1/auth/me",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+        assert resp.status_code == 401
+        # Same generic message as other invalid-token cases -- no oracle
+        # revealing "revoked" vs "malformed"/"expired".
+        assert resp.json()["detail"] == "Invalid authentication token"
+
+    def test_me_with_non_revoked_jti_passes_through(self):
+        """Confirms the new revocation check doesn't break the existing
+        happy path when the jti is genuinely not revoked."""
+        user = _make_user()
+        token = build_token(user)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=user)
+        self._override_db(db)
+        with patch("src.auth.dependencies.is_jti_revoked", new=AsyncMock(return_value=False)):
+            with TestClient(self.app) as client:
+                resp = client.get(
+                    "/api/v1/auth/me",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+        assert resp.status_code == 200
+
     def test_me_includes_business_deletion_status_when_pending(self):
         """Task #252: the frontend Danger Zone needs to know if the current
         business has a deletion scheduled, to show the pending-deletion
@@ -1643,6 +1679,54 @@ class TestLogoutEndpoint:
                 json={"refresh_token": "completely-unknown-token"},
             )
         assert resp.status_code == 200
+
+    def test_logout_with_access_token_cookie_revokes_its_jti(self):
+        """Task #226: logout must revoke the access token the caller was
+        actually using, not just the refresh token -- otherwise the
+        stolen-token-stays-valid-after-logout gap this task exists to
+        close would remain open for the one remediation action fully in
+        its scope."""
+        user = _make_user()
+        access_token = build_token(user)
+        db = _mock_db(user=None)  # unknown refresh token -- irrelevant to this test
+        self._override_db(db)
+
+        with patch("src.auth.router.revoke_jti", new=AsyncMock()) as mock_revoke:
+            with TestClient(self.app) as client:
+                client.cookies.set("access_token", access_token)
+                resp = client.post("/api/v1/auth/logout", json={})
+        assert resp.status_code == 200
+        mock_revoke.assert_called_once()
+        args, _ = mock_revoke.call_args
+        # jti from the real token, not a placeholder -- confirms the
+        # router actually decoded the cookie rather than a no-op call.
+        from src.core.security import decode_access_token
+
+        assert args[0] == decode_access_token(access_token)["jti"]
+        assert args[1] > 0
+
+    def test_logout_with_garbage_access_token_cookie_still_returns_200(self):
+        """Logout must stay safe to call even with a stale/garbage access
+        token -- 'always returns 200' per its own docstring."""
+        db = _mock_db(user=None)
+        self._override_db(db)
+
+        with patch("src.auth.router.revoke_jti", new=AsyncMock()) as mock_revoke:
+            with TestClient(self.app) as client:
+                client.cookies.set("access_token", "not-a-real-token")
+                resp = client.post("/api/v1/auth/logout", json={})
+        assert resp.status_code == 200
+        mock_revoke.assert_not_called()
+
+    def test_logout_with_no_access_token_cookie_still_returns_200(self):
+        db = _mock_db(user=None)
+        self._override_db(db)
+
+        with patch("src.auth.router.revoke_jti", new=AsyncMock()) as mock_revoke:
+            with TestClient(self.app) as client:
+                resp = client.post("/api/v1/auth/logout", json={})
+        assert resp.status_code == 200
+        mock_revoke.assert_not_called()
 
 
 class TestLoginReturnsRefreshToken:

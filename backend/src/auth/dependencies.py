@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.models import SubscriptionStatus, User, UserRole
 from src.core.database import get_db
 from src.core.security import decode_access_token
+from src.core.token_revocation import is_jti_revoked
 
 logger = structlog.get_logger()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
@@ -39,6 +40,18 @@ async def get_current_user(
             raise ValueError("Missing sub claim")
         user_uuid = uuid.UUID(user_id)
     except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # task #226: reject before the DB round-trip -- cheaper to check a
+    # revoked jti here than to look the user up first. Same generic
+    # message as the block above, not a distinct one, so a client can't
+    # use the response to tell "revoked" apart from "malformed"/"expired".
+    jti = payload.get("jti")
+    if jti and await is_jti_revoked(jti):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
