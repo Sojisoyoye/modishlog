@@ -283,6 +283,8 @@ async def get_stock_report(
     category_id: str | None = None,
     location_id: uuid.UUID | None = None,
     business_id: uuid.UUID | None = None,
+    page: int = 1,
+    page_size: int | None = 50,
 ) -> StockReport:
     """Generate a stock report showing inventory levels and valuations.
 
@@ -290,11 +292,19 @@ async def get_stock_report(
         db: Async database session.
         category_id: Optional UUID string to filter by product category.
         business_id: Restrict report to this business's data.
+        page: 1-indexed page number. Ignored when page_size is None.
+        page_size: Rows per page. None returns every matching row
+            unpaginated -- used by the CSV export, which needs the full
+            report, not a page of it.
 
     Returns:
-        StockReport with per-product rows and aggregated totals.
+        StockReport with the current page's rows, aggregated totals across
+        ALL matching products (not just the current page), and pagination
+        metadata.
     """
-    logger.info("generating stock_report", category_id=category_id, business_id=business_id)
+    logger.info(
+        "generating stock_report", category_id=category_id, business_id=business_id, page=page
+    )
 
     # Build the query: products JOIN inventory_levels LEFT JOIN sales aggregate
     # Using a subquery for total_sold per product
@@ -336,7 +346,38 @@ async def get_stock_report(
         # but the product rows themselves were not (task 208).
         query = query.where(Product.business_id == business_id)
 
-    result = await db.execute(query)
+    # Totals/count are aggregated over ALL matching products, not just the
+    # current page -- otherwise the report's totals would silently change
+    # depending on which page happened to be requested.
+    totals_subq = query.subquery()
+    totals_result = await db.execute(
+        select(
+            func.count(),
+            func.coalesce(
+                func.sum(
+                    func.coalesce(totals_subq.c.unit_cost, 0) * totals_subq.c.quantity_on_hand
+                ),
+                0,
+            ),
+            func.coalesce(
+                func.sum(
+                    (
+                        func.coalesce(totals_subq.c.selling_price, 0)
+                        - func.coalesce(totals_subq.c.unit_cost, 0)
+                    )
+                    * totals_subq.c.quantity_on_hand
+                ),
+                0,
+            ),
+            func.coalesce(func.sum(totals_subq.c.total_sold), 0),
+        ).select_from(totals_subq)
+    )
+    total, total_stock_value, total_potential_profit, total_sold_all = totals_result.one()
+
+    paginated_query = query
+    if page_size is not None:
+        paginated_query = paginated_query.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(paginated_query)
     rows = result.all()
 
     items: list[StockReportItem] = []
@@ -364,15 +405,14 @@ async def get_stock_report(
             )
         )
 
-    total_stock_value = sum((i.stock_value for i in items), Decimal("0"))
-    total_potential_profit = sum((i.potential_profit for i in items), Decimal("0"))
-    total_sold_all = sum(i.total_sold for i in items)
-
     return StockReport(
         items=items,
         total_stock_value=total_stock_value,
         total_potential_profit=total_potential_profit,
         total_sold=total_sold_all,
+        total=total,
+        page=page,
+        page_size=page_size if page_size is not None else total,
     )
 
 

@@ -115,6 +115,7 @@ async def export_stock_csv(
         category_id=str(category_id) if category_id else None,
         location_id=location_id,
         business_id=business_id,
+        page_size=None,  # export needs every row, not one page of it
     )
 
     output = io.StringIO()
@@ -160,6 +161,8 @@ async def export_stock_csv(
 async def stock_report_endpoint(
     category_id: uuid.UUID | None = None,
     location_id: uuid.UUID | None = None,
+    page: int = 1,
+    page_size: int = 50,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
     business_id: uuid.UUID = Depends(get_current_business_id),
@@ -170,6 +173,8 @@ async def stock_report_endpoint(
         category_id=str(category_id) if category_id else None,
         location_id=location_id,
         business_id=business_id,
+        page=page,
+        page_size=page_size,
     )
 
 

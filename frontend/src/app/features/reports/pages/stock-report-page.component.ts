@@ -131,7 +131,7 @@ import { ReportsService, StockReport } from '../../../core/services/reports.serv
               <!-- Footer totals -->
               <tfoot>
                 <tr class="border-t-2 border-gray-200 bg-gray-50 font-semibold">
-                  <td colspan="5" class="px-3 py-2.5 text-xs font-bold uppercase text-gray-500">Totals</td>
+                  <td colspan="5" class="px-3 py-2.5 text-xs font-bold uppercase text-gray-500">Totals ({{ r.total }} products)</td>
                   <td class="px-3 py-2.5 text-right font-bold text-gray-900">{{ r.total_stock_value | number: '1.2-2' }}</td>
                   <td class="px-3 py-2.5 text-right font-bold text-emerald-700">{{ r.total_potential_profit | number: '1.2-2' }}</td>
                   <td class="px-3 py-2.5 text-right font-bold text-gray-900">{{ r.total_sold | number: '1.0-0' }}</td>
@@ -139,6 +139,29 @@ import { ReportsService, StockReport } from '../../../core/services/reports.serv
               </tfoot>
             </table>
           </div>
+
+          <!-- Pagination -->
+          @if (r.total > r.page_size) {
+            <div class="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+              <p class="text-xs text-gray-500">
+                Page {{ r.page }} of {{ Math.ceil(r.total / r.page_size) }} ({{ r.total }} products)
+              </p>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  (click)="changePage(currentPage() - 1)"
+                  [disabled]="currentPage() <= 1"
+                  class="min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-40"
+                >Prev</button>
+                <button
+                  type="button"
+                  (click)="changePage(currentPage() + 1)"
+                  [disabled]="currentPage() >= Math.ceil(r.total / r.page_size)"
+                  class="min-h-[44px] rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-40"
+                >Next</button>
+              </div>
+            </div>
+          }
         </div>
       } @else {
         <div class="flex flex-col items-center justify-center rounded-xl border border-gray-100 bg-white py-20 shadow-sm">
@@ -154,16 +177,20 @@ export class StockReportPageComponent implements OnInit {
   private readonly reportsService = inject(ReportsService);
   private readonly messageService = inject(MessageService);
 
+  readonly Math = Math;
+
   loading = signal(false);
   report = signal<StockReport | null>(null);
+  currentPage = signal(1);
 
   ngOnInit(): void {
     this.generateReport();
   }
 
   generateReport(): void {
+    this.currentPage.set(1);
     this.loading.set(true);
-    this.reportsService.getStockReport().subscribe({
+    this.reportsService.getStockReport({ page: this.currentPage(), pageSize: 50 }).subscribe({
       next: (data) => {
         this.report.set(data);
         this.loading.set(false);
@@ -174,6 +201,25 @@ export class StockReportPageComponent implements OnInit {
           severity: 'error',
           summary: 'Error',
           detail: 'Failed to generate stock report',
+        });
+      },
+    });
+  }
+
+  changePage(page: number): void {
+    this.currentPage.set(page);
+    this.loading.set(true);
+    this.reportsService.getStockReport({ page, pageSize: 50 }).subscribe({
+      next: (data) => {
+        this.report.set(data);
+        this.loading.set(false);
+      },
+      error: () => {
+        this.loading.set(false);
+        this.messageService.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: 'Failed to load stock report page',
         });
       },
     });

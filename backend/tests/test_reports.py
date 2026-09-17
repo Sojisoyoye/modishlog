@@ -367,9 +367,16 @@ class TestStockReport:
         row.quantity_on_hand = 50
         row.total_sold = 30
 
-        result_mock = MagicMock()
-        result_mock.all.return_value = [row]
-        db.execute = AsyncMock(return_value=result_mock)
+        totals_mock = MagicMock()
+        totals_mock.one.return_value = (
+            1,
+            Decimal("752500.000000"),
+            Decimal("247500.000000"),
+            30,
+        )
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = [row]
+        db.execute = AsyncMock(side_effect=[totals_mock, rows_mock])
 
         report = await get_stock_report(db)
 
@@ -397,9 +404,11 @@ class TestStockReport:
         row.quantity_on_hand = 20
         row.total_sold = 10
 
-        result_mock = MagicMock()
-        result_mock.all.return_value = [row]
-        db.execute = AsyncMock(return_value=result_mock)
+        totals_mock = MagicMock()
+        totals_mock.one.return_value = (1, Decimal("200000.000000"), Decimal("100000.000000"), 10)
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = [row]
+        db.execute = AsyncMock(side_effect=[totals_mock, rows_mock])
 
         report = await get_stock_report(db)
 
@@ -419,9 +428,11 @@ class TestStockReport:
         from src.reports.service import get_stock_report
 
         db = _mock_db()
-        result_mock = MagicMock()
-        result_mock.all.return_value = []
-        db.execute = AsyncMock(return_value=result_mock)
+        totals_mock = MagicMock()
+        totals_mock.one.return_value = (0, Decimal("0"), Decimal("0"), 0)
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = []
+        db.execute = AsyncMock(side_effect=[totals_mock, rows_mock])
 
         report = await get_stock_report(db)
 
@@ -429,6 +440,7 @@ class TestStockReport:
         assert report.total_stock_value == Decimal("0")
         assert report.total_potential_profit == Decimal("0")
         assert report.total_sold == 0
+        assert report.total == 0
 
     @pytest.mark.asyncio
     async def test_stock_report_multiple_products(self):
@@ -457,13 +469,15 @@ class TestStockReport:
         row2.quantity_on_hand = 5
         row2.total_sold = 3
 
-        result_mock = MagicMock()
-        result_mock.all.return_value = [row1, row2]
-        db.execute = AsyncMock(return_value=result_mock)
+        totals_mock = MagicMock()
+        totals_mock.one.return_value = (2, Decimal("20000.000000"), Decimal("10000.000000"), 8)
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = [row1, row2]
+        db.execute = AsyncMock(side_effect=[totals_mock, rows_mock])
 
         report = await get_stock_report(db)
 
-        # row1: stock_value = 10 * 1000 = 10000; potential = 5000 * 10 = 5000 (wait: 500*10=5000)
+        # row1: stock_value = 10 * 1000 = 10000; potential = 500 * 10 = 5000
         # row2: stock_value = 5 * 2000 = 10000; potential = 1000 * 5 = 5000
         # total_stock = 20000, total_potential = 10000, total_sold = 8
         assert len(report.items) == 2
@@ -487,6 +501,7 @@ class TestStockReport:
             captured_queries.append(str(stmt.compile(compile_kwargs={"literal_binds": True})))
             result = MagicMock()
             result.all.return_value = []
+            result.one.return_value = (0, Decimal("0"), Decimal("0"), 0)
             return result
 
         db = _mock_db()
@@ -494,13 +509,73 @@ class TestStockReport:
 
         await get_stock_report(db, business_id=business_id)
 
-        # The main query joins inventory_levels/product_categories and
-        # outer-joins the sales subquery -- identify it by selecting sku.
+        # Both the totals-aggregate query and the paginated rows query are
+        # built from the same base query, so the business_id filter -- and
+        # the "products.sku" column it's embedded alongside -- appear in
+        # both compiled statements.
         main_queries = [q for q in captured_queries if "products.sku" in q.lower()]
-        assert len(main_queries) == 1
-        compiled = main_queries[0].lower()
-        assert "products.business_id" in compiled
-        assert business_id.hex in compiled.replace("-", "")
+        assert len(main_queries) == 2
+        for compiled in (q.lower() for q in main_queries):
+            assert "products.business_id" in compiled
+            assert business_id.hex in compiled.replace("-", "")
+
+    @pytest.mark.asyncio
+    async def test_pagination_applies_limit_offset_to_rows_only(self):
+        """Task #227: page/page_size must LIMIT/OFFSET the row query, but
+        totals must still reflect ALL matching products, not just the
+        page -- otherwise totals would silently change per page."""
+        from src.reports.service import get_stock_report
+
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+            captured_queries.append(compiled)
+            result = MagicMock()
+            result.all.return_value = []
+            # 3 products total, larger than the requested page
+            result.one.return_value = (3, Decimal("30000.000000"), Decimal("15000.000000"), 12)
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        report = await get_stock_report(db, page=2, page_size=10)
+
+        assert report.total == 3
+        assert report.page == 2
+        assert report.page_size == 10
+        # Totals reflect all 3 products, not the (empty, since mocked) page.
+        assert report.total_stock_value == Decimal("30000.000000")
+
+        row_queries = [q for q in captured_queries if "limit" in q.lower()]
+        assert len(row_queries) == 1
+        assert "offset 10" in row_queries[0].lower()
+        assert "limit 10" in row_queries[0].lower()
+
+    @pytest.mark.asyncio
+    async def test_page_size_none_returns_every_row_unpaginated(self):
+        """The CSV export needs the full report, not one page of it --
+        page_size=None must skip LIMIT/OFFSET entirely."""
+        from src.reports.service import get_stock_report
+
+        captured_queries = []
+
+        async def capture_execute(stmt):
+            compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+            captured_queries.append(compiled)
+            result = MagicMock()
+            result.all.return_value = []
+            result.one.return_value = (0, Decimal("0"), Decimal("0"), 0)
+            return result
+
+        db = _mock_db()
+        db.execute = capture_execute
+
+        report = await get_stock_report(db, page_size=None)
+
+        assert not any("limit" in q.lower() for q in captured_queries)
+        assert report.page_size == report.total
 
 
 # ---------------------------------------------------------------------------
@@ -809,9 +884,11 @@ class TestReportsEndpoints:
     def test_stock_report_endpoint_ok(self):
         """GET /reports/stock returns 200 with stock items."""
         db = _mock_db()
-        result_mock = MagicMock()
-        result_mock.all.return_value = [self._make_stock_row()]
-        db.execute = AsyncMock(return_value=result_mock)
+        totals_mock = MagicMock()
+        totals_mock.one.return_value = (1, Decimal("200000.000000"), Decimal("100000.000000"), 10)
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = [self._make_stock_row()]
+        db.execute = AsyncMock(side_effect=[totals_mock, rows_mock])
         self._override_db(db)
         with TestClient(self.app) as client:
             resp = client.get("/api/v1/reports/stock")
@@ -820,13 +897,18 @@ class TestReportsEndpoints:
         assert "items" in body
         assert "total_stock_value" in body
         assert len(body["items"]) == 1
+        assert body["total"] == 1
+        assert body["page"] == 1
+        assert body["page_size"] == 50
 
     def test_stock_export_csv_endpoint_ok(self):
         """GET /reports/stock/export-csv returns CSV content."""
         db = _mock_db()
-        result_mock = MagicMock()
-        result_mock.all.return_value = [self._make_stock_row()]
-        db.execute = AsyncMock(return_value=result_mock)
+        totals_mock = MagicMock()
+        totals_mock.one.return_value = (1, Decimal("200000.000000"), Decimal("100000.000000"), 10)
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = [self._make_stock_row()]
+        db.execute = AsyncMock(side_effect=[totals_mock, rows_mock])
         self._override_db(db)
         with TestClient(self.app) as client:
             resp = client.get("/api/v1/reports/stock/export-csv")
@@ -881,9 +963,11 @@ class TestReportsEndpoints:
     def test_stock_export_before_stock_detail(self):
         """Ensure /stock/export-csv route resolves before /stock/{id} pattern."""
         db = _mock_db()
-        result_mock = MagicMock()
-        result_mock.all.return_value = []
-        db.execute = AsyncMock(return_value=result_mock)
+        totals_mock = MagicMock()
+        totals_mock.one.return_value = (0, Decimal("0"), Decimal("0"), 0)
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = []
+        db.execute = AsyncMock(side_effect=[totals_mock, rows_mock])
         self._override_db(db)
         with TestClient(self.app) as client:
             resp = client.get("/api/v1/reports/stock/export-csv")
@@ -1150,9 +1234,11 @@ class TestLocationFilter:
         from src.core.database import get_db
 
         db = _mock_db()
-        result_mock = MagicMock()
-        result_mock.all.return_value = []
-        db.execute = AsyncMock(return_value=result_mock)
+        totals_mock = MagicMock()
+        totals_mock.one.return_value = (0, Decimal("0"), Decimal("0"), 0)
+        rows_mock = MagicMock()
+        rows_mock.all.return_value = []
+        db.execute = AsyncMock(side_effect=[totals_mock, rows_mock])
 
         async def _fake_db():
             yield db

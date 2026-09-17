@@ -47,7 +47,8 @@ class StockReportItem(BaseModel):
 
 
 class StockReport(BaseModel):
-    """Stock report with aggregated totals."""
+    """Stock report with aggregated totals (across ALL matching products,
+    not just the current page -- task #227)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -55,6 +56,9 @@ class StockReport(BaseModel):
     total_stock_value: Decimal
     total_potential_profit: Decimal
     total_sold: int
+    total: int
+    page: int
+    page_size: int
 
 
 class PurchaseSaleReport(BaseModel):
