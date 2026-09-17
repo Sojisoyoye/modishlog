@@ -5803,14 +5803,15 @@
         "description": "Once a Business's subscription_status is tracked (task 238/239), the app needs to actually enforce it -- block or degrade access when a subscription is inactive/past-due/canceled, per the lapse policy decided in task 237 (grace period, read-only mode, or hard lockout). Currently every business gets unconditional access once onboarded; there is no concept of paid vs. unpaid access anywhere in the backend or frontend.",
         "details": "Backend: add a dependency/middleware check (mirroring the existing require_admin-style dependency pattern in auth/dependencies.py) that gates protected routes based on Business.subscription_status, applied consistently -- this needs the same \"audit every domain module\" discipline the business_id cross-tenant sweep used, since missing it on even one router leaves a bypass. Frontend: a clear paywall/upgrade screen when access is blocked, and a visible subscription-status indicator (trial days remaining, payment past due warning) before the hard cutoff, not just a sudden lockout. TDD tests confirming an inactive-subscription business is actually blocked from the protected endpoints, and that onboarding/login/billing-management routes themselves remain reachable even when access is otherwise gated (a locked-out business must still be able to pay to unlock, not get fully walled off from their own billing page).",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "237",
           "238",
           "239"
         ],
         "priority": "high",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-17T10:55:53.929Z"
       },
       {
         "id": "241",
@@ -6189,9 +6190,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-17T07:23:59.392Z",
+      "lastModified": "2026-09-17T10:55:53.932Z",
       "taskCount": 264,
-      "completedCount": 251,
+      "completedCount": 252,
       "tags": [
         "master"
       ]
