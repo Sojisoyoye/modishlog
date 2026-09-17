@@ -5623,11 +5623,11 @@
         "description": "Fernet key rotation support was added in the July risk-hardening pass (PR #270), but FERNET_KEYS is never set anywhere in the production deploy path (docker-compose.prod.yml, .env.production.example) -- it silently falls back to deriving a key from SECRET_KEY. The \"key rotation\" feature exists in code but isn't actually usable without a manual step nobody's compose file performs.",
         "details": "Generate a real FERNET_KEYS value and add it to production (and staging) environment configuration. Document the rotation procedure (comma-separated list, newest key first, per the existing config.py comment) so it's actually operable when a rotation is eventually needed, not just theoretically supported.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-09-17T12:47:57.633Z"
+        "updatedAt": "2026-09-17T13:04:17.475Z"
       },
       {
         "id": "226",
@@ -5913,10 +5913,11 @@
         "description": "ModishLog has zero offline capability today -- no IndexedDB/local caching, no service worker, no offline-first sync. User decided (given the 2-day timeline and everything else already in flight) to launch online-only and document this deliberately rather than build offline resilience now or leave it as a silent, undocumented gap.",
         "details": "Write a short, clear note (in user-facing help/FAQ copy and/or internal docs) stating that ModishLog requires an active internet connection to record sales/transactions -- a dropped connection mid-action will currently fail the action rather than queue it for later sync. Make sure the frontend at least surfaces a clear \"you're offline, this didn't save\" error in that scenario (not a silent hang) rather than pretending offline support exists. Revisit building real offline-first sync post-launch if merchants report this as a real-world pain point.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-17T13:00:04.472Z"
       },
       {
         "id": "249",
@@ -6194,9 +6195,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-17T12:59:19.203Z",
+      "lastModified": "2026-09-17T13:04:17.475Z",
       "taskCount": 264,
-      "completedCount": 255,
+      "completedCount": 256,
       "tags": [
         "master"
       ]
