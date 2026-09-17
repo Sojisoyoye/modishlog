@@ -37,6 +37,10 @@ services:
       # Server .env uses these exact (unprefixed) names -- see .env.staging.example.
       DATABASE_URL: ${DATABASE_URL}
       SECRET_KEY: ${SECRET_KEY}
+      # Fernet key rotation (task #225) -- comma-separated, newest key
+      # first. Empty falls back to deriving a key from SECRET_KEY. See
+      # docs/deployment.md's "Secret rotation" section for the procedure.
+      FERNET_KEYS: ${FERNET_KEYS:-}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: "1440"

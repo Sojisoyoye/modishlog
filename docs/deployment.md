@@ -160,6 +160,43 @@ cd /root/modishlog-prod
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-deps --force-recreate backend
 ```
 
+### Secret rotation
+
+**FERNET_KEYS** encrypts user-supplied API keys at rest (`backend/src/settings/service.py`).
+It's a comma-separated list, newest key first — `_get_fernet_keys()` uses the
+first entry to *encrypt*, but tries every entry in order to *decrypt*, so
+rotation is a two-step, zero-downtime process:
+
+**1. Generate a new key and prepend it** (don't remove the old one yet):
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+```bash
+ssh root@178.104.122.53
+cd /root/modishlog-prod
+# Edit .env.production: FERNET_KEYS=<new-key>,<old-key>
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-deps --force-recreate backend
+```
+New encryptions now use the new key; old ciphertext encrypted under the
+previous key still decrypts correctly (it's second in the list).
+
+**2. Re-encrypt existing data under the new key.** There is no automated
+re-encryption script yet — until one exists, old ciphertext keeps relying on
+the old key staying in the list. **Do not remove an old key from
+`FERNET_KEYS` until you've confirmed nothing still depends on it** (either a
+re-encryption pass has run, or the underlying secret it protects has itself
+been rotated/invalidated at the source, e.g. revoking the actual Anthropic
+API key it was encrypting).
+
+If `FERNET_KEYS` is left empty, encryption falls back to deriving a key from
+`SECRET_KEY` (`_get_fernet_keys()`'s legacy path) — meaning rotating
+`SECRET_KEY` alone would silently break decryption of every previously
+stored API key. Set `FERNET_KEYS` explicitly (see `.env.production.example`)
+specifically to decouple key rotation from the JWT-signing secret.
+
+The exact same procedure applies to staging via
+`docker-compose.staging.yml`/`.env.staging` on the same server.
+
 ### Manual deploy (without CI)
 
 ```bash
