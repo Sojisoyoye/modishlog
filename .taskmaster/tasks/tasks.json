@@ -5623,10 +5623,11 @@
         "description": "Fernet key rotation support was added in the July risk-hardening pass (PR #270), but FERNET_KEYS is never set anywhere in the production deploy path (docker-compose.prod.yml, .env.production.example) -- it silently falls back to deriving a key from SECRET_KEY. The \"key rotation\" feature exists in code but isn't actually usable without a manual step nobody's compose file performs.",
         "details": "Generate a real FERNET_KEYS value and add it to production (and staging) environment configuration. Document the rotation procedure (comma-separated list, newest key first, per the existing config.py comment) so it's actually operable when a rotation is eventually needed, not just theoretically supported.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-17T12:47:57.633Z"
       },
       {
         "id": "226",
@@ -5681,11 +5682,11 @@
         "description": "core/config.py allows an empty SENTRY_DSN with no environment-based validation -- same class of issue as the Redis/Resend config gap (separate task): nothing forces required production settings to actually be present. A misconfigured prod deploy currently loses error visibility silently instead of failing loudly or at least logging a clear startup warning.",
         "details": "Add a startup-time check (e.g. in main.py's startup sequence, or a Settings validator) that warns loudly (structlog, not print) if ENVIRONMENT is production/staging and SENTRY_DSN is empty -- doesn't need to hard-fail startup, but should make the gap impossible to miss in logs/monitoring rather than silent. Consider bundling this with a broader \"required prod settings\" checklist (REDIS_URL, RESEND_API_KEY, SENTRY_DSN, FERNET_KEYS) validated together at startup, since all of these share the same \"silently absent in prod\" failure mode found across this audit.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-09-17T12:39:57.322Z"
+        "updatedAt": "2026-09-17T12:59:19.199Z"
       },
       {
         "id": "231",
@@ -6193,9 +6194,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-17T12:47:12.251Z",
+      "lastModified": "2026-09-17T12:59:19.203Z",
       "taskCount": 264,
-      "completedCount": 254,
+      "completedCount": 255,
       "tags": [
         "master"
       ]
