@@ -3,6 +3,18 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { NgClass } from '@angular/common';
 import { AuthService, RegisterRequest } from '../../../core/services/auth.service';
+import { environment } from '../../../../environments/environment';
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (
+        container: string | HTMLElement,
+        options: { sitekey: string; callback: (token: string) => void },
+      ) => string;
+    };
+  }
+}
 
 @Component({
   selector: 'app-register-page',
@@ -319,6 +331,14 @@ import { AuthService, RegisterRequest } from '../../../core/services/auth.servic
                 </div>
               </div>
 
+              <!-- Turnstile CAPTCHA (task #250) -- only renders once a real
+                   site key is configured; a no-op today. -->
+              @if (turnstileSiteKey) {
+                <div class="mb-3 lg:mb-4">
+                  <div id="turnstile-widget" data-testid="turnstile-widget"></div>
+                </div>
+              }
+
               <!-- Action buttons -->
               <div class="flex items-center gap-3">
                 <button
@@ -359,6 +379,13 @@ export class RegisterPageComponent {
   private readonly authService = inject(AuthService);
   private readonly router = inject(Router);
 
+  // Task #250 -- empty by default everywhere today, so none of the
+  // Turnstile loading/rendering below ever actually runs; only activates
+  // once a real site key is configured.
+  readonly turnstileSiteKey = environment.turnstileSiteKey;
+  private turnstileScriptReady = false;
+  private turnstileToken = signal<string | null>(null);
+
   currentStep = signal<1 | 2>(1);
   isLoading = signal(false);
   errorMsg = signal<string | null>(null);
@@ -394,11 +421,44 @@ export class RegisterPageComponent {
     }
     this.errorMsg.set(null);
     this.currentStep.set(2);
+    if (this.turnstileSiteKey) {
+      // The #turnstile-widget div only exists once step 2's @if block has
+      // rendered -- defer to the next tick so it's actually in the DOM
+      // before .render() is called against it.
+      setTimeout(() => this.loadAndRenderTurnstile(), 0);
+    }
   }
 
   goBack(): void {
     this.errorMsg.set(null);
     this.currentStep.set(1);
+  }
+
+  private loadAndRenderTurnstile(): void {
+    if (this.turnstileScriptReady) {
+      this.renderTurnstileWidget();
+      return;
+    }
+    if (document.getElementById('turnstile-script')) return; // already loading
+    const script = document.createElement('script');
+    script.id = 'turnstile-script';
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      this.turnstileScriptReady = true;
+      this.renderTurnstileWidget();
+    };
+    document.head.appendChild(script);
+  }
+
+  private renderTurnstileWidget(): void {
+    const container = document.getElementById('turnstile-widget');
+    if (!container || !window.turnstile) return;
+    window.turnstile.render(container, {
+      sitekey: this.turnstileSiteKey,
+      callback: (token: string) => this.turnstileToken.set(token),
+    });
   }
 
   onRegister(): void {
@@ -423,6 +483,7 @@ export class RegisterPageComponent {
     if (this.country) payload.country = this.country;
     if (this.city) payload.city = this.city;
     if (this.phone) payload.phone = this.phone;
+    if (this.turnstileToken()) payload.turnstile_token = this.turnstileToken()!;
 
     this.authService.register(payload).subscribe({
       next: () => {

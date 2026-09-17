@@ -289,5 +289,14 @@ class Settings(BaseSettings):
     PAYSTACK_BASIC_PLAN_CODE: str = ""
     PAYSTACK_PRO_PLAN_CODE: str = ""
 
+    # CAPTCHA (Cloudflare Turnstile, task #250) -- empty means "not
+    # configured": verify_turnstile_token() skips verification entirely,
+    # keeping local/dev/CI/E2E onboarding working with zero setup. Once
+    # configured, this becomes the primary defense against scripted
+    # fake-account creation (the existing per-IP rate limit is already
+    # beatable with rotating IPs/proxies), so verification fails closed
+    # on a Cloudflare API error rather than open.
+    TURNSTILE_SECRET_KEY: str = ""
+
 
 settings = Settings()

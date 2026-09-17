@@ -50,6 +50,7 @@ export interface RegisterRequest {
   tax_number?: string;
   fiscal_year_start_month: number;
   ndpr_consent: boolean;
+  turnstile_token?: string;
 }
 
 export interface RegisterResponse {

@@ -12,6 +12,7 @@ from src.core.config import settings
 from src.core.rate_limit import limiter
 from src.core.security import decode_access_token
 from src.core.token_revocation import revoke_jti
+from src.core.turnstile import verify_turnstile_token
 
 from src.auth.dependencies import (
     get_current_active_user,
@@ -139,6 +140,19 @@ async def onboard_business(
     Does not log the new owner in: they must verify their email (see
     /auth/verify-email) before their first /auth/login.
     """
+    if settings.TURNSTILE_SECRET_KEY:
+        if not data.turnstile_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CAPTCHA verification required.",
+            )
+        client_ip = request.client.host if request.client else None
+        if not await verify_turnstile_token(data.turnstile_token, remote_ip=client_ip):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="CAPTCHA verification failed.",
+            )
+
     try:
         business, user = await create_business_and_owner(db, data)
     except WeakPasswordError as e:

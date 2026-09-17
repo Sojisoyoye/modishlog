@@ -237,6 +237,74 @@ class TestOnboardEndpoint(OnboardTestBase):
         assert owner_user.role == UserRole.OWNER
 
 
+class TestOnboardTurnstileCaptcha(OnboardTestBase):
+    """Task #250: CAPTCHA verification on POST /auth/onboard, gated on
+    TURNSTILE_SECRET_KEY being configured."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_rate_limiter(self):
+        # /auth/onboard is real-rate-limited (5/min) via @limiter.limit --
+        # slowapi's in-memory storage persists across every test in this
+        # process, and TestOnboardEndpoint above already makes 5 real
+        # calls to the same endpoint. Without resetting here, this class's
+        # own calls would 429 depending on what ran before it in the same
+        # pytest session, not on anything this class actually tests.
+        from src.main import app
+
+        app.state.limiter.reset()
+        yield
+
+    def _onboard(self, payload=None):
+        business = _make_business()
+        user = _make_user(email_verified=False)
+        with (
+            patch(
+                "src.auth.router.create_business_and_owner",
+                new=AsyncMock(return_value=(business, user)),
+            ),
+            patch(
+                "src.auth.router.generate_email_verification_token",
+                new=AsyncMock(return_value="fake-verification-token"),
+            ),
+            patch("src.auth.router.send_email"),
+        ):
+            db_mock = AsyncMock()
+            self._override_db(db_mock)
+            with TestClient(self.app) as client:
+                return client.post("/api/v1/auth/onboard", json=payload or VALID_ONBOARD)
+
+    def test_unconfigured_secret_allows_onboarding_without_token(self):
+        """The existing/default behavior every current caller (dev, CI,
+        the whole E2E suite) relies on -- TURNSTILE_SECRET_KEY unset means
+        CAPTCHA verification never runs at all."""
+        with patch("src.auth.router.settings.TURNSTILE_SECRET_KEY", ""):
+            resp = self._onboard()
+        assert resp.status_code == 201
+
+    def test_configured_secret_rejects_missing_token(self):
+        with patch("src.auth.router.settings.TURNSTILE_SECRET_KEY", "sk_test"):
+            resp = self._onboard()
+        assert resp.status_code == 400
+
+    def test_configured_secret_rejects_failed_verification(self):
+        payload = {**VALID_ONBOARD, "turnstile_token": "bad-token"}
+        with patch("src.auth.router.settings.TURNSTILE_SECRET_KEY", "sk_test"):
+            with patch(
+                "src.auth.router.verify_turnstile_token", new=AsyncMock(return_value=False)
+            ):
+                resp = self._onboard(payload)
+        assert resp.status_code == 400
+
+    def test_configured_secret_allows_successful_verification(self):
+        payload = {**VALID_ONBOARD, "turnstile_token": "good-token"}
+        with patch("src.auth.router.settings.TURNSTILE_SECRET_KEY", "sk_test"):
+            with patch(
+                "src.auth.router.verify_turnstile_token", new=AsyncMock(return_value=True)
+            ):
+                resp = self._onboard(payload)
+        assert resp.status_code == 201
+
+
 class TestCreateBusinessAndOwnerService:
     """Unit tests for create_business_and_owner() in service.py."""
 

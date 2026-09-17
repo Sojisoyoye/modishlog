@@ -193,6 +193,11 @@ class OnboardRequest(BaseModel):
     # NDPR consent — required by Nigerian data-protection law
     ndpr_consent: bool
 
+    # CAPTCHA (task #250) — deliberately optional so this schema never
+    # breaks an existing caller. Only enforced by the router when
+    # TURNSTILE_SECRET_KEY is actually configured.
+    turnstile_token: str | None = None
+
     @field_validator("ndpr_consent")
     @classmethod
     def must_accept_ndpr(cls, v: bool) -> bool:
