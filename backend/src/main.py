@@ -90,6 +90,32 @@ def _init_sentry() -> None:
     )
 
 
+# Settings that silently fall back to a degraded/no-op mode when empty
+# (in-memory rate limiting instead of shared, emails logged instead of
+# sent, no error tracking, no Fernet key rotation) rather than raising --
+# task #230, same "silently absent in prod" failure mode found repeatedly
+# in the pre-launch audit (REDIS_URL/RESEND_API_KEY/SENTRY_DSN/FERNET_KEYS).
+_REQUIRED_PRODUCTION_SETTINGS = ("REDIS_URL", "RESEND_API_KEY", "SENTRY_DSN", "FERNET_KEYS")
+
+
+def check_required_production_settings() -> None:
+    """Warn loudly (structlog, never print) if ENVIRONMENT is production/
+    staging and a setting real traffic depends on is left empty.
+
+    Deliberately never raises -- a misconfigured deploy should still come
+    up and be visibly broken in logs/monitoring, not refuse to start.
+    """
+    if settings.ENVIRONMENT not in ("production", "staging"):
+        return
+    missing = [name for name in _REQUIRED_PRODUCTION_SETTINGS if not getattr(settings, name)]
+    if missing:
+        logger.warning(
+            "required_production_settings_missing",
+            missing=missing,
+            environment=settings.ENVIRONMENT,
+        )
+
+
 _PII_FIELDS = frozenset(
     {
         "password",
@@ -137,6 +163,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown events."""
     setup_logging()
     _init_sentry()
+    check_required_production_settings()
     task = asyncio.create_task(_pos_sync_loop())
     yield
     task.cancel()
