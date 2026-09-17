@@ -36,6 +36,9 @@ export interface StockReport {
   total_stock_value: number;
   total_potential_profit: number;
   total_sold: number;
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface PurchaseSaleReport {
@@ -96,8 +99,11 @@ export class ReportsService {
     return this.api.get<ProfitLossReport>('/reports/profit-loss', params);
   }
 
-  getStockReport(): Observable<StockReport> {
-    return this.api.get<StockReport>('/reports/stock');
+  getStockReport(opts: { page?: number; pageSize?: number } = {}): Observable<StockReport> {
+    const params: Record<string, string> = {};
+    if (opts.page) params['page'] = String(opts.page);
+    if (opts.pageSize) params['page_size'] = String(opts.pageSize);
+    return this.api.get<StockReport>('/reports/stock', params);
   }
 
   getPurchaseSaleReport(startDate?: string, endDate?: string): Observable<PurchaseSaleReport> {
