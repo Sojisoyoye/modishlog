@@ -5788,13 +5788,14 @@
         "description": "The payment gateway will send webhook events (charge success, subscription renewal, payment failure, cancellation/dispute) that must update ModishLog's own subscription state. This is the most correctness-critical piece of the billing feature -- a bug here means either charging a business and never granting access, or granting access without a successful charge. Must be idempotent (the same webhook event, redelivered, must not double-process) and must verify the gateway's webhook signature to prevent forged requests from granting free access.",
         "details": "Write TDD tests FIRST per CLAUDE.md, covering: signature verification (reject unsigned/forged requests), idempotent replay (processing the same event ID twice has no additional effect), each lifecycle event's effect on Business.subscription_status (success -> active, failure -> past_due/grace period per task 237's spec, cancellation -> deactivated per the lapse policy decided in task 237). Store processed webhook event IDs (or use the gateway's own idempotency key) to guard against replay. Add structured logging (structlog, never print) for every webhook received and its outcome, since this is the kind of code where \"did this actually work\" needs to be auditable after the fact, especially in the first days after launch.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "237",
           "238"
         ],
         "priority": "high",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-17T07:23:59.389Z"
       },
       {
         "id": "240",
@@ -6188,9 +6189,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-16T15:05:22.565Z",
+      "lastModified": "2026-09-17T07:23:59.392Z",
       "taskCount": 264,
-      "completedCount": 250,
+      "completedCount": 251,
       "tags": [
         "master"
       ]
