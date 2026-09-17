@@ -10,6 +10,8 @@ import { SettingsService, BusinessProfile } from '../../../core/services/setting
 import { PricingService, MarginTargetRead } from '../../../core/services/pricing.service';
 import { ProductsService, Product, Category } from '../../../core/services/products.service';
 import { AuthService } from '../../../core/services/auth.service';
+import { BillingService } from '../../../core/services/billing.service';
+import { trialDaysLeft } from '../../../core/utils/subscription.utils';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 
 const MONTH_NAMES = [
@@ -270,6 +272,77 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
               <i class="pi pi-external-link text-sm"></i> Go to FX Rates
             </a>
           </div>
+        </div>
+
+        <!-- Subscription & Billing Section -->
+        <div class="rounded-xl border border-gray-100 bg-white p-6 shadow-sm lg:col-span-2">
+          <div class="mb-5 flex items-center gap-2">
+            <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+              <i class="pi pi-credit-card text-sm text-emerald-700"></i>
+            </div>
+            <h3 class="text-base font-semibold text-text">Subscription &amp; Billing</h3>
+          </div>
+
+          <p class="mb-4 text-sm text-text" data-testid="billing-status">
+            @switch (subscriptionStatus()) {
+              @case ('trialing') {
+                Free trial &mdash; {{ subscriptionTrialDaysLeft() }} day{{ subscriptionTrialDaysLeft() === 1 ? '' : 's' }} left.
+              }
+              @case ('active') {
+                Active on the {{ subscriptionTierLabel() }} plan.
+                @if (subscriptionRenewalDate()) {
+                  Renews {{ subscriptionRenewalDate() }}.
+                }
+              }
+              @case ('past_due') {
+                Your last payment failed. Full access continues during the grace period.
+              }
+              @case ('read_only') {
+                Your account is read-only due to a billing issue.
+              }
+              @case ('canceled') {
+                Your subscription has been canceled.
+              }
+              @default {
+                No subscription information available.
+              }
+            }
+          </p>
+
+          @if (subscriptionStatus() === 'active') {
+            <p class="text-sm text-muted">
+              To cancel or change your plan, <a href="mailto:contact@modishlog.com" class="text-secondary underline">contact support</a>.
+            </p>
+          } @else if (isAdminOrOwner()) {
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div class="rounded-lg border border-gray-200 p-4">
+                <h4 class="text-sm font-semibold text-text">Basic</h4>
+                <p class="mt-1 text-xs text-muted">Core sales, inventory, purchase orders, customers, expenses, reports.</p>
+                <button
+                  (click)="subscribe('basic')"
+                  [disabled]="billingSubmitting()"
+                  data-testid="billing-subscribe-basic"
+                  class="mt-4 w-full rounded-lg border border-secondary px-4 py-2.5 text-sm font-semibold text-secondary transition-all hover:bg-secondary hover:text-white disabled:opacity-50 min-h-[44px]"
+                >
+                  Subscribe to Basic
+                </button>
+              </div>
+              <div class="rounded-lg border border-gray-200 p-4">
+                <h4 class="text-sm font-semibold text-text">Pro</h4>
+                <p class="mt-1 text-xs text-muted">Everything in Basic, plus AI pricing/reorder suggestions, FX tools, multi-user access, invoice schemes.</p>
+                <button
+                  (click)="subscribe('pro')"
+                  [disabled]="billingSubmitting()"
+                  data-testid="billing-subscribe-pro"
+                  class="mt-4 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50 min-h-[44px]"
+                >
+                  Subscribe to Pro
+                </button>
+              </div>
+            </div>
+          } @else {
+            <p class="text-sm text-muted">Ask a business admin or owner to manage your subscription.</p>
+          }
         </div>
 
         <!-- Fiscal Year Section -->
@@ -643,6 +716,7 @@ export class SettingsPageComponent implements OnInit {
   private readonly pricingService = inject(PricingService);
   private readonly productsService = inject(ProductsService);
   private readonly authService = inject(AuthService);
+  private readonly billingService = inject(BillingService);
   private readonly messageService = inject(MessageService);
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly destroyRef = inject(DestroyRef);
@@ -715,6 +789,29 @@ export class SettingsPageComponent implements OnInit {
   });
   deletingBusiness = signal(false);
   cancellingDeletion = signal(false);
+
+  // Subscription & Billing (task #241). /billing/checkout is require_admin
+  // (ADMIN or OWNER) on the backend -- isAdminOrOwner is deliberately
+  // distinct from the stricter isOwner above (Danger Zone), matching that
+  // gate rather than accidentally hiding Subscribe from ADMIN users.
+  isAdminOrOwner = computed(() => {
+    const role = this.authService.currentUser()?.role;
+    return role === 'admin' || role === 'owner';
+  });
+  subscriptionStatus = computed(() => this.authService.currentUser()?.business_subscription_status ?? null);
+  subscriptionTierLabel = computed(() => {
+    const tier = this.authService.currentUser()?.business_subscription_tier;
+    return tier === 'pro' ? 'Pro' : tier === 'basic' ? 'Basic' : '';
+  });
+  subscriptionTrialDaysLeft = computed(() => {
+    const trialEndsAt = this.authService.currentUser()?.business_trial_ends_at;
+    return trialEndsAt ? trialDaysLeft(trialEndsAt) : 0;
+  });
+  subscriptionRenewalDate = computed(() => {
+    const iso = this.authService.currentUser()?.business_current_period_end;
+    return iso ? new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : null;
+  });
+  billingSubmitting = signal(false);
 
   fyDayWarning = computed(() => {
     const m = parseInt(this.fyMonth(), 10);
@@ -918,6 +1015,21 @@ export class SettingsPageComponent implements OnInit {
   formatPurgeDate(iso: string | null): string {
     if (!iso) return '';
     return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  }
+
+  subscribe(tier: 'basic' | 'pro'): void {
+    if (this.billingSubmitting()) return;
+    this.billingSubmitting.set(true);
+    this.billingService.initiateCheckout(tier).subscribe({
+      next: (res) => {
+        window.location.href = res.authorization_url;
+      },
+      error: (err: HttpErrorResponse) => {
+        this.billingSubmitting.set(false);
+        const detail = typeof err.error?.detail === 'string' ? err.error.detail : 'Failed to start checkout';
+        this.messageService.add({ severity: 'error', summary: 'Checkout failed', detail });
+      },
+    });
   }
 
   saveBusinessProfile(): void {

@@ -4,52 +4,8 @@ import { SidebarComponent } from '../sidebar/sidebar.component';
 import { TopbarComponent } from '../topbar/topbar.component';
 import { BottomNavComponent } from '../bottom-nav/bottom-nav.component';
 import { OfflineService } from '../../core/services/offline.service';
-import { AuthService, UserProfile } from '../../core/services/auth.service';
-
-export interface SubscriptionBanner {
-  kind: 'trial' | 'past_due' | 'read_only';
-  message: string;
-}
-
-/**
- * Pure function (task #240) so the banner's status->message mapping is
- * unit-testable without rendering the full shell (sidebar/topbar/bottom-nav
- * all have their own dependency graphs). Informational only -- no
- * checkout/upgrade action here, that's task #241's Settings
- * subscription-management page. read_only reuses the existing support
- * mailto link (task #235) as the only actionable step until that page
- * exists.
- */
-export function subscriptionBannerFor(
-  user: UserProfile | null,
-  now: Date = new Date(),
-): SubscriptionBanner | null {
-  if (!user) return null;
-
-  if (user.business_subscription_status === 'trialing' && user.business_trial_ends_at) {
-    const daysLeft = Math.max(
-      0,
-      Math.ceil((new Date(user.business_trial_ends_at).getTime() - now.getTime()) / 86_400_000),
-    );
-    return {
-      kind: 'trial',
-      message: `${daysLeft} day${daysLeft === 1 ? '' : 's'} left in your free trial.`,
-    };
-  }
-  if (user.business_subscription_status === 'past_due') {
-    return {
-      kind: 'past_due',
-      message: 'Your last payment failed. Please update your billing to avoid losing write access.',
-    };
-  }
-  if (user.business_subscription_status === 'read_only') {
-    return {
-      kind: 'read_only',
-      message: 'Your account is read-only due to a billing issue.',
-    };
-  }
-  return null;
-}
+import { AuthService } from '../../core/services/auth.service';
+import { subscriptionBannerFor } from '../../core/utils/subscription.utils';
 
 @Component({
   selector: 'app-shell',
