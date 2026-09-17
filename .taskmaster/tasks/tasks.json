@@ -5819,14 +5819,15 @@
         "description": "User-facing surface for the billing system: a plan-selection/checkout flow (likely folded into or immediately after the existing onboarding wizard, per task 237's decision on trial policy), and a subscription-management view in Settings (current plan, renewal date, payment method status, cancel/upgrade actions, past invoices/receipts if the gateway provides them).",
         "details": "Use the chosen gateway's hosted checkout widget/redirect (per task 237) rather than building custom card-entry UI -- this keeps PCI scope off ModishLog entirely. Add a subscription-status section to the existing Settings page (frontend/src/app/features/settings/), following its established component patterns. Add Playwright E2E coverage per CLAUDE.md for the checkout flow and the settings subscription view, including the paywall redirect path when a test account's subscription is inactive (task 240).",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "237",
           "238",
           "240"
         ],
         "priority": "high",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-17T12:02:05.046Z"
       },
       {
         "id": "242",
@@ -6190,9 +6191,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-17T10:55:53.932Z",
+      "lastModified": "2026-09-17T12:02:05.050Z",
       "taskCount": 264,
-      "completedCount": 252,
+      "completedCount": 253,
       "tags": [
         "master"
       ]
