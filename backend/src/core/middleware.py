@@ -33,13 +33,22 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # a post-MVP task once Angular build output supports nonce injection.
         # Note: 'unsafe-eval' is kept for Angular runtime; 'unsafe-inline' is removed
         # from script-src to prevent XSS inline script execution.
+        # Cloudflare Turnstile (task #250, onboarding CAPTCHA) needs
+        # script-src to load its widget JS, connect-src for its own
+        # verification XHR calls, and frame-src for its interactive
+        # challenge iframe (no frame-src existed before this, so it fell
+        # back to default-src 'self' and would have silently blocked the
+        # widget). Added now, while TURNSTILE_SECRET_KEY/the frontend site
+        # key are still empty, so this isn't a second bug to debug the
+        # day real keys are configured.
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-eval'; "
+            "script-src 'self' 'unsafe-eval' https://challenges.cloudflare.com; "
             "style-src 'self' 'unsafe-inline'; "  # Angular ViewEncapsulation.Emulated requires unsafe-inline; nonce migration post-MVP
             "img-src 'self' data: blob:; "
             "font-src 'self'; "
-            "connect-src 'self'; "
+            "connect-src 'self' https://challenges.cloudflare.com; "
+            "frame-src https://challenges.cloudflare.com; "
             "frame-ancestors 'none';"
         )
         # Strip server identification
