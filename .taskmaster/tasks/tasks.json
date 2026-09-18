@@ -5867,10 +5867,11 @@
         "description": "Not yet systematically checked: how the app behaves for a brand-new business with no data (empty dashboard, empty product/sales lists, first-time search with zero results), and how it handles invalid inputs or network timeouts mid-flow. A new SMB owner's very first session after signup is entirely an empty-state experience -- if dashboards/reports/charts break or look broken with zero data, that's the first thing every single new user sees.",
         "details": "Walk through a genuinely fresh business (use the onboarding flow, don't seed fixture data) across dashboard, products, sales, inventory, reports, and recommendations pages -- confirm each renders a sensible empty state rather than a broken chart, a spinner that never resolves, or a raw error. Spot-check invalid-input handling (malformed CSV upload, submitting a form with out-of-range values) and simulate a slow/failed network request (browser devtools throttling) on at least the core sales/product creation flows to confirm the UI surfaces a clear error rather than hanging silently.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-17T15:01:48.659Z"
       },
       {
         "id": "245",
@@ -5938,10 +5939,11 @@
         "description": "POST /auth/onboard is a public, unauthenticated endpoint rate-limited only at 5/minute per IP (auth/router.py) -- no CAPTCHA or equivalent bot-protection mechanism exists anywhere in the codebase. A per-IP limit is trivially bypassed with distributed requests or residential proxies. This matters more now that real self-serve subscription billing is being built (tasks 237-242): scripted fake-account creation becomes a fraud/abuse vector once trials or payment flows are attached to signup, not just a nuisance.",
         "details": "Add a CAPTCHA (Cloudflare Turnstile is a good fit -- free, privacy-friendlier than reCAPTCHA, easy to integrate into an Angular form) to the onboarding wizard's final submit step, verified server-side before create_business_and_owner runs. Given the 2-day timeline, this is a relatively contained addition (one frontend widget + one backend verification call) and worth prioritizing given it directly protects the new billing surface from abuse.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-18T14:50:35.224Z"
       },
       {
         "id": "251",
@@ -6196,9 +6198,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-17T14:45:16.382Z",
+      "lastModified": "2026-09-18T14:50:35.229Z",
       "taskCount": 264,
-      "completedCount": 258,
+      "completedCount": 259,
       "tags": [
         "master"
       ]
