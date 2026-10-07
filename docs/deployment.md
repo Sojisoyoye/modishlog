@@ -248,7 +248,7 @@ ssh root@178.104.122.53 "
 4. **Deploy frontend** (parallel with backend) — `npx vercel --prod`; always runs `npm run build:staging`; API URL is hardcoded in `frontend/src/environments/environment.staging.ts`
 5. **Deploy backend** (requires image push) — SSH into Hetzner: pull, `alembic upgrade head`, restart, health-check
 
-> **Note on health-check false negative:** The pipeline health-check hits `http://localhost:8000/health` on the Hetzner host. Port 8000 on the host is Nginx (not the backend directly), so the check returns 404 and the pipeline reports failure — even though the backend is running correctly. The backend IS healthy; the health check URL is wrong. This is a known issue; use `docker logs modishlog-backend --tail 50` to verify actual status.
+> **Health-check note:** `deploy-staging.yml` itself checks backend health via `docker inspect` on the container (not a host-port curl), so it isn't affected by host port confusion. `fix-staging.yml` (the admin/business-link recovery workflow) previously curled `http://localhost:8000/health` on the Hetzner host to wait for the backend after a restart — port 8000 on the host is Nginx, not this backend (which maps to host port 8002 per `docker-compose.staging.yml`), so that loop always reported false failures. Fixed to curl `localhost:8002` instead. If you ever see a staging workflow fail only on a health-check step, confirm actual status with `docker logs modishlog-backend --tail 50` before assuming the backend is actually down.
 
 ### GitHub secrets required (staging)
 
