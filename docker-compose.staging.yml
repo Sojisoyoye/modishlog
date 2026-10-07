@@ -41,6 +41,17 @@ services:
       # first. Empty falls back to deriving a key from SECRET_KEY. See
       # docs/deployment.md's "Secret rotation" section for the procedure.
       FERNET_KEYS: ${FERNET_KEYS:-}
+      # Declared in core/config.py (empty = feature is a no-op) but never
+      # actually wired into this compose file -- CAPTCHA (task #250) and
+      # Paystack billing (tasks #238/#239) have been silently inert on
+      # staging the whole time as a result. Same gap already found and
+      # fixed for local dev compose (#452); task #225's FERNET_KEYS fix
+      # above did NOT cover these despite the local-dev commit message
+      # implying otherwise.
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      PAYSTACK_BASIC_PLAN_CODE: ${PAYSTACK_BASIC_PLAN_CODE:-}
+      PAYSTACK_PRO_PLAN_CODE: ${PAYSTACK_PRO_PLAN_CODE:-}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: "1440"
