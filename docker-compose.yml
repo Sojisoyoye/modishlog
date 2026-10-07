@@ -25,6 +25,15 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      # Same "declared in core/config.py but never actually wired into a
+      # compose file" gap already found and fixed for prod/staging (task
+      # #225) -- local dev never had these at all, silently no-op until
+      # someone actually needed to test against them.
+      FERNET_KEYS: ${FERNET_KEYS:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      PAYSTACK_BASIC_PLAN_CODE: ${PAYSTACK_BASIC_PLAN_CODE:-}
+      PAYSTACK_PRO_PLAN_CODE: ${PAYSTACK_PRO_PLAN_CODE:-}
       CORS_ORIGINS: '["http://localhost:4200","http://localhost","https://modishlog-staging.vercel.app"]'
       ENVIRONMENT: development
       TZ: UTC
