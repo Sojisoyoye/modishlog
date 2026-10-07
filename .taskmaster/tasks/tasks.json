@@ -5839,7 +5839,7 @@
         "description": "The billing feature (tasks 237-241) is new money-handling code being built and shipped inside a 2-day window with no time for the kind of organic review the rest of the codebase has accumulated over months. Given the earlier launch audit already found real bugs in far-more-reviewed code (a cross-tenant leak that survived a dedicated audit sweep, a half-shipped email feature), brand-new payment code deserves a dedicated, deliberate review pass rather than shipping on faith.",
         "details": "Once tasks 237-241 are implemented, run a focused review specifically covering: webhook signature verification is actually enforced (not just present in code but unreachable/bypassable), idempotency genuinely prevents double-processing under replay, no card data or full gateway secrets ever appear in logs, the paywall gating has no bypassable route (check every router, not just the obvious ones -- this is exactly the class of gap that let USDStrategyConfig slip through the cross-tenant audit), and error paths (gateway timeout, webhook delivery failure, partial state) fail safe (never silently grant access on an ambiguous/failed payment signal). Use the project's /code-review or /security-review skill for this pass rather than skipping straight to merge.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "238",
           "239",

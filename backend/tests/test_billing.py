@@ -771,3 +771,73 @@ class TestCheckExpiredGracePeriods:
         compiled = str(query.compile(compile_kwargs={"literal_binds": False}))
         assert "businesses.subscription_status" in compiled
         assert "businesses.past_due_since" in compiled
+
+
+class TestBillingEndpointRateLimiting:
+    """Task #242 security review: checkout and the webhook were the only
+    money-moving endpoints in the codebase with no rate limiting at all
+    (task #218 covered AI/import/report export, not billing). Checkout is
+    admin-gated but could still be hammered to spam Paystack customer
+    creation; the webhook has no auth dependency at all (HMAC signature IS
+    the auth), so an attacker flooding it with garbage signatures is
+    otherwise unthrottled.
+    """
+
+    def _client_as_admin(self):
+        from src.auth.dependencies import get_current_active_user, get_current_business_id
+        from src.auth.models import User, UserRole
+        from src.core.database import get_db
+        from src.main import app
+
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        db.execute = AsyncMock(return_value=result)
+
+        admin = MagicMock(spec=User)
+        admin.id = uuid.uuid4()
+        admin.is_active = True
+        admin.role = UserRole.ADMIN
+
+        async def _fake_admin():
+            return admin
+
+        async def _fake_business_id():
+            return uuid.uuid4()
+
+        app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_current_active_user] = _fake_admin
+        app.dependency_overrides[get_current_business_id] = _fake_business_id
+        return app
+
+    def test_checkout_rate_limited(self):
+        app = self._client_as_admin()
+        try:
+            client = TestClient(app, raise_server_exceptions=False)
+            statuses = [
+                client.post("/api/v1/billing/checkout", json={"tier": "basic"}).status_code
+                for _ in range(22)
+            ]
+            assert 429 in statuses, f"Expected 429 among rapid requests, got: {statuses}"
+        finally:
+            from src.auth.dependencies import get_current_active_user, get_current_business_id
+            from src.core.database import get_db
+
+            app.dependency_overrides.pop(get_db, None)
+            app.dependency_overrides.pop(get_current_active_user, None)
+            app.dependency_overrides.pop(get_current_business_id, None)
+
+    def test_webhook_rate_limited(self):
+        from src.main import app
+
+        with patch("src.billing.router.verify_signature", return_value=False):
+            client = TestClient(app, raise_server_exceptions=False)
+            statuses = [
+                client.post(
+                    "/api/v1/billing/webhook",
+                    json={"event": "charge.success", "data": {}},
+                    headers={"x-paystack-signature": "bad"},
+                ).status_code
+                for _ in range(62)
+            ]
+            assert 429 in statuses, f"Expected 429 among rapid requests, got: {statuses}"
