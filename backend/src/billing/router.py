@@ -20,6 +20,7 @@ from src.billing.paystack_client import verify_signature
 from src.billing.schemas import CheckoutRequest, CheckoutResponse
 from src.billing.service import initiate_checkout, process_webhook_event
 from src.core.database import get_db
+from src.core.rate_limit import limiter
 
 logger = structlog.get_logger()
 
@@ -28,7 +29,9 @@ webhook_router = APIRouter()
 
 
 @router.post("/checkout", response_model=CheckoutResponse)
+@limiter.limit("20/hour")
 async def checkout_endpoint(
+    request: Request,
     body: CheckoutRequest,
     db: AsyncSession = Depends(get_db),
     business_id: uuid.UUID = Depends(get_current_business_id),
@@ -49,6 +52,7 @@ async def checkout_endpoint(
 
 
 @webhook_router.post("/webhook", status_code=status.HTTP_200_OK)
+@limiter.limit("60/minute")
 async def webhook_endpoint(request: Request, db: AsyncSession = Depends(get_db)):
     """Receive a Paystack webhook event. No auth dependency -- Paystack is
     not a logged-in user, so the HMAC signature IS the authentication.
