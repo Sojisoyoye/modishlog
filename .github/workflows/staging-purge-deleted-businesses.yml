@@ -1,0 +1,34 @@
+name: Staging - Purge Deleted Businesses
+
+# Rehearsal counterpart to purge-deleted-businesses.yml. That production
+# workflow (and check-billing-grace-periods.yml) failed on every single
+# scheduled run from 2026-09-18 through 2026-10-07 because prod hadn't been
+# redeployed since the scripts were added -- and neither script had ever
+# been exercised against a live container anywhere, staging included, only
+# in unit tests. workflow_dispatch-only (no schedule): this is for
+# deliberately rehearsing the purge against staging data before trusting it
+# in prod, not routine cron noise.
+
+on:
+  workflow_dispatch: {}
+
+env:
+  DEPLOY_DIR: /root/modishlog
+
+jobs:
+  purge:
+    name: Purge businesses past their grace period (staging)
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Run purge script inside the staging backend container
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ env.DEPLOY_DIR }}
+            docker-compose -f docker-compose.staging.yml \
+              exec -T backend python scripts/purge_deleted_businesses.py
