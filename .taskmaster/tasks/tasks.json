@@ -6207,6 +6207,17 @@
         ],
         "priority": "medium",
         "subtasks": []
+      },
+      {
+        "id": 266,
+        "title": "Fix bulk sales CSV upload throughput (per-row serial processing)",
+        "description": "_process_bulk_upload_rows() (backend/src/sales/service.py:694) calls the full create_sale() business-logic path once per CSV row, serially -- a 500-row file takes 146-167s regardless of concurrency slot availability, confirmed via a clean Locust load test (2026-10-07, .taskmaster/docs/loadtest-findings-260.md). Raising BULK_UPLOAD_MAX_CONCURRENT_JOBS (2->4, already fixed separately) only bounds how many slow jobs run in parallel, not how slow each one is. Same gap flagged, never fixed, as finding #4 in the 2026-09-10 pre-launch audit -- this is the real onboarding path for any SMB migrating sales history from Excel or another POS.",
+        "details": "Batch the row-processing logic in _process_bulk_upload_rows() instead of calling create_sale() once per row: bulk/batched stock and inventory-level updates per product (group rows by product_id first) rather than one UPDATE per row, and a single batched INSERT for the Sale rows instead of N sequential inserts. Must preserve existing per-row error handling/reporting (failed_rows count, error_details with specific row numbers) and incremental progress polling (processed_rows updated as the job proceeds, since the frontend polls GET /sales/upload/status for live progress) -- a naive single-transaction-for-everything rewrite would lose both. Re-run the same Locust load test (docker-compose.loadtest.yml, 30 seeded businesses, 200 users, 6min, same method as loadtest-findings-243/256/260.md) after the fix to confirm 500-row jobs complete within a reasonable window (e.g. under 30s) under real concurrent load, not just in isolation.",
+        "testStrategy": "TDD: backend tests for batched stock/inventory update producing identical final state vs the old per-row path (same quantities, same movement records) on both all-valid and mixed valid/invalid-row CSVs; progress (processed_rows) still updates incrementally, not just at the end; per-row error reporting still attributes failures to the correct row number. Re-run Locust load test post-fix and compare completion time against this task's baseline (146-167s) and loadtest-findings-260.md.",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
       }
     ],
     "metadata": {
