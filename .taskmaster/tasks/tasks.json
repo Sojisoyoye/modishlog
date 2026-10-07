@@ -5867,7 +5867,7 @@
         "description": "Not yet systematically checked: how the app behaves for a brand-new business with no data (empty dashboard, empty product/sales lists, first-time search with zero results), and how it handles invalid inputs or network timeouts mid-flow. A new SMB owner's very first session after signup is entirely an empty-state experience -- if dashboards/reports/charts break or look broken with zero data, that's the first thing every single new user sees.",
         "details": "Walk through a genuinely fresh business (use the onboarding flow, don't seed fixture data) across dashboard, products, sales, inventory, reports, and recommendations pages -- confirm each renders a sensible empty state rather than a broken chart, a spinner that never resolves, or a raw error. Spot-check invalid-input handling (malformed CSV upload, submitting a form with out-of-range values) and simulate a slow/failed network request (browser devtools throttling) on at least the core sales/product creation flows to confirm the UI surfaces a clear error rather than hanging silently.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
