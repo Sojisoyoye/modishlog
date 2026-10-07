@@ -21,6 +21,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import structlog
 
+# MigrationTaggedMixin puts a migration_id FK on User (core/database.py)
+# pointing at migration_jobs.id, but nothing else this script imports ever
+# loads src.data_import.models -- so SQLAlchemy has no mapped class for
+# that table and raises NoReferencedTableError the first time this flushes
+# an anonymized User row (i.e. the first time there's an actual business
+# to purge; an empty "nothing to do" run never flushes User and never hits
+# this). Importing it here, as alembic/env.py does for the same reason, is
+# the fix.
+from src.data_import.models import MigrationJob  # noqa: F401
+
 from src.auth.service import purge_expired_business_deletions
 from src.core.database import async_session_factory
 
