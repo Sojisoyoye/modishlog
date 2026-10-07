@@ -1,0 +1,34 @@
+name: Staging - Check Billing Grace Periods
+
+# Rehearsal counterpart to check-billing-grace-periods.yml. That production
+# workflow (and purge-deleted-businesses.yml) failed on every single
+# scheduled run from 2026-09-18 through 2026-10-07 because prod hadn't been
+# redeployed since the scripts were added -- and neither script had ever
+# been exercised against a live container anywhere, staging included, only
+# in unit tests. workflow_dispatch-only (no schedule): this is for
+# deliberately rehearsing grace-period expiry against staging data before
+# trusting it in prod, not routine cron noise.
+
+on:
+  workflow_dispatch: {}
+
+env:
+  DEPLOY_DIR: /root/modishlog
+
+jobs:
+  check-grace-periods:
+    name: Move expired past_due businesses to read_only (staging)
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Run grace-period check inside the staging backend container
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: root
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ env.DEPLOY_DIR }}
+            docker-compose -f docker-compose.staging.yml \
+              exec -T backend python scripts/check_billing_grace_periods.py

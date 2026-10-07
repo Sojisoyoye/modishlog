@@ -63,7 +63,11 @@ jobs:
             docker-compose up -d --no-deps backend
             echo "Waiting for backend to come up..."
             for i in $(seq 1 12); do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
+              # Host port 8002 maps to the staging container's 8000 (see
+              # docker-compose.staging.yml) -- host port 8000 itself is
+              # Nginx, not this backend, so checking it here always
+              # reports false failures regardless of actual backend health.
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8002/health || echo "000")
               if [ "$STATUS" = "200" ]; then echo "Backend healthy"; break; fi
               echo "attempt $i/12 ($STATUS)"; sleep 5
             done
