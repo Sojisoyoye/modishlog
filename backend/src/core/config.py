@@ -194,7 +194,19 @@ class Settings(BaseSettings):
     # adding a second DB pool, keeps this fix simple and avoids re-opening
     # the connection budget math above (task #228) that's already tuned
     # against Postgres's max_connections=100.
-    BULK_UPLOAD_MAX_CONCURRENT_JOBS: int = 2
+    #
+    # The original value of 2 was picked without load-test evidence.
+    # Re-measured (.taskmaster/docs/loadtest-findings-260.md): 8/worker
+    # reintroduces task #228's QueuePool exhaustion as a sustained,
+    # multi-endpoint cascade (not just this endpoint); 4/worker avoids
+    # that cascade, leaving only the pre-existing, CPU-bound login-burst
+    # failures task #256 already attributed to limited vCPUs. Raising
+    # this value does NOT fix bulk-upload jobs timing out under load --
+    # that's a separate, confirmed root cause (process_bulk_upload_rows
+    # calls full create_sale() once per CSV row, serially) that no
+    # concurrency-slot count can paper over. See that doc before changing
+    # this number again.
+    BULK_UPLOAD_MAX_CONCURRENT_JOBS: int = 4
 
     # Environment
     ENVIRONMENT: str = "development"
