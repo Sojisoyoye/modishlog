@@ -6218,6 +6218,56 @@
         "dependencies": [],
         "priority": "high",
         "subtasks": []
+      },
+      {
+        "id": 267,
+        "title": "Add Scale subscription tier (enum + migration + config)",
+        "description": "Add SubscriptionTier.SCALE, an Alembic migration to register it on Postgres's enum, and PAYSTACK_SCALE_PLAN_CODE config/compose/env-example plumbing. First of 4 tasks implementing the owner-approved pricing restructure: Basic/Pro/Scale at NGN 10k/20k/45k monthly, replacing an old landing page that advertised a completely different (one-time-payment, wrong-tier) model. Full plan at .claude/plans/cryptic-questing-phoenix.md.",
+        "details": "SubscriptionTier.SCALE added to backend/src/auth/models.py. Migration 15108622c25f: single ALTER TYPE subscriptiontier ADD VALUE IF NOT EXISTS 'scale' statement (Postgres forbids using a new enum value in the same transaction that adds it, so keep this migration to just this one statement). downgrade() raises NotImplementedError -- no clean DROP VALUE exists in Postgres, no production business uses scale yet. PAYSTACK_SCALE_PLAN_CODE added to core/config.py, docker-compose.yml, docker-compose.staging.yml, docker-compose.prod.yml, .env.staging.example, .env.production.example, matching the existing Basic/Pro pattern.",
+        "testStrategy": "pytest -k \"billing or subscription or tier\" passes unchanged. Migration applied and verified (enum_range shows basic,pro,scale) against both local Docker Postgres and staging's Neon DB.",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 268,
+        "title": "Build real tier-based feature gating + seat limits",
+        "description": "The billing spec's intended gating (Basic=1 user+core domains only, Pro/Scale=multi-user+AI/FX/invoice-schemes) was written down in .taskmaster/docs/billing-spec.md but never actually implemented -- subscription_tier is stored but nothing in the code checks it. Build it for real: a require_tier() dependency gating ai_engine/fx/invoice_schemes routers, and a seat-count check in create_user() enforcing Basic=1, Pro=3, Scale=10 users per business.",
+        "details": "Add require_tier(minimum: SubscriptionTier) to backend/src/auth/dependencies.py (same pattern as the existing require_active_subscription), using a _TIER_RANK dict (BASIC=0, PRO=1, SCALE=1 -- same feature set as Pro, only seat cap differs). Raise 403 (not 402 -- 402 is reserved for the payment-lapse case) when the business's tier ranks below the minimum. Wire into backend/src/ai_engine/router.py:51, backend/src/fx/router.py:77, and backend/src/invoice_schemes/router.py:27 (currently a bare APIRouter() with no router-level dependency at all) via each router's own dependencies= list. Add SeatLimitExceededError to auth/exceptions.py. Add a seat-count check inside create_user() (backend/src/auth/service.py, ~line 68) gated on `if business_id is not None:` -- confirmed via direct read that create_business_and_owner() calls create_user() WITHOUT business_id (sets user.business_id after, on the returned object), so this guard correctly skips the check during self-service onboarding and covers both real invite call sites (register(), admin_invite_user() in auth/router.py) for free since both already pass business_id explicitly. Map SeatLimitExceededError to HTTP 403 in both router endpoints.",
+        "testStrategy": "TDD -- write tests first (they should fail against not-yet-existing require_tier/SeatLimitExceededError, then pass after implementation). New test class in backend/tests/test_billing.py near the existing require_active_subscription tests (~line 605-754, same two-layer pattern: direct function-call unit tests + TestClient integration tests): Basic blocked (403) from require_tier(PRO), Pro/Scale allowed. New tests in backend/tests/test_user_management.py near test_invite_user_creates_account (~line 545): seat-limit-exceeded returns 403. New direct unit tests for create_user()'s seat-check logic: blocks 2nd user on Basic, allows up to 3 on Pro / up to 10 on Scale, explicitly covers the business_id=None (onboarding) skip path. Confirm existing test_auth.py tier-fixture tests (~line 610-649) still pass unchanged. End-to-end verification against staging per the plan file's section 13: onboard a fresh Basic business, invite a 2nd user, expect 403; hit a real ai_engine/fx GET as Basic, expect 403, as Pro/Scale expect 200; confirm Basic can still fully use every ungated domain (sales/inventory/customers/expenses/dashboard/reports/stock counts) without regression.",
+        "status": "pending",
+        "dependencies": [
+          267
+        ],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": 269,
+        "title": "Scale tier frontend: settings page + landing page rewrite",
+        "description": "Add a third Scale subscribe button to Settings > Subscription & Billing, and rewrite the landing page's pricing section which currently advertises a completely wrong model (one-time payment, old Starter/Growth/Scale tiers at NGN 49k/99k/199k) to accurately reflect the real 3-tier monthly subscription (Basic/Pro/Scale at NGN 10k/20k/45k, 7-day trial). Also make the landing page auth-aware: if a logged-in user navigates to it, CTA buttons should say something like \"Go to Dashboard\" instead of \"Get Started\"/\"Login\" (requested mid-session by the user, fold into this task).",
+        "details": "Add export type SubscriptionTier = 'basic' | 'pro' | 'scale' to frontend/src/app/core/services/billing.service.ts, replacing the 'basic' | 'pro' literal union duplicated in exactly 3 places (confirmed via direct exploration): billing.service.ts:18 (initiateCheckout param), auth.service.ts:28 (business_subscription_tier field), settings-page.component.ts:1020 (subscribe() param) + :802-805 (subscriptionTierLabel ternary, widen to 3-way map). In settings-page.component.ts's billing template (lines 277-346): change the grid at line 317 from sm:grid-cols-2 to sm:grid-cols-3, add a third card matching the Basic card's (non-highlighted) border style with (click)=\"subscribe('scale')\" and data-testid=\"billing-subscribe-scale\". Update Basic/Pro card copy to state seat caps explicitly (1 user / up to 3 users). In landing-page.component.ts (pricing section at lines 362-451, hand-written template, no data array): rename Starter->Basic, Growth->Pro (keep as highlighted \"Most Popular\" middle card), Scale stays Scale; new prices NGN 10,000/20,000/45,000 each \"/mo\"; rewrite header copy (lines 368-369, currently \"One payment. Forever yours.\"/\"No monthly fees. No subscriptions.\") to accurate trial/subscription language; drop the white-label/API-access/priority-support bullets at lines 434-436 (not real features) and replace with \"Everything in Pro\" + \"Up to 10 users\" as Scale's only real differentiator; remove the footer's \"One-time payment\" line (447-449) and the comparison-table row at 344-347 claiming \"One-time payment, no subscription\"; update CTA button copy (\"Get Starter\" etc) to match new tier names. For the auth-aware nav/CTA: check how auth state is read elsewhere in standalone components (likely AuthService's currentUser signal) and conditionally render \"Go to Dashboard\" (routerLink to /dashboard) instead of \"Get Started\"/\"Login\" when a user is already authenticated.",
+        "testStrategy": "Extend frontend/e2e/billing-settings.spec.ts (~line 47-50) with a visibility assertion for billing-subscribe-scale alongside the existing basic/pro ones. Manually verify in a browser: /settings as a Basic owner shows three correctly-priced buttons; landing page (logged out) has zero remaining \"one-time payment\" language; landing page while logged in shows \"Go to Dashboard\" instead of Get Started/Login.",
+        "status": "pending",
+        "dependencies": [
+          267
+        ],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 270,
+        "title": "Reprice Paystack plans, create Scale plan, update billing-spec doc",
+        "description": "Update the live Paystack test-mode Basic/Pro plans to the new prices (NGN 10k/20k, down from the placeholder NGN 50k/100k set up earlier this session), create a new Scale plan at NGN 45k/mo, wire the resulting plan code into local + staging .env, and rewrite .taskmaster/docs/billing-spec.md section 2 to reflect the final 3-tier decision and the gating built in task #268 (the doc currently says gating was spec'd but not built -- that becomes stale once #268 ships).",
+        "details": "Using the Paystack test-mode secret key already verified live and wired into local .env + staging's .env this session (sk_test_... -- see this session's billing walkthrough): PUT /plan/PLN_yyxknwtqlnslaa3 {\"amount\": 1000000} to reprice Basic to NGN 10,000; PUT /plan/PLN_7rbw3oyps8st9tp {\"amount\": 2000000} to reprice Pro to NGN 20,000; POST /plan {\"name\": \"ModishLog Scale\", \"amount\": 4500000, \"interval\": \"monthly\", \"description\": \"ModishLog Scale plan -- up to 10 users\"} to create Scale. Capture the returned plan_code and set PAYSTACK_SCALE_PLAN_CODE in local .env and staging's /root/modishlog/.env on the Hetzner server (178.104.122.53, see docs/deployment.md for SSH access pattern used throughout this session) -- prod gets it later, when this ships there. Verify each via GET /plan/{code}, confirming amount matches. In billing-spec.md section 2 (currently says \"Two tiers\"): rewrite to 3 rows with final pricing/seat caps (Basic NGN10k/1 user, Pro NGN20k/3 users, Scale NGN45k/10 users); update the gating-boundary paragraph to point at the now-real require_tier()/seat-limit implementation from task #268 instead of describing it as spec'd-but-not-built; explicitly state Scale's only differentiator is seat count, to prevent a future re-promise of white-label/API-access (neither exists in the code).",
+        "testStrategy": "GET each of the 3 Paystack plans after updating, confirm amount fields are exactly 1000000/2000000/4500000 (kobo). Confirm PAYSTACK_SCALE_PLAN_CODE is present and non-empty in both local and staging .env, and that a real checkout against tier=\"scale\" succeeds on staging (same live-verification style already used this session for Basic checkout + webhook).",
+        "status": "pending",
+        "dependencies": [
+          267
+        ],
+        "priority": "medium",
+        "subtasks": []
       }
     ],
     "metadata": {
