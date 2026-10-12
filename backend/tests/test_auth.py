@@ -69,10 +69,16 @@ def _make_user(**overrides) -> User:
     return user
 
 
-def _mock_db(user: User | None = None) -> AsyncMock:
+def _mock_db(
+    user: User | None = None, business=None, seat_count: int = 0
+) -> AsyncMock:
     """Return an AsyncMock db session.
 
-    If *user* is provided, ``db.execute().scalar_one_or_none()`` returns it.
+    If *user* is provided, ``db.execute().scalar_one_or_none()`` returns it
+    (the email-uniqueness check). *business*/*seat_count* back create_user's
+    seat-limit check (``db.get()`` / ``db.scalar()``) -- business defaults to
+    None so callers that don't pass business_id (the overwhelming majority of
+    existing tests) skip that check entirely, same as before this was added.
     """
     db = AsyncMock()
     result_mock = MagicMock()
@@ -80,6 +86,8 @@ def _mock_db(user: User | None = None) -> AsyncMock:
     db.execute.return_value = result_mock
     db.flush = AsyncMock()
     db.add = MagicMock()
+    db.get = AsyncMock(return_value=business)
+    db.scalar = AsyncMock(return_value=seat_count)
     return db
 
 
@@ -227,6 +235,119 @@ class TestCreateUser:
         db = _mock_db(user=None)
         user = await create_user(db, "noorg@example.com", VALID_PASSWORD, "No Org")
         assert user.business_id is None
+
+
+class TestCreateUserSeatLimit:
+    """Task #268: create_business_and_owner() calls create_user() WITHOUT
+    business_id (it assigns user.business_id after, on the returned object)
+    -- so gating on `business_id is not None` correctly skips this check
+    during self-service onboarding (where no business row to check seats
+    against even exists yet) while still covering both real invite call
+    sites (register(), admin_invite_user()), since both already pass
+    business_id explicitly."""
+
+    @pytest.mark.asyncio
+    async def test_business_id_none_skips_seat_check_entirely(self):
+        db = _mock_db(user=None)
+        await create_user(db, "onboarding@example.com", VALID_PASSWORD, "Owner")
+        db.get.assert_not_called()
+        db.scalar.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_basic_tier_allows_first_user(self):
+        from src.auth.models import SubscriptionTier
+
+        business = MagicMock(subscription_tier=SubscriptionTier.BASIC)
+        db = _mock_db(user=None, business=business, seat_count=0)
+        user = await create_user(
+            db, "first@example.com", VALID_PASSWORD, "First", business_id=uuid.uuid4()
+        )
+        assert user.email == "first@example.com"
+
+    @pytest.mark.asyncio
+    async def test_basic_tier_blocks_second_user(self):
+        from src.auth.exceptions import SeatLimitExceededError
+        from src.auth.models import SubscriptionTier
+
+        business = MagicMock(subscription_tier=SubscriptionTier.BASIC)
+        db = _mock_db(user=None, business=business, seat_count=1)
+        with pytest.raises(SeatLimitExceededError):
+            await create_user(
+                db, "second@example.com", VALID_PASSWORD, "Second", business_id=uuid.uuid4()
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("seat_count", [0, 1, 2])
+    async def test_pro_tier_allows_up_to_three(self, seat_count):
+        from src.auth.models import SubscriptionTier
+
+        business = MagicMock(subscription_tier=SubscriptionTier.PRO)
+        db = _mock_db(user=None, business=business, seat_count=seat_count)
+        user = await create_user(
+            db, f"pro{seat_count}@example.com", VALID_PASSWORD, "Pro User", business_id=uuid.uuid4()
+        )
+        assert user.email == f"pro{seat_count}@example.com"
+
+    @pytest.mark.asyncio
+    async def test_pro_tier_blocks_fourth_user(self):
+        from src.auth.exceptions import SeatLimitExceededError
+        from src.auth.models import SubscriptionTier
+
+        business = MagicMock(subscription_tier=SubscriptionTier.PRO)
+        db = _mock_db(user=None, business=business, seat_count=3)
+        with pytest.raises(SeatLimitExceededError):
+            await create_user(
+                db, "fourth@example.com", VALID_PASSWORD, "Fourth", business_id=uuid.uuid4()
+            )
+
+    @pytest.mark.asyncio
+    async def test_scale_tier_allows_up_to_ten(self):
+        from src.auth.models import SubscriptionTier
+
+        business = MagicMock(subscription_tier=SubscriptionTier.SCALE)
+        db = _mock_db(user=None, business=business, seat_count=9)
+        user = await create_user(
+            db, "tenth@example.com", VALID_PASSWORD, "Tenth", business_id=uuid.uuid4()
+        )
+        assert user.email == "tenth@example.com"
+
+    @pytest.mark.asyncio
+    async def test_scale_tier_blocks_eleventh_user(self):
+        from src.auth.exceptions import SeatLimitExceededError
+        from src.auth.models import SubscriptionTier
+
+        business = MagicMock(subscription_tier=SubscriptionTier.SCALE)
+        db = _mock_db(user=None, business=business, seat_count=10)
+        with pytest.raises(SeatLimitExceededError):
+            await create_user(
+                db, "eleventh@example.com", VALID_PASSWORD, "Eleventh", business_id=uuid.uuid4()
+            )
+
+    @pytest.mark.asyncio
+    async def test_seat_count_query_filters_on_is_active(self):
+        """A deactivated user (deactivate_user() flips is_active, never
+        deletes the row) must not permanently occupy a seat."""
+        from src.auth.models import SubscriptionTier
+
+        business = MagicMock(subscription_tier=SubscriptionTier.BASIC)
+        db = _mock_db(user=None, business=business, seat_count=0)
+        await create_user(
+            db, "activeonly@example.com", VALID_PASSWORD, "Active Only", business_id=uuid.uuid4()
+        )
+        query = db.scalar.call_args[0][0]
+        compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
+        assert "is_active" in compiled
+
+    @pytest.mark.asyncio
+    async def test_business_not_found_skips_seat_check(self):
+        """Defensive: if the business row can't be found (shouldn't happen
+        in practice -- business_id always comes from an authenticated admin's
+        own business), don't block user creation over it."""
+        db = _mock_db(user=None, business=None)
+        user = await create_user(
+            db, "orphan@example.com", VALID_PASSWORD, "Orphan", business_id=uuid.uuid4()
+        )
+        assert user.email == "orphan@example.com"
 
 
 # ---------------------------------------------------------------------------
@@ -790,8 +911,14 @@ class TestRegisterAdminAuth:
         owner = _make_user(role=UserRole.OWNER, business_id=uuid.uuid4())
         token = build_token(owner)
 
+        async def _get(model, _id):
+            # get_current_user looks up User; create_user's seat-limit check
+            # (task #268) looks up Business -- returning None for the latter
+            # takes the defensive "business not found, skip the check" path.
+            return owner if model is User else None
+
         db = AsyncMock()
-        db.get = AsyncMock(return_value=owner)  # get_current_user's lookup
+        db.get = AsyncMock(side_effect=_get)
         dup_check_result = MagicMock()
         dup_check_result.scalar_one_or_none.return_value = None
         db.execute = AsyncMock(return_value=dup_check_result)

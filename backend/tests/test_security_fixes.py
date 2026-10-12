@@ -702,6 +702,7 @@ class TestExpensiveEndpointRateLimiting:
         user.id = uuid.uuid4()
         user.is_active = True
         user.role = UserRole.ADMIN
+        user.business = None  # bypasses require_tier (task #268) -- not under test here
 
         async def _fake_user():
             return user

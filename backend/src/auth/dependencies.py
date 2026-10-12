@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.models import SubscriptionStatus, User, UserRole
+from src.auth.models import SubscriptionStatus, SubscriptionTier, User, UserRole
 from src.core.database import get_db
 from src.core.security import decode_access_token
 from src.core.token_revocation import is_jti_revoked
@@ -167,6 +167,30 @@ async def require_active_subscription(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Your subscription is read-only. Renew to restore write access.",
         )
+
+
+_TIER_RANK = {SubscriptionTier.BASIC: 0, SubscriptionTier.PRO: 1, SubscriptionTier.SCALE: 1}
+
+
+def require_tier(minimum: SubscriptionTier):
+    """Gate a router/endpoint on a minimum subscription tier (task #268).
+
+    403, not 402 -- 402 is reserved for require_active_subscription's
+    payment-lapse case; 403 is this codebase's idiom for "authenticated but
+    not entitled" (require_admin, require_owner). Scale ranks equal to Pro:
+    its only real differentiator is the seat cap enforced in create_user(),
+    not feature access.
+    """
+
+    async def _dependency(current_user: User = Depends(get_current_active_user)) -> None:
+        business = current_user.business
+        if business is not None and _TIER_RANK[business.subscription_tier] < _TIER_RANK[minimum]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This feature requires the {minimum.value.capitalize()} plan or higher.",
+            )
+
+    return _dependency
 
 
 async def get_current_business_id(

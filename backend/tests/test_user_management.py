@@ -591,6 +591,33 @@ class TestAdminUsersEndpoints:
 
         assert resp.status_code == 409
 
+    def test_invite_user_seat_limit_exceeded_returns_403(self):
+        """POST /admin/users/invite must return 403 when the business's tier
+        seat cap is already reached (task #268)."""
+        from src.auth.exceptions import SeatLimitExceededError
+
+        admin = _make_user(business_id=uuid.uuid4())
+        self._override_require_admin(admin)
+
+        with patch(
+            "src.auth.router.create_user",
+            AsyncMock(side_effect=SeatLimitExceededError("basic", 1)),
+        ):
+            db = _mock_db()
+            self._override_db(db)
+            with TestClient(self.app) as client:
+                resp = client.post(
+                    "/api/v1/auth/admin/users/invite",
+                    json={
+                        "email": "overlimit@example.com",
+                        "full_name": "Over Limit",
+                        "role": "sales_manager",
+                        "password": VALID_PASSWORD,
+                    },
+                )
+
+        assert resp.status_code == 403
+
     def test_get_user_by_id_returns_user(self):
         """GET /admin/users/{id} must return user details."""
         admin = _make_user(business_id=uuid.uuid4())

@@ -59,3 +59,15 @@ class BusinessPendingDeletionError(Exception):
 
 class BusinessAlreadyPurgedError(Exception):
     """Raised when cancelling deletion for a business the purge job already anonymized."""
+
+
+class SeatLimitExceededError(Exception):
+    """Raised when a business's subscription tier seat cap is already reached."""
+
+    def __init__(self, tier: str, limit: int):
+        self.tier = tier
+        self.limit = limit
+        super().__init__(
+            f"The {tier.capitalize()} plan is limited to {limit} user(s). "
+            "Upgrade your plan to add more."
+        )

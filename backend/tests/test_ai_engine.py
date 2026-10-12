@@ -673,6 +673,7 @@ class TestAIEngineEndpoints:
         from src.auth.dependencies import get_current_active_user, get_current_business_id
 
         fake_user = MagicMock()
+        fake_user.business = None  # bypasses require_tier (task #268) -- not under test here
         fake_business_id = uuid.uuid4()
         app.dependency_overrides[get_current_active_user] = lambda: fake_user
         app.dependency_overrides[get_current_business_id] = lambda: fake_business_id

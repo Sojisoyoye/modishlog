@@ -141,6 +141,18 @@ class TestInitiateCheckoutService:
             await initiate_checkout(db, uuid.uuid4(), tier="enterprise")
 
     @pytest.mark.asyncio
+    async def test_scale_is_a_valid_tier(self):
+        """Task #268: "scale" must be recognized by checkout (task #267
+        only added the enum value + config var, not this mapping)."""
+        from src.billing.service import initiate_checkout
+
+        db = AsyncMock()
+        with patch("src.billing.service.settings") as mock_settings:
+            mock_settings.PAYSTACK_SCALE_PLAN_CODE = ""
+            with pytest.raises(BillingNotConfiguredError):
+                await initiate_checkout(db, uuid.uuid4(), tier="scale")
+
+    @pytest.mark.asyncio
     async def test_missing_plan_code_raises_billing_not_configured(self):
         from src.billing.service import initiate_checkout
 
@@ -732,6 +744,110 @@ class TestSubscriptionGateWiring:
             with TestClient(self.app) as client:
                 resp = client.get("/api/v1/products/categories")
         assert resp.status_code == 200
+
+
+class TestRequireTier:
+    """Task #268: per-router tier gate, independent from
+    require_active_subscription's payment-lapse gate -- 403, not 402,
+    since this is "authenticated but not entitled", matching the
+    existing idiom used by require_admin/require_owner."""
+
+    @pytest.mark.asyncio
+    async def test_basic_business_blocked_from_pro_feature(self):
+        from fastapi import HTTPException
+
+        from src.auth.dependencies import require_tier
+
+        business_id = uuid.uuid4()
+        business = _make_business(id=business_id)
+        business.subscription_tier = SubscriptionTier.BASIC
+        owner = _make_owner(business_id)
+        owner.business = business
+
+        with pytest.raises(HTTPException) as exc_info:
+            await require_tier(SubscriptionTier.PRO)(owner)
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("tier", [SubscriptionTier.PRO, SubscriptionTier.SCALE])
+    async def test_pro_and_scale_allowed(self, tier):
+        from src.auth.dependencies import require_tier
+
+        business_id = uuid.uuid4()
+        business = _make_business(id=business_id)
+        business.subscription_tier = tier
+        owner = _make_owner(business_id)
+        owner.business = business
+
+        await require_tier(SubscriptionTier.PRO)(owner)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_no_business_passes_through(self):
+        from src.auth.dependencies import require_tier
+
+        owner = _make_owner(uuid.uuid4())
+        owner.business = None
+
+        await require_tier(SubscriptionTier.PRO)(owner)  # must not raise
+
+
+class TestTierGateWiring:
+    """Confirms require_tier is actually mounted on the three gated
+    routers (ai_engine, fx, invoice_schemes), not just correct in
+    isolation."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_client(self):
+        from src.main import app
+
+        self.app = app
+        self._original_overrides = app.dependency_overrides.copy()
+        yield
+        app.dependency_overrides = self._original_overrides
+
+    def _override_auth(self, tier: SubscriptionTier):
+        from src.auth.dependencies import get_current_active_user
+        from src.core.database import get_db
+
+        business_id = uuid.uuid4()
+        business = _make_business(id=business_id)
+        business.subscription_tier = tier
+        owner = _make_owner(business_id)
+        owner.business = business
+
+        async def _fake_user():
+            return owner
+
+        async def _fake_db():
+            yield AsyncMock()
+
+        self.app.dependency_overrides[get_current_active_user] = _fake_user
+        self.app.dependency_overrides[get_db] = _fake_db
+
+    def test_basic_business_gets_403_on_ai_engine(self):
+        self._override_auth(SubscriptionTier.BASIC)
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/ai/recommendations")
+        assert resp.status_code == 403
+
+    def test_pro_business_can_reach_ai_engine(self):
+        self._override_auth(SubscriptionTier.PRO)
+        with patch("src.ai_engine.router.get_recommendations", new=AsyncMock(return_value=[])):
+            with TestClient(self.app) as client:
+                resp = client.get("/api/v1/ai/recommendations")
+        assert resp.status_code == 200
+
+    def test_basic_business_gets_403_on_fx(self):
+        self._override_auth(SubscriptionTier.BASIC)
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/fx/rates/current")
+        assert resp.status_code == 403
+
+    def test_basic_business_gets_403_on_invoice_schemes(self):
+        self._override_auth(SubscriptionTier.BASIC)
+        with TestClient(self.app) as client:
+            resp = client.get("/api/v1/invoice-schemes")
+        assert resp.status_code == 403
 
 
 class TestCheckExpiredGracePeriods:

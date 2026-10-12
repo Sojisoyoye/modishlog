@@ -32,6 +32,7 @@ from src.auth.exceptions import (
     InvalidRefreshTokenError,
     InvalidResetTokenError,
     InvalidVerificationTokenError,
+    SeatLimitExceededError,
     UserAlreadyExistsError,
     UserNotFoundError,
     WeakPasswordError,
@@ -190,6 +191,8 @@ async def register(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except UserAlreadyExistsError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except SeatLimitExceededError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     return user
 
 
@@ -517,6 +520,8 @@ async def admin_invite_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except UserAlreadyExistsError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except SeatLimitExceededError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     return user
 
 

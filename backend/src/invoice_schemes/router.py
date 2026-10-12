@@ -5,8 +5,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user, get_current_business_id
-from src.auth.models import User
+from src.auth.dependencies import get_current_active_user, get_current_business_id, require_tier
+from src.auth.models import SubscriptionTier, User
 from src.core.database import get_db
 from src.invoice_schemes.exceptions import SchemeNotFoundError
 from src.invoice_schemes.schemas import (
@@ -24,7 +24,12 @@ from src.invoice_schemes.service import (
     update_scheme,
 )
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[
+        Depends(get_current_active_user),
+        Depends(require_tier(SubscriptionTier.PRO)),
+    ]
+)
 
 
 @router.post("", response_model=SchemeRead, status_code=status.HTTP_201_CREATED)
