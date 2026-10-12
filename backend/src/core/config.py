@@ -300,6 +300,8 @@ class Settings(BaseSettings):
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_BASIC_PLAN_CODE: str = ""
     PAYSTACK_PRO_PLAN_CODE: str = ""
+    # Scale tier (task #267) -- same "empty means not configured" contract.
+    PAYSTACK_SCALE_PLAN_CODE: str = ""
 
     # CAPTCHA (Cloudflare Turnstile, task #250) -- empty means "not
     # configured": verify_turnstile_token() skips verification entirely,

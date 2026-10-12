@@ -34,6 +34,7 @@ services:
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
       PAYSTACK_BASIC_PLAN_CODE: ${PAYSTACK_BASIC_PLAN_CODE:-}
       PAYSTACK_PRO_PLAN_CODE: ${PAYSTACK_PRO_PLAN_CODE:-}
+      PAYSTACK_SCALE_PLAN_CODE: ${PAYSTACK_SCALE_PLAN_CODE:-}
       CORS_ORIGINS: '["http://localhost:4200","http://localhost","https://modishlog-staging.vercel.app"]'
       ENVIRONMENT: development
       TZ: UTC
