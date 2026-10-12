@@ -324,6 +324,21 @@ class TestCreateUserSeatLimit:
             )
 
     @pytest.mark.asyncio
+    async def test_seat_count_query_filters_on_is_active(self):
+        """A deactivated user (deactivate_user() flips is_active, never
+        deletes the row) must not permanently occupy a seat."""
+        from src.auth.models import SubscriptionTier
+
+        business = MagicMock(subscription_tier=SubscriptionTier.BASIC)
+        db = _mock_db(user=None, business=business, seat_count=0)
+        await create_user(
+            db, "activeonly@example.com", VALID_PASSWORD, "Active Only", business_id=uuid.uuid4()
+        )
+        query = db.scalar.call_args[0][0]
+        compiled = str(query.compile(compile_kwargs={"literal_binds": True}))
+        assert "is_active" in compiled
+
+    @pytest.mark.asyncio
     async def test_business_not_found_skips_seat_check(self):
         """Defensive: if the business row can't be found (shouldn't happen
         in practice -- business_id always comes from an authenticated admin's

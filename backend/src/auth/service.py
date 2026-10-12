@@ -99,12 +99,21 @@ async def create_user(
     # (register(), admin_invite_user()) pass business_id -- onboarding's
     # create_business_and_owner() does not (it assigns user.business_id
     # after, on the returned object), so this guard correctly skips the
-    # check for a business that doesn't exist yet.
+    # check for a business that doesn't exist yet. Counts active users only
+    # -- a deactivated user (deactivate_user() flips is_active, never
+    # deletes the row) must free its seat, not occupy it forever.
+    #
+    # Known limitation: check-then-insert isn't atomic, so two concurrent
+    # invites on a business at exactly its seat limit could both pass this
+    # check. Accepted for now -- requires an already-authenticated admin
+    # racing themselves, low exploitability, not worth a DB-level lock yet.
     if business_id is not None:
         business = await db.get(Business, business_id)
         if business is not None:
             seat_count = await db.scalar(
-                select(func.count()).select_from(User).where(User.business_id == business_id)
+                select(func.count())
+                .select_from(User)
+                .where(User.business_id == business_id, User.is_active == True)  # noqa: E712
             )
             limit = _TIER_SEAT_LIMITS[business.subscription_tier]
             if seat_count >= limit:
