@@ -29,10 +29,11 @@ class SubscriptionStatus(str, enum.Enum):
 
 
 class SubscriptionTier(str, enum.Enum):
-    """Feature-gating tier (task #237/#238)."""
+    """Feature-gating tier (task #237/#238, SCALE added task #267)."""
 
     BASIC = "basic"
     PRO = "pro"
+    SCALE = "scale"
 
 
 class Business(UUIDMixin, TimestampMixin, Base):
