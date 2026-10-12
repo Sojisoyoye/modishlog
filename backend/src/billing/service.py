@@ -33,6 +33,7 @@ _GRACE_PERIOD_DAYS = 3
 _TIER_PLAN_CODES = {
     "basic": lambda: settings.PAYSTACK_BASIC_PLAN_CODE,
     "pro": lambda: settings.PAYSTACK_PRO_PLAN_CODE,
+    "scale": lambda: settings.PAYSTACK_SCALE_PLAN_CODE,
 }
 
 

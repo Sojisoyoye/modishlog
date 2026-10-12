@@ -41,14 +41,19 @@ from src.ai_engine.service import (
     get_usd_strategy_config,
     update_usd_strategy_config,
 )
-from src.auth.dependencies import get_current_active_user, get_current_business_id
-from src.auth.models import User
+from src.auth.dependencies import get_current_active_user, get_current_business_id, require_tier
+from src.auth.models import SubscriptionTier, User
 from src.core.database import get_db
 from src.core.rate_limit import limiter
 
 logger = structlog.get_logger()
 
-router = APIRouter(dependencies=[Depends(get_current_active_user)])
+router = APIRouter(
+    dependencies=[
+        Depends(get_current_active_user),
+        Depends(require_tier(SubscriptionTier.PRO)),
+    ]
+)
 
 
 # ---------------------------------------------------------------------------

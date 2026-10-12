@@ -10,8 +10,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.dependencies import get_current_active_user, get_current_business_id
-from src.auth.models import User
+from src.auth.dependencies import get_current_active_user, get_current_business_id, require_tier
+from src.auth.models import SubscriptionTier, User
 from src.core.csv_utils import csv_safe
 from src.core.database import get_db
 from src.fx.exceptions import (
@@ -74,7 +74,12 @@ from src.fx.service import (
     update_exposure_config,
 )
 
-router = APIRouter(dependencies=[Depends(get_current_active_user)])
+router = APIRouter(
+    dependencies=[
+        Depends(get_current_active_user),
+        Depends(require_tier(SubscriptionTier.PRO)),
+    ]
+)
 
 
 # ---------------------------------------------------------------------------

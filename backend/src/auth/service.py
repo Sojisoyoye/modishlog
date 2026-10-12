@@ -29,6 +29,7 @@ from src.auth.exceptions import (
     InvalidRefreshTokenError,
     InvalidResetTokenError,
     InvalidVerificationTokenError,
+    SeatLimitExceededError,
     UserAlreadyExistsError,
     UserNotFoundError,
     WeakPasswordError,
@@ -38,6 +39,7 @@ from src.auth.models import (
     EmailVerificationToken,
     PasswordResetToken,
     RefreshToken,
+    SubscriptionTier,
     User,
     UserRole,
 )
@@ -54,6 +56,12 @@ _PASSWORD_PATTERN = re.compile(
 
 LOCKOUT_THRESHOLD = 3
 LOCKOUT_DURATION_MINUTES = 15
+
+_TIER_SEAT_LIMITS = {
+    SubscriptionTier.BASIC: 1,
+    SubscriptionTier.PRO: 3,
+    SubscriptionTier.SCALE: 10,
+}
 
 
 def validate_password(password: str) -> None:
@@ -86,6 +94,21 @@ async def create_user(
     existing = await db.execute(select(User).where(User.email == email))
     if existing.scalar_one_or_none():
         raise UserAlreadyExistsError(f"Email {email} is already registered")
+
+    # Seat-count gating (task #268). Only real invite call sites
+    # (register(), admin_invite_user()) pass business_id -- onboarding's
+    # create_business_and_owner() does not (it assigns user.business_id
+    # after, on the returned object), so this guard correctly skips the
+    # check for a business that doesn't exist yet.
+    if business_id is not None:
+        business = await db.get(Business, business_id)
+        if business is not None:
+            seat_count = await db.scalar(
+                select(func.count()).select_from(User).where(User.business_id == business_id)
+            )
+            limit = _TIER_SEAT_LIMITS[business.subscription_tier]
+            if seat_count >= limit:
+                raise SeatLimitExceededError(business.subscription_tier.value, limit)
 
     user = User(
         email=email,
