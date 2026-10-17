@@ -1,4 +1,5 @@
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 
@@ -604,17 +605,18 @@ import { AuthService } from '../../../core/services/auth.service';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class LandingPageComponent {
+export class LandingPageComponent implements OnInit {
   readonly authService = inject(AuthService);
   readonly mobileMenuOpen = signal(false);
+  private readonly destroyRef = inject(DestroyRef);
 
-  constructor() {
+  ngOnInit(): void {
     // A hard page load of "/" starts with an empty in-memory session even
     // when the HttpOnly cookie is still valid (same gap authGuard fills for
     // protected routes) -- restore it so the CTA reflects real auth state
     // instead of always showing the logged-out copy.
     if (!this.authService.isAuthenticated()) {
-      this.authService.checkSession().subscribe();
+      this.authService.checkSession().pipe(takeUntilDestroyed(this.destroyRef)).subscribe();
     }
   }
 }
