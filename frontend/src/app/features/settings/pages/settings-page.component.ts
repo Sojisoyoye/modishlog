@@ -10,7 +10,7 @@ import { SettingsService, BusinessProfile } from '../../../core/services/setting
 import { PricingService, MarginTargetRead } from '../../../core/services/pricing.service';
 import { ProductsService, Product, Category } from '../../../core/services/products.service';
 import { AuthService } from '../../../core/services/auth.service';
-import { BillingService } from '../../../core/services/billing.service';
+import { BillingService, SubscriptionTier } from '../../../core/services/billing.service';
 import { trialDaysLeft } from '../../../core/utils/subscription.utils';
 import { ConfirmDialogComponent } from '../../../shared/components/confirm-dialog/confirm-dialog.component';
 
@@ -314,10 +314,10 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
               To cancel or change your plan, <a href="mailto:contact@modishlog.com" class="text-secondary underline">contact support</a>.
             </p>
           } @else if (isAdminOrOwner()) {
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div class="rounded-lg border border-gray-200 p-4">
                 <h4 class="text-sm font-semibold text-text">Basic</h4>
-                <p class="mt-1 text-xs text-muted">Core sales, inventory, purchase orders, customers, expenses, reports.</p>
+                <p class="mt-1 text-xs text-muted">1 user. Core sales, inventory, purchase orders, customers, expenses, reports.</p>
                 <button
                   (click)="subscribe('basic')"
                   [disabled]="billingSubmitting()"
@@ -329,7 +329,7 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
               </div>
               <div class="rounded-lg border border-gray-200 p-4">
                 <h4 class="text-sm font-semibold text-text">Pro</h4>
-                <p class="mt-1 text-xs text-muted">Everything in Basic, plus AI pricing/reorder suggestions, FX tools, multi-user access, invoice schemes.</p>
+                <p class="mt-1 text-xs text-muted">Up to 3 users. Everything in Basic, plus AI pricing/reorder suggestions, FX tools, invoice schemes.</p>
                 <button
                   (click)="subscribe('pro')"
                   [disabled]="billingSubmitting()"
@@ -337,6 +337,18 @@ const MONTH_MAX_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
                   class="mt-4 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md disabled:opacity-50 min-h-[44px]"
                 >
                   Subscribe to Pro
+                </button>
+              </div>
+              <div class="rounded-lg border border-gray-200 p-4">
+                <h4 class="text-sm font-semibold text-text">Scale</h4>
+                <p class="mt-1 text-xs text-muted">Up to 10 users. Everything in Pro.</p>
+                <button
+                  (click)="subscribe('scale')"
+                  [disabled]="billingSubmitting()"
+                  data-testid="billing-subscribe-scale"
+                  class="mt-4 w-full rounded-lg border border-secondary px-4 py-2.5 text-sm font-semibold text-secondary transition-all hover:bg-secondary hover:text-white disabled:opacity-50 min-h-[44px]"
+                >
+                  Subscribe to Scale
                 </button>
               </div>
             </div>
@@ -801,7 +813,7 @@ export class SettingsPageComponent implements OnInit {
   subscriptionStatus = computed(() => this.authService.currentUser()?.business_subscription_status ?? null);
   subscriptionTierLabel = computed(() => {
     const tier = this.authService.currentUser()?.business_subscription_tier;
-    return tier === 'pro' ? 'Pro' : tier === 'basic' ? 'Basic' : '';
+    return tier === 'scale' ? 'Scale' : tier === 'pro' ? 'Pro' : tier === 'basic' ? 'Basic' : '';
   });
   subscriptionTrialDaysLeft = computed(() => {
     const trialEndsAt = this.authService.currentUser()?.business_trial_ends_at;
@@ -1017,7 +1029,7 @@ export class SettingsPageComponent implements OnInit {
     return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
   }
 
-  subscribe(tier: 'basic' | 'pro'): void {
+  subscribe(tier: SubscriptionTier): void {
     if (this.billingSubmitting()) return;
     this.billingSubmitting.set(true);
     this.billingService.initiateCheckout(tier).subscribe({

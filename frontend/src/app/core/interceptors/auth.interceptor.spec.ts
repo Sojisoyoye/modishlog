@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { provideHttpClient, withInterceptors, HttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { authInterceptor } from './auth.interceptor';
@@ -9,6 +9,7 @@ describe('authInterceptor', () => {
   let http: HttpClient;
   let httpMock: HttpTestingController;
   let authService: AuthService;
+  let router: Router;
 
   beforeEach(() => {
     sessionStorage.clear();
@@ -24,6 +25,7 @@ describe('authInterceptor', () => {
     http = TestBed.inject(HttpClient);
     httpMock = TestBed.inject(HttpTestingController);
     authService = TestBed.inject(AuthService);
+    router = TestBed.inject(Router);
   });
 
   afterEach(() => {
@@ -120,5 +122,69 @@ describe('authInterceptor', () => {
 
     httpMock.expectNone((r) => r.url.includes('/auth/refresh'));
     expect(errorReceived).toBe(true);
+  });
+
+  it('does not redirect to /login when /auth/me 401s with no refresh token (session probe)', () => {
+    // /auth/me is how public pages like the landing page quietly check
+    // "am I logged in?" (AuthService.checkSession(), task #269). A logged-
+    // out visitor's 401 here must not force-navigate them off whatever
+    // public page they're on -- that's the whole point of checkSession()
+    // catching the error into `null` instead of propagating it.
+    const navigateSpy = vi.spyOn(router, 'navigate');
+
+    let errorReceived = false;
+    http.get('/api/v1/auth/me').subscribe({ error: () => (errorReceived = true) });
+
+    const req = httpMock.expectOne('/api/v1/auth/me');
+    req.flush('Unauthorized', { status: 401, statusText: 'Unauthorized' });
+
+    httpMock.expectNone((r) => r.url.includes('/auth/refresh'));
+    expect(errorReceived).toBe(true);
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not redirect to /login when /auth/me 401s and refresh also fails', () => {
+    authService.login({ email: 'test@test.com', password: 'password123' }).subscribe();
+    httpMock
+      .expectOne((r) => r.url.includes('/auth/login'))
+      .flush({ access_token: 'expired-token', refresh_token: 'invalid-refresh-token', token_type: 'bearer' });
+
+    const navigateSpy = vi.spyOn(router, 'navigate');
+    let errorReceived = false;
+    http.get('/api/v1/auth/me').subscribe({ error: () => (errorReceived = true) });
+
+    httpMock.expectOne('/api/v1/auth/me').flush('Unauthorized', { status: 401, statusText: 'Unauthorized' });
+    httpMock
+      .expectOne((r) => r.url.includes('/auth/refresh'))
+      .flush('Unauthorized', { status: 401, statusText: 'Unauthorized' });
+
+    expect(errorReceived).toBe(true);
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('still attempts silent refresh for /auth/me when a refresh token is present', () => {
+    // Session restoration on page reload (authGuard's fallback path) relies
+    // on checkSession() transparently benefiting from the same silent-
+    // refresh-and-retry every other call gets -- only the final "give up
+    // and redirect" step is special-cased for /auth/me, not the refresh
+    // attempt itself.
+    authService.login({ email: 'test@test.com', password: 'password123' }).subscribe();
+    httpMock
+      .expectOne((r) => r.url.includes('/auth/login'))
+      .flush({ access_token: 'expired-token', refresh_token: 'valid-refresh-token', token_type: 'bearer' });
+
+    let result: unknown = null;
+    http.get('/api/v1/auth/me').subscribe((r) => (result = r));
+
+    httpMock.expectOne('/api/v1/auth/me').flush('Unauthorized', { status: 401, statusText: 'Unauthorized' });
+
+    const refreshReq = httpMock.expectOne((r) => r.url.includes('/auth/refresh'));
+    refreshReq.flush({ access_token: 'new-access-token', refresh_token: '', token_type: 'bearer' });
+
+    const retryReq = httpMock.expectOne('/api/v1/auth/me');
+    expect(retryReq.request.headers.get('Authorization')).toBe('Bearer new-access-token');
+    retryReq.flush({ id: '1', email: 'test@test.com', full_name: 'Test', role: 'owner' });
+
+    expect(result).toEqual({ id: '1', email: 'test@test.com', full_name: 'Test', role: 'owner' });
   });
 });
