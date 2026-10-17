@@ -1,5 +1,6 @@
-import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { AuthService } from '../../../core/services/auth.service';
 
 @Component({
   selector: 'app-landing-page',
@@ -25,17 +26,28 @@ import { RouterLink } from '@angular/router';
           <nav class="hidden md:flex items-center gap-8">
             <a href="#features" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Features</a>
             <a href="#pricing" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Pricing</a>
-            <a routerLink="/login" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Login</a>
+            @if (!authService.isAuthenticated()) {
+              <a routerLink="/login" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Login</a>
+            }
           </nav>
 
           <!-- Right: CTA (desktop) + hamburger (mobile) -->
           <div class="flex items-center gap-3">
-            <a
-              routerLink="/register"
-              class="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
-            >
-              Get Started →
-            </a>
+            @if (authService.isAuthenticated()) {
+              <a
+                routerLink="/dashboard"
+                class="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+              >
+                Go to Dashboard →
+              </a>
+            } @else {
+              <a
+                routerLink="/register"
+                class="hidden md:inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+              >
+                Get Started →
+              </a>
+            }
             <button
               class="md:hidden flex h-10 w-10 items-center justify-center rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
               (click)="mobileMenuOpen.set(!mobileMenuOpen())"
@@ -52,7 +64,11 @@ import { RouterLink } from '@angular/router';
           <nav class="md:hidden border-t border-gray-100 py-3 flex flex-col gap-1" aria-label="Mobile navigation">
             <a href="#features" (click)="mobileMenuOpen.set(false)" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Features</a>
             <a href="#pricing" (click)="mobileMenuOpen.set(false)" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Pricing</a>
-            <a routerLink="/login" (click)="mobileMenuOpen.set(false)" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Login</a>
+            @if (authService.isAuthenticated()) {
+              <a routerLink="/dashboard" (click)="mobileMenuOpen.set(false)" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Go to Dashboard</a>
+            } @else {
+              <a routerLink="/login" (click)="mobileMenuOpen.set(false)" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">Login</a>
+            }
           </nav>
         }
       </div>
@@ -76,12 +92,21 @@ import { RouterLink } from '@angular/router';
               Close your books in <strong class="text-gray-900">4 minutes</strong> — not 4 hours.
             </p>
             <div class="mt-8 flex flex-col sm:flex-row gap-4">
-              <a
-                routerLink="/register"
-                class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-8 py-4 text-base font-bold text-white shadow-md hover:bg-emerald-700 transition-colors min-h-[52px]"
-              >
-                Get Started →
-              </a>
+              @if (authService.isAuthenticated()) {
+                <a
+                  routerLink="/dashboard"
+                  class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-8 py-4 text-base font-bold text-white shadow-md hover:bg-emerald-700 transition-colors min-h-[52px]"
+                >
+                  Go to Dashboard →
+                </a>
+              } @else {
+                <a
+                  routerLink="/register"
+                  class="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-8 py-4 text-base font-bold text-white shadow-md hover:bg-emerald-700 transition-colors min-h-[52px]"
+                >
+                  Get Started →
+                </a>
+              }
             </div>
             <p class="mt-6 text-sm text-gray-500">
               ★★★★★&nbsp;&nbsp;Trusted by <strong class="text-gray-700">200+ traders</strong> across Lagos, Abuja &amp; Kano
@@ -341,12 +366,6 @@ import { RouterLink } from '@angular/router';
                 <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
               </tr>
               <tr class="bg-gray-50">
-                <td class="px-5 py-4 text-sm text-gray-700 font-medium">One-time payment, no subscription</td>
-                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-                <td class="px-5 py-4 text-center"><span class="text-red-400 font-bold text-base">✗</span></td>
-                <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
-              </tr>
-              <tr>
                 <td class="px-5 py-4 text-sm text-gray-700 font-medium">Works on mobile</td>
                 <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
                 <td class="px-5 py-4 text-center"><span class="text-emerald-600 font-bold text-base">✓</span></td>
@@ -365,58 +384,60 @@ import { RouterLink } from '@angular/router';
     <section id="pricing" class="py-20 bg-gray-900 text-white">
       <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div class="text-center mb-4">
-          <h2 class="text-3xl sm:text-4xl font-extrabold">Simple pricing. One payment. Forever yours.</h2>
-          <p class="mt-3 text-lg text-gray-400">No monthly fees. No subscriptions. Pay once, own it.</p>
+          <h2 class="text-3xl sm:text-4xl font-extrabold">Simple monthly pricing. Cancel anytime.</h2>
+          <p class="mt-3 text-lg text-gray-400">Start with a 7-day free trial — no card required.</p>
         </div>
 
         <div class="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-5xl mx-auto">
-          <!-- Starter -->
+          <!-- Basic -->
           <div class="rounded-2xl bg-gray-800 border border-gray-700 p-8 flex flex-col">
             <div class="mb-6">
-              <h3 class="text-lg font-bold text-white">Starter</h3>
+              <h3 class="text-lg font-bold text-white">Basic</h3>
               <div class="mt-3">
-                <span class="text-4xl font-extrabold text-white">₦49,000</span>
+                <span class="text-4xl font-extrabold text-white">₦10,000</span>
+                <span class="text-sm text-gray-400">/mo</span>
               </div>
-              <p class="mt-3 text-sm text-gray-400">1 user, 1 location, 500 products. Everything you need to start.</p>
+              <p class="mt-3 text-sm text-gray-400">1 user. Everything you need to start.</p>
             </div>
             <ul class="space-y-2 mb-8 flex-1">
               <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> Real-time inventory</li>
               <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> Sales recording</li>
               <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> P&amp;L reports</li>
-              <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> 12 months updates</li>
+              <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> Purchase orders &amp; expenses</li>
             </ul>
             <a
               routerLink="/register"
               class="block text-center rounded-lg border border-gray-600 px-6 py-3 text-sm font-semibold text-white hover:bg-gray-700 transition-colors"
             >
-              Get Starter
+              Get Basic
             </a>
           </div>
 
-          <!-- Growth (highlighted) -->
+          <!-- Pro (highlighted) -->
           <div class="rounded-2xl bg-emerald-600 border border-emerald-500 p-8 flex flex-col relative shadow-xl shadow-emerald-900/30 sm:scale-105">
             <!-- Badge -->
             <div class="absolute -top-4 left-1/2 -translate-x-1/2">
               <span class="rounded-full bg-yellow-400 text-yellow-900 text-xs font-bold px-4 py-1.5 shadow-md">Most Popular</span>
             </div>
             <div class="mb-6">
-              <h3 class="text-lg font-bold text-white">Growth</h3>
+              <h3 class="text-lg font-bold text-white">Pro</h3>
               <div class="mt-3">
-                <span class="text-4xl font-extrabold text-white">₦99,000</span>
+                <span class="text-4xl font-extrabold text-white">₦20,000</span>
+                <span class="text-sm text-emerald-100">/mo</span>
               </div>
-              <p class="mt-3 text-sm text-emerald-100">3 users, 3 locations, unlimited products, AI insights.</p>
+              <p class="mt-3 text-sm text-emerald-100">Up to 3 users, AI insights, FX tools.</p>
             </div>
             <ul class="space-y-2 mb-8 flex-1">
-              <li class="flex items-center gap-2 text-sm text-emerald-100"><span class="text-yellow-300">✓</span> Everything in Starter</li>
-              <li class="flex items-center gap-2 text-sm text-emerald-100"><span class="text-yellow-300">✓</span> AI price suggestions</li>
-              <li class="flex items-center gap-2 text-sm text-emerald-100"><span class="text-yellow-300">✓</span> FX rate integration</li>
-              <li class="flex items-center gap-2 text-sm text-emerald-100"><span class="text-yellow-300">✓</span> Multi-location support</li>
+              <li class="flex items-center gap-2 text-sm text-emerald-100"><span class="text-yellow-300">✓</span> Everything in Basic</li>
+              <li class="flex items-center gap-2 text-sm text-emerald-100"><span class="text-yellow-300">✓</span> AI price &amp; reorder suggestions</li>
+              <li class="flex items-center gap-2 text-sm text-emerald-100"><span class="text-yellow-300">✓</span> Live FX rate tools</li>
+              <li class="flex items-center gap-2 text-sm text-emerald-100"><span class="text-yellow-300">✓</span> Invoice numbering schemes</li>
             </ul>
             <a
               routerLink="/register"
               class="block text-center rounded-lg bg-white px-6 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-50 transition-colors"
             >
-              Get Growth
+              Get Pro
             </a>
           </div>
 
@@ -425,15 +446,14 @@ import { RouterLink } from '@angular/router';
             <div class="mb-6">
               <h3 class="text-lg font-bold text-white">Scale</h3>
               <div class="mt-3">
-                <span class="text-4xl font-extrabold text-white">₦199,000</span>
+                <span class="text-4xl font-extrabold text-white">₦45,000</span>
+                <span class="text-sm text-gray-400">/mo</span>
               </div>
-              <p class="mt-3 text-sm text-gray-400">10 users, unlimited locations, white-label, priority support.</p>
+              <p class="mt-3 text-sm text-gray-400">For bigger teams. Up to 10 users.</p>
             </div>
             <ul class="space-y-2 mb-8 flex-1">
-              <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> Everything in Growth</li>
-              <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> White-label branding</li>
-              <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> Priority support</li>
-              <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> API access</li>
+              <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> Everything in Pro</li>
+              <li class="flex items-center gap-2 text-sm text-gray-300"><span class="text-emerald-400">✓</span> Up to 10 users</li>
             </ul>
             <a
               routerLink="/register"
@@ -445,7 +465,7 @@ import { RouterLink } from '@angular/router';
         </div>
 
         <p class="text-center mt-8 text-sm text-gray-500">
-          All plans include free updates for 12 months. One-time payment.
+          7-day free trial, no card required. Cancel anytime.
         </p>
       </div>
     </section>
@@ -585,5 +605,16 @@ import { RouterLink } from '@angular/router';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LandingPageComponent {
+  readonly authService = inject(AuthService);
   readonly mobileMenuOpen = signal(false);
+
+  constructor() {
+    // A hard page load of "/" starts with an empty in-memory session even
+    // when the HttpOnly cookie is still valid (same gap authGuard fills for
+    // protected routes) -- restore it so the CTA reflects real auth state
+    // instead of always showing the logged-out copy.
+    if (!this.authService.isAuthenticated()) {
+      this.authService.checkSession().subscribe();
+    }
+  }
 }

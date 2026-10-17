@@ -46,6 +46,7 @@ test.describe('Settings — Subscription & Billing', () => {
     await expect(page.getByTestId('billing-status')).toContainText(/trial/i);
     await expect(page.getByTestId('billing-subscribe-basic')).toBeVisible();
     await expect(page.getByTestId('billing-subscribe-pro')).toBeVisible();
+    await expect(page.getByTestId('billing-subscribe-scale')).toBeVisible();
 
     await page.getByTestId('billing-subscribe-basic').click();
 

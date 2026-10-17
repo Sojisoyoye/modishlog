@@ -2,6 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { ApiService } from './api.service';
 
+export type SubscriptionTier = 'basic' | 'pro' | 'scale';
+
 export interface CheckoutResponse {
   authorization_url: string;
   access_code: string;
@@ -15,7 +17,7 @@ export class BillingService {
   /** Initiate a Paystack hosted checkout for the given tier (task #238's
    * POST /billing/checkout). Caller redirects the browser to
    * response.authorization_url. */
-  initiateCheckout(tier: 'basic' | 'pro'): Observable<CheckoutResponse> {
+  initiateCheckout(tier: SubscriptionTier): Observable<CheckoutResponse> {
     return this.api.post<CheckoutResponse>('/billing/checkout', { tier });
   }
 }
