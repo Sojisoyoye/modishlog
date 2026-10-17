@@ -37,6 +37,16 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         req.url.includes('/auth/login') ||
         req.url.includes('/auth/logout');
 
+      // /auth/me is how public pages (e.g. the landing page) quietly probe
+      // "am I logged in?" via AuthService.checkSession() -- its own 401
+      // must never force-navigate the visitor away from whatever public
+      // page they're on. It still goes through the normal silent-refresh
+      // attempt below (so a reload with an expired access token but a
+      // valid refresh token still transparently restores the session, same
+      // as any other call) -- only the "give up and redirect" paths are
+      // skipped for it.
+      const isSessionProbe = req.url.includes('/auth/me');
+
       if (error.status === 401 && !isAuthEndpoint) {
         if (authService.getRefreshToken()) {
           return authService.refreshToken().pipe(
@@ -49,7 +59,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
             }),
             catchError((refreshError: HttpErrorResponse) => {
               authService.clearTokens();
-              router.navigate(['/login']);
+              if (!isSessionProbe) {
+                router.navigate(['/login']);
+              }
               return throwError(() => refreshError);
             }),
           );
@@ -57,7 +69,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         // No refresh token (e.g. after page reload with an expired cookie) —
         // session is unrecoverable; send the user to login.
         authService.clearTokens();
-        router.navigate(['/login']);
+        if (!isSessionProbe) {
+          router.navigate(['/login']);
+        }
       }
 
       return throwError(() => error);
