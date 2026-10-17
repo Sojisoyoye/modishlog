@@ -162,7 +162,7 @@ jobs:
           host: ${{ secrets.HETZNER_HOST }}
           username: root
           key: ${{ secrets.HETZNER_SSH_KEY }}
-          envs: GHCR_TOKEN,IMAGE_TAG
+          envs: GHCR_TOKEN,IMAGE_TAG,PAYSTACK_SECRET_KEY,PAYSTACK_BASIC_PLAN_CODE,PAYSTACK_PRO_PLAN_CODE,PAYSTACK_SCALE_PLAN_CODE
           script: |
             set -e
 
@@ -170,6 +170,30 @@ jobs:
             echo "$GHCR_TOKEN" | docker login ghcr.io -u sojisoyoye --password-stdin
 
             cd ${{ env.DEPLOY_DIR }}
+
+            # Keep .env's Paystack config in sync with GitHub Secrets (task
+            # #271) -- previously these lines were hand-edited directly on
+            # the box with no audit trail and no guarantee staging/prod
+            # stayed in sync. Idempotent: re-running a deploy with
+            # unchanged secrets never duplicates lines. Uses POSIX
+            # parameter expansion (not bash's ${!VAR} indirection) since
+            # the remote shell isn't guaranteed to be bash. Skips any
+            # variable whose secret isn't set yet (empty string) rather
+            # than blanking out a working value already on the server --
+            # a missing GitHub Secret must never silently break checkout.
+            for VAR_VALUE in "PAYSTACK_SECRET_KEY=$PAYSTACK_SECRET_KEY" "PAYSTACK_BASIC_PLAN_CODE=$PAYSTACK_BASIC_PLAN_CODE" "PAYSTACK_PRO_PLAN_CODE=$PAYSTACK_PRO_PLAN_CODE" "PAYSTACK_SCALE_PLAN_CODE=$PAYSTACK_SCALE_PLAN_CODE"; do
+              VAR="${VAR_VALUE%%=*}"
+              VALUE="${VAR_VALUE#*=}"
+              if [ -z "$VALUE" ]; then
+                echo "⚠️  Skipping ${VAR}: no GitHub Secret set, leaving server's existing value untouched"
+                continue
+              fi
+              if grep -q "^${VAR}=" .env 2>/dev/null; then
+                sed -i "s|^${VAR}=.*|${VAR}=${VALUE}|" .env
+              else
+                echo "${VAR}=${VALUE}" >> .env
+              fi
+            done
 
             # -f docker-compose.staging.yml: use the repo-tracked file just
             # copied above, not whatever docker-compose.yml/override.yml
@@ -218,6 +242,10 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           IMAGE_TAG: ${{ needs.build-backend.outputs.image_tag }}
+          PAYSTACK_SECRET_KEY: ${{ secrets.PAYSTACK_SECRET_KEY }}
+          PAYSTACK_BASIC_PLAN_CODE: ${{ secrets.PAYSTACK_BASIC_PLAN_CODE }}
+          PAYSTACK_PRO_PLAN_CODE: ${{ secrets.PAYSTACK_PRO_PLAN_CODE }}
+          PAYSTACK_SCALE_PLAN_CODE: ${{ secrets.PAYSTACK_SCALE_PLAN_CODE }}
 
   # ─── 6. Smoke test both custom domains ────────────────────────────────────
   smoke-test:

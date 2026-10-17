@@ -196,6 +196,28 @@ jobs:
 
             cd ${{ env.DEPLOY_DIR }}
 
+            # Keep .env.production's Paystack config in sync with GitHub
+            # Secrets (task #271) -- previously these lines were
+            # hand-edited directly on the box with no audit trail and no
+            # guarantee staging/prod stayed in sync. Idempotent: re-running
+            # a deploy with unchanged secrets never duplicates lines. Skips
+            # any variable whose secret isn't set yet (empty string) rather
+            # than blanking out a working value already on the server --
+            # a missing GitHub Secret must never silently break checkout.
+            for VAR_VALUE in "PAYSTACK_SECRET_KEY=${{ secrets.PAYSTACK_SECRET_KEY }}" "PAYSTACK_BASIC_PLAN_CODE=${{ secrets.PAYSTACK_BASIC_PLAN_CODE }}" "PAYSTACK_PRO_PLAN_CODE=${{ secrets.PAYSTACK_PRO_PLAN_CODE }}" "PAYSTACK_SCALE_PLAN_CODE=${{ secrets.PAYSTACK_SCALE_PLAN_CODE }}"; do
+              VAR="${VAR_VALUE%%=*}"
+              VALUE="${VAR_VALUE#*=}"
+              if [ -z "$VALUE" ]; then
+                echo "⚠️  Skipping ${VAR}: no GitHub Secret set, leaving server's existing value untouched"
+                continue
+              fi
+              if grep -q "^${VAR}=" .env.production 2>/dev/null; then
+                sed -i "s|^${VAR}=.*|${VAR}=${VALUE}|" .env.production
+              else
+                echo "${VAR}=${VALUE}" >> .env.production
+              fi
+            done
+
             # -f docker-compose.prod.yml: use the repo-tracked file just
             # copied above, not the old docker-compose.yml already here.
             COMPOSE="docker compose -f docker-compose.prod.yml --env-file .env.production"
