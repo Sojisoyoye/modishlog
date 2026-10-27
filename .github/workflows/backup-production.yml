@@ -35,8 +35,11 @@ jobs:
             # Postgres user is "modishlog" (POSTGRES_USER in .env.production),
             # not "postgres" -- the default image doesn't create a "postgres"
             # role when POSTGRES_USER is set to something else.
+            # -f docker-compose.prod.yml: deploy-production.yml switched to this
+            # file on 2026-10-07 and the old docker-compose.yml is gone, which
+            # made every backup since then a 20-byte empty file.
             FILE=~/backups/modishlog-$(date +%Y%m%d-%H%M%S).sql.gz
-            docker compose -f docker-compose.yml --env-file .env.production \
+            docker compose -f docker-compose.prod.yml --env-file .env.production \
               exec -T db pg_dump -U modishlog modishlog | gzip > "$FILE"
 
             # A silent failure upstream (e.g. exec succeeding but pg_dump
