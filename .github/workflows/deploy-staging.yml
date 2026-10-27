@@ -206,8 +206,12 @@ jobs:
             # Ensure redis is running (idempotent — no-op if already healthy)
             $COMPOSE up -d redis
 
+            # Ensure the self-hosted staging Postgres is up and healthy first
+            # (idempotent; on the very first deploy this initialises an empty DB)
+            $COMPOSE up -d --wait db
+
             # Run migrations before swapping container
-            # --no-deps: DB is Neon (external) — no local db service in docker-compose.staging.yml
+            # --no-deps: db and redis were started explicitly above
             $COMPOSE run --rm --no-deps backend alembic upgrade head
 
             # Restart backend with new image

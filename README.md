@@ -48,7 +48,7 @@ A smart financial co-pilot for importers navigating currency volatility. ModishL
 | AI/ML | Prophet, NumPy/SciPy (Monte Carlo), scikit-learn |
 | Auth | JWT (python-jose), bcrypt (passlib) |
 | Testing | pytest (1018 tests), Playwright E2E (312 tests) |
-| Infra | Docker, Docker Compose, Hetzner VPS (Caddy + PostgreSQL), Neon PostgreSQL (staging), Vercel, GitHub Actions |
+| Infra | Docker, Docker Compose, Hetzner VPS (Caddy + PostgreSQL for staging and production), Vercel, GitHub Actions |
 | Observability | Sentry (error tracking, PII scrubbing), structlog (structured JSON logs) |
 | Security | slowapi (rate limiting), SecurityHeadersMiddleware (CSP, HSTS, X-Frame-Options) |
 
@@ -262,7 +262,7 @@ Every push to `main` automatically deploys to staging.
 |-----------|---------|-----|
 | Frontend | Vercel (`modishlog-staging` project) | https://staging.modishlog.com |
 | Backend API | Hetzner VPS — same server, container `modishlog-backend` | https://api.staging.modishlog.com |
-| Database | Neon PostgreSQL (staging, SSL required) | connection string in `STAGING_DATABASE_URL` GitHub Secret |
+| Database | Self-hosted PostgreSQL 15 (`modishlog_db_staging`, same box) | `POSTGRES_PASSWORD` in `/root/modishlog/.env` |
 | Registry | GHCR | `ghcr.io/sojisoyoye/modishlog/backend:staging` |
 | CI/CD | GitHub Actions — auto on push to `main` | `.github/workflows/deploy-staging.yml` |
 
@@ -281,7 +281,7 @@ Every push to `main` automatically deploys to staging.
 
 | Secret | Purpose |
 |--------|---------|
-| `STAGING_DATABASE_URL` | Neon connection string |
+| ~~`STAGING_DATABASE_URL`~~ | No longer used (staging DB self-hosted since 2026-10-27) |
 | `STAGING_SECRET_KEY` | JWT signing key |
 | `STAGING_CORS_ORIGINS` | Allowed frontend origins |
 | `HETZNER_HOST` | Hetzner VPS IP |
