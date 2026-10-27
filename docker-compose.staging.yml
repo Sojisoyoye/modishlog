@@ -1,5 +1,7 @@
 # Staging deployment — shared Hetzner box (178.104.122.53), see DEPLOYMENT.md.
-# Database: Neon PostgreSQL (external, configured via DATABASE_URL secret)
+# Database: self-hosted postgres:15-alpine (`db` service below), mirroring
+# docker-compose.prod.yml. Replaced Neon on 2026-10-27 (Neon quota exhausted);
+# needs POSTGRES_PASSWORD in the server's /root/modishlog/.env.
 # Frontend: Vercel (separate deployment)
 #
 # CI/CD: .github/workflows/deploy-staging.yml scp's this file to
@@ -27,6 +29,26 @@ services:
     networks:
       - modishlog
 
+  # ─── PostgreSQL (staging-only, never published to the host) ──────────────
+  db:
+    image: postgres:15-alpine
+    container_name: modishlog_db_staging
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-modishlog}
+      POSTGRES_USER: ${POSTGRES_USER:-modishlog}
+      # :? fails the deploy loudly instead of initialising a DB with no password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in /root/modishlog/.env}
+    volumes:
+      - modishlog_staging_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-modishlog}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - modishlog
+
   backend:
     image: ghcr.io/sojisoyoye/modishlog/backend:${IMAGE_TAG:-staging}
     container_name: modishlog-backend
@@ -35,7 +57,9 @@ services:
       - "8002:8000"
     environment:
       # Server .env uses these exact (unprefixed) names -- see .env.staging.example.
-      DATABASE_URL: ${DATABASE_URL}
+      # Built from the db service's credentials, same as docker-compose.prod.yml.
+      # Any DATABASE_URL left in .env (the old Neon string) is ignored.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-modishlog}:${POSTGRES_PASSWORD}@db/${POSTGRES_DB:-modishlog}
       SECRET_KEY: ${SECRET_KEY}
       # Fernet key rotation (task #225) -- comma-separated, newest key
       # first. Empty falls back to deriving a key from SECRET_KEY. See
@@ -68,6 +92,8 @@ services:
       EMAILS_FROM_NAME: ${EMAILS_FROM_NAME:-ModishLog}
       FRONTEND_URL: ${FRONTEND_URL:-https://staging.modishlog.com}
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -79,6 +105,10 @@ services:
     networks:
       - modishlog
       - modish_modish
+
+volumes:
+  modishlog_staging_postgres_data:
+    name: modishlog_staging_postgres_data
 
 networks:
   modishlog:

@@ -228,7 +228,7 @@ ssh root@178.104.122.53 "
 |-----------|---------|
 | Frontend | Vercel (`modishlog-staging` project) — always runs `npm run build:staging` |
 | Backend API | Hetzner VPS, container `modishlog-backend`, image `ghcr.io/sojisoyoye/modishlog/backend:staging` |
-| Database | Neon PostgreSQL (connection string in `STAGING_DATABASE_URL` GitHub Secret, SSL required) |
+| Database | Self-hosted `postgres:15-alpine`, container `modishlog_db_staging` (volume `modishlog_staging_postgres_data`, no host port). Password: `POSTGRES_PASSWORD` in `/root/modishlog/.env`. Replaced Neon on 2026-10-27. |
 | Config | `/root/modishlog/.env` + `/root/modishlog/docker-compose.override.yml` on server |
 
 ### Staging credentials
@@ -254,7 +254,7 @@ ssh root@178.104.122.53 "
 
 | Secret | Purpose |
 |--------|---------|
-| `STAGING_DATABASE_URL` | Neon connection string (`postgresql+asyncpg://...@ep-xxx.neon.tech/neondb?sslmode=require`) |
+| ~~`STAGING_DATABASE_URL`~~ | No longer used — staging's DB is self-hosted since 2026-10-27; safe to delete |
 | `STAGING_SECRET_KEY` | JWT signing key (`openssl rand -hex 32`) |
 | `STAGING_CORS_ORIGINS` | Allowed frontend origins |
 | `HETZNER_HOST` | Hetzner VPS IP (`178.104.122.53`) |
@@ -267,9 +267,9 @@ ssh root@178.104.122.53 "
 ### Staging recovery (if login breaks)
 
 Run the **Fix Staging** workflow from GitHub Actions UI (workflow_dispatch). It does everything in one run:
-1. Resets the admin password and clears any lockout on Neon
+1. Resets the admin password and clears any lockout on the staging DB
 2. Creates a `Business` record and links `admin@modishlog.com` to it (idempotent — skips if already linked)
-3. Runs `alembic upgrade head` on Neon to apply any pending migrations
+3. Runs `alembic upgrade head` on the staging DB to apply any pending migrations
 4. Writes a `docker-compose.override.yml` with correct CORS origins and restarts the backend container
 
 ```
@@ -285,7 +285,7 @@ docker exec -e POS_USERNAME=<user> -e POS_PASSWORD=<pass> modishlog-backend \
   python scripts/pos_migrate.py --step=all
 ```
 
-> **Note:** Neon staging only has data from the incremental POS sync (task #153, runs every 5–15 min). The full historical dataset (150+ products, 800+ sales) must be seeded manually via `pos_migrate.py`. The sync watermark is stored in `pos_sync_state` on Neon.
+> **Note:** The self-hosted staging DB started empty on 2026-10-27; it only has data from the incremental POS sync (task #153, runs every 5–15 min). The full historical dataset (150+ products, 800+ sales) must be seeded manually via `pos_migrate.py`. The sync watermark is stored in `pos_sync_state`.
 
 ### Troubleshooting
 
@@ -299,7 +299,7 @@ docker exec -e POS_USERNAME=<user> -e POS_PASSWORD=<pass> modishlog-backend \
 | Staging frontend calling wrong API | Check `frontend/src/environments/environment.staging.ts` — `apiBaseUrl` should be `https://api.staging.modishlog.com/api/v1` |
 | Production Vercel build fails | Confirm `PRODUCTION_VERCEL_PROJECT_ID` GitHub secret matches `prj_vo4UE6aXYIG2Mrtc24ZZbykYzc2r` |
 | GHCR pull denied on server | `echo $GHCR_TOKEN \| docker login ghcr.io -u sojisoyoye --password-stdin` |
-| Alembic fails on migration | Check `DATABASE_URL` in `.env`; run `docker exec modishlog-backend alembic upgrade head` directly |
+| Alembic fails on migration | Check `docker ps` shows `modishlog_db_staging` healthy and `POSTGRES_PASSWORD` is set in `.env`; run `docker exec modishlog-backend alembic upgrade head` directly |
 | Production backend crash-loops | `docker logs modishlog-prod-backend --tail 50`; common cause: uploads volume permissions |
 | `PermissionError: /app/uploads/products` | `docker run --rm -v modishlog-prod_modishlog_uploads:/app/uploads alpine chmod -R 777 /app/uploads` |
 
